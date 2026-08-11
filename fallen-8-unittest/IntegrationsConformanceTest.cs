@@ -72,46 +72,6 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task AWellBehavedProviderConformsWithTheCredentialSuppliedWithTheJob()
-        {
-            // The fixture store offers NOTHING, so the credential can only have come from the job. Everything
-            // downstream of the lease is blind to which source it was, and this is what says so.
-            var report = await ConformanceVerifier.VerifyAsync(
-                WellBehaved(),
-                SuppliedCredentialJob(),
-                files: new Dictionary<String, String>(StringComparer.Ordinal),
-                credentials: new Dictionary<String, String>(StringComparer.Ordinal),
-                sourceDouble: Answering(),
-                cancellationToken: CancellationToken.None);
-
-            Assert.AreEqual(0, report.Failed.Count, String.Format(
-                "a run whose credential was supplied with the job must conform exactly as one reading the mount " +
-                "does, or the second source is a path the conformance suite cannot speak for. Failed: {0}",
-                String.Join(", ", report.Failed.Select(c => c + " (" + report.DetailOf(c) + ")"))));
-        }
-
-        [TestMethod]
-        public async Task AProviderThatLogsACredentialSuppliedWithTheJobStillFailsTheLeakCheck()
-        {
-            var candidate = WellBehaved();
-            candidate.Extra = (context, snapshot) =>
-                context.Logger.LogWarning("Authenticating with {Key}", context.RequiredCredential("apiKey"));
-
-            var report = await ConformanceVerifier.VerifyAsync(
-                candidate,
-                SuppliedCredentialJob(),
-                files: new Dictionary<String, String>(StringComparer.Ordinal),
-                credentials: new Dictionary<String, String>(StringComparer.Ordinal),
-                sourceDouble: Answering(),
-                cancellationToken: CancellationToken.None);
-
-            CollectionAssert.Contains(report.Failed.ToList(), ConformanceCheck.NoCredentialLeak,
-                "the leak check must watch the credential the JOB carried as well as the ones the fixture " +
-                "offered. Watching only the fixture would pass a provider that logs a credential its caller " +
-                "typed, which is the same value out of the same lease");
-        }
-
-        [TestMethod]
         public async Task EveryCheckTheEnumDeclaresIsActuallyReported()
         {
             var report = await VerifyAsync(WellBehaved());
@@ -287,6 +247,29 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task AProviderWhoseFAILUREQuotesItsCredential_DoesNotLeakItThroughTheReport()
+        {
+            var candidate = WellBehaved();
+            candidate.Extra = (context, snapshot) => throw new ProviderSourceException(
+                "the console refused " + context.RequiredCredential("apiKey"));
+
+            var report = await VerifyAsync(candidate);
+
+            // A provider whose exception message quotes the request it sent is ORDINARY, and the report is the
+            // one thing a run hands back. This is the only check that exercises the runner's scrub of the
+            // report: remove that scrub and NoCredentialLeak's in-report arm turns this green assertion red.
+            CollectionAssert.DoesNotContain(report.Failed.ToList(), ConformanceCheck.NoCredentialLeak,
+                "the credential reached the report through the provider's failure message. The runtime scrubs " +
+                "the report inside the lease for exactly this shape: " +
+                report.DetailOf(ConformanceCheck.NoCredentialLeak));
+
+            // Collateral, asserted rather than hidden: the run failed on purpose, so the checks that need a
+            // snapshot legitimately fail too.
+            CollectionAssert.Contains(report.Failed.ToList(), ConformanceCheck.SnapshotValid,
+                "a run that threw produced no snapshot, and that is a true statement about this fixture");
+        }
+
+        [TestMethod]
         public async Task AProviderThatPutsItsCredentialInThePropertiesIsCaught()
         {
             var candidate = WellBehaved();
@@ -312,13 +295,13 @@ namespace NoSQL.GraphDB.Tests
                 .GetAwaiter().GetResult();
 
             var job = Job();
-            job.Settings["file"] = "../run/secrets/apiKey";
+            job.Settings["file"] = "../etc/shadow";
 
             var report = await VerifyAsync(candidate, job: job);
 
             CollectionAssert.Contains(report.Failed.ToList(), ConformanceCheck.NoPathEscape,
-                "a provider that could name a path could be pointed at the credential directory and made to " +
-                "hand the contents back in a report or write them into the graph, and blocklisting that " +
+                "a provider that could name a path could be pointed at anything this container can read and " +
+                "made to hand the contents back in a report or write them into the graph, and blocklisting a " +
                 "directory only moves the target");
         }
 
@@ -376,28 +359,12 @@ namespace NoSQL.GraphDB.Tests
                 candidate,
                 job ?? Job(),
                 files: new Dictionary<String, String>(StringComparer.Ordinal) { ["devices.csv"] = "mac\n" },
-                credentials: new Dictionary<String, String>(StringComparer.Ordinal)
-                {
-                    ["console-key"] = CredentialValue,
-                },
                 sourceDouble: sourceDouble ?? (withSourceDouble ? Answering() : null),
                 options: options,
                 cancellationToken: CancellationToken.None);
         }
 
         private static IntegrationJob Job()
-        {
-            var job = new IntegrationJob
-            {
-                ProviderId = "fixture-provider",
-                IntegrationInstanceId = Instance,
-            };
-            job.Credentials["apiKey"] = "console-key";
-            return job;
-        }
-
-        /// <summary>The same job with the credential CARRIED rather than named, for the other source.</summary>
-        private static IntegrationJob SuppliedCredentialJob()
         {
             var job = new IntegrationJob
             {
@@ -448,7 +415,7 @@ namespace NoSQL.GraphDB.Tests
                             Label = "API key",
                             Kind = SettingKind.Credential,
                             Required = true,
-                            Help = "The NAME of a credential the operator has put in the credential directory.",
+                            Help = "The API key for the fixture source.",
                         },
                     },
                     EntityKinds = new[] { "device" },

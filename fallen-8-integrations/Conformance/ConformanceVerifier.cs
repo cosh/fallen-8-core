@@ -74,15 +74,16 @@ namespace NoSQL.GraphDB.Integrations.Conformance
         /// <param name="candidate">The provider under test.</param>
         /// <param name="job">The job to run it with, twice.</param>
         /// <param name="files">The files the fixture offers, by name. A candidate naming any other file fails.</param>
-        /// <param name="credentials">The credentials the fixture offers, by name.</param>
         /// <param name="sourceDouble">A stand-in for the provider's own service. With one supplied the candidate
         /// must reach its source through it; with none, nothing may be attempted.</param>
         /// <param name="options">Substitutions a negative fixture needs, such as a resolver that looks across
         /// instances, and the seeding of a graph with a history.</param>
         /// <param name="cancellationToken">Aborts the runs.</param>
+        /// <remarks>There is no credentials parameter: a credential arrives on the <paramref name="job" />,
+        /// which is the only way one ever arrives, so the suite exercises the real credential path by
+        /// construction rather than by substituting a store for it.</remarks>
         public static async Task<ConformanceReport> VerifyAsync(IIntegrationProvider candidate, IntegrationJob job,
             IReadOnlyDictionary<String, String>? files = null,
-            IReadOnlyDictionary<String, String>? credentials = null,
             HttpMessageHandler? sourceDouble = null,
             ConformanceOptions? options = null,
             CancellationToken cancellationToken = default)
@@ -131,12 +132,11 @@ namespace NoSQL.GraphDB.Integrations.Conformance
             var validator = new SnapshotValidator(vocabulary);
             var applier = new SnapshotApplier(new IdentityResolver());
             var fileStore = new FixtureFileStore(files);
-            var credentialStore = new FixtureCredentialStore(credentials);
             var handler = new RecordingHandler(sourceDouble);
             using var metrics = new IntegrationsMetrics();
 
             var runner = new JobRunner(catalog, validator, applier,
-                new CredentialResolver(credentialStore, active),
+                new CredentialResolver(active),
                 new StaticGraphTargetFactory(target),
                 new RecordingHttpFactory(handler, runtimeOptions),
                 fileStore, active, new RunGate(), metrics, loggers);
@@ -165,7 +165,7 @@ namespace NoSQL.GraphDB.Integrations.Conformance
             findings.Add(ClaimScoped(graph, forbidden));
             findings.Add(NoSimilarityIdentity(observed, first));
             findings.Add(RunsOffline(handler, fileStore, first));
-            findings.Add(NoCredentialLeak(CredentialValuesToWatch(credentials, job), attemptedSink, reachedSink,
+            findings.Add(NoCredentialLeak(CredentialValuesToWatch(job), attemptedSink, reachedSink,
                 graph, first, second));
             findings.Add(NoPathEscape(fileStore, files));
             findings.Add(CompletenessHonest(observed, candidate.Descriptor, first));
@@ -415,19 +415,12 @@ namespace NoSQL.GraphDB.Integrations.Conformance
         }
 
         /// <summary>
-        ///   Every credential value this run could leak: the ones the fixture offers BY NAME and the ones the job
-        ///   carries INLINE. Both, because a check that watched only the fixture would pass a candidate that logs
-        ///   a credential its caller typed - which is the same leak from the same lease.
+        ///   Every credential value this run could leak, which is exactly what the job carried: there is no other
+        ///   way one arrives.
         /// </summary>
-        private static IReadOnlyList<String> CredentialValuesToWatch(
-            IReadOnlyDictionary<String, String>? fixtureCredentials, IntegrationJob job)
+        private static IReadOnlyList<String> CredentialValuesToWatch(IntegrationJob job)
         {
             var watched = new List<String>();
-            if (fixtureCredentials != null)
-            {
-                watched.AddRange(fixtureCredentials.Values);
-            }
-
             if (job.CredentialValues != null)
             {
                 watched.AddRange(job.CredentialValues.Values);

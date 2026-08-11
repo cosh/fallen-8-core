@@ -54,7 +54,7 @@ namespace NoSQL.GraphDB.Integrations.Hosting
 
             // The path the shared sidecar client base's cached reachability probe calls, as for the docling and
             // NLP sidecars. It says NOTHING about configuration: a probe disclosing which integrations exist
-            // would be a disclosure surface on the one container that can read mounted credentials.
+            // tells an unauthenticated caller which third-party systems this container is given credentials for.
             app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
             app.MapGet("/integration/providers", (ProviderCatalog catalog) => Results.Ok(catalog.Descriptors));

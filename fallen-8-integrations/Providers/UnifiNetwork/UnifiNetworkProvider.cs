@@ -54,7 +54,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
         /// <summary>The setting naming the full integration API base URL.</summary>
         public const String BaseUrlSetting = "baseUrl";
 
-        /// <summary>The setting naming the credential (by NAME, never by value) that holds the API key.</summary>
+        /// <summary>The credential setting the API key arrives in.</summary>
         public const String ApiKeySetting = "apiKey";
 
         private const String KindSite = "site";
@@ -120,12 +120,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
                 new ProviderSetting
                 {
                     Key = ApiKeySetting,
-                    Label = "API key credential",
+                    Label = "API key",
                     Kind = SettingKind.Credential,
                     Required = true,
                     Help =
-                        "The NAME of a credential file the operator provides, never the key itself. Create " +
-                        "the key in the Network application, under Settings and then Integrations.",
+                        "The API key for the front door the base URL above names, and the two take DIFFERENT " +
+                        "keys: a local console's key is created in the Network application under Settings and " +
+                        "then Integrations, while an api.ui.com base URL is the cloud connector and takes a " +
+                        "Site Manager key created at unifi.ui.com under Settings and then API Keys.",
                 },
             },
             EntityKinds = new[] { KindSite, KindDevice, KindClient },

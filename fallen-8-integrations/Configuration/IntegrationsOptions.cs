@@ -43,7 +43,7 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         /// <summary>
         ///   The address Kestrel binds. Loopback by default; the image sets <c>0.0.0.0</c> because a
         ///   container binding loopback is unreachable, and the port is deliberately not published to
-        ///   the host (this container can read third-party credentials, so the browser reaches it
+        ///   the host (jobs hand this container third-party credentials, so the browser reaches it
         ///   through the apiApp, which is already the authenticated front door).
         /// </summary>
         public String BindAddress { get; set; } = "127.0.0.1";
@@ -58,7 +58,7 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         /// </summary>
         public String FilesDirectory { get; set; } = "/files";
 
-        /// <summary>The credential mount and the hosts a credentialed run may contact.</summary>
+        /// <summary>Where a run holding a credential may send it.</summary>
         public CredentialsOptions Credentials { get; set; } = new CredentialsOptions();
 
         /// <summary>
@@ -110,19 +110,12 @@ namespace NoSQL.GraphDB.Integrations.Configuration
     }
 
     /// <summary>
-    ///   Where credentials are read from, and where a run holding one may send it
-    ///   (<c>Integrations:Credentials</c>).
+    ///   Where a run holding a credential may send it (<c>Integrations:Credentials</c>). There is
+    ///   deliberately no credential SOURCE here: see <c>CredentialResolver</c> for why one arrives with
+    ///   the job and nowhere else.
     /// </summary>
     public sealed class CredentialsOptions
     {
-        /// <summary>
-        ///   One file per credential, in a read-only bind-mounted directory rather than compose's
-        ///   <c>secrets:</c> list: with <c>secrets:</c> adding a credential means editing compose and
-        ///   recreating the service, whereas with a directory adding one is writing a file and
-        ///   rotating one is overwriting it.
-        /// </summary>
-        public String Directory { get; set; } = "/run/secrets";
-
         /// <summary>
         ///   The hosts a run HOLDING a credential may contact, comma separated. Enforced on the way
         ///   out by <c>CredentialHostGuard</c> rather than by inspecting configuration, because a

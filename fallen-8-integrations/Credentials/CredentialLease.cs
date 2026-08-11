@@ -48,6 +48,12 @@ namespace NoSQL.GraphDB.Integrations.Credentials
     ///   returned by any route or emitted to any log sink, and that none is reachable through the
     ///   runtime's seams once the run that fetched it has ended. Against a careless provider the design
     ///   buys time-boxing rather than prevention.</para>
+    ///
+    ///   <para>Nor does redaction cover OTLP SPAN ATTRIBUTES. The wrap rewrites logger providers, and HTTP
+    ///   client instrumentation records the outbound URL on a span, so a credential in a URL would leave by
+    ///   that door. It is stated rather than fixed because a credential does not belong in a URL and this
+    ///   feature does not put one there: it travels in a header, and the one setting a person could put one
+    ///   in - a base URL carrying <c>user:pass@</c> - is refused where that URL is validated.</para>
     /// </summary>
     public sealed class CredentialLease : IDisposable
     {
@@ -117,11 +123,13 @@ namespace NoSQL.GraphDB.Integrations.Credentials
         public Boolean IsEmpty => _values.Count == 0;
 
         /// <summary>
-        ///   A keyed hash of what this run held, under a key random per process. A credential file
-        ///   replaced by MOVING a new file over it gives the file a new inode and a bind-mounted
-        ///   container keeps reading the old one, so the job succeeds with the credential the operator
-        ///   believes they revoked; a fingerprint that does not change after a rotation is how that is
-        ///   seen, which is why rotation is documented as overwriting in place. Null when nothing is held.
+        ///   A keyed hash of what this run held, under a key random per process, so two reports can be
+        ///   compared on WHICH credential was used without either of them carrying it.
+        ///
+        ///   <para>It answers the question a refused key raises: "did this run use the value I just
+        ///   changed?" Two failures with one identical fingerprint mean the new key never reached the
+        ///   runtime, which is a different problem from a key the source rejects. Null when nothing is
+        ///   held.</para>
         /// </summary>
         public String? Fingerprint()
         {

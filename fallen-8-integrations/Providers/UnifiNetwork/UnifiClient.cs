@@ -88,15 +88,19 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
         /// <summary>
         ///   The authentication header.
         ///
-        ///   <para>The OpenAPI document declares NO security scheme at all. This name therefore does not
-        ///   come from it: it comes from the vendor's machine-readable developer index at
-        ///   https://developer.ui.com/llms.txt, which states that all of these APIs use API key
-        ///   authentication via this header (the index spells it X-API-KEY; header names are
-        ///   case-insensitive). The distinction is kept here, at the constant, so the document's silence is
-        ///   never read as permission - neither permission to send no credential, nor permission to assume
-        ///   a key is scoped to reads.</para>
+        ///   <para>The Network OpenAPI document declares NO security scheme at all, so this name does not come
+        ///   from it. It comes from the vendor's Site Manager document, whose one security scheme is
+        ///   <c>{"in": "header", "name": "X-API-Key", "type": "apiKey"}</c> applied globally, and whose getting
+        ///   started page shows <c>-H 'X-API-KEY: YOUR_API_KEY'</c>. The value is the raw key: no scheme word,
+        ///   no encoding. The vendor's own two spellings differ in case and HTTP header names are
+        ///   case-insensitive, so this follows the example rather than the schema.</para>
+        ///
+        ///   <para>The distinction is kept here, at the constant, so the Network document's silence is never
+        ///   read as permission - neither permission to send no credential, nor permission to assume a key is
+        ///   scoped to reads. Sources: https://developer.ui.com/site-manager/v1.0.0/openapi.json and
+        ///   https://developer.ui.com/site-manager/v1.0.0/gettingstarted.</para>
         /// </summary>
-        public const String ApiKeyHeader = "X-API-Key";
+        public const String ApiKeyHeader = "X-API-KEY";
 
         /// <summary>The two published base-URL forms, named by the refusal so nobody has to guess.</summary>
         private const String LocalConsoleForm = "https://{consoleIP}/proxy/network/integration";
@@ -104,6 +108,25 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
         /// <summary>The cloud connector form of the same base URL.</summary>
         private const String CloudConnectorForm =
             "https://api.ui.com/v1/connector/consoles/{consoleId}/proxy/network/integration";
+
+        /// <summary>
+        ///   THE TWO FORMS TAKE DIFFERENT KEYS, which is the mistake a 401 here is usually reporting.
+        ///
+        ///   <para>The vendor's own getting-started page renders its key instructions against a Remote/Local
+        ///   toggle: the local console's key is created in the Network application's Integrations section,
+        ///   while the cloud connector is the remote case and takes a Site Manager key created at
+        ///   unifi.ui.com under Settings and then API Keys. Same header, different issuer, and the key from
+        ///   one front door is simply unknown at the other.</para>
+        ///
+        ///   <para>Recorded here rather than left to a reader because it is not discoverable from a 401: the
+        ///   response says nothing about which key it wanted. Sources:
+        ///   https://developer.ui.com/network/v10.4.57/gettingstarted (its Remote and Local branches) and
+        ///   https://developer.ui.com/site-manager/v1.0.0/gettingstarted.</para>
+        /// </summary>
+        private const String KeyIssuers =
+            "a local console's key is created in the Network application under Settings and then " +
+            "Integrations, and the cloud connector takes a Site Manager key created at unifi.ui.com under " +
+            "Settings and then API Keys";
 
         // Resource paths, from the vendor's machine-readable developer index (llms.txt), which lists
         // GET /v1/sites "List Local Sites", GET /v1/sites/{siteId}/devices "List Adopted Devices",
@@ -149,20 +172,82 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
 
             foreach (var character in _apiKey)
             {
-                if (Char.IsControl(character))
+                // The resolver already refused a control or non-ASCII character, eagerly, and owns that rule
+                // and its reason. This stays as an assertion at the site that composes the header rather than
+                // as a second opinion: the setter below does not validate, so a value carrying a line break
+                // would inject a header, and a boundary that must be safe does not trust its input.
+                if (Char.IsControl(character) || character > 127)
                 {
                     // Refused BEFORE the header is composed, and the value is deliberately not quoted in
                     // the message: the validating header setter puts the offending value into its own
                     // FormatException message, and that message would travel into the job report and the
                     // container log. The credential itself is what would be quoted there.
                     throw new ProviderConfigurationException(String.Format(
-                        "The credential named by setting '{0}' contains a control character, so it cannot be " +
-                        "sent as the {1} header. Its value is deliberately not quoted here. A credential file " +
-                        "holds the value verbatim except for one trailing line ending, so check for an " +
-                        "embedded newline.",
+                        "The credential supplied for setting '{0}' contains a character that cannot be sent as " +
+                        "the {1} header: it is either a control character or not ASCII. Its value is " +
+                        "deliberately not quoted here. A key is taken verbatim except for one trailing line " +
+                        "ending, so look for what a copy brought along with it: a line break, a non-breaking " +
+                        "space, or a quotation mark an editor turned into a curly one.",
                         UnifiNetworkProvider.ApiKeySetting, ApiKeyHeader));
                 }
             }
+        }
+
+        /// <summary>
+        ///   What a refused key is told, and it is the message a person acts on: which front door refused,
+        ///   which of the two things went wrong, and what to go and look at.
+        ///
+        ///   <para>401 and 403 are separated because they narrow to different things: 401 is "not a key I
+        ///   accept", where the usual cause is a key issued for the OTHER published front door, since the local
+        ///   console and the cloud connector each issue their own; 403 is "not a read I allow", which is
+        ///   usually a permission on the key.</para>
+        ///
+        ///   <para>Neither message asserts that the credential was VALIDATED. It cannot know that: an
+        ///   authorization layer in front of a console answers either status without ever looking at the
+        ///   header, and this client cannot tell that apart. So it says what happened and lists the
+        ///   candidates, in the same spirit as the refusal below - this vendor documents no failure status at
+        ///   all, and an unfounded certainty about the one thing a reader will act on is worse than a list.</para>
+        ///
+        ///   <para>The credential is never quoted, its length is never given, and the response body is never
+        ///   echoed: this message travels to the job report and to every log sink. The content TYPE is
+        ///   reported, because an answer that is not JSON is the one cheap sign that whatever refused is not
+        ///   the integration API.</para>
+        /// </summary>
+        private static String RefusedCredentialMessage(HttpResponseMessage response, String url)
+        {
+            var host = Uri.TryCreate(url, UriKind.Absolute, out var parsed) ? parsed.Host : "the console";
+            var reason = response.ReasonPhrase ?? "no reason given";
+
+            var mediaType = response.Content?.Headers?.ContentType?.MediaType;
+            var notJson = String.IsNullOrEmpty(mediaType) ||
+                          mediaType!.IndexOf("json", StringComparison.OrdinalIgnoreCase) < 0;
+            var aside = notJson
+                ? String.Format(
+                    " The answer was {0} rather than JSON, which the integration API would have sent, so " +
+                    "consider that something else refused it: the path of the base URL, or a proxy, portal or " +
+                    "gateway in front of the console.",
+                    String.IsNullOrEmpty(mediaType) ? "sent with no content type" : "'" + mediaType + "'")
+                : String.Empty;
+
+            if (response.StatusCode == HttpStatusCode.Forbidden)
+            {
+                return String.Format(
+                    "{0} answered 403 ({1}) to GET {2}, refusing the READ rather than the key. The key was " +
+                    "sent as the {3} header. The candidates, in order: the permissions on the key; on the " +
+                    "cloud connector, a console that is not the key owner's, since the vendor documents a key " +
+                    "that is not an organization key as reaching its owner's consoles only; and an " +
+                    "authorization layer in front of the console that never looked at the key.{4} Nothing was " +
+                    "withdrawn.",
+                    host, reason, url, ApiKeyHeader, aside);
+            }
+
+            return String.Format(
+                "{0} answered 401 ({1}) to GET {2}, refusing the credential. The key was sent as the {3} " +
+                "header, so start with the key rather than the network. The two published base URLs are two " +
+                "different front doors and each issues its OWN key: {4}. So check which of the two this base " +
+                "URL names, that the key came from that one, and that it has not been revoked.{5} Nothing was " +
+                "withdrawn.",
+                host, reason, url, ApiKeyHeader, KeyIssuers, aside);
         }
 
         /// <summary>
@@ -213,6 +298,19 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
                     "offset and limit, so a base URL that already carries one cannot be extended; supply " +
                     "'{1}' or '{2}' instead.",
                     UnifiNetworkProvider.BaseUrlSetting, LocalConsoleForm, CloudConnectorForm));
+            }
+
+            if (!String.IsNullOrEmpty(parsed.UserInfo))
+            {
+                // A SECRET IN A SETTING, and the one shape a person actually types. It would be unredactable:
+                // the lease holds credentials, and this value never went through it, so every failure message
+                // quoting the composed URL would carry it to the job report, to the container log and into an
+                // OTLP span attribute. The API key belongs in the credential setting, which is leased.
+                throw new ProviderConfigurationException(String.Format(
+                    "Setting '{0}' carries a user name or password in the URL itself. That value is not a " +
+                    "credential this runtime can hold or redact, so it would appear in every failure message " +
+                    "this run reports and logs. Put the address here and the key in '{1}'.",
+                    UnifiNetworkProvider.BaseUrlSetting, UnifiNetworkProvider.ApiKeySetting));
             }
 
             return parsed;
@@ -369,9 +467,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
 
                 // Set without validation, on purpose: the validating setter reports a rejected value by
                 // quoting it in a FormatException, and the value here is somebody's console credential.
-                // The constructor already refused a value carrying a control character, so nothing can be
-                // smuggled into the header block.
+                // The constructor already refused a value carrying a control or non-ASCII character, so
+                // nothing can be smuggled into the header block.
                 request.Headers.TryAddWithoutValidation(ApiKeyHeader, _apiKey);
+
+                // Every official example sends it and the document requires it nowhere, which is exactly
+                // when to send it anyway: it costs one header and removes a difference between what this
+                // client does and what the vendor's own curl line does.
+                request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
                 HttpResponseMessage response;
                 try
@@ -402,6 +505,17 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
                     if (tolerateNotFound && response.StatusCode == HttpStatusCode.NotFound)
                     {
                         return null;
+                    }
+
+                    // A refused key is its OWN failure kind, before the catch-all below. Reported as
+                    // 'source' it would send a reader to the network, which is the one place the answer is
+                    // not: something answered, promptly, that this request may not proceed. Which of the two
+                    // published front doors was asked is the first thing to check, because each issues its
+                    // own key and a key for one is not a key for the other.
+                    if (response.StatusCode == HttpStatusCode.Unauthorized ||
+                        response.StatusCode == HttpStatusCode.Forbidden)
+                    {
+                        throw new ProviderCredentialRejectedException(RefusedCredentialMessage(response, url));
                     }
 
                     if (!response.IsSuccessStatusCode)

@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -76,23 +77,31 @@ namespace NoSQL.GraphDB.Tests
         /// <summary>
         /// The runtime, hosted over its own entry point. Every configured value carries the marker
         /// below so the health test can assert that none of them reaches the probe's body: a probe
-        /// disclosing which integrations exist, where the credentials are mounted or which graph is
-        /// written into would be a disclosure surface on the one container that can read mounted
-        /// third-party credentials.
+        /// disclosing which integrations exist, where provider files are mounted or which graph is
+        /// written into would be a disclosure surface on the one container that jobs hand third-party
+        /// credentials to.
         /// </summary>
         private sealed class RuntimeFactory : WebApplicationFactory<NoSQL.GraphDB.Integrations.Program>
         {
             internal const String Marker = "must-not-be-disclosed";
-            internal const String CredentialDirectory = "/mnt/f8i-credentials-" + Marker;
             internal const String FilesDirectory = "/mnt/f8i-files-" + Marker;
             internal const String AllowedHost = "console." + Marker + ".invalid";
             internal const String SelfSignedHost = "inverter." + Marker + ".invalid";
             internal const String TargetBaseUrl = "http://graph." + Marker + ".invalid:19999/";
 
+            private readonly String _allowedHosts;
+
+            /// <param name="allowedHosts">Overrides the allowed-host list. A test that needs a credentialed
+            /// run to reach a fixture on loopback passes the empty string, which the guard documents as no
+            /// restriction: loopback is not a name that can be put on a host list.</param>
+            public RuntimeFactory(String allowedHosts = AllowedHost)
+            {
+                _allowedHosts = allowedHosts;
+            }
+
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
-                builder.UseSetting("Integrations:Credentials:Directory", CredentialDirectory);
-                builder.UseSetting("Integrations:Credentials:AllowedHosts", AllowedHost);
+                builder.UseSetting("Integrations:Credentials:AllowedHosts", _allowedHosts);
                 builder.UseSetting("Integrations:FilesDirectory", FilesDirectory);
                 builder.UseSetting("Integrations:SelfSignedHosts", SelfSignedHost);
                 builder.UseSetting("Fallen8Target:BaseUrl", TargetBaseUrl);
@@ -152,13 +161,85 @@ namespace NoSQL.GraphDB.Tests
         }
 
         private static String JobBody(String providerId, String instanceId, String settings,
-            String credentials = null, String credentialValues = null)
+            String credentialValues = null)
         {
             return "{\"providerId\":\"" + providerId + "\",\"integrationInstanceId\":\"" + instanceId +
                    "\",\"settings\":" + (settings ?? "{}") +
-                   (credentials == null ? String.Empty : ",\"credentials\":" + credentials) +
                    (credentialValues == null ? String.Empty : ",\"credentialValues\":" + credentialValues) +
                    "}";
+        }
+
+        /// <summary>
+        /// A loopback socket that answers every request with one fixed HTTP response, so a status the
+        /// runtime has to classify can be produced without a console and without the network. Raw sockets
+        /// rather than HttpListener, which needs a URL reservation on Windows.
+        /// </summary>
+        private sealed class FixedAnswerListener : IDisposable
+        {
+            private readonly TcpListener _listener;
+            private readonly Byte[] _response;
+
+            public FixedAnswerListener(Int32 statusCode, String reason)
+            {
+                _response = Encoding.ASCII.GetBytes(
+                    "HTTP/1.1 " + statusCode.ToString(CultureInfo.InvariantCulture) + " " + reason + "\r\n" +
+                    "Content-Length: 0\r\nConnection: close\r\n\r\n");
+
+                _listener = new TcpListener(IPAddress.Loopback, 0);
+                _listener.Start();
+                Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+
+                _ = Task.Run(AcceptAsync);
+            }
+
+            public Int32 Port { get; }
+
+            public void Dispose()
+            {
+                _listener.Stop();
+            }
+
+            private async Task AcceptAsync()
+            {
+                while (true)
+                {
+                    TcpClient socket;
+                    try
+                    {
+                        socket = await _listener.AcceptTcpClientAsync();
+                    }
+                    catch (Exception)
+                    {
+                        return;
+                    }
+
+                    using (socket)
+                    {
+                        try
+                        {
+                            var stream = socket.GetStream();
+
+                            // The request is read before answering: closing on an unread request gives the
+                            // client a connection reset, which would surface as a transport failure instead
+                            // of the status this fixture exists to produce. ONE read is enough, because a
+                            // GET's request line and headers arrive in the first segment and this fixture
+                            // answers the same thing whatever they say. The count is used only to notice a
+                            // client that hung up before sending anything.
+                            var buffer = new Byte[4096];
+                            var read = await stream.ReadAsync(buffer, 0, buffer.Length);
+                            if (read > 0)
+                            {
+                                await stream.WriteAsync(_response, 0, _response.Length);
+                                await stream.FlushAsync();
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            // A client that hung up mid-exchange is not this fixture's problem.
+                        }
+                    }
+                }
+            }
         }
 
         /// <summary>A port nothing listens on: bound to learn a free one, then released.</summary>
@@ -188,9 +269,6 @@ namespace NoSQL.GraphDB.Tests
             // The marker check below is only worth anything if this process really was configured with
             // the marked values, so that is established first rather than assumed.
             var configured = factory.Services.GetRequiredService<IOptions<IntegrationsOptions>>().Value;
-            Assert.AreEqual(RuntimeFactory.CredentialDirectory, configured.Credentials.Directory,
-                "this host did not take the marked credential directory, so the disclosure check below " +
-                "would pass over a probe that leaks the real one");
             Assert.AreEqual(RuntimeFactory.FilesDirectory, configured.FilesDirectory,
                 "this host did not take the marked files directory, so the disclosure check below would " +
                 "pass over a probe that leaks the real one");
@@ -210,15 +288,15 @@ namespace NoSQL.GraphDB.Tests
             }
 
             CollectionAssert.AreEqual(new List<String> { "status" }, fields,
-                "every field beyond 'status' is a disclosure on the one container that can read mounted " +
-                "third-party credentials, and this route is reachable without authentication");
+                "every field beyond 'status' is a disclosure on the one container that jobs hand third-party " +
+                "credentials to, and this route is reachable without authentication");
             Assert.AreEqual("ok", Text(probe, "status"),
                 "the probe's verdict is what makes the runtime count as reachable at all");
 
             var lowered = body.ToLowerInvariant();
             Assert.IsFalse(lowered.Contains(RuntimeFactory.Marker),
                 "the probe leaked a configured path, host or target URL, which tells an unauthenticated " +
-                "caller where this container's credentials are mounted and which graph it writes into");
+                "caller where this container reads provider files from and which graph it writes into");
 
             foreach (var providerId in new[] { CsvProviderId, UnifiProviderId, FroniusProviderId })
             {
@@ -518,46 +596,8 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        /// Two sources for one credential setting is a job nobody can read, so it is refused rather than
-        /// resolved by precedence.
-        /// </summary>
-        [TestMethod]
-        public async Task AJobSupplyingBothACredentialNameAndACredentialValue_IsRefused()
-        {
-            const String Supplied = "sk-pasted-into-the-form-9c1f";
-
-            using var factory = new RuntimeFactory();
-            using var client = factory.CreateClient();
-
-            using var response = await client.PostAsync(RuntimeJobRoute, Json(JobBody(UnifiProviderId,
-                "home-unifi",
-                "{\"baseUrl\":\"https://" + RuntimeFactory.AllowedHost + "/proxy/network/integration\"}",
-                "{\"apiKey\":\"console-key\"}",
-                "{\"apiKey\":\"" + Supplied + "\"}")));
-
-            var body = await ReadText(response);
-
-            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode,
-                "a job naming a credential AND carrying one for the same setting was admitted, so the run " +
-                "authenticated with whichever source the runtime happened to read second and no report says " +
-                "which. A caller who filled in a form and left a stale name behind cannot tell a working " +
-                "credential from a working one they meant to replace");
-
-            var problem = JsonDocument.Parse(body).RootElement;
-            StringAssert.Contains(Text(problem, "detail"), "apiKey",
-                "the refusal must name the setting with two sources, because a provider with several " +
-                "credential settings otherwise leaves the caller to find it");
-            Assert.AreEqual("configuration", Text(problem, "errorKind"),
-                "nothing was read and nothing written, so this is the caller's job to fix rather than a " +
-                "credential to rotate or a source to retry");
-            Assert.IsFalse(body.Contains(Supplied, StringComparison.Ordinal),
-                "the refusal quoted the supplied credential. A value rejected BEFORE the lease exists is a " +
-                "value redaction knows nothing about, and this body is reported and logged");
-        }
-
-        /// <summary>
-        /// The second credential source, end to end: a required credential supplied as a VALUE gets a run
-        /// past the pre-flight and out to the source, and appears nowhere on the report.
+        /// A required credential, end to end: supplied as a value it gets a run past the pre-flight and
+        /// out to the source.
         /// </summary>
         [TestMethod]
         public async Task ARequiredCredentialSuppliedAsAValue_RunsTheJob_AndNeverAppearsOnTheReport()
@@ -573,7 +613,6 @@ namespace NoSQL.GraphDB.Tests
             using var response = await client.PostAsync(RuntimeJobRoute, Json(JobBody(UnifiProviderId,
                 "home-unifi",
                 "{\"baseUrl\":\"https://" + RuntimeFactory.AllowedHost + "/proxy/network/integration\"}",
-                null,
                 "{\"apiKey\":\"" + Supplied + "\"}")));
 
             var body = await ReadText(response);
@@ -587,13 +626,132 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("source", Text(report, "errorKind"),
                 "the run must have reached the console and failed there. 'configuration' would mean the " +
                 "pre-flight did not count a supplied value as satisfying a required credential setting, and " +
-                "'credential' would mean the resolver went looking in the mount for one it was handed");
+                "'credential' would mean the runtime refused the value it was handed");
             Assert.IsFalse(String.IsNullOrEmpty(Text(report, "credentialFingerprint")),
                 "a supplied credential is fingerprinted like any other, which is how a caller who pasted a " +
                 "stale value sees the report change once they paste the new one");
             Assert.IsFalse(body.Contains(Supplied, StringComparison.Ordinal),
                 "the supplied credential reached the report. The report is the ONE thing a run hands back, " +
                 "and the source's own failure message is quoted onto it");
+        }
+
+        /// <summary>
+        /// A source that REFUSES the credential is a credential failure, not a source failure. The whole
+        /// point of errorKind is that "the password is wrong" and "the console will not answer" send a
+        /// reader to different places, and a 401 reported as 'source' sends them to the network.
+        /// </summary>
+        [TestMethod]
+        public async Task AConsoleThatAnswers401_IsReportedAsACredentialFailure_NotASourceFailure()
+        {
+            const String Supplied = "sk-pasted-into-the-form-9c1f";
+
+            using var console = new FixedAnswerListener(401, "Unauthorized");
+
+            // No allowed-host list, so a credentialed run may reach the fixture on loopback. Loopback is
+            // exempt from the no-plain-http rule and is not a name that can go on a host list.
+            using var factory = new RuntimeFactory(allowedHosts: String.Empty);
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync(RuntimeJobRoute, Json(JobBody(UnifiProviderId,
+                "home-unifi",
+                "{\"baseUrl\":\"http://127.0.0.1:" + console.Port.ToString(CultureInfo.InvariantCulture) +
+                "/proxy/network/integration\"}",
+                "{\"apiKey\":\"" + Supplied + "\"}")));
+
+            var body = await ReadText(response);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "a run that reached its source and was refused RAN, so it answers 200 with the failure on " +
+                "its report: " + body);
+
+            var report = JsonDocument.Parse(body).RootElement;
+            Assert.AreEqual("credential", Text(report, "errorKind"),
+                "a 401 was reported as '" + Text(report, "errorKind") + "'. Reported as 'source' it sends " +
+                "the reader to the network, which is the one place the answer is not: the front door " +
+                "answered, promptly and correctly, that it does not accept this key");
+
+            var error = Text(report, "error");
+            StringAssert.Contains(error, "X-API-KEY",
+                "the failure must name the header the key was sent as, or a reader cannot tell 'my key is " +
+                "wrong' from 'this integration never sent it'");
+            StringAssert.Contains(error, "proxy/network/integration",
+                "the failure must name the published base-URL forms, because a key issued for the other " +
+                "front door is the mistake this refusal most often reports");
+            Assert.IsFalse(error.Contains(Supplied, StringComparison.Ordinal),
+                "the failure quoted the credential. This message is the report and the log line");
+
+            Assert.AreEqual(0, report.GetProperty("claimsWithdrawn").GetInt32(),
+                "a refused key must withdraw nothing: 'I could not look' is not 'there is nothing there'");
+            Assert.AreEqual(0, report.GetProperty("elementsDeleted").GetInt32(),
+                "and it must delete nothing, for the same reason");
+        }
+
+        /// <summary>
+        /// The 403 arm is its own message, so it is its own test: it must NOT claim the key authenticated
+        /// (an authorization layer in front of a console answers 403 without ever reading the header), and
+        /// it must still be a credential failure, because the key's permissions are what to go and look at.
+        /// </summary>
+        [TestMethod]
+        public async Task AConsoleThatAnswers403_IsACredentialFailure_AboutTheReadRatherThanTheKey()
+        {
+            using var console = new FixedAnswerListener(403, "Forbidden");
+
+            using var factory = new RuntimeFactory(allowedHosts: String.Empty);
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync(RuntimeJobRoute, Json(JobBody(UnifiProviderId,
+                "home-unifi",
+                "{\"baseUrl\":\"http://127.0.0.1:" + console.Port.ToString(CultureInfo.InvariantCulture) +
+                "/proxy/network/integration\"}",
+                "{\"apiKey\":\"sk-whatever\"}")));
+
+            var body = await ReadText(response);
+            var report = JsonDocument.Parse(body).RootElement;
+
+            Assert.AreEqual("credential", Text(report, "errorKind"),
+                "a 403 sends a reader to the key's permissions, which is the credential and not the " +
+                "network: " + body);
+
+            var error = Text(report, "error");
+            StringAssert.Contains(error, "403",
+                "the failure must name the status, or a reader cannot tell this from a refused key");
+            StringAssert.Contains(error, "refusing the READ",
+                "the 403 message must be the one about the read rather than the 401 message about the key, " +
+                "or the two arms are indistinguishable to whoever has to act on them");
+            Assert.IsFalse(error.Contains("authenticated", StringComparison.Ordinal),
+                "the message must not claim the key authenticated. Nothing here knows that: a reverse " +
+                "proxy, portal or WAF answers 403 without ever looking at the header, and an unfounded " +
+                "certainty about the one thing a reader will act on is worse than a list of candidates");
+        }
+
+        /// <summary>
+        /// The other half of the split: a status that is NOT about the credential stays a source failure,
+        /// or the new kind has swallowed the old one.
+        /// </summary>
+        [TestMethod]
+        public async Task AConsoleThatAnswers500_IsStillReportedAsASourceFailure()
+        {
+            using var console = new FixedAnswerListener(500, "Internal Server Error");
+
+            using var factory = new RuntimeFactory(allowedHosts: String.Empty);
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync(RuntimeJobRoute, Json(JobBody(UnifiProviderId,
+                "home-unifi",
+                "{\"baseUrl\":\"http://127.0.0.1:" + console.Port.ToString(CultureInfo.InvariantCulture) +
+                "/proxy/network/integration\"}",
+                "{\"apiKey\":\"sk-whatever\"}")));
+
+            var body = await ReadText(response);
+            var report = JsonDocument.Parse(body).RootElement;
+
+            Assert.AreEqual("source", Text(report, "errorKind"),
+                "a 500 is the console being unwell and has nothing to do with the key. If every failed " +
+                "status now reads as 'credential', the split it was added for is gone and everybody is " +
+                "sent to check a key that is fine: " + body);
+            StringAssert.Contains(Text(report, "error"), "answered 500",
+                "'source' is also the runner's catch-all, so this must pin the answer rather than the kind: " +
+                "a fixture that never bound, wedged or reset the connection reports the same kind with a " +
+                "message saying the console did not answer, and would pass this test green");
         }
 
         /// <summary>
@@ -788,7 +946,14 @@ namespace NoSQL.GraphDB.Tests
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
-                builder.ConfigureLogging(logging => logging.AddProvider(Sink));
+                // Trace, because the sidecar client base logs its failures at DEBUG: at the app's
+                // configured Information level a body logged there would never reach this sink and the
+                // no-leak check below would pass over exactly the line it exists to catch.
+                builder.ConfigureLogging(logging =>
+                {
+                    logging.SetMinimumLevel(LogLevel.Trace);
+                    logging.AddProvider(Sink);
+                });
                 builder.UseEnvironment("Development");
                 builder.UseSetting("Fallen8:Durability:Volatile", "true");
                 if (_enabled != null)
@@ -934,7 +1099,6 @@ namespace NoSQL.GraphDB.Tests
             using var response = await client.PostAsync(ProxyJobRoute, Json(JobBody(UnifiProviderId,
                 "home-unifi",
                 "{\"baseUrl\":\"https://console.invalid/proxy/network/integration\"}",
-                null,
                 "{\"apiKey\":\"" + Supplied + "\"}")));
 
             Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode,
@@ -945,6 +1109,11 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(factory.Sink.Lines.Length > 0,
                 "this sink captured no line at all, so it is not attached to the apiApp's logging and the " +
                 "check below proves nothing about what this process writes");
+            Assert.IsTrue(factory.Sink.Lines.Any(line =>
+                    line.IndexOf("ntegration", StringComparison.Ordinal) >= 0),
+                "the sink captured lines but none about THIS call, so it cannot speak for what the proxy " +
+                "logs while forwarding a job: whatever level that happens at is the level this test has " +
+                "to be able to see");
 
             foreach (var line in factory.Sink.Lines)
             {

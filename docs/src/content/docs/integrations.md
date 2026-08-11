@@ -1,6 +1,6 @@
 ---
 title: "Integrations"
-description: "A sidecar that reads a system on your own network and writes what it saw into a namespace: named credentials, exact-match identity, and deletion only when the snapshot says it saw everything."
+description: "A sidecar that reads a system on your own network and writes what it saw into a namespace: credentials held for one run and never stored, exact-match identity, and deletion only when the snapshot says it saw everything."
 ---
 
 Most of what you want in a graph is already in something else: a spreadsheet of devices, a
@@ -10,7 +10,7 @@ what it saw, and writes that description into one namespace. Then it forgets eve
 It is a **separate deployable** (`fallen-8-integrations`), its own process and container image.
 It never loads the engine: it writes through the same public REST API you would use, so it can
 be pointed at a scratch graph or at a shared instance on another host. That separation is not
-tidiness. This container reads credentials that belong to your controllers, so it holds no host
+tidiness. Jobs hand this container credentials that belong to your controllers, so it holds no host
 port at all and the browser reaches it only through the API's authenticated proxy.
 
 Three integrations ship. Three is the smallest number that proves the contract is the right
@@ -20,7 +20,7 @@ people who built this in the loop.
 | Integration | Reads | Needs |
 | --- | --- | --- |
 | `csv-device-list` | a CSV file in the runtime's files directory: MAC, name, note, hostname | nothing but the file |
-| `unifi-network` | a UniFi console's integration API: sites, adopted devices, clients, and the uplink topology between them | an API key, created in the Network application under Settings then Integrations |
+| `unifi-network` | a UniFi console's integration API, locally or through the cloud connector: sites, adopted devices, clients, and the uplink topology between them | an API key for the front door you point it at, and the two differ: a local console's key comes from the Network application under Settings then Integrations, while `api.ui.com` takes a Site Manager key from unifi.ui.com under Settings then API Keys |
 | `fronius-solar` | a Fronius Solar API on your own network: inverters and the logging device in front of them | nothing. The local Solar API is unauthenticated |
 
 ## Running one
@@ -37,8 +37,8 @@ a 403 on an instance with an API key configured, a 401 on an open one.
 
 A **job** is the whole configuration of one run: the integration, the identity it asserts as, the
 namespace to write into, the provider's settings and its credentials (see
-[Credentials](#credentials) for the two ways to supply one). Nothing about a job is stored, so
-this is also the only place a run is described:
+[Credentials](#credentials)). Nothing about a job is stored anywhere, so this is also the only
+place a run is described:
 
 ```bash
 curl -sS -X POST http://localhost:8080/integrations/job \
@@ -145,14 +145,10 @@ next run rebuilds it from element state before trusting a lookup.
 
 ## Credentials
 
-**Nothing is stored, whichever way you supply one.** The runtime holds a credential for the run
-that needs it, keeps it out of every log line, and drops it when the job ends. There is no cache,
-no keyring and no credential store: it has nothing to rotate, because it remembers nothing.
-
-Two sources, and they differ in what the JOB is rather than in how the value is treated.
-
-**Supply the value** when you have it in hand and nowhere to put it, which is what the Studio
-form does:
+**A credential arrives with the job that needs it, and nowhere else.** The runtime holds it for
+that run, keeps it out of every log line and every report, and drops it when the run ends. There
+is no credential mount, no store, no cache and no keyring: it has nothing to rotate because it
+remembers nothing, and whoever submits a job is whoever already holds the credential.
 
 ```bash
 curl -sS -X POST http://localhost:8080/integrations/job \
@@ -165,52 +161,26 @@ curl -sS -X POST http://localhost:8080/integrations/job \
       }'
 ```
 
-The value travels in that request, so serve the API over TLS if you do this from anywhere but
-your own machine, and note that whatever composed the request is holding a secret for as long as
-it keeps the body. **A job carrying a value is not a job to save**: no shell history, no
-committed file, no pipeline variable that outlives the run.
+The value travels in that request, so **serve the API over TLS** for anything but your own
+machine, and remember that whatever composed the request holds a secret for as long as it keeps
+the body. A job carrying one is not a job to save: no shell history, no committed file, no
+pipeline variable that outlives the run.
 
-**Name a credential** for anything unattended. You put the value in a file, the runtime reads it
-when the job starts, and the job itself carries no secret at all, so it is safe to keep, to commit
-next to whatever submits it, and to read back later as a record of what was asked for:
+The value is taken verbatim except for a single trailing newline, so a key pasted out of a console
+survives the line break that came with it, and spaces inside or around it survive too, because
+they can be part of a real password. An **empty credential is a failure**, never "no credential":
+a form submitted before the paste would otherwise produce a run that reads whatever the source
+shows the public, declares that complete, and withdraws everything the integration ever claimed.
 
-```bash
-# one file per credential, in the mounted directory (./secrets by default)
-printf 'the-api-key' > secrets/unifi-console
-```
+A credential may never arrive as a **setting**. A setting is neither leased nor redacted, so a
+value there would be logged and reported like any other; the runtime refuses a job that puts one
+in `settings` rather than quietly accepting it.
 
-```bash
-curl -sS -X POST http://localhost:8080/integrations/job \
-  -H 'content-type: application/json' \
-  -d '{
-        "providerId": "unifi-network",
-        "integrationInstanceId": "home-unifi",
-        "settings": { "baseUrl": "https://10.0.0.1/proxy/network/integration" },
-        "credentials": { "apiKey": "unifi-console" }
-      }'
-```
-
-**Rotating a named one is overwriting the file** in place: no restart, nothing re-entered, and no
-stored copy to go stale. Overwrite in place rather than moving a new file over it, because a bind
-mount keeps reading the file it opened and the job would keep succeeding with the credential you
-think you revoked. Every report carries a `credentialFingerprint` for exactly that reason: if it
-does not change after you rotate, the runtime is still reading the old value. A supplied value is
-fingerprinted the same way, so a stale paste is just as visible.
-
-One setting takes one source. The same key in both maps is **refused** rather than resolved by
-precedence, because a caller who filled in a form and left a stale name behind would otherwise
-authenticate with whichever one the runtime read second, and no report could say which.
-
-The value is taken verbatim except for a single trailing newline, so `printf 'pw'` and `echo pw`
-give the same credential, a value pasted out of a console survives the newline that came with it,
-and spaces inside or around it survive too, because they can be part of a real password. An
-**empty credential is a failure**, never "no credential": a truncated file, or a form submitted
-before the paste, would otherwise produce a run that reads whatever the source shows the public,
-declares that complete, and withdraws everything the integration ever claimed.
-
-A credential value may never arrive as a **setting**, however you send it. A setting is neither
-leased nor redacted, so a value there would be logged and reported like any other; the runtime
-refuses a job that puts one in `settings` instead of quietly accepting it.
+A report from a credentialed run carries a `credentialFingerprint`, a keyed hash under a key random
+to each process (a run needing no credential has none). It answers one question and carries no
+secret: *did this run use the value I just changed?* Compare it with an earlier run **from the same
+runtime process**: the same fingerprint twice means your new key never reached the runtime, which is
+a different problem from a key the source rejects.
 
 Two lists bound where a credential can go, and both are configuration only, never job settings:
 
@@ -256,9 +226,11 @@ Three things on it are worth knowing:
 on an actual difference, so running a job on a timer costs nothing when nothing changed: no
 change-feed noise, no write-ahead log growth.
 
-**`errorKind` names which system failed** (`configuration`, `credential`, `source`, `graph`),
-because "the mount is broken", "the password is wrong", "the console will not answer" and "the
-graph will not answer" send you to four different places. A run that failed **withdrew
+**`errorKind` names which system failed** (`configuration`, `credential`, `source`, `graph`, plus
+`conflict` on the 409 a second run under one identity gets),
+because "the job is wrong", "the key is wrong", "the console will not answer" and "the graph will
+not answer" send you to four different places. A source that answers `401` or `403` is a
+`credential` failure, not a `source` one: the front door answered, and what it said was no. A run that failed **withdrew
 nothing**: the next run starts from the same graph.
 
 **`diagnostics` are never dropped**, and each has a stable `code` you can grep for and alert on.

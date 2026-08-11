@@ -97,10 +97,10 @@ namespace NoSQL.GraphDB.Integrations.Run
         public String? ErrorKind { get; set; }
 
         /// <summary>
-        ///   A keyed hash of the credentials this run held, under a key random per process. A credential file
-        ///   replaced by MOVING a new file over it gives the file a new inode and a bind-mounted container keeps
-        ///   reading the old one, so the job succeeds with the credential the operator believes they revoked; a
-        ///   fingerprint that does not change after a rotation is how that is seen.
+        ///   A keyed hash of the credentials this run held, under a key random per process: two reports can be
+        ///   compared on WHICH credential was used, and neither carries it. Two failures with one identical
+        ///   fingerprint say the key you just changed never reached this runtime, which is a different problem
+        ///   from a key the source rejects.
         /// </summary>
         [JsonPropertyName("credentialFingerprint")]
         public String? CredentialFingerprint { get; set; }
@@ -124,7 +124,11 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <summary>The job cannot be run as written.</summary>
         public const String Configuration = "configuration";
 
-        /// <summary>A named credential could not be read.</summary>
+        /// <summary>
+        ///   The credential is the thing to go and look at: the runtime could not use the value it was given,
+        ///   or the source itself rejected it. Both are one kind because they send a reader to one place, and
+        ///   a refused key reported as <see cref="Source"/> would send them to the network instead.
+        /// </summary>
         public const String Credential = "credential";
 
         /// <summary>The source did not answer, or answered unusably.</summary>

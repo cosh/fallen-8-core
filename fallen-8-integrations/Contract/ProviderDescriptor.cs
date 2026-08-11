@@ -152,10 +152,11 @@ namespace NoSQL.GraphDB.Integrations.Contract
         Url = 3,
 
         /// <summary>
-        ///   The NAME of a credential, never its value: a credential value may never arrive as a
-        ///   setting, because a setting is neither leased nor redacted and so would be logged and
-        ///   reported like any other value. A form renders this as a name field whose help text says it
-        ///   names a file the operator provides.
+        ///   A credential. Its value arrives in the job's <c>credentialValues</c> map and NEVER in
+        ///   <c>settings</c>: a setting is neither leased nor redacted, so a value there would be logged and
+        ///   reported like any other. A form renders this as a password field whose help text says the value
+        ///   is used for the run and then forgotten, and a provider reads it from the lease rather than from
+        ///   its settings.
         /// </summary>
         Credential = 4,
     }

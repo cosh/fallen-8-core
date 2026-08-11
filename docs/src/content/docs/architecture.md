@@ -44,7 +44,6 @@ flowchart TB
     docling["Document sidecar (docling-serve)<br/>binary-to-structured conversion"]:::ext
     nlp["NLP sidecar (spaCy)<br/>named entities + key terms"]:::ext
     integrations["Integrations runtime · fallen-8-integrations<br/>separate deployable · no host port · writes via REST"]:::mcp
-    creds["Credential mount<br/>/run/secrets · read only"]:::ext
     files["Files mount<br/>/files · read only"]:::ext
     sources["Your network<br/>CSV · UniFi console · Fronius inverter"]:::ext
 
@@ -83,7 +82,6 @@ flowchart TB
     mcp -.->|OTLP| collector
     integrations -->|HTTP · REST · own API key| rest
     integrations -.->|reads| sources
-    creds -.-> integrations
     files -.-> integrations
     integrations -.->|OTLP| collector
     ns --> writer --> model
@@ -183,10 +181,11 @@ three auth modes. The full story is in [MCP server](/fallen-8-core/mcp-server/).
 **`fallen-8-integrations`** is a separate deployable that runs one integration job at a time: it
 reads a system on your own network, describes what it saw as a snapshot, and writes that
 description into one namespace over the REST API. Like the MCP server it references neither the
-engine nor the app, and for a sharper reason: it reads credentials belonging to your controllers,
-so it holds **no host port at all**. The browser reaches it only through the app's authenticated
-proxy at `/integrations/*`, and its credential and files directories are read-only mounts. The
-full story is in [Integrations](/fallen-8-core/integrations/).
+engine nor the app, and for a sharper reason: jobs hand it credentials belonging to your
+controllers, so it holds **no host port at all**. The browser reaches it only through the app's
+authenticated proxy at `/integrations/*`. It stores no credential of any kind, so its one mount is
+the read-only files directory a provider may name a file in. The full story is in
+[Integrations](/fallen-8-core/integrations/).
 
 ## F8 Studio and the model sidecar
 

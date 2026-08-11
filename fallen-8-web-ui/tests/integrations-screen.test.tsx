@@ -42,10 +42,9 @@ import { ListCapNote } from "../src/components/ListCapNote";
  * Integrations screen (feature integrations). The load-bearing test is the first one: the form is
  * rendered from a DESCRIPTOR THE SCREEN HAS NEVER SEEN, which is what makes "adding a fourth
  * integration needs no Studio change" a fact rather than a claim. The rest pin the credential
- * field's two sources (the secret itself, which the form forgets once the job reports, or the name
- * of a mounted credential), the job split that keeps either of them out of `settings`, the identity
- * shape check that avoids a 400 rather than explaining it, the report, and the two ways an instance
- * says it has no runtime.
+ * field (the secret itself, which the form forgets once the job reports), the job split that keeps it
+ * out of `settings`, the identity shape check that avoids a 400 rather than explaining it, the report,
+ * and the two ways an instance says it has no runtime.
  */
 
 const listProvidersMock = vi.fn<(i: InstanceConfig) => Promise<IntegrationProvider[] | null>>();
@@ -169,12 +168,13 @@ describe("a credential setting takes the secret, and the form forgets it", () =>
     renderScreen();
     await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
 
-    // The default source is the VALUE, because that is what somebody at a form has in hand.
+    // A password box, because the field takes the secret itself: there is no credential store to name
+    // one in, and a text box would put it in the clear on somebody's screen.
     expect(screen.getByTestId("integration-setting-apiKey")).toHaveAttribute("type", "password");
     expect(screen.getByText(/used for this run and then forgotten/)).toBeInTheDocument();
   });
 
-  it("sends the secret in credentialValues, never in settings and never in credentials", async () => {
+  it("sends the secret in credentialValues and never in settings", async () => {
     renderScreen();
     await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
 
@@ -186,9 +186,8 @@ describe("a credential setting takes the secret, and the form forgets it", () =>
     await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
     const job = submitJobMock.mock.calls[0][1];
     // A setting is neither leased nor redacted by the runtime, so a secret there would be logged and
-    // reported like any other value. credentials is for NAMES, and a secret in it would be read as one.
+    // reported like any other value.
     expect(job.credentialValues).toEqual({ apiKey: "the-real-secret" });
-    expect(job.credentials).toEqual({});
     expect(job.settings).not.toHaveProperty("apiKey");
     expect(job.settings.baseUrl).toBe("https://thing.invalid");
   });
@@ -208,7 +207,7 @@ describe("a credential setting takes the secret, and the form forgets it", () =>
     expect(submitJobMock.mock.calls[0][1].credentialValues).toEqual({ apiKey: " pa ss " });
   });
 
-  it("clears the secret once the job reports, and keeps a credential NAME", async () => {
+  it("clears the secret once the job reports, and keeps the ordinary settings", async () => {
     renderScreen();
     await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
 
@@ -225,65 +224,6 @@ describe("a credential setting takes the secret, and the form forgets it", () =>
     expect(screen.getByTestId("integration-setting-baseUrl")).toHaveValue("https://thing.invalid");
   });
 
-  it("switches to a mounted credential NAME, which is a text field and goes in credentials", async () => {
-    renderScreen();
-    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
-
-    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
-    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
-    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "the-real-secret");
-    await userEvent.click(screen.getByTestId("integration-setting-apiKey-source"));
-
-    const field = screen.getByTestId("integration-setting-apiKey");
-    expect(field).toHaveAttribute("type", "text");
-    // The typed secret must NOT survive the switch: it would be submitted as a credential NAME, which
-    // is the map that is safe to keep and to commit.
-    expect(field).toHaveValue("");
-    expect(screen.getByText(/NAME of a credential/)).toBeInTheDocument();
-
-    await userEvent.type(field, "unifi-console");
-    await userEvent.click(screen.getByTestId("integration-run"));
-
-    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
-    const job = submitJobMock.mock.calls[0][1];
-    expect(job.credentials).toEqual({ apiKey: "unifi-console" });
-    expect(job.credentialValues).toEqual({});
-  });
-
-  it("keeps a credential NAME after the run, because a name is not a secret", async () => {
-    renderScreen();
-    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
-
-    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
-    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
-    await userEvent.click(screen.getByTestId("integration-setting-apiKey-source"));
-    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "unifi-console");
-    await userEvent.click(screen.getByTestId("integration-run"));
-
-    await screen.findByTestId("report-created");
-    expect(screen.getByTestId("integration-setting-apiKey")).toHaveValue("unifi-console");
-  });
-
-  it("never sends a job the runtime would refuse for having two sources", async () => {
-    renderScreen();
-    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
-
-    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
-    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
-    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "the-real-secret");
-    await userEvent.click(screen.getByTestId("integration-setting-apiKey-source"));
-    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "unifi-console");
-    await userEvent.click(screen.getByTestId("integration-run"));
-
-    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
-    // One field, one source, whichever way it is switched: the runtime rejects a setting that arrives
-    // in both maps, and a form that could compose one would turn a click into a 400.
-    const job = submitJobMock.mock.calls[0][1];
-    const both = Object.keys(job.credentials).filter((key) =>
-      Object.prototype.hasOwnProperty.call(job.credentialValues ?? {}, key),
-    );
-    expect(both).toEqual([]);
-  });
 });
 
 describe("the identity is checked before anything is sent", () => {

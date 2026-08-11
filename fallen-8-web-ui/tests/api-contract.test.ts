@@ -266,7 +266,7 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
       providerId: "csv-device-list",
       integrationInstanceId: "office-inventory",
       settings: { file: "devices.csv" },
-      credentials: {},
+      credentialValues: {},
     }),
 };
 

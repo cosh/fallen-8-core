@@ -33,7 +33,7 @@ namespace NoSQL.GraphDB.App.Configuration
     ///   and no sidecar is contacted.
     ///
     ///   <para>The integration runtime is a separate deployable (<c>fallen-8-integrations</c>) whose
-    ///   container port is deliberately not published, because it can read third-party credentials.
+    ///   container port is deliberately not published, because jobs hand it third-party credentials.
     ///   The apiApp is therefore the only way in: it proxies the runtime's four routes, being already
     ///   the authenticated front door, which is why the runtime needs no second auth story.</para>
     /// </summary>

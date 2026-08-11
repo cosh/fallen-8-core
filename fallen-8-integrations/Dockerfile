@@ -2,13 +2,14 @@
 # integration job per request - it reads a system on the user's own network, describes what it
 # saw, and writes that description into one Fallen-8 namespace over the public REST API. It
 # loads no engine assemblies; the graph it feeds is reached over REST only, exactly as
-# fallen-8-mcp does, because a container that can read somebody's network-admin credential must
+# fallen-8-mcp does, because a container that is handed somebody's network-admin credential must
 # not load the engine in process.
 #
 # Its port is deliberately NOT published to the host - see docker-compose.yml's f8-integrations
-# service (profile: integrations). This container can read third-party credentials, so nothing on
+# service (profile: integrations). Jobs hand this container third-party credentials, so nothing on
 # the host's network may talk to it directly; the browser reaches it through the apiApp, which is
-# already the authenticated front door.
+# already the authenticated front door. It stores none of them: a credential arrives with the job
+# that needs it and is gone when the run ends, so there is no credential mount here.
 
 # ---- build ----
 # Runs on the BUILD host's architecture and emits architecture-neutral IL, so a multi-arch

@@ -77,11 +77,8 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             // credential, so per-run counting would switch the other run's redaction off on the first run's
             // completion.
             services.AddSingleton<ActiveCredentials>();
-            services.AddSingleton<ICredentialStore, DirectoryCredentialStore>();
             services.AddSingleton<IProviderFileStore, DirectoryFileStore>();
-            services.AddSingleton(provider => new CredentialResolver(
-                provider.GetRequiredService<ICredentialStore>(),
-                provider.GetRequiredService<ActiveCredentials>()));
+            services.AddSingleton<CredentialResolver>();
             services.AddSingleton<IProviderHttpFactory, ProviderHttpFactory>();
             services.AddSingleton<RunGate>();
 
@@ -143,10 +140,10 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                 String.IsNullOrEmpty(target.ApiKey) ? "not set" : "set");
 
             logger.LogInformation(
-                "Credentials are read per run from {CredentialDirectory} and dropped when the run ends; " +
-                "provider files are read from {FilesDirectory}. Rotating a credential is overwriting its " +
-                "file in place.",
-                options.Credentials.Directory, options.FilesDirectory);
+                "Credentials arrive with the job that needs them and are dropped when the run ends: this " +
+                "runtime has no credential store and nothing to rotate. Provider files are read from " +
+                "{FilesDirectory}.",
+                options.FilesDirectory);
 
             var allowedHosts = options.Credentials.AllowedHostSet();
             if (allowedHosts.Count == 0)

@@ -178,8 +178,8 @@ namespace NoSQL.GraphDB.Integrations.Contract
 
         /// <summary>
         ///   Reads the file NAMED by a setting. A provider never opens a file itself: one taking a PATH
-        ///   could be pointed at the credential directory and made to hand the contents back in a report or
-        ///   write them into the graph, and blocklisting that directory only moves the target. It also means
+        ///   could be pointed at anything this container can read and made to hand the contents back in a
+        ///   report or write them into the graph, and blocklisting a directory only moves the target. It also means
         ///   a provider needs no real file system to be tested, which is what lets the conformance suite
         ///   exercise the whole path offline.
         /// </summary>
@@ -232,6 +232,32 @@ namespace NoSQL.GraphDB.Integrations.Contract
         }
 
         public ProviderSourceException(String message, Exception inner)
+            : base(message, inner)
+        {
+        }
+    }
+
+    /// <summary>
+    ///   "The source REJECTED the credential." Reported with <c>errorKind</c> <c>credential</c>, which is
+    ///   the whole reason that field exists: an unreachable console and a refused key send a reader to two
+    ///   different places, and a provider that raised <see cref="ProviderSourceException"/> for a 401 would
+    ///   send them both to the network.
+    ///
+    ///   <para>It is a failure kind and not a diagnostic: the run fails and withdraws nothing, exactly as an
+    ///   unreadable credential does. A source that answers "who are you" is not a source that answered, so
+    ///   treating it as an empty read would withdraw every claim the instance ever made.</para>
+    ///
+    ///   <para>A provider raising this must say what to check and must never quote the credential: this
+    ///   message reaches the job report and every log sink.</para>
+    /// </summary>
+    public sealed class ProviderCredentialRejectedException : Exception
+    {
+        public ProviderCredentialRejectedException(String message)
+            : base(message)
+        {
+        }
+
+        public ProviderCredentialRejectedException(String message, Exception inner)
             : base(message, inner)
         {
         }

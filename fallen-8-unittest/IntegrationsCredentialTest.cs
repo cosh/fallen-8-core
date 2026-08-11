@@ -45,12 +45,14 @@ using NoSQL.GraphDB.Integrations.Run;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   The credential path of the integrations runtime (feature integrations, spec sections 3 and 4): which
-    ///   file a name may mean, what a credential file's bytes mean, how long a run may hold the value, what
-    ///   redaction covers, and where a run holding one may send it.
+    ///   The credential path of the integrations runtime (feature integrations, spec sections 3 and 4): what a
+    ///   supplied credential's characters mean, how long a run may hold the value, what redaction covers, and
+    ///   where a run holding one may send it. A credential arrives on the job and nowhere else, so there is no
+    ///   store here to test - what remains of the "which file may a name mean" question guards the PROVIDER
+    ///   FILE mount, which is the one thing this runtime still opens by name.
     ///
     ///   <para>Every assertion here stands in for a failure that is invisible from the graph. The three worst
-    ///   ones, and why each has its own test: a truncated credential file read as "no credential" produces a run
+    ///   ones, and why each has its own test: a blank credential accepted as "no credential" produces a run
     ///   that reads what the source shows the public, declares it complete, and withdraws every claim the
     ///   instance ever made; a credential value reaching any log sink hands somebody else's network-admin
     ///   password to whoever reads the container log; and a host check that is not enforced on the way out lets
@@ -59,48 +61,29 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class IntegrationsCredentialTest
     {
-        /// <summary>The credential mount the runtime defaults to, and the root the fixture store checks against.</summary>
-        private const String Root = "/run/secrets";
+        /// <summary>The provider files mount the runtime defaults to, which is the one root left to resolve under.</summary>
+        private const String Root = "/files";
 
-        private const String CredentialName = "unifi-password";
+        /// <summary>A file a provider's setting could name.</summary>
+        private const String FileName = "devices.csv";
 
         private const String Secret = "s3cr3t-console-password";
 
-        /// <summary>A real read-only-in-production mount, so the directory store can be driven end to end.</summary>
-        private String _mount;
-
-        /// <summary>The sibling an operator leaves behind when they rotate by mounting a second directory.</summary>
-        private String _retired;
-
-        [TestInitialize]
-        public void TestInitialize()
-        {
-            _mount = Path.Combine(Path.GetTempPath(), "f8i_cred_" + Guid.NewGuid().ToString("N"));
-            _retired = _mount + "-old";
-            Directory.CreateDirectory(_mount);
-        }
-
-        [TestCleanup]
-        public void TestCleanup()
-        {
-            try { if (Directory.Exists(_mount)) Directory.Delete(_mount, true); } catch { }
-            try { if (Directory.Exists(_retired)) Directory.Delete(_retired, true); } catch { }
-        }
-
         // ------------------------------------------------------------------------------------------------
-        // RootedNames.TryResolve - both halves are load-bearing, and either alone is historically the bug.
+        // RootedNames.TryResolve, the guard on every PROVIDER FILE name - both halves are load-bearing, and
+        // either alone is historically the bug.
         // ------------------------------------------------------------------------------------------------
 
         [TestMethod]
         public void APlainName_ResolvesToTheOneFileUnderTheConfiguredRoot()
         {
-            var resolved = RootedNames.TryResolve(Root, CredentialName, "credential", out var path, out var failure);
+            var resolved = RootedNames.TryResolve(Root, FileName, "file", out var path, out var failure);
 
             Assert.IsTrue(resolved,
-                "a bare credential name is the ONLY thing a job may say, so refusing one leaves every " +
-                "credentialed integration unable to read the mount at all: " + failure);
+                "a bare file name is the ONLY thing a job may say, so refusing one leaves every " +
+                "file-reading integration unable to read the mount at all: " + failure);
             Assert.IsNull(failure, "a name that resolved must carry no failure, or a caller logs a reason for a success");
-            Assert.AreEqual(Path.Combine(Path.GetFullPath(Root), CredentialName), path,
+            Assert.AreEqual(Path.Combine(Path.GetFullPath(Root), FileName), path,
                 "the name must resolve to exactly one location inside the configured root: a resolution that " +
                 "drifts elsewhere reads a file from the image instead of the operator's mount");
         }
@@ -108,8 +91,8 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ANameWithAForwardSlash_IsRefused_SoAJobCannotNameAPath()
         {
-            Assert.IsFalse(RootedNames.TryResolve(Root, "../etc/shadow", "credential", out var path, out var failure),
-                "a credential name arrives over the API from whoever can reach it, so a name that may contain a " +
+            Assert.IsFalse(RootedNames.TryResolve(Root, "../etc/shadow", "file", out var path, out var failure),
+                "a file name arrives over the API from whoever can reach it, so a name that may contain a " +
                 "path lets that caller read any file the container can and have it handed back in a report");
             Assert.IsNull(path, "a refused name must yield no path, or a caller opens what it was told to anyway");
             StringAssert.Contains(failure, "path separator",
@@ -120,7 +103,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ANameWithABackslash_IsRefused_BecauseTheOtherPlatformsSeparatorIsASeparatorToo()
         {
-            Assert.IsFalse(RootedNames.TryResolve(Root, "sub\\shadow", "credential", out var path, out var failure),
+            Assert.IsFalse(RootedNames.TryResolve(Root, "sub\\shadow", "file", out var path, out var failure),
                 "the runtime's image is Linux and a developer's machine is not, so a name refused on one platform " +
                 "and resolved on the other is a hole that only opens where nobody tests");
             Assert.IsNull(path, "a refused name must yield no path");
@@ -130,9 +113,9 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ANameContainingDotDot_IsRefused_BeforeThePlatformNormalisesIt()
         {
-            Assert.IsFalse(RootedNames.TryResolve(Root, "..", "credential", out var path, out var failure),
+            Assert.IsFalse(RootedNames.TryResolve(Root, "..", "file", out var path, out var failure),
                 "the parent-directory segment is how a name leaves the mount, and a name that leaves the mount " +
-                "can name the credential directory from the files mount and the other way round");
+                "can name any file this container can read and have its contents written into the graph");
             Assert.IsNull(path, "a refused name must yield no path");
             StringAssert.Contains(failure, "may not contain '..'",
                 "the SHAPE check must be what refuses it, and it must say so: leaving '..' to the containment " +
@@ -145,9 +128,9 @@ namespace NoSQL.GraphDB.Tests
         {
             var rooted = Path.Combine(Path.GetFullPath(Path.GetTempPath()), "steal.txt");
 
-            Assert.IsFalse(RootedNames.TryResolve(Root, rooted, "credential", out var path, out _),
+            Assert.IsFalse(RootedNames.TryResolve(Root, rooted, "file", out var path, out _),
                 "an absolute path as a name would make the configured root advisory, and the root is the only " +
-                "thing that keeps a job from naming a file the operator never mounted as a credential");
+                "thing that keeps a job from naming a file the operator never mounted at all");
             Assert.IsNull(path, "a refused name must yield no path");
 
             // The rooted form that carries NO separator, and so is refused by the rooted check alone. It only
@@ -155,7 +138,7 @@ namespace NoSQL.GraphDB.Tests
             // check is there for.
             if (Path.IsPathRooted("C:steal.txt"))
             {
-                Assert.IsFalse(RootedNames.TryResolve(Root, "C:steal.txt", "credential", out var driveRelative,
+                Assert.IsFalse(RootedNames.TryResolve(Root, "C:steal.txt", "file", out var driveRelative,
                         out var failure),
                     "a drive-relative name is rooted while looking like a plain file name, so the platform " +
                     "resolves it against a directory the runtime never configured");
@@ -169,7 +152,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ANameWithACharacterAFileNameMayNotHave_IsRefused_ByTheShapeCheckAndNotByAccident()
         {
-            Assert.IsFalse(RootedNames.TryResolve(Root, "pass\0word", "credential", out var path, out var failure),
+            Assert.IsFalse(RootedNames.TryResolve(Root, "pass\0word", "file", out var path, out var failure),
                 "an embedded null truncates the name at whatever layer reads it next, so the file actually " +
                 "opened is not the file whose name was checked");
             Assert.IsNull(path, "a refused name must yield no path");
@@ -184,7 +167,7 @@ namespace NoSQL.GraphDB.Tests
         {
             foreach (var name in new String[] { null, String.Empty, "   " })
             {
-                Assert.IsFalse(RootedNames.TryResolve(Root, name, "credential", out var path, out var failure),
+                Assert.IsFalse(RootedNames.TryResolve(Root, name, "file", out var path, out var failure),
                     "an empty name would resolve to the mount DIRECTORY, and reading a directory is an error a " +
                     "reader would blame on the mount rather than on the job that named nothing");
                 Assert.IsNull(path, "a refused name must yield no path");
@@ -199,9 +182,9 @@ namespace NoSQL.GraphDB.Tests
         {
             foreach (var root in new String[] { null, String.Empty, "   " })
             {
-                Assert.IsFalse(RootedNames.TryResolve(root, CredentialName, "credential", out var path, out var failure),
+                Assert.IsFalse(RootedNames.TryResolve(root, FileName, "file", out var path, out var failure),
                     "with no configured directory a name would resolve against the process's working directory, " +
-                    "so the runtime would read a file baked into the image and authenticate with whatever it says");
+                    "so the runtime would read a file baked into the image and describe it as the operator's data");
                 Assert.IsNull(path, "a refused name must yield no path");
                 StringAssert.Contains(failure, "directory is configured",
                     "the refusal must name the missing CONFIGURATION, because the fix is a mount and not a job field");
@@ -211,8 +194,8 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ASiblingDirectorySharingTheRootsCharacters_IsUnreachable()
         {
-            // The case a prefix check alone would miss: /run/secrets-old starts with /run/secrets and is a
-            // different directory, which is why the containment test compares against the root WITH a separator.
+            // The case a prefix check alone would miss: /files-old starts with /files and is a different
+            // directory, which is why the containment test compares against the root WITH a separator.
             var resolvedRoot = Path.GetFullPath(Root);
             var sibling = Path.GetFullPath(Root + "-old");
 
@@ -224,65 +207,96 @@ namespace NoSQL.GraphDB.Tests
 
             var name = sibling + Path.DirectorySeparatorChar + "steal.txt";
 
-            Assert.IsFalse(RootedNames.TryResolve(Root, name, "credential", out var path, out _),
+            Assert.IsFalse(RootedNames.TryResolve(Root, name, "file", out var path, out _),
                 "a name reaching a sibling directory whose name merely BEGINS with the root must be refused: an " +
-                "operator who rotates by mounting /run/secrets-old next to /run/secrets would otherwise have " +
-                "every retired credential readable by name from a job");
+                "operator who keeps /files-old next to /files would otherwise have every file in it readable " +
+                "by name from a job");
             Assert.IsNull(path, "a refused name must yield no path");
         }
 
         [TestMethod]
         public void ARootWrittenWithATrailingSeparator_ResolvesTheSameNameToTheSamePath()
         {
-            Assert.IsTrue(RootedNames.TryResolve(Root, CredentialName, "credential", out var bare, out _),
+            Assert.IsTrue(RootedNames.TryResolve(Root, FileName, "file", out var bare, out _),
                 "the plain root must resolve, or the rest of this test proves nothing");
-            Assert.IsTrue(RootedNames.TryResolve(Root + "/", CredentialName, "credential", out var slashed,
+            Assert.IsTrue(RootedNames.TryResolve(Root + "/", FileName, "file", out var slashed,
                     out var failure),
                 "an operator writes the mount path in a compose file and may end it with a separator, so a root " +
-                "spelled that way must not make every credential unreadable: " + failure);
+                "spelled that way must not make every file unreadable: " + failure);
             Assert.AreEqual(bare, slashed,
-                "the two spellings of one directory must resolve to one file, or whether a credential is found " +
+                "the two spellings of one directory must resolve to one file, or whether a file is found " +
                 "depends on a trailing character in configuration");
         }
 
         // ------------------------------------------------------------------------------------------------
-        // Credential CONTENT rules, driven through FixtureCredentialStore because DirectoryCredentialStore
-        // .TryAccept is internal to the runtime assembly; the fixture store routes through that same method.
+        // Credential CONTENT rules, driven through the resolver, which is the ONE place they live and the only
+        // way a credential enters the runtime at all.
         // ------------------------------------------------------------------------------------------------
 
         [TestMethod]
-        public void ExactlyOneTrailingLineEnding_IsStripped_SoPrintfEchoAndAProjectedSecretAgree()
+        public void ExactlyOneTrailingLineEnding_IsStripped_SoAPastedValueSurvivesItsLineBreak()
         {
-            Assert.IsTrue(TryReadContent("pw", out var bare, out _), "a file written with printf must be readable");
-            Assert.AreEqual("pw", bare, "printf 'pw' > f writes no line ending, and the value is the file verbatim");
+            Assert.IsTrue(TryReadContent("pw", out var bare, out _), "a value pasted with no line break is usable");
+            Assert.AreEqual("pw", bare, "with nothing to strip, the value is what was supplied, verbatim");
 
-            Assert.IsTrue(TryReadContent("pw\n", out var unix, out _), "a file written with echo must be readable");
+            Assert.IsTrue(TryReadContent("pw\n", out var unix, out _), "a value pasted out of a terminal is usable");
             Assert.AreEqual("pw", unix,
-                "echo pw > f differs from printf by one byte, and keeping that byte produces an authentication " +
-                "failure from somebody's controller with nothing in the report to explain it");
+                "a copy out of a terminal brings the newline with it, and keeping that byte produces an " +
+                "authentication failure from somebody's controller with nothing in the report to explain it");
 
-            Assert.IsTrue(TryReadContent("pw\r\n", out var windows, out _), "a CRLF file must be readable");
+            Assert.IsTrue(TryReadContent("pw\r\n", out var windows, out _), "a value copied on Windows is usable");
             Assert.AreEqual("pw", windows,
-                "a credential file edited on Windows ends CRLF, and treating those two bytes as part of the " +
-                "password sends the wrong value to the source");
+                "a copy on Windows ends CRLF, and treating those two bytes as part of the password sends the " +
+                "wrong value to the source");
 
-            Assert.IsTrue(TryReadContent("pw\r", out var carriageReturn, out _), "a CR-only file must be readable");
+            Assert.IsTrue(TryReadContent("pw\r", out var carriageReturn, out _), "a lone CR is usable too");
             Assert.AreEqual("pw", carriageReturn,
                 "a lone carriage return is a line ending too, and one left on the value is invisible in every " +
                 "log line the operator would use to diagnose the rejection");
         }
 
         [TestMethod]
-        public void ASecondTrailingLineEnding_IsPartOfTheCredential_BecauseContentIsOtherwiseVerbatim()
+        public void ASecondTrailingLineEnding_IsRefused_RatherThanStrippedOrSent()
         {
-            Assert.IsTrue(TryReadContent("pw\n\n", out var twoNewlines, out _), "the value is not empty");
-            Assert.AreEqual("pw\n", twoNewlines,
-                "only ONE trailing line ending is a file-format artefact; stripping more would silently rewrite " +
-                "a credential whose real last character is a newline, and the source would reject it");
+            // Exactly ONE ending is dropped, so what is left of "pw\n\n" is "pw\n" - and a credential whose
+            // last character is a line break cannot go in an HTTP header at all. Both halves matter: the
+            // value is never silently rewritten to make it work, AND it is refused here rather than at the
+            // send, where the runner could only report that the source did not answer.
+            foreach (var content in new String[] { "pw\n\n", "pw\r\n\r\n", "p\nw\n" })
+            {
+                Assert.IsFalse(TryReadContent(content, out var value, out var failure),
+                    "a credential still carrying a line break after one ending is dropped must be REFUSED. " +
+                    "Stripping the rest would send a value the caller never supplied, and sending it as it " +
+                    "is throws inside the provider, which the runner can only report as 'the source did not " +
+                    "answer' - the wrong system, when the answer is one character of the key");
+                Assert.IsNull(value, "a refused credential must yield no value for a run to authenticate with");
+                StringAssert.Contains(failure, "HTTP header",
+                    "the refusal must say why the value cannot be used, or the caller re-pastes the same " +
+                    "thing and gets the same failure");
+                Assert.IsFalse(failure.Contains("pw", StringComparison.Ordinal),
+                    "and it must not quote the value: this message is reported to the caller and logged, " +
+                    "and a value refused before the lease is one redaction knows nothing about");
+            }
+        }
 
-            Assert.IsTrue(TryReadContent("pw\r\n\r\n", out var twoCrLf, out _), "the value is not empty");
-            Assert.AreEqual("pw\r\n", twoCrLf,
-                "the same rule holds for CRLF: exactly one ending is removed, never all of them");
+        [TestMethod]
+        public void ACharacterOutsideAscii_IsRefused_BecauseNoHeaderCanCarryIt()
+        {
+            // What a copy out of a document or a chat window brings along: a curly quote, a non-breaking
+            // space, an accented letter. .NET refuses to put any of them in a header, so a run that accepted
+            // one would throw inside the provider and be reported as "the source did not answer".
+            foreach (var content in new String[] { "sk-’key", "sk- key", "sk-kéy" })
+            {
+                Assert.IsFalse(TryReadContent(content, out var value, out var failure),
+                    "a key carrying a character no HTTP header can hold must be refused as the credential " +
+                    "problem it is, and named as one, or the operator is sent to look at their console");
+                Assert.IsNull(value, "a refused credential must yield no value");
+                StringAssert.Contains(failure, "ASCII",
+                    "the refusal must say what is wrong with the value, because the character is invisible " +
+                    "in the field it was pasted into");
+                Assert.IsFalse(failure.Contains("sk-", StringComparison.Ordinal),
+                    "and it must not quote the value, which is reported to the caller and logged");
+            }
         }
 
         [TestMethod]
@@ -290,7 +304,7 @@ namespace NoSQL.GraphDB.Tests
         {
             Assert.IsTrue(TryReadContent("  pw\n", out var leading, out _), "the value is not empty");
             Assert.AreEqual("  pw", leading,
-                "trimming a leading space would send a different password than the file holds, and the source " +
+                "trimming a leading space would send a different password than the one supplied, and the source " +
                 "reports only that authentication failed");
 
             Assert.IsTrue(TryReadContent("pass word\n", out var internalSpace, out _), "the value is not empty");
@@ -298,19 +312,19 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.IsTrue(TryReadContent("pw  \n", out var trailing, out _), "the value is not empty");
             Assert.AreEqual("pw  ", trailing,
-                "a trailing space is the one an operator cannot see in an editor, so trimming it makes the file " +
-                "look right and the run fail");
+                "a trailing space is the one nobody can see in a field, so trimming it makes the value look " +
+                "right and the run fail");
         }
 
         [TestMethod]
-        public void AnEmptyCredentialFile_IsAFailure_NeverNoCredential()
+        public void AnEmptyCredentialValue_IsAFailure_NeverNoCredential()
         {
             foreach (var content in new[] { String.Empty, "\n", "\r\n" })
             {
                 Assert.IsFalse(TryReadContent(content, out var value, out var failure),
-                    "a rotation script that truncated a file must fail the job: read as 'no credential' the run " +
-                    "reads what the source shows the public, declares that complete, and withdraws every claim " +
-                    "the instance ever made");
+                    "a form submitted before the paste must fail the job: read as 'no credential' the run reads " +
+                    "what the source shows the public, declares that complete, and withdraws every claim the " +
+                    "instance ever made");
                 Assert.IsNull(value, "a failed read must hand back no value, or the run authenticates with nothing");
                 Assert.IsFalse(String.IsNullOrWhiteSpace(failure),
                     "the failure must say why, because an unexplained credential failure is indistinguishable " +
@@ -319,110 +333,15 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void AWhitespaceOnlyCredentialFile_IsAFailure_ForTheSameReason()
+        public void AWhitespaceOnlyCredentialValue_IsAFailure_ForTheSameReason()
         {
             foreach (var content in new[] { "   ", "\t", " \n", "\t \r\n" })
             {
                 Assert.IsFalse(TryReadContent(content, out var value, out _),
-                    "whitespace is what a half-written or projected-but-unpopulated file holds, and treating it " +
-                    "as a credential produces a complete snapshot of what the source shows the public");
+                    "whitespace is what a half-filled field holds, and treating it as a credential produces a " +
+                    "complete snapshot of what the source shows the public");
                 Assert.IsNull(value, "a failed read must hand back no value");
             }
-        }
-
-        [TestMethod]
-        public void ACredentialTheStoreDoesNotHave_Fails_WithAReasonAndNoValue()
-        {
-            var store = new FixtureCredentialStore(new Dictionary<String, String>(StringComparer.Ordinal));
-
-            Assert.IsFalse(store.TryRead(CredentialName, out var value, out var failure),
-                "a name nothing answers to is 'I could not look', which must never become 'there is nothing there'");
-            Assert.IsNull(value, "a failed read must hand back no value");
-            Assert.IsFalse(String.IsNullOrWhiteSpace(failure), "the failure must name what could not be read");
-        }
-
-        [TestMethod]
-        public void ACredentialNameWithASeparator_IsRefusedByShape_BeforeTheStoreIsAskedForIt()
-        {
-            // The fixture DOES hold this key, so only the shape check can refuse it.
-            var store = new FixtureCredentialStore(new Dictionary<String, String>(StringComparer.Ordinal)
-            {
-                { "sub/name", Secret },
-            });
-
-            Assert.IsFalse(store.TryRead("sub/name", out var value, out var failure),
-                "the fixture store must route the name through the same primitive a real mount does, or the " +
-                "conformance suite certifies a path-escape check the live path applies and the suite does not");
-            Assert.IsNull(value, "a refused name must hand back no value");
-            StringAssert.Contains(failure, "path separator", "the shape check must be what refused it");
-        }
-
-        // ------------------------------------------------------------------------------------------------
-        // The real mount: one file per credential in a bind-mounted directory.
-        // ------------------------------------------------------------------------------------------------
-
-        [TestMethod]
-        public void TheMountedStore_ReadsTheFileTheNameNamesUnderTheConfiguredDirectory()
-        {
-            File.WriteAllText(Path.Combine(_mount, CredentialName), Secret + "\n");
-
-            Assert.IsTrue(MountedStore().TryRead(CredentialName, out var value, out var failure),
-                "the credential mount is the whole delivery mechanism, so a store that cannot read a file " +
-                "written into the configured directory leaves every credentialed integration unusable: " + failure);
-            Assert.AreEqual(Secret, value,
-                "the value must come from the CONFIGURED directory on every run, because that is what makes " +
-                "rotating a credential nothing more than overwriting a file, with no restart and nothing " +
-                "re-entered");
-        }
-
-        [TestMethod]
-        public void TheMountedStore_FailsForACredentialThatIsNotThere_RatherThanAnsweringNoCredential()
-        {
-            Assert.IsFalse(MountedStore().TryRead("absent-credential", out var value, out var failure),
-                "a name with no file behind it is 'I could not look', and reading the source without the " +
-                "credential produces a complete snapshot of what it shows the public");
-            Assert.IsNull(value, "a failed read must hand back no value");
-            Assert.IsFalse(String.IsNullOrWhiteSpace(failure),
-                "the failure must say what could not be read, because the fix is a file in the mount and the " +
-                "operator has to know which one");
-        }
-
-        [TestMethod]
-        public void TheMountedStore_FailsForATruncatedFile_WhichIsWhatAHalfDoneRotationLeavesBehind()
-        {
-            File.WriteAllText(Path.Combine(_mount, CredentialName), String.Empty);
-
-            Assert.IsFalse(MountedStore().TryRead(CredentialName, out var value, out _),
-                "a rotation script that truncated the file must fail the job: read as 'no credential' the run " +
-                "authenticates as nobody, sees what the source shows the public, declares that complete, and " +
-                "withdraws every claim the instance ever made");
-            Assert.IsNull(value, "a failed read must hand back no value");
-        }
-
-        [TestMethod]
-        public void TheMountedStore_CannotReachASiblingDirectoryWhoseNameBeginsWithTheMount()
-        {
-            Directory.CreateDirectory(_retired);
-            var retiredFile = Path.Combine(_retired, "retired-password");
-            File.WriteAllText(retiredFile, "retired-value\n");
-
-            var store = MountedStore();
-
-            Assert.IsFalse(store.TryRead(
-                    ".." + Path.DirectorySeparatorChar + Path.GetFileName(_retired) +
-                    Path.DirectorySeparatorChar + "retired-password", out var byRelative, out _),
-                "the file really is there and the process really can read it, so only the name check stops a " +
-                "job from naming it: an operator who rotates by mounting a second directory alongside the " +
-                "first would otherwise have every retired credential readable by whoever can submit a job");
-            Assert.IsNull(byRelative, "a refused name must hand back no value");
-
-            Assert.IsFalse(store.TryRead(retiredFile, out var byAbsolute, out _),
-                "the absolute form is the one a naive prefix check on the resolved path accepts, because the " +
-                "sibling shares the mount's characters without a separator");
-            Assert.IsNull(byAbsolute, "a refused name must hand back no value");
-
-            Assert.AreEqual("retired-value\n", File.ReadAllText(retiredFile),
-                "this test only means anything while the retired credential is genuinely readable from disk");
         }
 
         // ------------------------------------------------------------------------------------------------
@@ -433,11 +352,11 @@ namespace NoSQL.GraphDB.Tests
         public void AProviderNeedingNoCredential_GetsALeaseThatIsEmptyAndHasNoFingerprint()
         {
             var active = new ActiveCredentials();
-            var resolver = ResolverOver(active);
+            var resolver = new CredentialResolver(active);
 
             using var fromNull = resolver.Resolve(null);
             using var fromEmpty = resolver.Resolve(
-                new Dictionary<String, CredentialSource>(StringComparer.OrdinalIgnoreCase));
+                new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase));
 
             Assert.IsTrue(fromNull.IsEmpty, "a provider needing no credential must get a lease holding nothing");
             Assert.IsTrue(fromEmpty.IsEmpty, "an empty credential map is the same statement as none at all");
@@ -474,31 +393,15 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void ANamedCredentialTheStoreDoesNotHave_Raises_NamingBothTheCredentialAndTheSetting()
+        public void ACredentialSettingCarryingNothing_IsRefused_RatherThanTreatedAsNoCredential()
         {
-            var resolver = ResolverOver(new ActiveCredentials());
+            var resolver = new CredentialResolver(new ActiveCredentials());
 
-            var ex = Assert.ThrowsException<CredentialUnavailableException>(
-                () => resolver.Resolve(Names(("password", "absent-credential"))),
-                "an unreadable credential must fail the job BEFORE the provider is invoked: reading the source " +
-                "without it produces what the source shows the public and a complete snapshot withdraws the rest");
-            StringAssert.Contains(ex.Message, "absent-credential",
-                "the failure must name the CREDENTIAL, because the fix is a file in the mount");
-            StringAssert.Contains(ex.Message, "password",
-                "the failure must name the SETTING too, because a job with two credentials otherwise leaves the " +
-                "operator guessing which of them the mount is missing");
-        }
-
-        [TestMethod]
-        public void ACredentialSettingNamingNothing_IsRefused_RatherThanTreatedAsNoCredential()
-        {
-            var resolver = ResolverOver(new ActiveCredentials(), (CredentialName, Secret));
-
-            foreach (var named in new String[] { null, String.Empty, "   " })
+            foreach (var supplied in new String[] { null, String.Empty, "   " })
             {
                 var ex = Assert.ThrowsException<CredentialUnavailableException>(
-                    () => resolver.Resolve(Names(("password", named))),
-                    "a credential setting whose name is blank is a job that was half filled in, and running it " +
+                    () => resolver.Resolve(Supplied(("password", supplied))),
+                    "a credential setting whose value is blank is a job that was half filled in, and running it " +
                     "anyway reads the source unauthenticated and declares that view complete");
                 StringAssert.Contains(ex.Message, "password",
                     "the refusal must name the setting that was left empty, or the caller cannot fix the job");
@@ -509,8 +412,7 @@ namespace NoSQL.GraphDB.Tests
         public void ACredentialSettingKey_IsFoundWhateverCaseTheJobSpeltItIn()
         {
             var active = new ActiveCredentials();
-            using var lease = ResolverOver(active, (CredentialName, Secret))
-                .Resolve(Names(("Password", CredentialName)));
+            using var lease = new CredentialResolver(active).Resolve(Supplied(("Password", Secret)));
 
             Assert.AreEqual(Secret, lease.Require("password"),
                 "a job arrives as JSON and deserialising yields an ordinal comparer whatever the initialiser " +
@@ -524,7 +426,7 @@ namespace NoSQL.GraphDB.Tests
         public void AfterTheRunEnds_TryGetAndRequireThrow_SoAProviderThatKeptTheContextFindsOut()
         {
             var active = new ActiveCredentials();
-            var lease = ResolverOver(active, (CredentialName, Secret)).Resolve(Names(("password", CredentialName)));
+            var lease = new CredentialResolver(active).Resolve(Supplied(("password", Secret)));
 
             Assert.AreEqual(Secret, lease.Require("password"), "the value is readable while the run lasts");
 
@@ -543,17 +445,15 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void ACredentialSuppliedWithTheJob_IsLeasedAndHeldExactlyAsANamedOneIs()
+        public void ACredentialSuppliedWithTheJob_IsHeldForTheRunAndForgottenAfterIt()
         {
             var active = new ActiveCredentials();
 
-            // No fixture credential at all: the store has nothing to offer, so if this resolves, it
-            // resolved from the job.
-            using (var lease = ResolverOver(active).Resolve(Supplied(("password", Secret))))
+            using (var lease = new CredentialResolver(active).Resolve(Supplied(("password", Secret))))
             {
                 Assert.AreEqual(Secret, lease.Require("password"),
-                    "a credential the caller supplied must reach the provider like any other, or the whole point " +
-                    "of the second source is lost");
+                    "the credential the caller supplied must reach the provider, which is the whole of the " +
+                    "credential path now that there is nowhere else one can come from");
                 Assert.IsFalse(lease.IsEmpty,
                     "the lease must count as credentialed, because that is what turns on the host guard and the " +
                     "no-plain-http rule for the outbound leg");
@@ -567,40 +467,13 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.IsTrue(active.IsEmpty,
                 "and it must be FORGOTTEN when the run ends. This is the whole contract of supplying a value " +
-                "inline: no cache, no reuse by the next job, nothing to rotate");
-        }
-
-        [TestMethod]
-        public void ACredentialSuppliedWithTheJob_ObeysTheSameContentRulesAsAFile()
-        {
-            var active = new ActiveCredentials();
-
-            // One trailing newline dropped, and NOTHING else: a value pasted out of a console arrives with
-            // one, and a space inside or around a real password has to survive.
-            using (var lease = ResolverOver(active).Resolve(Supplied(("password", " pa ss \n"))))
-            {
-                Assert.AreEqual(" pa ss ", lease.Require("password"),
-                    "exactly one trailing line ending is dropped and every other character is verbatim, or a " +
-                    "credential that works from cron fails from a form and the symptom is an authentication " +
-                    "failure with nothing to explain it");
-            }
-
-            foreach (var blank in new String[] { String.Empty, "   ", "\n" })
-            {
-                var ex = Assert.ThrowsException<CredentialUnavailableException>(
-                    () => ResolverOver(active).Resolve(Supplied(("password", blank))),
-                    "an empty supplied credential is a failure rather than 'no credential': submitting the form " +
-                    "before pasting would otherwise read what the source shows the public, declare that " +
-                    "complete, and withdraw every claim the instance ever made");
-                StringAssert.Contains(ex.Message, "password",
-                    "the refusal must name the setting, because that is the field to go back to");
-            }
+                "with a job: no cache, no reuse by the next job, nothing to rotate");
         }
 
         [TestMethod]
         public void ARefusedSuppliedCredential_IsNotQuotedInTheFailure_BecauseThatMessageIsReported()
         {
-            var resolver = ResolverOver(new ActiveCredentials());
+            var resolver = new CredentialResolver(new ActiveCredentials());
 
             // A value that fails the content rules has NOT entered the lease, so redaction cannot cover it.
             // Anything the message quoted would travel out on the report in the clear.
@@ -614,27 +487,10 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void ACredentialSource_NeverRendersTheSecretWhenFormatted()
-        {
-            var supplied = CredentialSource.Inline(Secret);
-            var named = CredentialSource.Named(CredentialName);
-
-            Assert.IsFalse(supplied.ToString().Contains(Secret, StringComparison.Ordinal),
-                "an interpolation into a log line or an exception message is the one accident a secret-carrying " +
-                "type suffers, and the guard belongs on the type rather than on every site that might format it");
-            Assert.AreEqual(CredentialName, named.ToString(),
-                "a NAME is not a secret and reads usefully in a message, which is the asymmetry worth keeping");
-            Assert.IsTrue(supplied.IsInline, "a supplied value must declare itself as one");
-            Assert.IsNull(supplied.Name, "a supplied value has no name to read");
-            Assert.IsNull(named.InlineValue, "and a named credential carries no value until the store is asked");
-        }
-
-        [TestMethod]
         public void RequireForASettingNoCredentialWasSuppliedFor_NamesTheSetting()
         {
             var active = new ActiveCredentials();
-            using var lease = ResolverOver(active, (CredentialName, Secret))
-                .Resolve(Names(("password", CredentialName)));
+            using var lease = new CredentialResolver(active).Resolve(Supplied(("password", Secret)));
 
             var ex = Assert.ThrowsException<InvalidOperationException>(() => lease.Require("token"),
                 "a provider asking for a credential setting the job never filled in must be told, not handed " +
@@ -670,10 +526,9 @@ namespace NoSQL.GraphDB.Tests
                 "two runs over the same credential must report the same fingerprint, or the value is noise and " +
                 "an operator cannot use it to tell a rotation from a run");
             Assert.AreNotEqual(first, rotated,
-                "a credential file replaced by MOVING a new file over it gives the file a new inode and a " +
-                "bind-mounted container keeps reading the old one, so the job succeeds with the credential the " +
-                "operator believes they revoked; a fingerprint that does not change after a rotation is the only " +
-                "way that is ever seen");
+                "a caller who pasted a stale value must see the report change once they paste the new one: two " +
+                "failures under one identical fingerprint say the value never reached this runtime, which is " +
+                "a different problem from a value the source rejects");
         }
 
         [TestMethod]
@@ -1215,61 +1070,37 @@ namespace NoSQL.GraphDB.Tests
         // ------------------------------------------------------------------------------------------------
 
         /// <summary>
-        ///   Drives the credential CONTENT rules through the fixture store, which routes them through the same
-        ///   <c>TryAccept</c> the real mount uses (that method is internal to the runtime assembly).
+        ///   Drives the credential CONTENT rules through the resolver, which is the one place they live and
+        ///   the only way a credential enters the runtime. A refusal arrives as an exception, so it is turned
+        ///   back into the try-shape the rules are stated in.
         /// </summary>
         private static Boolean TryReadContent(String content, out String value, out String failure)
         {
-            var store = new FixtureCredentialStore(new Dictionary<String, String>(StringComparer.Ordinal)
-            {
-                { CredentialName, content },
-            });
+            var active = new ActiveCredentials();
 
-            return store.TryRead(CredentialName, out value, out failure);
-        }
-
-        /// <summary>The directory store over a real mount, configured exactly as the runtime configures it.</summary>
-        private DirectoryCredentialStore MountedStore()
-        {
-            return new DirectoryCredentialStore(Options.Create(new IntegrationsOptions
+            try
             {
-                Credentials = new CredentialsOptions { Directory = _mount },
-            }));
-        }
-
-        private static CredentialResolver ResolverOver(ActiveCredentials active,
-            params (String Name, String Value)[] offered)
-        {
-            var values = new Dictionary<String, String>(StringComparer.Ordinal);
-            foreach (var pair in offered)
-            {
-                values[pair.Name] = pair.Value;
+                using var lease = new CredentialResolver(active).Resolve(Supplied(("password", content)));
+                value = lease.Require("password");
+                failure = null;
+                return true;
             }
-
-            return new CredentialResolver(new FixtureCredentialStore(values), active);
-        }
-
-        /// <summary>Which credential each credential setting uses, by NAME, as a job supplies it.</summary>
-        private static IReadOnlyDictionary<String, CredentialSource> Names(
-            params (String SettingKey, String Name)[] pairs)
-        {
-            var names = new Dictionary<String, CredentialSource>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in pairs)
+            catch (CredentialUnavailableException ex)
             {
-                names[pair.SettingKey] = CredentialSource.Named(pair.Name);
+                value = null;
+                failure = ex.Message;
+                return false;
             }
-
-            return names;
         }
 
         /// <summary>The credential VALUES a job carries, keyed by credential setting.</summary>
-        private static IReadOnlyDictionary<String, CredentialSource> Supplied(
+        private static IReadOnlyDictionary<String, String> Supplied(
             params (String SettingKey, String Value)[] pairs)
         {
-            var supplied = new Dictionary<String, CredentialSource>(StringComparer.OrdinalIgnoreCase);
+            var supplied = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in pairs)
             {
-                supplied[pair.SettingKey] = CredentialSource.Inline(pair.Value);
+                supplied[pair.SettingKey] = pair.Value;
             }
 
             return supplied;

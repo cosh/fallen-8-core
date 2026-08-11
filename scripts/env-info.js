@@ -72,7 +72,7 @@ console.log(`  F8 Studio UI:  http://localhost:${uiPort}  (its own container; ta
 console.log(`  F8 REST API:   http://localhost:${f8Port}  (REST only; /openapi + /scalar are Development-only, so run "dotnet run --project fallen-8-core-apiApp" for those)`);
 console.log('  NL assist:     http://localhost:11434  (Ollama, default model "phi4-f8-mini"; opt-in "phi4-f8")');
 // The API-side URL and deliberately no localhost URL for the runtime itself: the f8-integrations
-// sidecar publishes no host port (it can read third-party credentials), so the API is the only way in.
+// sidecar publishes no host port (jobs hand it third-party credentials), so the API is the only way in.
 console.log(`  Integrations:  http://localhost:${f8Port}/integrations/providers  (through the API; the sidecar has no host port of its own)`);
 console.log(`  Observability: http://localhost:${grafanaPort}  (Grafana; fleet + per-tenant dashboards, open on the trusted network)`);
 console.log('  OTLP ingest:   localhost:4317 (gRPC) / :4318 (HTTP)  (point external Fallen-8 instances here)');

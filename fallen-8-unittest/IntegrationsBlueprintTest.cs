@@ -65,7 +65,6 @@ namespace NoSQL.GraphDB.Tests
         private const String CsvFileName = "devices.csv";
 
         private const String ConsoleBaseUrl = "https://console.test/proxy/network/integration";
-        private const String KeyName = "unifi-console-key";
         private const String KeyValue = "test-console-api-key";
 
         private const String SiteId = "11111111-1111-1111-1111-111111111111";
@@ -585,6 +584,29 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task EveryRequestOfAWholeRunCarriedTheLeasedKeyInTheVendorsHeader()
+        {
+            var provider = new UnifiNetworkProvider();
+            var console = new SourceDouble(HappyConsole);
+
+            await VerifyUnifiAsync(provider, console);
+
+            Assert.IsTrue(console.ApiKeys.Count > 0,
+                "a run that issued no request at all would make this assertion vacuous");
+            foreach (var sent in console.ApiKeys)
+            {
+                // Nothing else in the suite can see this. A source double answers the same whether the
+                // header is there or not, so without this assertion the one line that puts the key on the
+                // request could be deleted and every test in this file would still pass - while every real
+                // run answered 401 and the report blamed the credential the operator had just checked.
+                Assert.AreEqual(KeyValue, sent,
+                    "every request must carry the LEASED value in the vendor's own header (" +
+                    UnifiClient.ApiKeyHeader + "), or the console refuses a request that never " +
+                    "authenticated and the failure reads as a wrong key");
+            }
+        }
+
+        [TestMethod]
         public async Task VpnAndTeleportClientsAreCountedOnceAndNotEmitted()
         {
             var provider = new UnifiNetworkProvider();
@@ -661,7 +683,7 @@ namespace NoSQL.GraphDB.Tests
             // No stand-in at all: a request escaping BEFORE the refusal is itself the failure, because the
             // request that would escape carries the API key.
             var report = await ConformanceVerifier.VerifyAsync(provider, UnifiJob(provider, "https://192.168.1.1"),
-                credentials: UnifiCredentials(), cancellationToken: CancellationToken.None);
+                cancellationToken: CancellationToken.None);
 
             var refusal = Refusal(report);
             StringAssert.Contains(refusal, "https://{consoleIP}/proxy/network/integration",
@@ -1207,11 +1229,6 @@ namespace NoSQL.GraphDB.Tests
             return job;
         }
 
-        private static IReadOnlyDictionary<String, String> UnifiCredentials()
-        {
-            return new Dictionary<String, String>(StringComparer.Ordinal) { [KeyName] = KeyValue };
-        }
-
         private static IntegrationJob UnifiJob(IIntegrationProvider provider, String baseUrl = ConsoleBaseUrl)
         {
             var job = new IntegrationJob
@@ -1221,15 +1238,14 @@ namespace NoSQL.GraphDB.Tests
             };
 
             job.Settings[UnifiNetworkProvider.BaseUrlSetting] = baseUrl;
-            job.Credentials[UnifiNetworkProvider.ApiKeySetting] = KeyName;
+            job.CredentialValues[UnifiNetworkProvider.ApiKeySetting] = KeyValue;
             return job;
         }
 
         private static Task<ConformanceReport> VerifyUnifiAsync(UnifiNetworkProvider provider,
             SourceDouble console)
         {
-            return ConformanceVerifier.VerifyAsync(provider, UnifiJob(provider),
-                credentials: UnifiCredentials(), sourceDouble: console,
+            return ConformanceVerifier.VerifyAsync(provider, UnifiJob(provider), sourceDouble: console,
                 cancellationToken: CancellationToken.None);
         }
 
@@ -1629,6 +1645,7 @@ namespace NoSQL.GraphDB.Tests
             private readonly Func<HttpRequestMessage, HttpResponseMessage> _answer;
             private readonly List<String> _methods = new List<String>();
             private readonly List<String> _urls = new List<String>();
+            private readonly List<String> _apiKeys = new List<String>();
 
             internal SourceDouble(Func<HttpRequestMessage, HttpResponseMessage> answer)
             {
@@ -1643,6 +1660,17 @@ namespace NoSQL.GraphDB.Tests
             internal IReadOnlyList<String> Urls
             {
                 get { return _urls; }
+            }
+
+            /// <summary>
+            ///   The API key header of every request, or the empty string where none was sent. Recorded
+            ///   because nothing else in the suite can see whether the credential was SENT: a source double
+            ///   answers the same whether the header is there or not, so without this the one line that puts
+            ///   the key on the request could be deleted and every test would stay green.
+            /// </summary>
+            internal IReadOnlyList<String> ApiKeys
+            {
+                get { return _apiKeys; }
             }
 
             internal Int32 Count(String fragment)
@@ -1664,6 +1692,9 @@ namespace NoSQL.GraphDB.Tests
             {
                 _methods.Add(request.Method.Method);
                 _urls.Add(request.RequestUri == null ? String.Empty : request.RequestUri.ToString());
+                _apiKeys.Add(request.Headers.TryGetValues(UnifiClient.ApiKeyHeader, out var sent)
+                    ? String.Join(",", sent)
+                    : String.Empty);
                 return Task.FromResult(_answer(request));
             }
         }

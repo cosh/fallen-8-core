@@ -25,52 +25,42 @@
 
 using System;
 using System.Collections.Generic;
-using Microsoft.Extensions.Options;
-using NoSQL.GraphDB.Integrations.Configuration;
 
 namespace NoSQL.GraphDB.Integrations.Credentials
 {
     /// <summary>
-    ///   Fetches every credential a run needs, ONCE and EAGERLY, before the provider is invoked.
+    ///   Turns the credentials a job carries into the run's lease, ONCE and EAGERLY, before the provider is
+    ///   invoked.
     ///
-    ///   <para>Eagerly, because a lazy fetch moves the failure into the middle of a source read, after the run
-    ///   has begun making withdrawal-relevant decisions. Once, because there is no cache of any kind including
-    ///   "resolve once per run and keep it": these credentials belong to other people and other systems who
-    ///   rotate them on their own timetable, so a stored copy silently becomes the wrong value the moment one
-    ///   is rotated and the integration then fails for a reason invisible from the graph.</para>
+    ///   <para>Eagerly, because a value judged in the middle of a source read fails after the run has begun
+    ///   making withdrawal-relevant decisions. Once, because there is no cache of any kind including "resolve
+    ///   once per run and keep it".</para>
+    ///
+    ///   <para>There is no credential SOURCE to choose between: a job carries the values it needs and the
+    ///   runtime has no mount, no store and nothing to rotate. That is why this type is thin - it exists to
+    ///   apply the content rules and to put the values in the lease, which is what makes them redactable.</para>
     /// </summary>
     public sealed class CredentialResolver
     {
-        private readonly ICredentialStore _store;
         private readonly ActiveCredentials _active;
 
-        public CredentialResolver(IOptions<IntegrationsOptions> options, ActiveCredentials active)
-            : this(new DirectoryCredentialStore(options), active)
-        {
-        }
-
-        /// <param name="store">Where credential values come from. The conformance suite substitutes a fixture
-        /// store, which is what lets the whole credential path be exercised with no real file system.</param>
         /// <param name="active">The process-wide set redaction substitutes against.</param>
-        public CredentialResolver(ICredentialStore store, ActiveCredentials active)
+        public CredentialResolver(ActiveCredentials active)
         {
-            _store = store ?? throw new ArgumentNullException(nameof(store));
             _active = active ?? throw new ArgumentNullException(nameof(active));
         }
 
         /// <summary>
-        ///   Resolves every credential the job supplies, from whichever source it named, and hands back the
-        ///   run's lease. Both sources land in ONE lease, so everything downstream - redaction, the fingerprint,
-        ///   the drop at the end of the run - is blind to where a credential came from.
+        ///   Accepts every credential the job carries and hands back the run's lease.
         /// </summary>
-        /// <param name="sourcesBySettingKey">Where each credential setting's value comes from.</param>
-        /// <exception cref="CredentialUnavailableException">A credential could not be read, or the value supplied
-        /// for one is not usable. "I could not look" is a failure of its own kind, never "no credential": a
-        /// rotation script that truncated a file would otherwise produce a run that reads what the source shows
-        /// the public, declares it complete, and withdraws every claim the instance ever made.</exception>
-        public CredentialLease Resolve(IReadOnlyDictionary<String, CredentialSource> sourcesBySettingKey)
+        /// <param name="valuesBySettingKey">The credential each credential setting uses, by VALUE.</param>
+        /// <exception cref="CredentialUnavailableException">A value the job carried is not usable. That is a
+        /// failure of its own kind, never "no credential": a form submitted before the paste would otherwise
+        /// produce a run that reads what the source shows the public, declares it complete, and withdraws
+        /// every claim the instance ever made.</exception>
+        public CredentialLease Resolve(IReadOnlyDictionary<String, String> valuesBySettingKey)
         {
-            if (sourcesBySettingKey == null || sourcesBySettingKey.Count == 0)
+            if (valuesBySettingKey == null || valuesBySettingKey.Count == 0)
             {
                 // A provider needing none gets an EMPTY lease from a factory, never a shared instance: one
                 // caller putting a static lease in a using would end it permanently for every uncredentialed
@@ -79,109 +69,85 @@ namespace NoSQL.GraphDB.Integrations.Credentials
             }
 
             var values = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in sourcesBySettingKey)
+            foreach (var pair in valuesBySettingKey)
             {
-                if (pair.Value == null)
+                // The reason a value was refused is reported; the value it judged never is. A value rejected
+                // HERE never entered the lease, so redaction knows nothing about it and anything quoted would
+                // travel out on the report in the clear.
+                if (!TryAccept(pair.Value, out var accepted, out var rejected) || accepted == null)
                 {
                     throw new CredentialUnavailableException(String.Format(
-                        "Credential setting '{0}' has no credential source.", pair.Key));
+                        "The credential supplied for setting '{0}' is not usable: {1}", pair.Key, rejected));
                 }
 
-                if (pair.Value.IsInline)
-                {
-                    // The same two content rules as a file, so a credential that works from cron works from a
-                    // button. The reason is reported; the value it judged never is.
-                    if (!CredentialContent.TryAccept(pair.Value.InlineValue!, out var supplied, out var rejected) ||
-                        supplied == null)
-                    {
-                        throw new CredentialUnavailableException(String.Format(
-                            "The credential supplied for setting '{0}' is not usable: {1}", pair.Key, rejected));
-                    }
-
-                    values[pair.Key] = supplied;
-                    continue;
-                }
-
-                if (String.IsNullOrWhiteSpace(pair.Value.Name))
-                {
-                    throw new CredentialUnavailableException(String.Format(
-                        "Credential setting '{0}' names no credential.", pair.Key));
-                }
-
-                if (!_store.TryRead(pair.Value.Name!, out var value, out var failure) || value == null)
-                {
-                    throw new CredentialUnavailableException(String.Format(
-                        "The credential named '{0}' (for setting '{1}') could not be read: {2}",
-                        pair.Value.Name, pair.Key, failure));
-                }
-
-                values[pair.Key] = value;
+                values[pair.Key] = accepted;
             }
 
             return CredentialLease.For(values, _active);
         }
+
+        /// <summary>
+        ///   The two content rules, in one place because a credential is accepted by exactly one route.
+        ///
+        ///   <para>Content is verbatim except EXACTLY ONE trailing line ending, with leading, internal and
+        ///   trailing spaces untouched. A value pasted out of a console arrives with the newline that came
+        ///   with it, and every one of those spaces can be part of a real password; the symptom of getting
+        ///   this wrong is an authentication failure from somebody's controller with nothing to explain it.
+        ///   Exactly one line ending is dropped rather than all trailing whitespace, for the same reason.</para>
+        ///
+        ///   <para>An empty or whitespace-only value is a FAILURE, never "no credential": a form submitted
+        ///   before the paste would otherwise produce a run that reads what the source shows the public,
+        ///   declares that complete, and withdraws every claim the instance ever made.</para>
+        /// </summary>
+        private static Boolean TryAccept(String? raw, out String? value, out String? failure)
+        {
+            value = null;
+
+            var trimmed = raw ?? String.Empty;
+            if (trimmed.EndsWith("\r\n", StringComparison.Ordinal))
+            {
+                trimmed = trimmed.Substring(0, trimmed.Length - 2);
+            }
+            else if (trimmed.EndsWith("\n", StringComparison.Ordinal) ||
+                     trimmed.EndsWith("\r", StringComparison.Ordinal))
+            {
+                trimmed = trimmed.Substring(0, trimmed.Length - 1);
+            }
+
+            if (String.IsNullOrWhiteSpace(trimmed))
+            {
+                failure = "it is empty or holds only whitespace, which is a failure rather than " +
+                          "'no credential': a truncated value would otherwise produce a run that reads what " +
+                          "the source shows the public and then withdraws everything";
+                return false;
+            }
+
+            foreach (var character in trimmed)
+            {
+                // A credential reaches a source as text in an HTTP header, and .NET refuses to put a control
+                // or non-ASCII character on the wire at all. Refused HERE, eagerly, so it fails as the
+                // credential problem it is: left to the send, it throws from inside the provider and the
+                // runner can only report "the source did not answer", which is the wrong system entirely.
+                if (Char.IsControl(character) || character > 127)
+                {
+                    failure = "it contains a character that cannot be sent in an HTTP header, either a " +
+                              "control character or one outside ASCII. The character is deliberately not " +
+                              "quoted. Look for what a copy brought along with it: a line break, a " +
+                              "non-breaking space, or a quotation mark an editor turned into a curly one";
+                    return false;
+                }
+            }
+
+            value = trimmed;
+            failure = null;
+            return true;
+        }
     }
 
     /// <summary>
-    ///   Where ONE credential setting's value comes from: a credential the operator put in the runtime's mount,
-    ///   named by the job, or the credential ITSELF supplied inline in the job.
-    ///
-    ///   <para>One type rather than two parallel maps in every signature, because two maps make "the same
-    ///   setting appears in both" a precedence rule nobody can see. Here it is a shape a job cannot have: the
-    ///   overlap is rejected while the job is being folded, before a run starts.</para>
-    ///
-    ///   <para>The two sources differ in exactly one respect, and it is not how the runtime treats the value -
-    ///   both are leased, redacted, fingerprinted and dropped identically. It is what the JOB is: a job naming
-    ///   credentials is safe to keep, to commit, and to read back as a record of what was asked for. A job
-    ///   carrying one is a secret in a document, so nothing stores it and the runtime never echoes it back.</para>
-    /// </summary>
-    public sealed class CredentialSource
-    {
-        private CredentialSource(Boolean isInline, String? name, String? inlineValue)
-        {
-            IsInline = isInline;
-            Name = name;
-            InlineValue = inlineValue;
-        }
-
-        /// <summary>A credential the operator wrote into the mount, by name.</summary>
-        public static CredentialSource Named(String credentialName)
-        {
-            return new CredentialSource(false, credentialName, null);
-        }
-
-        /// <summary>The credential itself, supplied in the job and held only for the run.</summary>
-        public static CredentialSource Inline(String credentialValue)
-        {
-            return new CredentialSource(true, null, credentialValue);
-        }
-
-        /// <summary>Whether the value came with the job rather than from the mount.</summary>
-        public Boolean IsInline { get; }
-
-        /// <summary>The credential's name, or null when the value was supplied inline.</summary>
-        public String? Name { get; }
-
-        /// <summary>
-        ///   The credential ITSELF when it was supplied inline, null when named. Nothing may log, report or
-        ///   persist this; it exists to be handed to the lease, which is what makes redaction cover it.
-        /// </summary>
-        public String? InlineValue { get; }
-
-        /// <summary>
-        ///   Deliberately never the value. An interpolation into a log line or an exception message is the one
-        ///   accident a secret-carrying type can suffer, and the fix belongs on the type rather than on every
-        ///   site that might one day format it.
-        /// </summary>
-        public override String ToString()
-        {
-            return IsInline ? "<credential supplied with the job>" : Name ?? "<unnamed credential>";
-        }
-    }
-
-    /// <summary>
-    ///   "A named credential could not be read." Its own failure kind, because an unreadable credential and an
-    ///   unreachable source send a reader to different places.
+    ///   "A credential the job carried cannot be used." Its own failure kind, reported as <c>credential</c>,
+    ///   because a value the runtime could not accept and a source that refused one send a reader to the same
+    ///   place and a source that would not answer does not.
     /// </summary>
     public sealed class CredentialUnavailableException : Exception
     {

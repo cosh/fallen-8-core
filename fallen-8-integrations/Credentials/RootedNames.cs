@@ -32,12 +32,12 @@ namespace NoSQL.GraphDB.Integrations.Credentials
     ///   THE ONE PRIMITIVE for every file this runtime opens: a caller supplies a bare NAME and a
     ///   configured root, and this resolves the one location that name may mean.
     ///
-    ///   <para>Credential names and provider file names arrive over the API from the same caller with
-    ///   the same consequence if either can name a path, so both go through here. Both halves of the
-    ///   check are load-bearing, and either alone is historically the bug: a shape check alone misses
-    ///   what the platform normalises, and a prefix check on the resolved path alone misses a root that
-    ///   is itself a prefix of a sibling directory (<c>/run/secrets</c> and <c>/run/secrets-old</c>),
-    ///   which is why the containment test compares against the root WITH a trailing separator.</para>
+    ///   <para>A provider's file names arrive over the API from whoever can reach it, so a name able to
+    ///   name a path is a name able to name anything this container can read. Both halves of the check are
+    ///   load-bearing, and either alone is historically the bug: a shape check alone misses what the
+    ///   platform normalises, and a prefix check on the resolved path alone misses a root that is itself a
+    ///   prefix of a sibling directory (<c>/files</c> and <c>/files-old</c>), which is why the containment
+    ///   test compares against the root WITH a trailing separator.</para>
     /// </summary>
     public static class RootedNames
     {
@@ -46,7 +46,7 @@ namespace NoSQL.GraphDB.Integrations.Credentials
         /// </summary>
         /// <param name="root">The configured directory. Never caller-supplied.</param>
         /// <param name="name">The bare file name, from a job or a setting.</param>
-        /// <param name="what">What the name names, for the failure message ("credential", "file").</param>
+        /// <param name="what">What the name names, for the failure message (today always "file").</param>
         /// <param name="path">The resolved absolute path, when this returns true.</param>
         /// <param name="failure">Why the name was refused, when this returns false. Quotes the name, so
         /// a caller who mistyped one sees which value was rejected.</param>

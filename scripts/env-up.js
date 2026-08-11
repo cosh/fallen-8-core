@@ -129,7 +129,7 @@ function main() {
   console.log(
     integrations
       ? 'Integrations are ON - the f8-integrations sidecar comes up. It is the one service with NO\n' +
-        'host port (it can read third-party credentials), so the API proxy is the only way in.'
+        'host port (jobs hand it third-party credentials), so the API proxy is the only way in.'
       : 'F8_INTEGRATIONS=false - no integrations sidecar; the /integrations routes answer 403.'
   );
   // Both lists are configuration-only (never a job setting) and both default to empty, so the two

@@ -42,7 +42,7 @@ namespace NoSQL.GraphDB.App.Controllers
     ///   The instance's door to the integration runtime (feature integrations): an authenticated
     ///   proxy for the four routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
     ///   on the operator's own network and writes what it saw into one namespace. The runtime's
-    ///   container port is not published, because that container can read third-party credentials, so
+    ///   container port is not published, because jobs hand that container third-party credentials, so
     ///   this proxy is the only way in and needs no second auth story on the runtime side.
     ///
     ///   <para>Fallen-8-level (instance-wide, no <c>/ns/{ns}</c> twin): one runtime serves the whole
@@ -142,11 +142,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="definition">The job definition, forwarded to the runtime untouched</param>
         /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
         /// <remarks>A job carries everything one run needs: which provider, the identity it asserts
-        /// as, the namespace to write into, the provider's settings, and its credentials - either BY
-        /// NAME, read from the runtime's own mount, or as the VALUE itself in credentialValues, for a
-        /// caller who has it in hand and nowhere to put it. A value supplied that way travels through
-        /// here in the request body, so serve this API over TLS if callers do that; the runtime holds
-        /// it for the run alone and keeps no job history, and no route reads a job back.
+        /// as, the namespace to write into, the provider's settings, and its credentials as VALUES in
+        /// credentialValues. The runtime stores none of them: it holds a credential for the run that
+        /// needs it and drops it when the run ends, keeps no job history, and no route reads a job
+        /// back. Those values travel through here in the request body, so serve this API over TLS.
         /// The call is synchronous: the source is read, what it
         /// said is written, the report comes back, and the runtime keeps nothing. A job that ran and
         /// failed still answers 200 with the failure on its report; one that could not be run at all
