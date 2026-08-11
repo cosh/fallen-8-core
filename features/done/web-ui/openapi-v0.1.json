@@ -3911,7 +3911,7 @@
           "Graph"
         ],
         "summary": "Repopulates an index from a property's values across the live elements (feature platform-integrity-audit)",
-        "description": "Index content is DERIVED state with no durability of its own: index writes are neither\r\nsingle-writer transactions nor WAL-logged, so index state is snapshot-only. After a hard crash\r\nthe elements replay from the WAL but every index key added since the last checkpoint is gone,\r\nand three ORDINARY operations drop an index while a client is running - a tabula rasa, loading\r\na save game, and a per-index serialization failure that drops it from the checkpoint manifest.\r\nThis is the repair path, and it is the only one available to a client that is not in-process.\r\n\r\nDefault mode is a REPAIR: add-only and idempotent, so it is safe to run on every start and\r\nnothing is ever briefly missing. It does not remove keys that element state no longer\r\njustifies. Pass \"replace\": true for an EXACT rebuild, which wipes the index first and\r\ntherefore has a window in which a concurrent scan sees nothing.\r\n\r\nThe route is literal-first (/index/backfill/{indexId}, not /index/{indexId}/backfill) because\r\nPUT /index/vector/{indexId} already occupies three segments and index names are unvalidated\r\ncaller strings: an index legitimately named \"vector\" would otherwise be unreachable here.\r\n\r\nSample request:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity\",\r\n       \"replace\": false\r\n    }",
+        "description": "Index content is DERIVED state with no durability of its own: index writes are neither\r\nsingle-writer transactions nor WAL-logged, so index state is snapshot-only. After a hard crash\r\nthe elements replay from the WAL but every index key added since the last checkpoint is gone,\r\nand three ORDINARY operations drop an index while a client is running - a tabula rasa, loading\r\na save game, and a per-index serialization failure that drops it from the checkpoint manifest.\r\nThis is the repair path, and it is the only one available to a client that is not in-process.\r\n\r\nDefault mode is a REPAIR: add-only and idempotent, so it is safe to run on every start and\r\nnothing is ever briefly missing. It does not remove keys that element state no longer\r\njustifies. Pass \"replace\": true for an EXACT rebuild, which wipes the index first and\r\ntherefore has a window in which a concurrent scan sees nothing.\r\n\r\nThe route is literal-first (/index/backfill/{indexId}, not /index/{indexId}/backfill) because\r\nPUT /index/vector/{indexId} already occupies three segments and index names are unvalidated\r\ncaller strings: an index legitimately named \"vector\" would otherwise be unreachable here.\r\n\r\nPass \"prefix\": true when propertyId is a KEY PREFIX rather than one exact key: every property\r\nwhose key starts with it is then indexed by its value, so one element can contribute several\r\nentries. That is the mode a client needs whose values are spread across dense ordinal keys\r\n($identity:0, $identity:1, ...), because the property surface accepts scalars and no array: an\r\nexact-key repair would restore only the first value of each element, leaving it findable by\r\none and invisible by the rest.\r\n\r\nSample request:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity\",\r\n       \"replace\": false\r\n    }\r\n\r\nSample request, prefix mode:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity:\",\r\n       \"prefix\": true\r\n    }",
         "parameters": [
           {
             "name": "indexId",
@@ -4323,6 +4323,370 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/job": {
+      "post": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Runs one integration job and returns its report (feature integrations)",
+        "description": "A job carries everything one run needs: which provider, the identity it asserts\r\n    as, the namespace to write into, the provider's settings, and its credentials BY NAME (a\r\n    value never travels through here). The call is synchronous: the source is read, what it\r\n    said is written, the report comes back, and the runtime keeps nothing. A job that ran and\r\n    failed still answers 200 with the failure on its report; one that could not be run at all\r\n    is the runtime's 400 or its 409 (one job at a time per identity).\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://cosh.github.io/fallen-8-core/integrations/. The caller owns the stability of the\r\n    integration instance id, which nothing can validate: a run under an identity that\r\n    integration has not always used withdraws and deletes what the real one claimed.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the proxied call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The job report, including a run that failed",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The runtime refused the job as written, its own message saying why",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A job is already running under this identity",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/providers": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Lists the integrations this instance's runtime can run (feature integrations)",
+        "description": "Each entry is a provider descriptor: its id, what it reads, its settings as data\r\n    (key, label, kind, required, help), the entity kinds, claim types and relation types it\r\n    produces, and whether it can observe complete state. A settings form renders from that\r\n    data, so adding an integration needs no client change.\r\n    The response body is the RUNTIME's own contract and is deliberately untyped here, so\r\n    there is exactly one definition of it: see\r\n    https://cosh.github.io/fallen-8-core/integrations/. A provider is C# compiled into the\r\n    runtime, so this list changes only when that deployable does.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The provider catalog, as the runtime describes it",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The runtime refused the request, its own message saying why",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The runtime reported a conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/snapshot/validate": {
+      "post": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Validates a snapshot document without running anything (feature integrations)",
+        "description": "An authoring aid: it says which envelope errors would refuse the whole document\r\n    and which entities would be skipped, with the diagnostic code for each, so somebody writing\r\n    a provider gets the verdict on a document before wiring a source to it. Nothing is written\r\n    and no source is read.\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://cosh.github.io/fallen-8-core/integrations/.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the proxied call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The validation verdict and its diagnostics",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The runtime refused the request, its own message saying why",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The runtime reported a conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/vocabulary": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Returns the identifier vocabulary the runtime resolves claims against (feature integrations)",
+        "description": "One entry per identifier type: its strength (only a strong one may resolve), its\r\n    uniqueness scope, how a value is canonicalised and what values are accepted. It is data a\r\n    provider author reads before declaring a claim type, and it is embedded in the runtime\r\n    rather than mounted, so a deployment cannot silently change whether a claim resolves.\r\n    The response body is the RUNTIME's own contract and is deliberately untyped here, so\r\n    there is exactly one definition of it: see\r\n    https://cosh.github.io/fallen-8-core/integrations/.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The vocabulary, as the runtime describes it",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The runtime refused the request, its own message saying why",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The runtime reported a conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
               "application/json": { }
             }
           }
@@ -8765,7 +9129,7 @@
           "Graph"
         ],
         "summary": "Repopulates an index from a property's values across the live elements (feature platform-integrity-audit)",
-        "description": "Index content is DERIVED state with no durability of its own: index writes are neither\r\nsingle-writer transactions nor WAL-logged, so index state is snapshot-only. After a hard crash\r\nthe elements replay from the WAL but every index key added since the last checkpoint is gone,\r\nand three ORDINARY operations drop an index while a client is running - a tabula rasa, loading\r\na save game, and a per-index serialization failure that drops it from the checkpoint manifest.\r\nThis is the repair path, and it is the only one available to a client that is not in-process.\r\n\r\nDefault mode is a REPAIR: add-only and idempotent, so it is safe to run on every start and\r\nnothing is ever briefly missing. It does not remove keys that element state no longer\r\njustifies. Pass \"replace\": true for an EXACT rebuild, which wipes the index first and\r\ntherefore has a window in which a concurrent scan sees nothing.\r\n\r\nThe route is literal-first (/index/backfill/{indexId}, not /index/{indexId}/backfill) because\r\nPUT /index/vector/{indexId} already occupies three segments and index names are unvalidated\r\ncaller strings: an index legitimately named \"vector\" would otherwise be unreachable here.\r\n\r\nSample request:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity\",\r\n       \"replace\": false\r\n    }",
+        "description": "Index content is DERIVED state with no durability of its own: index writes are neither\r\nsingle-writer transactions nor WAL-logged, so index state is snapshot-only. After a hard crash\r\nthe elements replay from the WAL but every index key added since the last checkpoint is gone,\r\nand three ORDINARY operations drop an index while a client is running - a tabula rasa, loading\r\na save game, and a per-index serialization failure that drops it from the checkpoint manifest.\r\nThis is the repair path, and it is the only one available to a client that is not in-process.\r\n\r\nDefault mode is a REPAIR: add-only and idempotent, so it is safe to run on every start and\r\nnothing is ever briefly missing. It does not remove keys that element state no longer\r\njustifies. Pass \"replace\": true for an EXACT rebuild, which wipes the index first and\r\ntherefore has a window in which a concurrent scan sees nothing.\r\n\r\nThe route is literal-first (/index/backfill/{indexId}, not /index/{indexId}/backfill) because\r\nPUT /index/vector/{indexId} already occupies three segments and index names are unvalidated\r\ncaller strings: an index legitimately named \"vector\" would otherwise be unreachable here.\r\n\r\nPass \"prefix\": true when propertyId is a KEY PREFIX rather than one exact key: every property\r\nwhose key starts with it is then indexed by its value, so one element can contribute several\r\nentries. That is the mode a client needs whose values are spread across dense ordinal keys\r\n($identity:0, $identity:1, ...), because the property surface accepts scalars and no array: an\r\nexact-key repair would restore only the first value of each element, leaving it findable by\r\none and invisible by the rest.\r\n\r\nSample request:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity\",\r\n       \"replace\": false\r\n    }\r\n\r\nSample request, prefix mode:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity:\",\r\n       \"prefix\": true\r\n    }",
         "parameters": [
           {
             "name": "indexId",
@@ -18834,7 +19198,6 @@
       },
       "GraphElementProjectionREST": {
         "required": [
-          "kind",
           "id",
           "creationDate",
           "modificationDate"
@@ -19089,6 +19452,12 @@
           "replace": {
             "type": "boolean",
             "description": "`false` (default) REPAIRS: add-only and idempotent, so it is safe on every start and\r\nnothing is briefly missing, but keys the elements no longer justify are left alone.\r\n`true` REBUILDS exactly: the index is wiped first, so stale keys go, at the cost of a\r\nwindow in which a concurrent scan sees an empty index.",
+            "default": false,
+            "example": false
+          },
+          "prefix": {
+            "type": "boolean",
+            "description": "`false` (default) selects ONE exact property key. `true` means\r\n`propertyId` is a KEY PREFIX and EVERY property whose key starts with it is indexed\r\nby its value, so one element can contribute several entries. Prefix mode exists because a\r\nset of values is spread across dense ordinal keys (`$identity:0`,\r\n`$identity:1`, ...): the property surface accepts scalars and no array, so a set is\r\nnot expressible under one key, and an exact-key repair then restores only the first value\r\nof each element - leaving it findable by one and invisible by the rest.",
             "default": false,
             "example": false
           },
@@ -19503,6 +19872,7 @@
         },
         "description": "Raw-text ingestion (spec unstructured-ingestion FR-3) - works without the\r\n    docling sidecar."
       },
+      "JsonElement": { },
       "LinkSpecificationREST": {
         "type": "object",
         "properties": {
@@ -22289,6 +22659,9 @@
     },
     {
       "name": "Graph"
+    },
+    {
+      "name": "Integrations"
     },
     {
       "name": "Namespaces"
