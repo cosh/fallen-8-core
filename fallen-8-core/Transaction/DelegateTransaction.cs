@@ -38,7 +38,8 @@ namespace NoSQL.GraphDB.Core.Transaction
     ///   <para>
     ///   Usage: <c>f8.EnqueueTransaction(new DelegateTransaction(ctx =&gt; { ... }))</c> then
     ///   <c>WaitUntilFinished()</c>. Because it is executed by the single <c>TransactionManager</c>
-    ///   writer, the body runs ON THE WRITER THREAD by construction, through the
+    ///   writer, the body runs ON THE SINGLE WRITER by construction (see
+    ///   <see cref="TransactionExecutionMode"/> for which thread that is), through the
     ///   <see cref="IFallen8WriterContext"/> it is handed - the plugin gets no other way in, and the
     ///   context is invalidated the moment the body returns.
     ///   </para>

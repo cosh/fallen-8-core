@@ -42,8 +42,11 @@ namespace NoSQL.GraphDB.Core.Transaction
         ///   single consumer thread BLOCK while the queue is empty (finding P2) instead of the old
         ///   idle <c>Thread.Sleep(1)</c> spin, which imposed a ~1 ms per-transaction latency floor and
         ///   kept a thread busy-waiting even when the engine was idle.
+        ///   <c>null</c> in <see cref="TransactionExecutionMode.Inline" /> mode, which has no consumer
+        ///   to hand work to (see <see cref="TransactionExecutionMode" />) and so allocates no queue
+        ///   and no wait handles at all.
         /// </summary>
-        private readonly BlockingCollection<WorkItem> _transactions = new BlockingCollection<WorkItem>();
+        private readonly BlockingCollection<WorkItem> _transactions;
 
         /// <summary>Upper bound on how many transactions a single commit group buffers before it is
         /// flushed, so a long backlog cannot grow the in-memory frame buffer without bound.</summary>
@@ -100,10 +103,11 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         /// <summary>
         ///   FIFO of terminal (<c>Finished</c>/<c>RolledBack</c>) transaction ids in completion order
-        ///   (feature transaction-retention R1). Touched ONLY on the single writer thread - terminal
+        ///   (feature transaction-retention R1). Touched ONLY on the single writer - terminal
         ///   transitions run in <see cref="SetTransactionState"/> (which the worker calls from
         ///   <see cref="ExecuteTransactionBody"/>) and <see cref="Trim"/> - so it needs no lock of its
-        ///   own. When it exceeds <see cref="MaxRetainedTerminalTransactions"/> the oldest ids are popped
+        ///   own. (In <see cref="TransactionExecutionMode.Inline" /> mode the single writer is the
+        ///   calling thread, serialized by <see cref="_inlineGate" />, so the same holds.) When it exceeds <see cref="MaxRetainedTerminalTransactions"/> the oldest ids are popped
         ///   and evicted from <see cref="transactionState"/>, bounding the bookkeeping without a client
         ///   having to call <c>/trim</c>.
         /// </summary>
@@ -120,37 +124,104 @@ namespace NoSQL.GraphDB.Core.Transaction
 
         /// <summary>
         ///   The single writer thread. Every transaction body runs here and ONLY here, which is what
-        ///   upholds the engine's single-writer invariant.
+        ///   upholds the engine's single-writer invariant. <c>null</c> in
+        ///   <see cref="TransactionExecutionMode.Inline" /> mode, where the ENQUEUING thread is the
+        ///   single writer instead (see <see cref="ExecuteInline" />).
         /// </summary>
         private readonly Thread _worker;
+
+        /// <summary>
+        ///   Serializes inline execution so <see cref="TransactionExecutionMode.Inline" /> upholds the
+        ///   same single-writer invariant as the writer thread does, even on a host that has more than
+        ///   one thread (a forced-inline embedder, a test). On the single-threaded host inline mode
+        ///   exists for, this lock is never contended and never blocks; the threaded path never takes
+        ///   it. Also guards <see cref="_inlineExecuting" /> and <see cref="_inlineDeferred" />.
+        /// </summary>
+        private readonly Object _inlineGate;
+
+        /// <summary>Whether this thread is currently inside an inline transaction body, so a
+        /// reentrant enqueue is deferred rather than nested (see <see cref="ExecuteInline" />).</summary>
+        private Boolean _inlineExecuting;
+
+        /// <summary>Transactions enqueued FROM INSIDE an inline transaction body, drained in enqueue
+        /// order once the outer transaction is complete (see <see cref="ExecuteInline" />).</summary>
+        private readonly Queue<WorkItem> _inlineDeferred;
+
+        /// <summary>The reusable single-member commit group inline mode flushes through, so an inline
+        /// transaction allocates no per-commit list. Only ever touched under
+        /// <see cref="_inlineGate" /> and never retained by <see cref="FlushAndCompleteGroup" />.</summary>
+        private readonly List<WorkItem> _inlineGroup;
 
         /// <summary>Guards <see cref="Dispose" /> so it is idempotent.</summary>
         private Boolean _disposed;
 
-        public TransactionManager(Fallen8 f8)
+        /// <summary>
+        ///   The RESOLVED execution mode - never <see cref="TransactionExecutionMode.Automatic" />, so
+        ///   a host can report which design it actually got.
+        /// </summary>
+        internal TransactionExecutionMode Mode
+        {
+            get;
+        }
+
+        public TransactionManager(Fallen8 f8, TransactionExecutionMode mode = TransactionExecutionMode.Automatic)
         {
             _f8 = f8;
             _logger = f8.CreateLogger<TransactionManager>();
 
-            _logger.LogInformation("TransactionManager initialized");
-
-            // ONE consumer thread that BLOCKS on the queue (no idle spin) and runs each transaction's
-            // task INLINE via RunSynchronously (finding P2). Running the body inline - rather than
-            // Start()ing the task on the thread pool and Wait()ing on it, as the old design did -
-            // keeps every transaction body on this one thread (single writer; the body can never be
-            // inlined onto an enqueuer's Wait() because the task is never scheduled to a TaskScheduler)
-            // and removes the second thread the old design consumed per transaction. A waited-on
-            // enqueuer still blocks in TransactionInformation.WaitUntilFinished (Task.Wait), which
-            // returns only after RunSynchronously has completed the task - preserving the happens-before
-            // that publishes the master-store snapshot and the terminal TransactionState/Error to that
-            // caller. The thread is a background thread so it never keeps the process alive; Dispose
-            // stops it cleanly by completing the queue.
-            _worker = new Thread(ConsumeLoop)
+            if (mode != TransactionExecutionMode.Inline)
             {
-                IsBackground = true,
-                Name = "Fallen8-Transaction-Writer"
-            };
-            _worker.Start();
+                // ONE consumer thread that BLOCKS on the queue (no idle spin) and runs each transaction's
+                // task INLINE via RunSynchronously (finding P2). Running the body inline - rather than
+                // Start()ing the task on the thread pool and Wait()ing on it, as the old design did -
+                // keeps every transaction body on this one thread (single writer; the body can never be
+                // inlined onto an enqueuer's Wait() because the task is never scheduled to a TaskScheduler)
+                // and removes the second thread the old design consumed per transaction. A waited-on
+                // enqueuer still blocks in TransactionInformation.WaitUntilFinished (Task.Wait), which
+                // returns only after RunSynchronously has completed the task - preserving the happens-before
+                // that publishes the master-store snapshot and the terminal TransactionState/Error to that
+                // caller. The thread is a background thread so it never keeps the process alive; Dispose
+                // stops it cleanly by completing the queue.
+                try
+                {
+                    _transactions = new BlockingCollection<WorkItem>();
+                    _worker = new Thread(ConsumeLoop)
+                    {
+                        IsBackground = true,
+                        Name = "Fallen8-Transaction-Writer"
+                    };
+                    _worker.Start();
+                    Mode = TransactionExecutionMode.Threaded;
+                    _logger.LogInformation("TransactionManager initialized with a dedicated writer thread");
+                    return;
+                }
+                catch (PlatformNotSupportedException ex) when (mode == TransactionExecutionMode.Automatic)
+                {
+                    // The RUNTIME capability check behind TransactionExecutionMode.Automatic: this host
+                    // cannot start a thread at all (a single-threaded browser WebAssembly runtime, where
+                    // Thread.Start throws), so fall back to inline execution instead of failing
+                    // construction. Deliberately a runtime probe of the very operation that fails rather
+                    // than a compile-time #if, because ONE assembly ships to every host. Requesting
+                    // Threaded explicitly skips this filter and lets the exception propagate.
+                    _logger.LogInformation(ex,
+                        "This host cannot start the transaction writer thread, so transactions are executed inline on the calling thread. Group commit is unavailable in this mode.");
+
+                    // Nothing ever consumed the queue (the thread never ran), so releasing it here is
+                    // safe and leaves inline mode with no wait handles at all. Null-tolerant because the
+                    // try also covers the queue/thread allocation, not only the Start that is known to
+                    // throw on such a host.
+                    _worker = null;
+                    _transactions?.Dispose();
+                    _transactions = null;
+                }
+            }
+
+            Mode = TransactionExecutionMode.Inline;
+            _inlineGate = new Object();
+            _inlineDeferred = new Queue<WorkItem>();
+            _inlineGroup = new List<WorkItem>(1);
+
+            _logger.LogInformation("TransactionManager initialized for inline execution on the calling thread");
         }
 
         /// <summary>
@@ -221,6 +292,75 @@ namespace NoSQL.GraphDB.Core.Transaction
                     }
                 }
             }
+        }
+
+        /// <summary>
+        ///   Runs ONE transaction to completion on the CALLING thread
+        ///   (<see cref="TransactionExecutionMode.Inline" />): the same execute-then-flush pair the
+        ///   writer thread runs, as a commit group of one. Ordering, rollback, the terminal
+        ///   state/FIFO, the change feed and the write-ahead log therefore behave exactly as they do
+        ///   threaded; the only thing given up is group commit (with a WAL, one fsync per
+        ///   transaction - the pre-group-commit cost, never a correctness change). It returns with the
+        ///   transaction already terminal and its completion source already set, so the caller's
+        ///   <see cref="TransactionInformation.WaitUntilFinished()" /> or <c>await</c> never waits.
+        ///
+        ///   <para>Concurrent callers are serialized by <see cref="_inlineGate" />, so the
+        ///   single-writer invariant holds by construction rather than by assuming the host has one
+        ///   thread. A REENTRANT enqueue - a transaction body enqueuing into the same engine, which a
+        ///   <see cref="DelegateTransaction" /> body can do through a captured engine reference - is
+        ///   NOT run nested: it is queued and drained after the current transaction, so enqueue order
+        ///   is preserved and every commit group stays one transaction wide. Its
+        ///   <see cref="TransactionInformation" /> is consequently not yet complete when that nested
+        ///   <c>EnqueueTransaction</c> returns (it completes before the OUTER call returns), and a body
+        ///   that WAITED on it would hang - exactly as it would on the threaded path, where waiting on
+        ///   the writer from the writer hangs too.</para>
+        /// </summary>
+        private void ExecuteInline(WorkItem item)
+        {
+            lock (_inlineGate)
+            {
+                if (_inlineExecuting)
+                {
+                    _inlineDeferred.Enqueue(item);
+                    return;
+                }
+
+                _inlineExecuting = true;
+                try
+                {
+                    RunAsGroupOfOne(item);
+
+                    while (_inlineDeferred.Count > 0)
+                    {
+                        RunAsGroupOfOne(_inlineDeferred.Dequeue());
+                    }
+                }
+                finally
+                {
+                    _inlineExecuting = false;
+
+                    // Belt-and-suspenders, mirroring the ConsumeLoop catch: the two steps of
+                    // RunAsGroupOfOne are each fully contained, so the drain above cannot fault. If an
+                    // unforeseen fault does escape, complete whatever is still queued so no waiter hangs.
+                    while (_inlineDeferred.Count > 0)
+                    {
+                        var pending = _inlineDeferred.Dequeue();
+                        FinishSpanSafely(pending);
+                        pending.Completion.TrySetResult();
+                    }
+                }
+            }
+        }
+
+        /// <summary>Executes one transaction body and flushes it as a commit group of one (inline
+        /// mode). Called only with <see cref="_inlineGate" /> held.</summary>
+        private void RunAsGroupOfOne(WorkItem item)
+        {
+            ExecuteTransactionBody(item);
+
+            _inlineGroup.Clear();
+            _inlineGroup.Add(item);
+            FlushAndCompleteGroup(_inlineGroup);
         }
 
         /// <summary>Whether a transaction is a hard commit-group boundary (it rewrites/replaces the WAL
@@ -698,20 +838,31 @@ namespace NoSQL.GraphDB.Core.Transaction
                 item.ParentContext = Activity.Current?.Context ?? default;
             }
 
-            _transactions.Add(item);
+            if (_transactions == null)
+            {
+                // Inline mode: THIS thread is the single writer. The transaction is applied, flushed and
+                // completed before we return, so txInfo is already terminal (see ExecuteInline).
+                ExecuteInline(item);
+            }
+            else
+            {
+                _transactions.Add(item);
+            }
 
             return txInfo;
         }
 
         /// <summary>Transactions waiting for the single writer, for the queue-depth gauge
-        /// (feature observability). 0 during teardown races - the gauge callback must never throw.</summary>
+        /// (feature observability). 0 during teardown races - the gauge callback must never throw -
+        /// and always 0 in inline mode, which has no queue: a transaction is applied within its
+        /// own <c>EnqueueTransaction</c> call.</summary>
         internal int QueueDepth
         {
             get
             {
                 try
                 {
-                    return _transactions.Count;
+                    return _transactions?.Count ?? 0;
                 }
                 catch (ObjectDisposedException)
                 {
@@ -778,6 +929,13 @@ namespace NoSQL.GraphDB.Core.Transaction
                 return;
             }
             _disposed = true;
+
+            if (_transactions == null)
+            {
+                // Inline mode: no consumer thread to stop, no queue to complete and nothing that could
+                // still be in flight except on the caller's own thread (which is here, disposing).
+                return;
+            }
 
             // Stop accepting new work; the consumer finishes what is queued and then leaves the loop.
             _transactions.CompleteAdding();

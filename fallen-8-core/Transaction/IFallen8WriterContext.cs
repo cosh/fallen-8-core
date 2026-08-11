@@ -38,11 +38,12 @@ namespace NoSQL.GraphDB.Core.Transaction
     ///   <see cref="ATransaction"/> vocabulary.
     ///
     ///   <para>
-    ///   The body runs on the single transaction-writer thread (the <see cref="DelegateTransaction"/>
-    ///   is executed there like any built-in), so every call here is a single-writer mutation. The
-    ///   context is valid ONLY for the duration of the body: it is invalidated when the body returns, so
-    ///   a plugin cannot stash it and mutate off the writer thread later (every method then throws
-    ///   <see cref="InvalidOperationException"/>).
+    ///   The body runs on the single transaction writer (the <see cref="DelegateTransaction"/> is
+    ///   executed there like any built-in: the dedicated writer thread, or the serialized calling thread
+    ///   under <see cref="TransactionExecutionMode.Inline"/>), so every call here is a single-writer
+    ///   mutation. The context is valid ONLY for the duration of the body: it is invalidated when the
+    ///   body returns, so a plugin cannot stash it and mutate off the writer later (every method then
+    ///   throws <see cref="InvalidOperationException"/>).
     ///   </para>
     ///
     ///   <para>

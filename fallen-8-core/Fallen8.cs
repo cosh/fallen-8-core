@@ -367,8 +367,11 @@ namespace NoSQL.GraphDB.Core
         ///   identifier attached to this engine's meter as the <c>fallen8.scope.id</c> tag, so
         ///   several engines in one process (feature graph-namespaces: one engine per namespace)
         ///   report distinguishable instruments instead of colliding on the shared meter name.
+        ///   <paramref name="transactionExecutionMode"/> selects how transactions are applied and
+        ///   defaults to detecting it at runtime; see <see cref="TransactionExecutionMode"/>.
         /// </summary>
-        public Fallen8(ILoggerFactory loggerfactory, String metricsScopeId = null)
+        public Fallen8(ILoggerFactory loggerfactory, String metricsScopeId = null,
+            TransactionExecutionMode transactionExecutionMode = TransactionExecutionMode.Automatic)
         {
             LoggerFactory = loggerfactory;
             _logger = loggerfactory.CreateLogger<Fallen8>();
@@ -386,7 +389,7 @@ namespace NoSQL.GraphDB.Core
             StoredQueries = new StoredQueryLibrary(loggerfactory.CreateLogger<StoredQueryLibrary>());
             Plugins = new PluginRegistry(loggerfactory.CreateLogger<PluginRegistry>());
             IndexFactory.Indices.Clear();
-            _txManager = new TransactionManager(this);
+            _txManager = new TransactionManager(this, transactionExecutionMode);
             _persistencyFactory = new PersistencyFactory(persistencyLogger);
 
             // Per-engine metric instruments (feature observability): created AFTER the
@@ -443,8 +446,9 @@ namespace NoSQL.GraphDB.Core
             IStoredQueryCompiler storedQueryCompiler = null,
             ChangeFeedOptions changeFeedOptions = null,
             String metricsScopeId = null,
-            IPluginCompiler pluginCompiler = null)
-            : this(loggerfactory, metricsScopeId)
+            IPluginCompiler pluginCompiler = null,
+            TransactionExecutionMode transactionExecutionMode = TransactionExecutionMode.Automatic)
+            : this(loggerfactory, metricsScopeId, transactionExecutionMode)
         {
             if (changeFeedOptions != null)
             {
@@ -675,6 +679,15 @@ namespace NoSQL.GraphDB.Core
             // surviving elements.)
             _internTable.Clear();
         }
+
+        /// <summary>
+        ///   How this engine applies transactions, RESOLVED (never
+        ///   <see cref="TransactionExecutionMode.Automatic"/>): <c>Threaded</c> when a dedicated writer
+        ///   thread owns the graph, <c>Inline</c> when the enqueuing thread does because the host cannot
+        ///   start one. See <see cref="TransactionExecutionMode"/>; a host can report this to say which
+        ///   design it got.
+        /// </summary>
+        public TransactionExecutionMode TransactionExecution => _txManager.Mode;
 
         public override TransactionInformation EnqueueTransaction(ATransaction tx)
         {
