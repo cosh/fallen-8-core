@@ -1,0 +1,94 @@
+{
+  "schemaVersion": 1,
+  "comment": "The identifier vocabulary of the integrations runtime (feature integrations, spec section 6). DATA, not code: both ways to get one entry wrong are unrepairable by running again. An entry wrongly marked strong makes a run attach its data to the wrong element it claimed before; one wrongly marked weak, or a canonicalisation that does not converge, makes a run fail to find its own element and duplicate its devices on every run. Every entry carries an accept pattern, which is what makes a bad value visible instead of silently dropped. The pattern is applied to the CANONICAL form, which is why fronius-unique-id's pattern rejecting a dot is what forces fronius-logger-id to be its own entry.",
+  "identifiers": [
+    {
+      "type": "mac",
+      "strength": "strong",
+      "scope": "global",
+      "canonical": "lowerHexStripSeparators",
+      "accept": "^[0-9a-f]{12}$",
+      "description": "IEEE MAC address, assigned per interface. The workhorse strong identifier for devices and clients."
+    },
+    {
+      "type": "serial",
+      "strength": "strong",
+      "scope": "global",
+      "canonical": "trimUpper",
+      "accept": "^[A-Z0-9][A-Z0-9._/-]{0,63}$",
+      "description": "Manufacturer serial as printed on the unit."
+    },
+    {
+      "type": "imei",
+      "strength": "strong",
+      "scope": "global",
+      "canonical": "digitsOnly",
+      "accept": "^[0-9]{15}$",
+      "description": "Cellular equipment identity, fifteen digits. The check digit is deliberately not verified, so a mistyped value surfaces as a diagnostic rather than being reinterpreted."
+    },
+    {
+      "type": "ipv4",
+      "strength": "weak",
+      "scope": "global",
+      "canonical": "trimLower",
+      "accept": "^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$",
+      "description": "An address is a lease, not an identity: DHCP reassigns it, a departing device frees it, and two separate networks duplicate it. Recorded and indexed anyway because it is the only overlap two providers often have."
+    },
+    {
+      "type": "ipv6",
+      "strength": "weak",
+      "scope": "global",
+      "canonical": "trimLower",
+      "accept": "^(?=(.*:){2,})[0-9a-f:.]{2,45}$",
+      "description": "Weak for the same reason as ipv4. Full RFC 4291 canonicalisation is deliberately not attempted, since a weak key resolves nothing and an imperfectly normalised one costs at most a missed overlap in somebody's query; the accept pattern is correspondingly loose."
+    },
+    {
+      "type": "hostname",
+      "strength": "weak",
+      "scope": "global",
+      "canonical": "trimLower",
+      "accept": "^[a-z0-9]([a-z0-9-]{0,62})(\\.[a-z0-9]([a-z0-9-]{0,62}))*$",
+      "description": "User-editable and routinely duplicated (raspberrypi, android). Evidence, never identity."
+    },
+    {
+      "type": "unifi-site-id",
+      "strength": "strong",
+      "scope": "provider",
+      "canonical": "trimLower",
+      "accept": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "UniFi site UUID. Provider scope is honest for a UUID; global would have been safe too."
+    },
+    {
+      "type": "unifi-device-id",
+      "strength": "strong",
+      "scope": "provider",
+      "canonical": "trimLower",
+      "accept": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "UniFi adopted-device UUID."
+    },
+    {
+      "type": "unifi-client-id",
+      "strength": "strong",
+      "scope": "provider",
+      "canonical": "trimLower",
+      "accept": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "description": "UniFi client UUID."
+    },
+    {
+      "type": "fronius-unique-id",
+      "strength": "strong",
+      "scope": "instance",
+      "canonical": "trimUpper",
+      "accept": "^[A-Z0-9]{1,32}$",
+      "description": "Fronius Solar API inverter UniqueID: a value unique only inside one inverter's own API, so provider or global scope would compose one key for two installations' different inverters and advertise an overlap that does not exist. Values as short as 476 come from independent captures rather than from the vendor's document, which is why instance scope is the highest-consequence entry here."
+    },
+    {
+      "type": "fronius-logger-id",
+      "strength": "strong",
+      "scope": "instance",
+      "canonical": "trimUpper",
+      "accept": "^[A-Z0-9]{1,32}(\\.[A-Z0-9]{1,32})?$",
+      "description": "Fronius logging-device UniqueID: a datamanager card, a hybridmanager, or whatever else fronts the Solar API. A separate entry rather than a reuse of fronius-unique-id because the vendor's own example of a logger id is 240.107620 and the inverter type's pattern rejects the dot, so sharing the type would leave every logging device with no identity and a diagnostic nobody reads. The two id spaces are also not documented as disjoint, so one type for both would let a logger and an inverter reporting the same value resolve to one element inside a single instance."
+    }
+  ]
+}
