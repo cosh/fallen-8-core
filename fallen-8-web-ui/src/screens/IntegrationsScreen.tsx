@@ -29,6 +29,7 @@ import { useActiveInstance, useActiveNamespace } from "../instances/registry";
 import { submitIntegrationJob } from "../api/endpoints";
 import type {
   IntegrationJobReport,
+  IntegrationJobRequest,
   IntegrationProvider,
   IntegrationSetting,
   SettingKind,
@@ -62,14 +63,23 @@ export function IntegrationsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [instanceId, setInstanceId] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [byName, setByName] = useState<Record<string, boolean>>({});
   const [report, setReport] = useState<IntegrationJobReport | null>(null);
 
   const catalog = useMemo(() => providers.data ?? [], [providers.data]);
   const selected = catalog.find((provider) => provider.id === selectedId) ?? null;
 
   const run = useMutation({
-    mutationFn: () => submitIntegrationJob(instance, buildJob(selected!, namespace, instanceId, values)),
-    onSuccess: (result) => setReport(result),
+    mutationFn: () =>
+      submitIntegrationJob(instance, buildJob(selected!, namespace, instanceId, values, byName)),
+    onSuccess: (result) => {
+      setReport(result);
+      // The job has reported, so a secret typed into this form has done its work: drop it. Only on
+      // success, and success here includes a run that FAILED - the report came back either way. A job
+      // the runtime refused (400, 409, 503) never ran, so the form keeps its values for the retry
+      // that follows a fixed setting.
+      setValues((current) => forgetSecrets(selected, current, byName));
+    },
   });
 
   const identityProblem = describeIdentityProblem(instanceId);
@@ -88,6 +98,10 @@ export function IntegrationsScreen() {
       if (setting.defaultValue) defaults[setting.key] = setting.defaultValue;
     }
     setValues(defaults);
+
+    // Every credential setting back to "type the value", which is what somebody at a form has, and
+    // whatever was typed for the previous integration is gone with the values above.
+    setByName({});
   }
 
   // ---- gate: the capability is absent, so the screen says so rather than showing an error ----
@@ -202,6 +216,10 @@ export function IntegrationsScreen() {
                 setting={setting}
                 value={values[setting.key] ?? ""}
                 onChange={(next) => setValues((current) => ({ ...current, [setting.key]: next }))}
+                byName={byName[setting.key] === true}
+                onSourceChange={(next) =>
+                  setByName((current) => ({ ...current, [setting.key]: next }))
+                }
               />
             ))}
 
@@ -241,9 +259,24 @@ function SettingField(props: {
   setting: IntegrationSetting;
   value: string;
   onChange: (value: string) => void;
+  byName?: boolean;
+  onSourceChange?: (byName: boolean) => void;
 }) {
-  const { setting, value, onChange } = props;
+  const { setting, value, onChange, byName, onSourceChange } = props;
   const testid = `integration-setting-${setting.key}`;
+
+  if (setting.kind === "Credential") {
+    return (
+      <CredentialField
+        setting={setting}
+        value={value}
+        onChange={onChange}
+        byName={byName === true}
+        onSourceChange={onSourceChange ?? (() => {})}
+        testid={testid}
+      />
+    );
+  }
 
   if (setting.kind === "Boolean") {
     return (
@@ -276,10 +309,67 @@ function SettingField(props: {
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
+      <span className="label-help">{setting.help}</span>
+    </label>
+  );
+}
+
+/**
+ * A credential setting, which is the one field with two sources.
+ *
+ * It takes the SECRET by default, because that is what somebody at a form has in hand: the value is
+ * held for the run, dropped when it ends, and cleared from this form the moment the job reports. The
+ * other source - the name of a credential the operator put in the runtime's mount - is one click away
+ * and is the one to prefer for anything unattended, since rotating it is overwriting a file and the
+ * job itself then carries no secret at all.
+ *
+ * The two differ in what the JOB is, not in how the runtime treats the value: both are leased,
+ * redacted out of every log line, fingerprinted on the report and dropped when the run ends.
+ */
+function CredentialField(props: {
+  setting: IntegrationSetting;
+  value: string;
+  onChange: (value: string) => void;
+  byName: boolean;
+  onSourceChange: (byName: boolean) => void;
+  testid: string;
+}) {
+  const { setting, value, onChange, byName, onSourceChange, testid } = props;
+
+  return (
+    <label className="block">
+      <span className="label flex items-center gap-2">
+        <span>
+          {setting.label}
+          {setting.required && <span className="text-warn"> *</span>}
+        </span>
+        <button
+          type="button"
+          className="btn ml-auto py-0 text-[10px]"
+          data-testid={`${testid}-source`}
+          onClick={() => {
+            // The typed value never survives the switch: it would otherwise be submitted as a
+            // credential NAME on the next run, putting the secret in the map that is safe to keep.
+            onChange("");
+            onSourceChange(!byName);
+          }}
+        >
+          {byName ? "enter the value instead" : "use a mounted credential instead"}
+        </button>
+      </span>
+      <input
+        className="input"
+        type={byName ? "text" : "password"}
+        autoComplete="off"
+        data-testid={testid}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
       <span className="label-help">
-        {setting.kind === "Credential"
-          ? `${setting.help} This is the NAME of a credential file the operator has put in the runtime's credential directory, never the secret itself: a value typed here would land in the job definition.`
-          : setting.help}
+        {setting.help}{" "}
+        {byName
+          ? "This is the NAME of a credential the operator has put in the runtime's credential directory, not the secret. Rotating it is overwriting that file, and the job stays safe to keep."
+          : "This is the secret itself. It is used for this run and then forgotten: nothing stores it, no report echoes it, and it is cleared from this form when the run reports. It does travel in the request, so a shared instance wants TLS."}
       </span>
     </label>
   );
@@ -315,7 +405,7 @@ function ReportPanel({ report }: { report: IntegrationJobReport }) {
         <p className="text-fg-faint text-[11px]">
           took {report.durationMilliseconds} ms
           {report.credentialFingerprint
-            ? `, credential fingerprint ${report.credentialFingerprint} (it changes when the file is overwritten in place, which is how a rotation is confirmed)`
+            ? `, credential fingerprint ${report.credentialFingerprint} (it changes when the credential does, which is how a rotation is confirmed)`
             : ""}
         </p>
 
@@ -360,9 +450,29 @@ function Count(props: { label: string; value: number; testid: string }) {
   );
 }
 
+/**
+ * Drops every credential VALUE from the form, keeping credential names and ordinary settings. A name
+ * is not a secret and re-typing one after each run would be a nuisance for no gain.
+ */
+function forgetSecrets(
+  provider: IntegrationProvider | null,
+  values: Record<string, string>,
+  byName: Record<string, boolean>,
+): Record<string, string> {
+  if (!provider) return values;
+
+  const kept = { ...values };
+  for (const setting of provider.settings) {
+    if (setting.kind === "Credential" && !byName[setting.key]) {
+      delete kept[setting.key];
+    }
+  }
+  return kept;
+}
+
 function inputType(kind: SettingKind): string {
-  // A CREDENTIAL setting is a NAME, so it is a plain text field: a password box would invite
-  // somebody to type the secret, and the secret must never enter a job definition.
+  // A credential setting never reaches here: it has two sources and its own field. Everything else is
+  // a value the form can render from the kind alone.
   switch (kind) {
     case "Number":
       return "number";
@@ -396,25 +506,35 @@ function describeIdentityProblem(instanceId: string): string | null {
 }
 
 /**
- * The job. A credential setting contributes its credential NAME to `credentials`; everything else is
- * a plain setting. The split is the whole reason a credential value never reaches a job definition.
+ * The job. A credential setting contributes to `credentialValues` (the secret itself, the default here)
+ * or to `credentials` (the name of one in the runtime's mount); everything else is a plain setting.
+ * Never to `settings`, whichever it is: a setting is neither leased nor redacted by the runtime.
  */
 function buildJob(
   provider: IntegrationProvider,
   namespace: string,
   instanceId: string,
   values: Record<string, string>,
-) {
+  byName: Record<string, boolean>,
+): IntegrationJobRequest {
   const settings: Record<string, string> = {};
   const credentials: Record<string, string> = {};
+  const credentialValues: Record<string, string> = {};
 
   for (const setting of provider.settings) {
-    const value = (values[setting.key] ?? "").trim();
-    if (!value) continue;
-    if (setting.kind === "Credential") {
-      credentials[setting.key] = value;
+    const raw = values[setting.key] ?? "";
+    if (!raw.trim()) continue;
+
+    if (setting.kind !== "Credential") {
+      settings[setting.key] = raw.trim();
+    } else if (byName[setting.key]) {
+      credentials[setting.key] = raw.trim();
     } else {
-      settings[setting.key] = value;
+      // NOT trimmed. A leading or trailing space can be part of a real password, and the runtime
+      // deliberately preserves them (it drops exactly one trailing newline and nothing else). Trimming
+      // here would produce an authentication failure from somebody's controller with nothing on the
+      // report to explain it. Emptiness is judged on the trimmed form; what is sent is verbatim.
+      credentialValues[setting.key] = raw;
     }
   }
 
@@ -424,5 +544,6 @@ function buildJob(
     namespace,
     settings,
     credentials,
+    credentialValues,
   };
 }

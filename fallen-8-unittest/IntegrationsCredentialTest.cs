@@ -436,7 +436,8 @@ namespace NoSQL.GraphDB.Tests
             var resolver = ResolverOver(active);
 
             using var fromNull = resolver.Resolve(null);
-            using var fromEmpty = resolver.Resolve(new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase));
+            using var fromEmpty = resolver.Resolve(
+                new Dictionary<String, CredentialSource>(StringComparer.OrdinalIgnoreCase));
 
             Assert.IsTrue(fromNull.IsEmpty, "a provider needing no credential must get a lease holding nothing");
             Assert.IsTrue(fromEmpty.IsEmpty, "an empty credential map is the same statement as none at all");
@@ -539,6 +540,93 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(active.IsEmpty,
                 "the value must stop being held when the run ends, because a value held forever is a redaction " +
                 "set that grows for the life of the process");
+        }
+
+        [TestMethod]
+        public void ACredentialSuppliedWithTheJob_IsLeasedAndHeldExactlyAsANamedOneIs()
+        {
+            var active = new ActiveCredentials();
+
+            // No fixture credential at all: the store has nothing to offer, so if this resolves, it
+            // resolved from the job.
+            using (var lease = ResolverOver(active).Resolve(Supplied(("password", Secret))))
+            {
+                Assert.AreEqual(Secret, lease.Require("password"),
+                    "a credential the caller supplied must reach the provider like any other, or the whole point " +
+                    "of the second source is lost");
+                Assert.IsFalse(lease.IsEmpty,
+                    "the lease must count as credentialed, because that is what turns on the host guard and the " +
+                    "no-plain-http rule for the outbound leg");
+                Assert.IsFalse(active.IsEmpty,
+                    "the value must be HELD while the run lasts: redaction substitutes against this set, so a " +
+                    "supplied credential that never entered it would be printable in every log line");
+                Assert.IsNotNull(lease.Fingerprint(),
+                    "a supplied credential is still fingerprinted, so a caller who pasted a stale value can see " +
+                    "the report change when they paste the new one");
+            }
+
+            Assert.IsTrue(active.IsEmpty,
+                "and it must be FORGOTTEN when the run ends. This is the whole contract of supplying a value " +
+                "inline: no cache, no reuse by the next job, nothing to rotate");
+        }
+
+        [TestMethod]
+        public void ACredentialSuppliedWithTheJob_ObeysTheSameContentRulesAsAFile()
+        {
+            var active = new ActiveCredentials();
+
+            // One trailing newline dropped, and NOTHING else: a value pasted out of a console arrives with
+            // one, and a space inside or around a real password has to survive.
+            using (var lease = ResolverOver(active).Resolve(Supplied(("password", " pa ss \n"))))
+            {
+                Assert.AreEqual(" pa ss ", lease.Require("password"),
+                    "exactly one trailing line ending is dropped and every other character is verbatim, or a " +
+                    "credential that works from cron fails from a form and the symptom is an authentication " +
+                    "failure with nothing to explain it");
+            }
+
+            foreach (var blank in new String[] { String.Empty, "   ", "\n" })
+            {
+                var ex = Assert.ThrowsException<CredentialUnavailableException>(
+                    () => ResolverOver(active).Resolve(Supplied(("password", blank))),
+                    "an empty supplied credential is a failure rather than 'no credential': submitting the form " +
+                    "before pasting would otherwise read what the source shows the public, declare that " +
+                    "complete, and withdraw every claim the instance ever made");
+                StringAssert.Contains(ex.Message, "password",
+                    "the refusal must name the setting, because that is the field to go back to");
+            }
+        }
+
+        [TestMethod]
+        public void ARefusedSuppliedCredential_IsNotQuotedInTheFailure_BecauseThatMessageIsReported()
+        {
+            var resolver = ResolverOver(new ActiveCredentials());
+
+            // A value that fails the content rules has NOT entered the lease, so redaction cannot cover it.
+            // Anything the message quoted would travel out on the report in the clear.
+            var ex = Assert.ThrowsException<CredentialUnavailableException>(
+                () => resolver.Resolve(Supplied(("password", "  \n"))));
+
+            Assert.IsFalse(ex.Message.Contains("  \n", StringComparison.Ordinal),
+                "the message may say WHY a supplied value was refused and must never quote the value: it is " +
+                "reported to the caller and logged, and a value rejected before the lease is a value redaction " +
+                "knows nothing about");
+        }
+
+        [TestMethod]
+        public void ACredentialSource_NeverRendersTheSecretWhenFormatted()
+        {
+            var supplied = CredentialSource.Inline(Secret);
+            var named = CredentialSource.Named(CredentialName);
+
+            Assert.IsFalse(supplied.ToString().Contains(Secret, StringComparison.Ordinal),
+                "an interpolation into a log line or an exception message is the one accident a secret-carrying " +
+                "type suffers, and the guard belongs on the type rather than on every site that might format it");
+            Assert.AreEqual(CredentialName, named.ToString(),
+                "a NAME is not a secret and reads usefully in a message, which is the asymmetry worth keeping");
+            Assert.IsTrue(supplied.IsInline, "a supplied value must declare itself as one");
+            Assert.IsNull(supplied.Name, "a supplied value has no name to read");
+            Assert.IsNull(named.InlineValue, "and a named credential carries no value until the store is asked");
         }
 
         [TestMethod]
@@ -1162,15 +1250,29 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>Which credential each credential setting uses, by NAME, as a job supplies it.</summary>
-        private static IReadOnlyDictionary<String, String> Names(params (String SettingKey, String Name)[] pairs)
+        private static IReadOnlyDictionary<String, CredentialSource> Names(
+            params (String SettingKey, String Name)[] pairs)
         {
-            var names = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
+            var names = new Dictionary<String, CredentialSource>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in pairs)
             {
-                names[pair.SettingKey] = pair.Name;
+                names[pair.SettingKey] = CredentialSource.Named(pair.Name);
             }
 
             return names;
+        }
+
+        /// <summary>The credential VALUES a job carries, keyed by credential setting.</summary>
+        private static IReadOnlyDictionary<String, CredentialSource> Supplied(
+            params (String SettingKey, String Value)[] pairs)
+        {
+            var supplied = new Dictionary<String, CredentialSource>(StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in pairs)
+            {
+                supplied[pair.SettingKey] = CredentialSource.Inline(pair.Value);
+            }
+
+            return supplied;
         }
 
         /// <summary>The values a lease holds, keyed by credential setting key, in the order given.</summary>

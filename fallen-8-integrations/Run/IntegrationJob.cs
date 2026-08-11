@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using NoSQL.GraphDB.Integrations.Credentials;
 using NoSQL.GraphDB.Integrations.Graph;
 
 namespace NoSQL.GraphDB.Integrations.Run
@@ -35,8 +36,10 @@ namespace NoSQL.GraphDB.Integrations.Run
     ///   step, no run history and no instance store: a runtime holding a schedule would own a second copy of a
     ///   decision only whoever wants the data can make, in a place with no way to know what the data is for.
     ///
-    ///   <para>Because a job carries credential NAMES rather than values, it is safe to keep, to commit next to
-    ///   whatever submits it, and to read back as a record of what was asked for.</para>
+    ///   <para>A job naming its credentials is safe to keep, to commit next to whatever submits it, and to read
+    ///   back as a record of what was asked for. A job CARRYING one is a secret in a document: still held only
+    ///   for the run, but no longer a thing to save. Which of the two a caller submits is the caller's call, and
+    ///   the difference is documented on <see cref="CredentialSource" />.</para>
     /// </summary>
     public sealed class IntegrationJob
     {
@@ -66,11 +69,27 @@ namespace NoSQL.GraphDB.Integrations.Run
             = new Dictionary<String, Object?>(StringComparer.Ordinal);
 
         /// <summary>
-        ///   Which credential each credential setting uses, BY NAME. A value here would be a credential in a
-        ///   setting, which is neither leased nor redacted.
+        ///   Which credential each credential setting uses, BY NAME, read from the runtime's credential mount
+        ///   when the run starts. The source to prefer for anything that runs unattended: rotating one is
+        ///   overwriting a file, and the job itself keeps no secret.
         /// </summary>
         [JsonPropertyName("credentials")]
         public IDictionary<String, String> Credentials { get; set; }
+            = new Dictionary<String, String>(StringComparer.Ordinal);
+
+        /// <summary>
+        ///   The credential ITSELF, per credential setting, for a caller who has the value in hand and nowhere to
+        ///   put it - a person at a form, most of all. It is leased, redacted, fingerprinted and dropped exactly
+        ///   as a named one is, and it is written down nowhere: the runtime keeps no job history, and no route
+        ///   reads a job back.
+        ///
+        ///   <para>The cost is real and belongs to the caller, not the runtime: the value travels in this request,
+        ///   so that hop wants TLS, and whatever composed the request is holding a secret for as long as it keeps
+        ///   the body. A setting is still never a place for one - a setting is neither leased nor redacted - which
+        ///   is why this is its own map rather than a value in <c>settings</c>.</para>
+        /// </summary>
+        [JsonPropertyName("credentialValues")]
+        public IDictionary<String, String> CredentialValues { get; set; }
             = new Dictionary<String, String>(StringComparer.Ordinal);
 
         /// <summary>
@@ -90,7 +109,8 @@ namespace NoSQL.GraphDB.Integrations.Run
         public String EmbeddingName { get; set; } = "default";
 
         /// <summary>
-        ///   Folds both maps case-insensitively before anything looks in them.
+        ///   Folds every map case-insensitively before anything looks in them, and collapses the two credential
+        ///   maps into ONE source per setting.
         ///
         ///   <para>A job arrives as JSON and deserialising into a dictionary yields an ORDINAL comparer
         ///   whatever the initialiser says, so <c>Password</c> would slip past a lookup for <c>password</c> and
@@ -142,7 +162,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                 settings[pair.Key] = text;
             }
 
-            var credentials = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
+            var credentials = new Dictionary<String, CredentialSource>(StringComparer.OrdinalIgnoreCase);
             foreach (var pair in Credentials ?? new Dictionary<String, String>(StringComparer.Ordinal))
             {
                 if (String.IsNullOrWhiteSpace(pair.Key))
@@ -158,7 +178,32 @@ namespace NoSQL.GraphDB.Integrations.Run
                     return false;
                 }
 
-                credentials[pair.Key] = pair.Value;
+                credentials[pair.Key] = CredentialSource.Named(pair.Value);
+            }
+
+            foreach (var pair in CredentialValues ?? new Dictionary<String, String>(StringComparer.Ordinal))
+            {
+                if (String.IsNullOrWhiteSpace(pair.Key))
+                {
+                    failure = "A supplied credential has no setting key.";
+                    return false;
+                }
+
+                // Two sources for one setting is a REJECTION rather than a precedence rule: a caller who filled a
+                // form and also kept a stale name would otherwise be authenticating with whichever one this loop
+                // happened to visit second, and no report could tell them which.
+                if (credentials.TryGetValue(pair.Key, out var existing))
+                {
+                    failure = existing.IsInline
+                        ? String.Format("Two supplied credentials differ only in case ('{0}').", pair.Key)
+                        : String.Format(
+                            "Credential setting '{0}' has both a credential NAME and a credential VALUE. Supply " +
+                            "one source: the name of a credential in the runtime's mount, or the value itself.",
+                            pair.Key);
+                    return false;
+                }
+
+                credentials[pair.Key] = CredentialSource.Inline(pair.Value ?? String.Empty);
             }
 
             normalized = new NormalizedJob(ProviderId, IntegrationInstanceId, Namespace, settings, credentials,
@@ -169,13 +214,14 @@ namespace NoSQL.GraphDB.Integrations.Run
     }
 
     /// <summary>
-    ///   A job whose two maps have been folded, so every later lookup is case-insensitive by construction
-    ///   rather than by hope.
+    ///   A job whose maps have been folded, so every later lookup is case-insensitive by construction rather
+    ///   than by hope, and whose credentials are one source per setting rather than two maps to reconcile.
     /// </summary>
     public sealed class NormalizedJob
     {
         internal NormalizedJob(String? providerId, String? instanceId, String? namespaceName,
-            IReadOnlyDictionary<String, String> settings, IReadOnlyDictionary<String, String> credentials,
+            IReadOnlyDictionary<String, String> settings,
+            IReadOnlyDictionary<String, CredentialSource> credentials,
             Boolean embedSummaries, String embeddingName)
         {
             ProviderId = providerId;
@@ -199,8 +245,8 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <summary>The folded settings.</summary>
         public IReadOnlyDictionary<String, String> Settings { get; }
 
-        /// <summary>The folded credential names, keyed by credential setting.</summary>
-        public IReadOnlyDictionary<String, String> Credentials { get; }
+        /// <summary>Where each credential setting's value comes from, keyed by credential setting.</summary>
+        public IReadOnlyDictionary<String, CredentialSource> Credentials { get; }
 
         /// <summary>Whether this instance opted into embedding its entity summaries.</summary>
         public Boolean EmbedSummaries { get; }

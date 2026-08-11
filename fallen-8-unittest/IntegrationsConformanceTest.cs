@@ -72,6 +72,46 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task AWellBehavedProviderConformsWithTheCredentialSuppliedWithTheJob()
+        {
+            // The fixture store offers NOTHING, so the credential can only have come from the job. Everything
+            // downstream of the lease is blind to which source it was, and this is what says so.
+            var report = await ConformanceVerifier.VerifyAsync(
+                WellBehaved(),
+                SuppliedCredentialJob(),
+                files: new Dictionary<String, String>(StringComparer.Ordinal),
+                credentials: new Dictionary<String, String>(StringComparer.Ordinal),
+                sourceDouble: Answering(),
+                cancellationToken: CancellationToken.None);
+
+            Assert.AreEqual(0, report.Failed.Count, String.Format(
+                "a run whose credential was supplied with the job must conform exactly as one reading the mount " +
+                "does, or the second source is a path the conformance suite cannot speak for. Failed: {0}",
+                String.Join(", ", report.Failed.Select(c => c + " (" + report.DetailOf(c) + ")"))));
+        }
+
+        [TestMethod]
+        public async Task AProviderThatLogsACredentialSuppliedWithTheJobStillFailsTheLeakCheck()
+        {
+            var candidate = WellBehaved();
+            candidate.Extra = (context, snapshot) =>
+                context.Logger.LogWarning("Authenticating with {Key}", context.RequiredCredential("apiKey"));
+
+            var report = await ConformanceVerifier.VerifyAsync(
+                candidate,
+                SuppliedCredentialJob(),
+                files: new Dictionary<String, String>(StringComparer.Ordinal),
+                credentials: new Dictionary<String, String>(StringComparer.Ordinal),
+                sourceDouble: Answering(),
+                cancellationToken: CancellationToken.None);
+
+            CollectionAssert.Contains(report.Failed.ToList(), ConformanceCheck.NoCredentialLeak,
+                "the leak check must watch the credential the JOB carried as well as the ones the fixture " +
+                "offered. Watching only the fixture would pass a provider that logs a credential its caller " +
+                "typed, which is the same value out of the same lease");
+        }
+
+        [TestMethod]
         public async Task EveryCheckTheEnumDeclaresIsActuallyReported()
         {
             var report = await VerifyAsync(WellBehaved());
@@ -353,6 +393,18 @@ namespace NoSQL.GraphDB.Tests
                 IntegrationInstanceId = Instance,
             };
             job.Credentials["apiKey"] = "console-key";
+            return job;
+        }
+
+        /// <summary>The same job with the credential CARRIED rather than named, for the other source.</summary>
+        private static IntegrationJob SuppliedCredentialJob()
+        {
+            var job = new IntegrationJob
+            {
+                ProviderId = "fixture-provider",
+                IntegrationInstanceId = Instance,
+            };
+            job.CredentialValues["apiKey"] = CredentialValue;
             return job;
         }
 

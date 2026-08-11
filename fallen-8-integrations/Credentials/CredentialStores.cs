@@ -45,6 +45,57 @@ namespace NoSQL.GraphDB.Integrations.Credentials
     }
 
     /// <summary>
+    ///   The two content rules a credential value obeys WHEREVER IT CAME FROM: from a file the operator wrote,
+    ///   from a fixture, or supplied inline in the job. One home, because a value accepted by one route and
+    ///   refused by another is a credential that works from cron and fails from a button.
+    /// </summary>
+    internal static class CredentialContent
+    {
+        /// <summary>
+        ///   Applies the two rules.
+        ///
+        ///   <para>Content is verbatim except EXACTLY ONE trailing line ending, with leading, internal and
+        ///   trailing spaces untouched: <c>printf 'pw' &gt; f</c>, <c>echo pw &gt; f</c> and a projected secret
+        ///   differ by one byte, and the symptom is an authentication failure from somebody's controller with
+        ///   nothing to explain it. Any of those spaces can be part of a real password, and so can the newline a
+        ///   copy-paste out of a console appends, which is why exactly one is dropped rather than all trailing
+        ///   whitespace.</para>
+        ///
+        ///   <para>An empty or whitespace-only value is a FAILURE, never "no credential", because a rotation
+        ///   script that truncated a file - or an operator who submitted the form before pasting - would
+        ///   otherwise produce a run that reads what the source shows the public, declares it complete, and
+        ///   withdraws every claim the instance ever made.</para>
+        /// </summary>
+        internal static Boolean TryAccept(String raw, out String? value, out String? failure)
+        {
+            value = null;
+
+            var trimmed = raw;
+            if (trimmed.EndsWith("\r\n", StringComparison.Ordinal))
+            {
+                trimmed = trimmed.Substring(0, trimmed.Length - 2);
+            }
+            else if (trimmed.EndsWith("\n", StringComparison.Ordinal) ||
+                     trimmed.EndsWith("\r", StringComparison.Ordinal))
+            {
+                trimmed = trimmed.Substring(0, trimmed.Length - 1);
+            }
+
+            if (String.IsNullOrWhiteSpace(trimmed))
+            {
+                failure = "it is empty or holds only whitespace, which is a failure rather than " +
+                          "'no credential': a truncated value would otherwise produce a run that reads what the " +
+                          "source shows the public and then withdraws everything";
+                return false;
+            }
+
+            value = trimmed;
+            failure = null;
+            return true;
+        }
+    }
+
+    /// <summary>
     ///   One file per credential in a read-only bind-mounted directory, rather than compose's <c>secrets:</c>
     ///   list: with <c>secrets:</c> adding a credential means editing compose and recreating the service, while
     ///   with a directory adding one is writing a file and rotating one is overwriting it.
@@ -81,47 +132,7 @@ namespace NoSQL.GraphDB.Integrations.Credentials
                 return false;
             }
 
-            return TryAccept(raw, out value, out failure);
-        }
-
-        /// <summary>
-        ///   Applies the two content rules.
-        ///
-        ///   <para>Content is verbatim except EXACTLY ONE trailing line ending, with leading, internal and
-        ///   trailing spaces untouched: <c>printf 'pw' &gt; f</c>, <c>echo pw &gt; f</c> and a projected secret
-        ///   differ by one byte, and the symptom is an authentication failure from somebody's controller with
-        ///   nothing to explain it. Any of those spaces can be part of a real password.</para>
-        ///
-        ///   <para>An empty or whitespace-only file is a FAILURE, never "no credential", because a rotation
-        ///   script that truncated a file would otherwise produce a run that reads what the source shows the
-        ///   public, declares it complete, and withdraws every claim the instance ever made.</para>
-        /// </summary>
-        internal static Boolean TryAccept(String raw, out String? value, out String? failure)
-        {
-            value = null;
-
-            var trimmed = raw;
-            if (trimmed.EndsWith("\r\n", StringComparison.Ordinal))
-            {
-                trimmed = trimmed.Substring(0, trimmed.Length - 2);
-            }
-            else if (trimmed.EndsWith("\n", StringComparison.Ordinal) ||
-                     trimmed.EndsWith("\r", StringComparison.Ordinal))
-            {
-                trimmed = trimmed.Substring(0, trimmed.Length - 1);
-            }
-
-            if (String.IsNullOrWhiteSpace(trimmed))
-            {
-                failure = "the file is empty or holds only whitespace, which is a failure rather than " +
-                          "'no credential': a truncated file would otherwise produce a run that reads what the " +
-                          "source shows the public and then withdraws everything";
-                return false;
-            }
-
-            value = trimmed;
-            failure = null;
-            return true;
+            return CredentialContent.TryAccept(raw, out value, out failure);
         }
     }
 
@@ -157,7 +168,7 @@ namespace NoSQL.GraphDB.Integrations.Credentials
                 return false;
             }
 
-            return DirectoryCredentialStore.TryAccept(found, out value, out failure);
+            return CredentialContent.TryAccept(found, out value, out failure);
         }
     }
 

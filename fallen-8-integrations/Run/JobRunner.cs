@@ -281,19 +281,20 @@ namespace NoSQL.GraphDB.Integrations.Run
                 if (setting.Kind == SettingKind.Credential)
                 {
                     throw new JobRejectedException(JobErrorKinds.Configuration, String.Format(
-                        "'{0}' is a credential setting, so the job names a credential for it rather than " +
-                        "supplying a value: a setting is neither leased nor redacted, so a value here would be " +
-                        "logged and reported like any other.", supplied.Key));
+                        "'{0}' is a credential setting, so its value belongs in 'credentials' (by name) or in " +
+                        "'credentialValues' (the value itself), never in 'settings': a setting is neither leased " +
+                        "nor redacted, so a value here would be logged and reported like any other.", supplied.Key));
                 }
             }
 
-            foreach (var named in job.Credentials)
+            foreach (var credential in job.Credentials)
             {
-                if (!declared.TryGetValue(named.Key, out var setting) || setting.Kind != SettingKind.Credential)
+                if (!declared.TryGetValue(credential.Key, out var setting) ||
+                    setting.Kind != SettingKind.Credential)
                 {
                     throw new JobRejectedException(JobErrorKinds.Configuration, String.Format(
-                        "Provider '{0}' declares no credential setting '{1}', so the credential named for it " +
-                        "would never be read.", descriptor.Id, named.Key));
+                        "Provider '{0}' declares no credential setting '{1}', so the credential supplied for it " +
+                        "would never be read.", descriptor.Id, credential.Key));
                 }
             }
 
@@ -305,7 +306,9 @@ namespace NoSQL.GraphDB.Integrations.Run
                     if (setting.Required && !job.Credentials.ContainsKey(setting.Key))
                     {
                         throw new JobRejectedException(JobErrorKinds.Configuration, String.Format(
-                            "Provider '{0}' requires a credential for setting '{1}'.", descriptor.Id, setting.Key));
+                            "Provider '{0}' requires a credential for setting '{1}': name one from the runtime's " +
+                            "mount in 'credentials', or supply the value itself in 'credentialValues'.",
+                            descriptor.Id, setting.Key));
                     }
 
                     continue;

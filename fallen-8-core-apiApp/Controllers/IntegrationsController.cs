@@ -142,8 +142,12 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="definition">The job definition, forwarded to the runtime untouched</param>
         /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
         /// <remarks>A job carries everything one run needs: which provider, the identity it asserts
-        /// as, the namespace to write into, the provider's settings, and its credentials BY NAME (a
-        /// value never travels through here). The call is synchronous: the source is read, what it
+        /// as, the namespace to write into, the provider's settings, and its credentials - either BY
+        /// NAME, read from the runtime's own mount, or as the VALUE itself in credentialValues, for a
+        /// caller who has it in hand and nowhere to put it. A value supplied that way travels through
+        /// here in the request body, so serve this API over TLS if callers do that; the runtime holds
+        /// it for the run alone and keeps no job history, and no route reads a job back.
+        /// The call is synchronous: the source is read, what it
         /// said is written, the report comes back, and the runtime keeps nothing. A job that ran and
         /// failed still answers 200 with the failure on its report; one that could not be run at all
         /// is the runtime's 400 or its 409 (one job at a time per identity).

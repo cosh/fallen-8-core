@@ -49,7 +49,7 @@ Each feature has a deep-dive doc — follow the link.
   JSON that round-trips exactly.
 - **[Integrations](https://cosh.github.io/fallen-8-core/integrations/)**: a sidecar that reads a system on
   your own network (a CSV inventory, a UniFi console, a Fronius inverter) and writes what it saw into a
-  namespace, with named credentials and exact-match identity.
+  namespace, with credentials that are held for one run and never stored, and exact-match identity.
 - **[Live change feed](https://cosh.github.io/fallen-8-core/change-feed/)** — committed mutations as Server-Sent Events, in
   commit order, with in-band resync.
 - **[Save games](https://cosh.github.io/fallen-8-core/save-games/)** — checkpoints tracked by a registry that drives startup,

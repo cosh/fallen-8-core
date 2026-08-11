@@ -35,8 +35,10 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.Integrations.Conformance;
 using NoSQL.GraphDB.Integrations.Configuration;
 
 namespace NoSQL.GraphDB.Tests
@@ -149,10 +151,14 @@ namespace NoSQL.GraphDB.Tests
                    "\"properties\":{\"csv.name\":\"Reception AP\"},\"relations\":[]}]}";
         }
 
-        private static String JobBody(String providerId, String instanceId, String settings)
+        private static String JobBody(String providerId, String instanceId, String settings,
+            String credentials = null, String credentialValues = null)
         {
             return "{\"providerId\":\"" + providerId + "\",\"integrationInstanceId\":\"" + instanceId +
-                   "\",\"settings\":" + (settings ?? "{}") + "}";
+                   "\",\"settings\":" + (settings ?? "{}") +
+                   (credentials == null ? String.Empty : ",\"credentials\":" + credentials) +
+                   (credentialValues == null ? String.Empty : ",\"credentialValues\":" + credentialValues) +
+                   "}";
         }
 
         /// <summary>A port nothing listens on: bound to learn a free one, then released.</summary>
@@ -302,7 +308,8 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        /// A credential setting names a file the operator provides; its value never travels as data.
+        /// A credential setting is published as its own kind, and never carries a default: a default is
+        /// the one thing that WOULD travel as an ordinary setting.
         /// </summary>
         [TestMethod]
         public async Task ACredentialSettingIsPublishedAsACredentialKind_AndNeverCarriesADefaultValue()
@@ -511,6 +518,85 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        /// Two sources for one credential setting is a job nobody can read, so it is refused rather than
+        /// resolved by precedence.
+        /// </summary>
+        [TestMethod]
+        public async Task AJobSupplyingBothACredentialNameAndACredentialValue_IsRefused()
+        {
+            const String Supplied = "sk-pasted-into-the-form-9c1f";
+
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync(RuntimeJobRoute, Json(JobBody(UnifiProviderId,
+                "home-unifi",
+                "{\"baseUrl\":\"https://" + RuntimeFactory.AllowedHost + "/proxy/network/integration\"}",
+                "{\"apiKey\":\"console-key\"}",
+                "{\"apiKey\":\"" + Supplied + "\"}")));
+
+            var body = await ReadText(response);
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode,
+                "a job naming a credential AND carrying one for the same setting was admitted, so the run " +
+                "authenticated with whichever source the runtime happened to read second and no report says " +
+                "which. A caller who filled in a form and left a stale name behind cannot tell a working " +
+                "credential from a working one they meant to replace");
+
+            var problem = JsonDocument.Parse(body).RootElement;
+            StringAssert.Contains(Text(problem, "detail"), "apiKey",
+                "the refusal must name the setting with two sources, because a provider with several " +
+                "credential settings otherwise leaves the caller to find it");
+            Assert.AreEqual("configuration", Text(problem, "errorKind"),
+                "nothing was read and nothing written, so this is the caller's job to fix rather than a " +
+                "credential to rotate or a source to retry");
+            Assert.IsFalse(body.Contains(Supplied, StringComparison.Ordinal),
+                "the refusal quoted the supplied credential. A value rejected BEFORE the lease exists is a " +
+                "value redaction knows nothing about, and this body is reported and logged");
+        }
+
+        /// <summary>
+        /// The second credential source, end to end: a required credential supplied as a VALUE gets a run
+        /// past the pre-flight and out to the source, and appears nowhere on the report.
+        /// </summary>
+        [TestMethod]
+        public async Task ARequiredCredentialSuppliedAsAValue_RunsTheJob_AndNeverAppearsOnTheReport()
+        {
+            const String Supplied = "sk-pasted-into-the-form-9c1f";
+
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            // The console is the ALLOWED host, so the guard permits the request and the address does not
+            // resolve: the run gets as far as the source and fails there. Any other outcome means it never
+            // got past its own configuration or its credential, which is what this test is about.
+            using var response = await client.PostAsync(RuntimeJobRoute, Json(JobBody(UnifiProviderId,
+                "home-unifi",
+                "{\"baseUrl\":\"https://" + RuntimeFactory.AllowedHost + "/proxy/network/integration\"}",
+                null,
+                "{\"apiKey\":\"" + Supplied + "\"}")));
+
+            var body = await ReadText(response);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "a required credential supplied as a value was refused as a job that could not be run at " +
+                "all, so the only caller who has the secret in hand and nowhere to put it - a person at a " +
+                "form - cannot run an integration: " + body);
+
+            var report = JsonDocument.Parse(body).RootElement;
+            Assert.AreEqual("source", Text(report, "errorKind"),
+                "the run must have reached the console and failed there. 'configuration' would mean the " +
+                "pre-flight did not count a supplied value as satisfying a required credential setting, and " +
+                "'credential' would mean the resolver went looking in the mount for one it was handed");
+            Assert.IsFalse(String.IsNullOrEmpty(Text(report, "credentialFingerprint")),
+                "a supplied credential is fingerprinted like any other, which is how a caller who pasted a " +
+                "stale value sees the report change once they paste the new one");
+            Assert.IsFalse(body.Contains(Supplied, StringComparison.Ordinal),
+                "the supplied credential reached the report. The report is the ONE thing a run hands back, " +
+                "and the source's own failure message is quoted onto it");
+        }
+
+        /// <summary>
         /// The instance id's shape is an allow-list, checked before anything runs.
         /// </summary>
         [TestMethod]
@@ -697,8 +783,12 @@ namespace NoSQL.GraphDB.Tests
                 _withApiKey = withApiKey;
             }
 
+            /// <summary>Everything this apiApp logged, for the one test that asserts what it did NOT log.</summary>
+            internal CapturingLoggerProvider Sink { get; } = new CapturingLoggerProvider();
+
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                builder.ConfigureLogging(logging => logging.AddProvider(Sink));
                 builder.UseEnvironment("Development");
                 builder.UseSetting("Fallen8:Durability:Volatile", "true");
                 if (_enabled != null)
@@ -821,6 +911,52 @@ namespace NoSQL.GraphDB.Tests
                     ProxyRoutes[i] + " does not name the missing setting, which is the whole content of the " +
                     "answer for whoever is configuring the sidecar");
             }
+        }
+
+        /// <summary>
+        /// A credential supplied as a value travels through this hop, so this hop must be silent about
+        /// it. The runtime redacts what IT logs; the apiApp has no lease and no redaction, and its only
+        /// protection is that it logs no request body at all.
+        /// </summary>
+        [TestMethod]
+        public async Task TheProxyLogsNothingOfAJobBody_SoASuppliedCredentialSurvivesTheHop()
+        {
+            const String Supplied = "sk-pasted-into-the-form-9c1f";
+
+            var endpoint = "http://127.0.0.1:" + ClosedLoopbackPort().ToString(CultureInfo.InvariantCulture) + "/";
+
+            using var factory = new ProxyFactory(enabled: "true", endpoint: endpoint);
+            using var client = factory.CreateClient();
+
+            // The runtime is unreachable ON PURPOSE: the forwarding failure is the noisiest moment this hop
+            // has, and an exception message quoting the request it sent is the ordinary way a body reaches
+            // a log.
+            using var response = await client.PostAsync(ProxyJobRoute, Json(JobBody(UnifiProviderId,
+                "home-unifi",
+                "{\"baseUrl\":\"https://console.invalid/proxy/network/integration\"}",
+                null,
+                "{\"apiKey\":\"" + Supplied + "\"}")));
+
+            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode,
+                "the unreachable runtime must be a 503, or this test is asserting about some other path");
+
+            // Without this the loop below is a no-op dressed as a guarantee: a sink the host never wired
+            // captures nothing, and "nothing contains the credential" is true of an empty list.
+            Assert.IsTrue(factory.Sink.Lines.Length > 0,
+                "this sink captured no line at all, so it is not attached to the apiApp's logging and the " +
+                "check below proves nothing about what this process writes");
+
+            foreach (var line in factory.Sink.Lines)
+            {
+                Assert.IsFalse(line.Contains(Supplied, StringComparison.Ordinal),
+                    "the apiApp logged a job body carrying a credential. This process holds no lease and " +
+                    "redacts nothing, so a body it logs is a third-party secret written to the instance's " +
+                    "own log by the one hop that was only ever meant to forward it: " + line);
+            }
+
+            Assert.IsFalse((await ReadText(response)).Contains(Supplied, StringComparison.Ordinal),
+                "the 503 body echoed the request. A proxy failure is reported to whoever called it, which " +
+                "is not always whoever supplied the credential");
         }
 
         /// <summary>

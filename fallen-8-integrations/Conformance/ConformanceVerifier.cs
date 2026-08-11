@@ -164,8 +164,9 @@ namespace NoSQL.GraphDB.Integrations.Conformance
             findings.Add(Idempotent(graph, mutationsAfterFirst, second));
             findings.Add(ClaimScoped(graph, forbidden));
             findings.Add(NoSimilarityIdentity(observed, first));
-            findings.Add(RunsOffline(handler, fileStore, first, credentials));
-            findings.Add(NoCredentialLeak(credentials, attemptedSink, reachedSink, graph, first, second));
+            findings.Add(RunsOffline(handler, fileStore, first));
+            findings.Add(NoCredentialLeak(CredentialValuesToWatch(credentials, job), attemptedSink, reachedSink,
+                graph, first, second));
             findings.Add(NoPathEscape(fileStore, files));
             findings.Add(CompletenessHonest(observed, candidate.Descriptor, first));
             findings.Add(UnreadableSourceFails(handler, first, second));
@@ -377,7 +378,7 @@ namespace NoSQL.GraphDB.Integrations.Conformance
         }
 
         private static ConformanceFinding RunsOffline(RecordingHandler handler, FixtureFileStore files,
-            Observation first, IReadOnlyDictionary<String, String>? credentials)
+            Observation first)
         {
             if (!handler.HasSourceDouble)
             {
@@ -413,18 +414,40 @@ namespace NoSQL.GraphDB.Integrations.Conformance
                 "came from a seam this suite does not control.");
         }
 
-        private static ConformanceFinding NoCredentialLeak(IReadOnlyDictionary<String, String>? credentials,
+        /// <summary>
+        ///   Every credential value this run could leak: the ones the fixture offers BY NAME and the ones the job
+        ///   carries INLINE. Both, because a check that watched only the fixture would pass a candidate that logs
+        ///   a credential its caller typed - which is the same leak from the same lease.
+        /// </summary>
+        private static IReadOnlyList<String> CredentialValuesToWatch(
+            IReadOnlyDictionary<String, String>? fixtureCredentials, IntegrationJob job)
+        {
+            var watched = new List<String>();
+            if (fixtureCredentials != null)
+            {
+                watched.AddRange(fixtureCredentials.Values);
+            }
+
+            if (job.CredentialValues != null)
+            {
+                watched.AddRange(job.CredentialValues.Values);
+            }
+
+            return watched;
+        }
+
+        private static ConformanceFinding NoCredentialLeak(IReadOnlyList<String> credentialValues,
             CapturingLoggerProvider attempted, CapturingLoggerProvider reached, InMemoryGraphTarget graph,
             Observation first, Observation second)
         {
-            if (credentials == null || credentials.Count == 0)
+            if (credentialValues.Count == 0)
             {
                 return new ConformanceFinding(ConformanceCheck.NoCredentialLeak, true,
-                    "The fixture offered no credential, so there was none to leak.");
+                    "Neither the fixture nor the job carried a credential, so there was none to leak.");
             }
 
             var offenders = new List<String>();
-            foreach (var value in credentials.Values)
+            foreach (var value in credentialValues)
             {
                 var trimmed = value?.TrimEnd('\r', '\n');
                 if (String.IsNullOrEmpty(trimmed))

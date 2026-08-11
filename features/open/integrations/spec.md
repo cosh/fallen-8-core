@@ -15,7 +15,7 @@ path, the provider contract, the conformance suite, three blueprints, and the re
 | The run | one job reads a system on the user's own network, describes what it saw as a snapshot, and writes that description into one Fallen-8 namespace over the public REST API, after which the runtime forgets everything |
 | Identity | element state: every element a run creates carries the run's identity claims as reserved properties, so resolution is exact-match on a canonical claim key against elements this same integration already claimed, and nothing ever unifies two elements |
 | Deletion | a snapshot declares whether it describes the whole source, and only that declaration licenses reconciliation to withdraw a claim and, on the last claim, delete the element |
-| Credentials | named rather than stored: the value is read from a mounted directory when a job starts and dropped when it ends, so rotating one is overwriting a file |
+| Credentials | never stored: a job either names one, which the runtime reads from a mounted directory when the job starts, or carries the value itself. Either way it is held for the run and dropped when it ends |
 | A provider | a data descriptor plus one *ObserveAsync* method, judged by a conformance suite that observes a candidate rather than believing it, because the point of the feature is that the fourth integration gets written without the owner in the loop |
 
 ## 1. What this is, and what it is for
@@ -70,11 +70,12 @@ is kept. `POST /integration/job` is the only verb.
 | *namespace* | the namespace to write into, defaulting to *Fallen8Target:DefaultNamespace* |
 | *settings* | the provider's non-credential settings, keyed as its descriptor declares them |
 | *credentials* | which credential each credential setting uses, **by name** |
+| *credentialValues* | the credential **itself**, per credential setting (section 3) |
 
 | Rule | Why |
 | --- | --- |
 | No interval, no floor, no enable step, no run history, no instance store. **Timing is not this runtime's subject and appears nowhere in it, including in a provider's descriptor** | a runtime holding a schedule would own a second copy of a decision only whoever wants the data can make, in a place with no way to know what the data is for |
-| A job definition is the whole configuration of a run and carries credential names rather than values | so it is safe to keep, to commit next to whatever submits it, and to read back as a record of what was asked for |
+| A job definition is the whole configuration of a run. One naming its credentials is safe to keep, to commit next to whatever submits it, and to read back as a record of what was asked for; one carrying a value is a secret in a document and is not a thing to save | the two sources are the caller's choice, and the difference is what the JOB is rather than how the runtime treats the value (section 3) |
 | *JobReport* is the only account of the job: *providerId*, *integrationInstanceId*, *startedUtc*, *durationMilliseconds*; the counts *elementsCreated*, *elementsMatched*, *edgesCreated*, *claimsWithdrawn*, *elementsDeleted*, *deletionsDeferred*; *issuedMutations* (section 10); *error* and *errorKind*; *credentialFingerprint* (section 3); *diagnostics*, each a *DiagnosticDto* with a stable *code*, a message and the subject it concerns | the runtime keeps none |
 | A provider's diagnostics ride along on its snapshot into the same list, and diagnostics are never dropped | one report then covers both what the source could not tell the run and what the graph could not be told |
 | **One job at a time per identity**, refused with a conflict rather than queued | two concurrent runs under one identity both resolve against the graph as it was before either wrote, so both create the elements the other is creating: the duplicate-everything failure, with no index ever going missing. It refuses rather than queueing because the caller is waiting on this call |
@@ -95,12 +96,18 @@ is kept. `POST /integration/job` is the only verb.
 
 | Rule | The failure it prevents |
 | --- | --- |
-| The runtime is told a credential's **name**, reads the value when the job starts, uses it, and drops it when the job ends. No sealing, no encryption, and no cache of any kind including "resolve once per run and keep it" | the reason is not a preference about secret handling: these credentials belong to other people and other systems who rotate them on their own timetable, so a stored copy silently becomes the wrong value the moment one is rotated and the integration then fails for a reason invisible from the graph. Reading per run makes rotation overwriting a file, with no restart and nothing re-entered, and means a stolen volume is not a stolen controller account |
+| **Nothing is stored, whichever source a job used.** No sealing, no encryption, and no cache of any kind including "resolve once per run and keep it" | the reason is not a preference about secret handling: these credentials belong to other people and other systems who rotate them on their own timetable, so a stored copy silently becomes the wrong value the moment one is rotated and the integration then fails for a reason invisible from the graph. Holding nothing between runs also means a stolen volume is not a stolen controller account |
+| **Two sources per credential setting.** *credentials* names one the runtime reads from its mount when the job starts; *credentialValues* carries the value itself | REWRITTEN from "named, never carried", at the owner's decision: the original rule left the one caller who has the value in hand and nowhere to put it - a person at the Studio form - unable to run a credentialed integration at all, since supplying one meant shell access to the runtime's host to write a file. The rule it was protecting survives intact one row down |
+| A supplied value is **leased, redacted, fingerprinted and dropped identically** to a named one: the source is decided in *CredentialSource* while the job is folded, and nothing downstream of the lease can tell which it was | one code path for the property that matters, so a second source cannot become a second standard of care. What the two differ in is what the JOB is: a job naming credentials is safe to keep, one carrying a value is a secret in a document |
+| A credential value may never arrive as a **setting**, whichever source is used | a setting is neither leased nor redacted, so it would be logged and reported like any other value. This is the rule the original "named, never carried" was really protecting, and it is unchanged: the second source is its own map for exactly this reason |
+| The same setting in **both** maps is a *configuration* rejection while the job is folded, not a precedence rule | a caller who filled in a form and left a stale name behind would otherwise authenticate with whichever source the runtime read second, and no report could say which. Collapsing to one *CredentialSource* per setting makes it a shape a job cannot have rather than an ordering nobody can see |
+| The cost of the second source is stated where a caller reads it, on the field, on the proxy route and in the docs: the value travels in the request, so that hop wants TLS, and whatever composed the request holds a secret for as long as it keeps the body | it is the caller's cost and the caller's to judge, and an undocumented one gets paid by somebody who never chose it. The runtime's own promise is narrower and exact: it keeps no job history and no route reads a job back |
+| The apiApp's proxy hop **logs no request body**, and its 503 does not echo one | the runtime redacts what it logs; the apiApp holds no lease and redacts nothing, so a body it logged would be a third-party secret written into the instance's own log by the one hop that exists to forward it. It is pinned by a test that fails the forward on purpose, since a message quoting the request it sent is the ordinary way a body reaches a log, and that test first proves its own sink is attached |
 | One file per credential in a read-only bind-mounted directory, not compose's *secrets:* list | with *secrets:* adding a credential means editing compose and recreating the service; with a directory, adding one is writing a file and rotating one is overwriting it |
-| Content verbatim except exactly one trailing line ending; leading, internal and trailing spaces untouched | `printf 'pw' > f`, `echo pw > f` and a projected secret differ by one byte, and the symptom is an authentication failure from somebody's controller with nothing to explain it. Any of those spaces can be part of a real password |
-| An empty or whitespace-only file is a **failure**, never "no credential" | a rotation script that truncated a file would otherwise produce a run that reads what the source shows the public, declares it complete, and withdraws every claim the instance ever made |
-| A credential value may never arrive as a **setting** | a setting is neither leased nor redacted, so it would be logged and reported like any other value |
-| Both maps are re-keyed case-insensitively before anything looks in them | a job arrives as JSON and deserialising into a dictionary yields an ordinal comparer whatever the initialiser says, so *Password* slips past a lookup for *password* and defeats the guard with the shift key. Folding also turns two keys differing only in case into a rejection instead of a duplicate-key throw further in |
+| The content rules live in **one** place (*CredentialContent*) and apply to a file, a fixture and a supplied value alike: verbatim except exactly one trailing line ending, with leading, internal and trailing spaces untouched | `printf 'pw' > f`, `echo pw > f` and a projected secret differ by one byte, and the symptom is an authentication failure from somebody's controller with nothing to explain it. Any of those spaces can be part of a real password, and so can the newline a copy-paste out of a console appends. A value accepted from one source and refused from another would be a credential that works from cron and fails from a button |
+| An empty or whitespace-only credential is a **failure**, never "no credential" | a rotation script that truncated a file, or a form submitted before the paste, would otherwise produce a run that reads what the source shows the public, declares it complete, and withdraws every claim the instance ever made |
+| A refusal names the setting and never quotes the value | a value rejected before the lease exists is one redaction knows nothing about, and that message is reported to the caller and logged |
+| All three maps are re-keyed case-insensitively before anything looks in them | a job arrives as JSON and deserialising into a dictionary yields an ordinal comparer whatever the initialiser says, so *Password* slips past a lookup for *password* and defeats the guard with the shift key. Folding also turns two keys differing only in case into a rejection instead of a duplicate-key throw further in |
 | *CredentialLease* is run scoped and disposed in a *finally* spanning **both the source read and the graph write** | the value stays redactable for as long as anything can mention it, and a provider that squirrelled the context away fails loudly instead of quietly authenticating with a password the operator rotated away |
 | Credentials are fetched once, eagerly, before the provider is invoked | a lazy fetch moves the failure into the middle of a source read, after the run has begun making withdrawal-relevant decisions; an unreadable credential is "I could not look" (section 9) |
 | A provider needing none gets *CredentialLease.Empty()*, a factory and not a shared instance | one caller putting a static lease in a *using* would end it permanently for every uncredentialed provider afterwards |
@@ -120,6 +127,11 @@ is kept. `POST /integration/job` is the only verb.
 | A command | would make the credential-holding container remotely programmable | never |
 | An HTTP broker | fetching a credential needs a credential, and every broker can already write a file | a user who cannot mount a file, or an audit-trail requirement |
 | Any cache | a copy with a lifetime is the thing this design removes | none |
+
+A value **in the job** is not on that list: it is the second source above. What separates it from an
+environment variable or a broker is that it has no location and no lifetime beyond the run - nothing on the
+container's disk, in its environment, or in another service holds a copy to be read later - and the caller who
+sent it is the one who already had it.
 
 ## 4. Where a credential may be sent, and whose certificate is trusted
 
@@ -355,7 +367,7 @@ public interface IIntegrationProvider
 | *ClaimScoped* | 5 | every element the run created or matched carries this integration's claim, and no element another instance claims was written to. A run writes only to what it claims, to what it withdraws its own claim from, and to an unclaimed orphan it reclaims |
 | *NoSimilarityIdentity* | 6 | nothing in the snapshot offers a score, a threshold or a confidence for identity |
 | *RunsOffline* | 7 | the run completed against substituted seams alone |
-| *NoCredentialLeak* | 8 | no credential value reached a log sink, the job report or the graph |
+| *NoCredentialLeak* | 8 | no credential value reached a log sink, the job report or the graph. It watches the values the fixture offered **and** any the job carried, because watching only the fixture would pass a provider that logs a credential its caller supplied - the same value out of the same lease |
 | *NoPathEscape* | 9 | every file read was one the fixture offered, by name |
 | *CompletenessHonest* | 10 | a provider that cannot observe the whole source did not declare a complete snapshot |
 | *UnreadableSourceFails* | 11 | a run that failed withdrew nothing |
@@ -394,7 +406,7 @@ heavy, and that is a finding to report rather than a budget to raise quietly.
 | ***unifi-network*, the many-entity one** | |
 | --- | --- |
 | What it is for | everything the CSV list does not have: a credential whose lifetime it does not own, paged lists it must follow to the end, three entity kinds in one snapshot, and edges addressed by claim to devices it has not emitted yet. It proves entity ordering is not a provider's problem |
-| Settings | *baseUrl* (Url, required, the full integration API base URL), *apiKey* (Credential, required, the NAME of a credential) |
+| Settings | *baseUrl* (Url, required, the full integration API base URL), *apiKey* (Credential, required; the job supplies it by name or by value, section 3) |
 | Entity kinds | *site*, *device*, *client* |
 | Claim types | *mac* (strong, global), *unifi-site-id*, *unifi-device-id*, *unifi-client-id* (strong, provider scope), *ipv4* (weak) |
 | Relation types | *site*, *uplink*, *connectedTo*, all addressed by claim |

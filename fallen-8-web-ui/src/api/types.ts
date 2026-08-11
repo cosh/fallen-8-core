@@ -989,13 +989,19 @@ export interface IntegrationDiagnostic {
   subject?: string | null;
 }
 
-/** The whole configuration of one run. Credentials are named, never carried. */
+/**
+ * The whole configuration of one run. A credential setting takes its value from exactly ONE of the two
+ * maps: `credentials` names one from the runtime's mount, `credentialValues` carries the value itself.
+ * The same key in both is rejected by the runtime rather than resolved by precedence.
+ */
 export interface IntegrationJobRequest {
   providerId: string;
   integrationInstanceId: string;
   namespace?: string;
   settings: Record<string, string>;
   credentials: Record<string, string>;
+  /** Secrets. Held for the run and dropped; never persisted here, never echoed back. */
+  credentialValues?: Record<string, string>;
   embedSummaries?: boolean;
 }
 

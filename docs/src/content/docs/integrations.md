@@ -35,10 +35,10 @@ npm run env:up
 `F8_INTEGRATIONS=false` skips the sidecar, and the API's four routes then refuse the capability:
 a 403 on an instance with an API key configured, a 401 on an open one.
 
-A **job** is the whole configuration of one run. It names the integration, the identity it
-asserts as, the namespace to write into, the provider's settings, and, for each credential
-setting, **the name of a credential rather than its value**. That makes a job safe to keep, to
-commit next to whatever submits it, and to read back later as a record of what was asked for:
+A **job** is the whole configuration of one run: the integration, the identity it asserts as, the
+namespace to write into, the provider's settings and its credentials (see
+[Credentials](#credentials) for the two ways to supply one). Nothing about a job is stored, so
+this is also the only place a run is described:
 
 ```bash
 curl -sS -X POST http://localhost:8080/integrations/job \
@@ -145,8 +145,34 @@ next run rebuilds it from element state before trusting a lookup.
 
 ## Credentials
 
-A credential is **named, never stored**. You put the value in a file; the runtime reads it when
-a job starts, uses it, and drops it when the job ends.
+**Nothing is stored, whichever way you supply one.** The runtime holds a credential for the run
+that needs it, keeps it out of every log line, and drops it when the job ends. There is no cache,
+no keyring and no credential store: it has nothing to rotate, because it remembers nothing.
+
+Two sources, and they differ in what the JOB is rather than in how the value is treated.
+
+**Supply the value** when you have it in hand and nowhere to put it, which is what the Studio
+form does:
+
+```bash
+curl -sS -X POST http://localhost:8080/integrations/job \
+  -H 'content-type: application/json' \
+  -d '{
+        "providerId": "unifi-network",
+        "integrationInstanceId": "home-unifi",
+        "settings": { "baseUrl": "https://10.0.0.1/proxy/network/integration" },
+        "credentialValues": { "apiKey": "the-api-key" }
+      }'
+```
+
+The value travels in that request, so serve the API over TLS if you do this from anywhere but
+your own machine, and note that whatever composed the request is holding a secret for as long as
+it keeps the body. **A job carrying a value is not a job to save**: no shell history, no
+committed file, no pipeline variable that outlives the run.
+
+**Name a credential** for anything unattended. You put the value in a file, the runtime reads it
+when the job starts, and the job itself carries no secret at all, so it is safe to keep, to commit
+next to whatever submits it, and to read back later as a record of what was asked for:
 
 ```bash
 # one file per credential, in the mounted directory (./secrets by default)
@@ -164,17 +190,27 @@ curl -sS -X POST http://localhost:8080/integrations/job \
       }'
 ```
 
-**Rotating one is overwriting the file** in place: no restart, nothing re-entered, and no stored
-copy to go stale. Overwrite in place rather than moving a new file over it, because a bind mount
-keeps reading the file it opened and the job would keep succeeding with the credential you think
-you revoked. Every report carries a `credentialFingerprint` for exactly that reason: if it does
-not change after you rotate, the runtime is still reading the old value.
+**Rotating a named one is overwriting the file** in place: no restart, nothing re-entered, and no
+stored copy to go stale. Overwrite in place rather than moving a new file over it, because a bind
+mount keeps reading the file it opened and the job would keep succeeding with the credential you
+think you revoked. Every report carries a `credentialFingerprint` for exactly that reason: if it
+does not change after you rotate, the runtime is still reading the old value. A supplied value is
+fingerprinted the same way, so a stale paste is just as visible.
 
-The file's content is taken verbatim except for a single trailing newline, so `printf 'pw'` and
-`echo pw` give the same credential, and spaces inside it survive. An **empty file is a failure**,
-never "no credential": a truncated file would otherwise produce a run that reads whatever the
-source shows the public, declares that complete, and withdraws everything the integration ever
-claimed.
+One setting takes one source. The same key in both maps is **refused** rather than resolved by
+precedence, because a caller who filled in a form and left a stale name behind would otherwise
+authenticate with whichever one the runtime read second, and no report could say which.
+
+The value is taken verbatim except for a single trailing newline, so `printf 'pw'` and `echo pw`
+give the same credential, a value pasted out of a console survives the newline that came with it,
+and spaces inside or around it survive too, because they can be part of a real password. An
+**empty credential is a failure**, never "no credential": a truncated file, or a form submitted
+before the paste, would otherwise produce a run that reads whatever the source shows the public,
+declares that complete, and withdraws everything the integration ever claimed.
+
+A credential value may never arrive as a **setting**, however you send it. A setting is neither
+leased nor redacted, so a value there would be logged and reported like any other; the runtime
+refuses a job that puts one in `settings` instead of quietly accepting it.
 
 Two lists bound where a credential can go, and both are configuration only, never job settings:
 
