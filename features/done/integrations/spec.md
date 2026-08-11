@@ -1,10 +1,11 @@
 # Integrations
 
-**Status:** implemented on `feature/integrations`. One follow-up is open and named in the plan: the docs
-screenshots, because the Studio rail gained an icon that a fresh capture would show. It replaces the three superseded
-`features/open/integration-*` directories, deleted when this lands (section 18). The plan that sequences it
-is [plan.md](plan.md). Where the implementation found a rule below to be wrong, the rule is REWRITTEN here
-rather than annotated, so this document says what the code does; the rows that changed name the reason.
+**Status:** implemented and merged to `main` from `feature/integrations`. It replaced the three superseded
+`features/open/integration-*` directories, deleted when it landed (section 18). One follow-up is open and named
+in the plan: the docs screenshots, because the Studio rail gained an icon and its credential field changed shape,
+so every existing capture is a little out of date. The plan that sequences the work is [plan.md](plan.md). Where
+the implementation found a rule below to be wrong, the rule is REWRITTEN here rather than annotated, so this
+document says what the code does; the rows that changed name the reason.
 
 **What this covers.** A first-party sidecar that runs integration jobs: the deployable and how the apiApp reaches it,
 the job model, credentials, the identity model and its vocabulary, resolution and reconciliation, the REST write

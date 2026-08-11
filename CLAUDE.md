@@ -5,13 +5,19 @@ Guidance for working in this repository.
 ## What this is
 
 Fallen-8 is an in-memory graph database written in C# (.NET 10). Namespaces are under
-`NoSQL.GraphDB.*`. The solution has three projects:
+`NoSQL.GraphDB.*`. Three projects are the database itself:
 
 - **`fallen-8-core`** — the engine: graph model, transactions, indices, algorithms
   (path finding, subgraph), persistence, serialization, plugins.
 - **`fallen-8-core-apiApp`** — ASP.NET Core Web API exposing the engine over REST.
   OpenAPI via `Microsoft.AspNetCore.OpenApi`; interactive docs via Scalar.
-- **`fallen-8-unittest`** — MSTest test suite covering both projects.
+- **`fallen-8-unittest`** — MSTest test suite covering every project in the solution.
+
+Two more are **separate deployables** that reach the graph over the public REST API only, never in
+process, and reference neither the engine nor the apiApp: **`fallen-8-mcp`** (the agent channel) and
+**`fallen-8-integrations`** (the job runner that reads a system on the operator's own network). Both
+have an architecture note below. **`fallen-8-bench`** is the throughput harness and does reference
+the engine, because it measures it in process.
 
 **User-facing documentation is a [Starlight](https://starlight.astro.build/) site rooted at
 [`docs/`](docs/), published to <https://cosh.github.io/fallen-8-core/>.** The pages are
@@ -97,6 +103,20 @@ dotnet run --project fallen-8-core-apiApp
   read its state from `GET /status`. The living docs are
   [features/done/element-embeddings/](features/done/element-embeddings/) and
   [features/done/embedding-provider/](features/done/embedding-provider/).
+- **External systems reach a graph through the integrations runtime — a separate deployable.**
+  `fallen-8-integrations` runs ONE job per request: it reads a system on the operator's own network
+  (a CSV inventory, a UniFi console, a Fronius inverter), describes what it saw as a snapshot, and
+  writes that into one namespace over the REST API. It keeps no schedule, no run history and no
+  credential: **a credential arrives with the job that needs it and is dropped when the run ends**,
+  so the container has no credential mount and nothing to rotate. Its container port is never
+  published; the browser reaches it through the apiApp's authenticated proxy at `/integrations/*`.
+  Identity is exact-match on canonical claim keys and **nothing ever merges two elements**; only a
+  snapshot declaring it saw the WHOLE source may withdraw a claim. A new integration is a data
+  descriptor plus one `ObserveAsync`, judged by a conformance suite that observes a candidate rather
+  than believing it. Living doc:
+  [`docs/src/content/docs/integrations.md`](docs/src/content/docs/integrations.md) (published at
+  <https://cosh.github.io/fallen-8-core/integrations/>); the feature record is
+  [features/done/integrations/](features/done/integrations/).
 - **AI agents reach Fallen-8 through the MCP server — a separate deployable.** `fallen-8-mcp`
   bridges the Model Context Protocol to the REST API over HTTP (it never references the engine
   or the apiApp); its surface is a small, token-frugal set of consolidated tools across
