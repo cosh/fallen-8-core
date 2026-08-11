@@ -39,6 +39,17 @@ namespace NoSQL.GraphDB.Core.Index
     public interface IIndex : IPlugin, IFallen8Serializable
     {
         /// <summary>
+        ///   THE trim-suppression message for an index <c>Save</c>/<c>Load</c> that round-trips an
+        ///   arbitrary KEY through the reflective object codec (the bucket indices and the
+        ///   single-value index today). It lives on the shared contract, not in one of those classes,
+        ///   so every suppression site reads the same string and a future key-serializing index has an
+        ///   obvious home to reference. The spatial index resolves helper TYPE NAMES rather than keys,
+        ///   so its suppression carries its own message.
+        /// </summary>
+        internal const String KeysAreNotTrimSafe =
+            "An index key is an arbitrary IComparable property value, round-tripped through the reflective object codec; the requirement is declared on SerializationWriter.WriteObject / SerializationReader.ReadObject. The engine reaches these members only through PersistencyFactory's annotated checkpoint save/load, which needs a filesystem - they are public, so a consumer calling them directly is not warned; keys of the directly-encoded types (primitives, string, DateTime, Guid) are trim-safe.";
+
+        /// <summary>
         ///   Whether this index can persist itself to (and reload itself from) a checkpoint via
         ///   <see cref="IFallen8Serializable.Save" /> / <see cref="IFallen8Serializable.Load" />
         ///   (finding C9). An index that returns <c>false</c> is skipped silently on save (it is

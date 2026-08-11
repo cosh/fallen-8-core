@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -171,13 +172,24 @@ namespace NoSQL.GraphDB.App.Namespaces
             Single[] query, Int32 k, Core.Index.Vector.VectorSearchConstraint constraint = null)
             => Engine.VectorIndexScan(out result, indexId, query, k, constraint);
 
+        // The string-named overloads resolve their plugin through discovery, so the engine declares them
+        // not trim-safe; an implementation of an annotated interface member must repeat the annotation
+        // (the analyzer requires them to match exactly). The message is the engine's own const, so the
+        // forwarder and the member it forwards to never say different things.
+        [RequiresUnreferencedCode(Core.Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryCalculateShortestPath(out List<Path> result, string plugin, ShortestPathDefinition definition)
             => Engine.TryCalculateShortestPath(out result, plugin, definition);
 
-        public bool TryCalculateShortestPath<T>(out List<Path> result, ShortestPathDefinition definition)
+        // The annotation on T is REQUIRED to match the interface declaration: without it, forwarding to
+        // the engine's annotated overload is a trim-analysis mismatch (the engine reflectively constructs
+        // T, so its constructor must be kept).
+        public bool TryCalculateShortestPath<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(
+            out List<Path> result, ShortestPathDefinition definition)
             where T : IShortestPathAlgorithm
             => Engine.TryCalculateShortestPath<T>(out result, definition);
 
+        [RequiresUnreferencedCode(Core.Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryRunAnalytics(out Core.Algorithms.Analytics.GraphAnalyticsResult result,
             string algorithmName, Core.Algorithms.Analytics.GraphAnalyticsDefinition definition)
             => Engine.TryRunAnalytics(out result, algorithmName, definition);

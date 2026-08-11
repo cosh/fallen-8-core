@@ -24,9 +24,16 @@
 // SOFTWARE.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
+    /// <summary>
+    ///   Writes a checkpoint. Annotated at the TYPE for the same reason as
+    ///   <see cref="LoadTransaction" /> (which owns the shared message): the trimming consumer is
+    ///   warned where it constructs the transaction, and the ordinary write path stays unannotated.
+    /// </summary>
+    [RequiresUnreferencedCode(LoadTransaction.RequiresReflectiveCheckpoint)]
     public class SaveTransaction : ATransaction
     {
         /// <summary>

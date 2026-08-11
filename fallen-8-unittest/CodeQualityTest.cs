@@ -181,6 +181,49 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void ApiApp_MaySuppressIL2026_OnlyWhilePublishedUntrimmed()
+        {
+            // The apiApp suppresses IL2026 project-wide, and the whole justification is that this
+            // service is published UNTRIMMED, so "you are calling something that needs unreferenced
+            // code" tells nobody anything here. That pairing is a premise, not a fact of the build:
+            // flipping PublishTrimmed to true would leave the suppression in place and silently drop
+            // every one of those diagnostics from the one project whose reason for existing is to
+            // expose exactly those features over REST. EnableTrimAnalyzer=true is the other half - the
+            // remaining trim diagnostics (an annotation mismatch, an unannotated reflective
+            // construction) must still fail the build here. Matched on the ELEMENT form, so the
+            // justification comment naming IL2026 and PublishTrimmed cannot satisfy the rule.
+            var root = TestRepo.Root();
+            var csproj = Path.Combine(root, "fallen-8-core-apiApp", "fallen-8-core-apiApp.csproj");
+            var project = File.ReadAllText(csproj);
+            var violations = new List<string>();
+
+            // Either spelling counts as suppression: NoWarn drops the diagnostic, WarningsNotAsErrors
+            // demotes it to a warning under the repo's warnings-are-errors gate.
+            if (Regex.IsMatch(project, @"<(NoWarn|WarningsNotAsErrors)>[^<]*IL2026", RegexOptions.IgnoreCase))
+            {
+                var relative = Path.GetRelativePath(root, csproj);
+
+                if (!Regex.IsMatch(project, @"<PublishTrimmed>\s*false\s*</PublishTrimmed>", RegexOptions.IgnoreCase))
+                {
+                    violations.Add(relative + ": suppresses IL2026 without declaring <PublishTrimmed>false</PublishTrimmed>");
+                }
+
+                if (Regex.IsMatch(project, @"<PublishTrimmed>\s*true\s*</PublishTrimmed>", RegexOptions.IgnoreCase))
+                {
+                    violations.Add(relative + ": suppresses IL2026 while some PropertyGroup declares <PublishTrimmed>true</PublishTrimmed>");
+                }
+
+                if (!Regex.IsMatch(project, @"<EnableTrimAnalyzer>\s*true\s*</EnableTrimAnalyzer>", RegexOptions.IgnoreCase))
+                {
+                    violations.Add(relative + ": suppresses IL2026 without declaring <EnableTrimAnalyzer>true</EnableTrimAnalyzer>");
+                }
+            }
+
+            AssertNoViolations(violations,
+                "the apiApp may suppress IL2026 only while it is published untrimmed with the trim analyzer on - drop the suppression, or restore PublishTrimmed=false and EnableTrimAnalyzer=true");
+        }
+
+        [TestMethod]
         public void EveryPackageReference_PinsAnExactVersion()
         {
             // The repo's pin-everything rule, enforced: no floating ('1.*') or range versions,

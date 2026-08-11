@@ -232,6 +232,38 @@ Snapshots are written and read with `SaveTransaction` and `LoadTransaction`, in 
 the service uses, which means a graph saved in-process can be loaded by the service and the other way
 round.
 
+## Publishing trimmed
+
+The package is marked trim-compatible, so a consumer can publish with `PublishTrimmed=true` (even
+`TrimMode=full`) and needs **no** `TrimmerRootAssembly` entry for it. Measured once on a browser-wasm
+consumer, that took the engine assembly from 412 KB to 166 KB and the whole managed payload from
+3.19 MB to 2.02 MB - a reading of one build at one point in time, not a promise about yours.
+
+What survives trimming, and what the compiler will warn you about:
+
+| Trim-safe                                                                 | Warns at your call site (`IL2026`)                                  |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Constructing the engine, all transactions, all reads and scans             | Anything that names a plugin by **string**                          |
+| `TryCalculateShortestPath<T>` - the algorithm as a type argument           | `TryCalculateShortestPath(out paths, "BLS", …)` and `TryRunAnalytics` |
+| `SubGraphFactory.TryCreateSubGraph<T>`                                     | `CreateSubGraphTransaction` (its algorithm is a plugin name)         |
+| Indexes and vector search you have already created                         | `IndexFactory.TryCreateIndex(…, "VectorIndex")`, service creation    |
+| The change feed                                                            | `SaveTransaction` / `LoadTransaction`, and `DelegateJson`            |
+
+The rule behind the table: a type the engine reflectively constructs from a **type argument** can be
+kept by the trimmer, so those paths are annotated and safe. A type that exists only as a **string** -
+resolved by scanning assemblies, or read out of a checkpoint - cannot be, so those members declare
+`[RequiresUnreferencedCode]` and tell you at build time rather than failing at runtime. If you trim and
+call one anyway, the two halves of that column fail differently. A lookup by **name** degrades quietly:
+discovery finds nothing, so the call returns `false`. A **checkpoint or delegate** path fails loudly,
+because a payload-named type that no longer resolves is corrupt data rather than a miss: the checkpoint
+reader resolves types with `throwOnError: true`, so `LoadTransaction` rolls back with `InternalError` and
+the exception on `TransactionInformation.Error`; `DelegateJson` deserialization throws; and a spatial
+index whose metric type cannot be resolved raises `InvalidDataException`, which the load logs and skips
+so the rest of the checkpoint still arrives.
+
+For a browser build most of that column is moot anyway, for the two reasons given under
+"Single-threaded hosts" above.
+
 ## The public surface is versioned
 
 The package version is not decorative: it tracks breaking changes to the engine's public types, which

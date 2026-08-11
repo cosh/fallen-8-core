@@ -30,6 +30,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -46,6 +47,17 @@ namespace NoSQL.GraphDB.Core.Serializer
     /// </summary>
     public sealed class SerializationReader : BinaryReader
     {
+        /// <summary>
+        ///   THE trim-requirement message for the members that resolve a type NAMED IN THE PAYLOAD
+        ///   (<see cref="ReadType()" />, <see cref="ReadOptimizedType()" />,
+        ///   <see cref="ReadObject" /> and the array/JSON fallbacks they use). The type only exists as a
+        ///   string until the moment it is read, so no trimmer can know to keep it - and the primitives
+        ///   this reader also offers (<c>ReadInt32</c> and friends) are deliberately NOT annotated,
+        ///   because they resolve nothing.
+        /// </summary>
+        internal const string PayloadTypesAreNotTrimSafe =
+            "This reads a type named in the payload (Type.GetType) and activates it, so a trimmer cannot know to keep that type. Reading primitives and strings is unaffected.";
+
         // Marker to denote that all elements in a value array are optimizable
         static readonly BitArray FullyOptimizableTypedArray = new BitArray(0);
 
@@ -143,6 +155,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns an ArrayList or null from the stream.
         /// </summary>
         /// <returns>An ArrayList instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public ArrayList ReadArrayList()
         {
             if (ReadTypeCode() == SerializedType.NullType) return null;
@@ -202,6 +215,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns an object based on the SerializedType read next from the stream.
         /// </summary>
         /// <returns>An object instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public object ReadObject()
         {
             return ProcessObject((SerializedType)ReadByte());
@@ -264,6 +278,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Throws an exception if the Type cannot be found.
         /// </summary>
         /// <returns>A Type instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public Type ReadType()
         {
             return ReadType(true);
@@ -275,6 +290,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Throws an exception if the Type cannot be found and throwOnError is true.
         /// </summary>
         /// <returns>A Type instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public Type ReadType(bool throwOnError)
         {
             if (ReadTypeCode() == SerializedType.NullType) return null;
@@ -286,6 +302,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns an ArrayList from the stream that was stored optimized.
         /// </summary>
         /// <returns>An ArrayList instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public ArrayList ReadOptimizedArrayList()
         {
             return new ArrayList(ReadOptimizedObjectArray());
@@ -466,6 +483,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns an object[] from the stream that was stored optimized.
         /// </summary>
         /// <returns>An object[] instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public object[] ReadOptimizedObjectArray()
         {
             return ReadOptimizedObjectArray(null);
@@ -484,6 +502,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         /// <param name="elementType">The Type of the expected array elements. null will return a plain object[].</param>
         /// <returns>An object[] instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public object[] ReadOptimizedObjectArray(Type elementType)
         {
             var length = ReadOptimizedInt32();
@@ -538,6 +557,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a pair of object[] arrays from the stream that were stored optimized.
         /// </summary>
         /// <returns>A pair of object[] arrays.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void ReadOptimizedObjectArrayPair(out object[] values1, out object[] values2)
         {
             values1 = ReadOptimizedObjectArray(null);
@@ -633,6 +653,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Throws an exception if the Type cannot be found.
         /// </summary>
         /// <returns>A Type instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public Type ReadOptimizedType()
         {
             return ReadOptimizedType(true);
@@ -643,6 +664,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Throws an exception if the Type cannot be found and throwOnError is true.
         /// </summary>
         /// <returns>A Type instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public Type ReadOptimizedType(bool throwOnError)
         {
             return Type.GetType(ReadOptimizedString(), throwOnError);
@@ -704,6 +726,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a typed array from the stream.
         /// </summary>
         /// <returns>A typed array.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public Array ReadTypedArray()
         {
             return (Array)ProcessArrayTypes(ReadTypeCode(), null);
@@ -715,6 +738,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <typeparam name="K">The key Type.</typeparam>
         /// <typeparam name="V">The value Type.</typeparam>
         /// <returns>A new, simple, populated generic Dictionary.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public Dictionary<K, V> ReadDictionary<K, V>()
         {
             var result = new Dictionary<K, V>();
@@ -731,6 +755,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         /// <typeparam name="K">The key Type.</typeparam>
         /// <typeparam name="V">The value Type.</typeparam>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void ReadDictionary<K, V>(Dictionary<K, V> dictionary)
         {
             var keys = (K[])ProcessArrayTypes(ReadTypeCode(), typeof(K));
@@ -752,6 +777,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         /// <typeparam name="T">The list Type.</typeparam>
         /// <returns>A new generic List.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public List<T> ReadList<T>()
         {
             return new List<T>((T[])ProcessArrayTypes(ReadTypeCode(), typeof(T)));
@@ -763,9 +789,33 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Synonym for ReadObject();
         /// </summary>
         /// <returns>A struct value or null</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public ValueType ReadNullable()
         {
             return (ValueType)ReadObject();
+        }
+
+        /// <summary>
+        ///   The read behind the typed <c>ReadNullableXxx</c> accessors below, which is deliberately NOT
+        ///   annotated with a trim requirement even though <see cref="ReadObject" /> is. The reasoning:
+        ///   each of those accessors reads back a value that
+        ///   <see cref="SerializationWriter.WriteNullable" /> wrote from a primitive or framework struct
+        ///   (<c>bool?</c>, <c>int?</c>, <c>DateTime?</c>, ...), and those are written through the
+        ///   directly-encoded type codes, which resolve no type on the way back in. So for any payload
+        ///   this writer produced, trimming changes nothing, and annotating the accessors would put a
+        ///   false warning on "read a nullable int".
+        ///
+        ///   <para>A payload claiming a DIFFERENT encoding here is corruption, and it already fails on an
+        ///   untrimmed build too - <see cref="ReadOptimizedType" /> resolves with <c>throwOnError: true</c>
+        ///   and the cast then fails on a type mismatch - so trimming does not turn a working read into a
+        ///   broken one. It can change WHICH exception surfaces, which is why this is a suppression with
+        ///   a reason rather than a claim of safety.</para>
+        /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = "The callers read back a value this writer encoded directly (primitives and framework structs), a path that resolves no type. A payload claiming another encoding is corruption that already throws on an untrimmed build. See the remarks.")]
+        private object ReadNullablePrimitive()
+        {
+            return ReadObject();
         }
 
         /// <summary>
@@ -774,7 +824,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Boolean.</returns>
         public Boolean? ReadNullableBoolean()
         {
-            return (bool?)ReadObject();
+            return (bool?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -783,7 +833,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Byte.</returns>
         public Byte? ReadNullableByte()
         {
-            return (byte?)ReadObject();
+            return (byte?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -792,7 +842,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Char.</returns>
         public Char? ReadNullableChar()
         {
-            return (char?)ReadObject();
+            return (char?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -801,7 +851,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable DateTime.</returns>
         public DateTime? ReadNullableDateTime()
         {
-            return (DateTime?)ReadObject();
+            return (DateTime?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -810,7 +860,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Decimal.</returns>
         public Decimal? ReadNullableDecimal()
         {
-            return (decimal?)ReadObject();
+            return (decimal?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -819,7 +869,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Double.</returns>
         public Double? ReadNullableDouble()
         {
-            return (double?)ReadObject();
+            return (double?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -828,7 +878,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Guid.</returns>
         public Guid? ReadNullableGuid()
         {
-            return (Guid?)ReadObject();
+            return (Guid?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -837,7 +887,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Int16.</returns>
         public Int16? ReadNullableInt16()
         {
-            return (short?)ReadObject();
+            return (short?)ReadNullablePrimitive();
         }
         /// <summary>
         /// Returns a Nullable Int32 from the stream.
@@ -845,7 +895,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Int32.</returns>
         public Int32? ReadNullableInt32()
         {
-            return (int?)ReadObject();
+            return (int?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -854,7 +904,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Int64.</returns>
         public Int64? ReadNullableInt64()
         {
-            return (long?)ReadObject();
+            return (long?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -864,7 +914,7 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         public SByte? ReadNullableSByte()
         {
-            return (sbyte?)ReadObject();
+            return (sbyte?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -873,7 +923,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable Single.</returns>
         public Single? ReadNullableSingle()
         {
-            return (float?)ReadObject();
+            return (float?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -882,7 +932,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A Nullable TimeSpan.</returns>
         public TimeSpan? ReadNullableTimeSpan()
         {
-            return (TimeSpan?)ReadObject();
+            return (TimeSpan?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -892,7 +942,7 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         public UInt16? ReadNullableUInt16()
         {
-            return (ushort?)ReadObject();
+            return (ushort?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -902,7 +952,7 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         public UInt32? ReadNullableUInt32()
         {
-            return (uint?)ReadObject();
+            return (uint?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -912,7 +962,7 @@ namespace NoSQL.GraphDB.Core.Serializer
 
         public UInt64? ReadNullableUInt64()
         {
-            return (ulong?)ReadObject();
+            return (ulong?)ReadNullablePrimitive();
         }
 
         /// <summary>
@@ -1012,6 +1062,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns an object[] or null from the stream.
         /// </summary>
         /// <returns>A DateTime value.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public object[] ReadObjectArray()
         {
             return ReadObjectArray(null);
@@ -1030,6 +1081,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         /// <param name="elementType">The Type of the expected array elements. null will return a plain object[].</param>
         /// <returns>An object[] instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public object[] ReadObjectArray(Type elementType)
         {
             switch (ReadTypeCode())
@@ -1077,6 +1129,8 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a string[] or null from the stream.
         /// </summary>
         /// <returns>An string[] instance.</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = "The element type is statically string, which the object codec decodes without resolving any type - the same reasoning as ReadNullablePrimitive. Trimming cannot change the result.")]
         public string[] ReadStringArray()
         {
             return (string[])ReadObjectArray(typeof(string));
@@ -1248,6 +1302,8 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns a string[] from the stream that was stored optimized.
         /// </summary>
         /// <returns>An string[] instance.</returns>
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = "The element type is statically string, which the object codec decodes without resolving any type - the same reasoning as ReadNullablePrimitive. Trimming cannot change the result.")]
         public string[] ReadOptimizedStringArray()
         {
             return (string[])ReadOptimizedObjectArray(typeof(string));
@@ -1462,6 +1518,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns the object associated with the object token read next from the stream.
         /// </summary>
         /// <returns>An object.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public object ReadTokenizedObject()
         {
             var token = ReadOptimizedInt32();
@@ -1570,6 +1627,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Returns an object based on supplied SerializedType.
         /// </summary>
         /// <returns>An object instance.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         object ProcessObject(SerializedType typeCode)
         {
             // Codes 0..127 are string-token buckets: WriteObject now routes string VALUES through the
@@ -1733,6 +1791,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <param name="typeCode">The SerializedType to check.</param>
         /// <param name="defaultElementType">The Type of array element; null if to be read from stream.</param>
         /// <returns></returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         object ProcessArrayTypes(SerializedType typeCode, Type defaultElementType)
         {
             switch (typeCode)
@@ -1808,7 +1867,16 @@ namespace NoSQL.GraphDB.Core.Serializer
                 return null;
             }
 
-            return JsonSerializer.Deserialize<object>(json);
+            // Parsed as a document rather than deserialized to object, which is the same RESULT -
+            // JsonSerializer.Deserialize<object> returns a boxed JsonElement for this input - but is
+            // NOT reflective, so this read keeps working in a trimmed application. That matters:
+            // publishing trimmed sets System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault
+            // false, which makes the Deserialize<object> overload throw outright. Cloning detaches the
+            // element from the document being disposed here.
+            using (var document = JsonDocument.Parse(json))
+            {
+                return document.RootElement.Clone();
+            }
         }
 
         /// <summary>

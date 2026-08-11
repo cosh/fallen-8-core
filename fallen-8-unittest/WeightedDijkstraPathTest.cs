@@ -209,7 +209,8 @@ namespace NoSQL.GraphDB.Tests
             graph.Edge("A", "C", 1);
             graph.Edge("C", "B", 1);
 
-            // Act - the reflection-free generic entry point must resolve the same plugin.
+            // Act - the typed overload skips the plugin-NAME lookup (it still activates T reflectively)
+            // and must resolve the same plugin.
             List<Path> paths;
             var found = graph.Fallen8.TryCalculateShortestPath<WeightedDijkstraShortestPath>(out paths, new ShortestPathDefinition
             {

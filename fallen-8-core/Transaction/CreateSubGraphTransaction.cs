@@ -26,12 +26,22 @@
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.SubGraph;
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
     /// <summary>
     /// Transaction for creating a subgraph based on a subgraph definition.
+    ///
+    /// <para>It resolves its algorithm by plugin NAME (see <see cref="AlgorithmPluginName" />), which
+    /// is why the type is annotated: a trimmed application cannot keep a type named only by a string,
+    /// and the create then rolls back with <c>InvalidInput</c> instead of running. The trim-safe way to
+    /// extract a subgraph is <c>SubGraphFactory.TryCreateSubGraph&lt;T&gt;</c>, where the algorithm is a
+    /// type argument. Annotated at the TYPE so the warning reaches the consumer that constructs this
+    /// transaction, without marking the abstract <see cref="ATransaction.TryExecute" /> - ordinary
+    /// writes stay trim-safe.</para>
     /// </summary>
+    [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
     public class CreateSubGraphTransaction : ATransaction
     {
         /// <summary>

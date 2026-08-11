@@ -27,6 +27,7 @@ using System;
 using System.Buffers.Binary;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
@@ -75,6 +76,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name="pathToSavePoint">The path to the save point.</param>
         /// <param name="currentId">The maximum graph element id</param>
         /// <param name="startServices">Start the services</param>
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         internal Boolean Load(Fallen8 fallen8, string pathToSavePoint, ref Int32 currentId, Boolean startServices)
         {
             //if there is no savepoint file... do nothing
@@ -296,6 +298,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='savePartitions'> The number of save partitions for the graph elements. </param>
         /// <returns>The path of the savegame</returns>
+        [RequiresUnreferencedCode(Serializer.SerializationWriter.PayloadTypesAreNotTrimSafe)]
         internal string Save(IFallen8 fallen8, String path, int savePartitions)
         {
             // A new save never overwrites an existing one: it gets a unique, monotonically increasing,
@@ -997,6 +1000,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='graphElementBunchPath'> Graph element bunch path. </param>
         /// <param name='graphElementsOfFallen8'> Graph elements of Fallen-8. </param>
         /// <param name="edgeTodoOnVertex"> The edges that have to be added to this vertex </param>
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         private List<EdgeSneakPeak> LoadAGraphElementBunch(
             string graphElementBunchPath,
             AGraphElementModel[] graphElementsOfFallen8,
@@ -1049,6 +1053,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             return result;
         }
 
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         private void LoadIndices(Fallen8 fallen8, IndexFactory indexFactory, List<String> indexStreams)
         {
             //load the indices
@@ -1067,6 +1072,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         private void LoadServices(Fallen8 fallen8, ServiceFactory newServiceFactory, List<string> serviceStreams, Boolean startServices)
         {
             //load the services
@@ -1085,6 +1091,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         private void LoadAService(string serviceLocaion, Fallen8 fallen8, ServiceFactory serviceFactory, Boolean startService)
         {
             //if there is no savepoint file... do nothing
@@ -1107,6 +1114,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         private void LoadAnIndex(string indexLocaion, Fallen8 fallen8, IndexFactory indexFactory)
         {
             //if there is no savepoint file... do nothing
@@ -1136,6 +1144,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='range'> Range. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='pathToSavePoint'> Path to save point basis. </param>
+        [RequiresUnreferencedCode(Serializer.SerializationWriter.PayloadTypesAreNotTrimSafe)]
         private SidecarManifestEntry SaveBunch(Tuple<Int32, Int32> range, IReadOnlyList<AGraphElementModel> graphElements,
                                         String pathToSavePoint)
         {
@@ -1180,6 +1189,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         ///   ordering (dense array -> PublishLoadedGraphElements -> index/service rehydration) is
         ///   therefore unchanged.
         /// </summary>
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         private void LoadAndPublishGraphElements(Fallen8 fallen8, List<SidecarManifestEntry> bunchManifest,
                                                  string pathName, int idSpaceSize)
         {
@@ -1194,6 +1204,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='graphElements'> Graph elements of Fallen-8. </param>
         /// <param name='graphElementStreams'> Graph element streams. </param>
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         private void LoadGraphElements(AGraphElementModel[] graphElements, List<String> graphElementStreams)
         {
             try
@@ -1212,6 +1223,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         private void LoadGraphElementsCore(AGraphElementModel[] graphElements, List<String> graphElementStreams)
         {
             // A ConcurrentQueue per edge id, not a shared List: the parallel bunch load (below) records
@@ -1393,6 +1405,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='graphElement'> Graph element. </param>
         /// <param name='writer'> Writer. </param>
+        [RequiresUnreferencedCode(Serializer.SerializationWriter.PayloadTypesAreNotTrimSafe)]
         private void WriteAGraphElement(AGraphElementModel graphElement, SerializationWriter writer)
         {
             writer.WriteVarInt32(graphElement.Id);          // P7: var-int over a fixed 4-byte int
@@ -1420,6 +1433,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='reader'> Reader. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='edgeTodo'> Edge todo. </param>
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         private void LoadVertex(SerializationReader reader, AGraphElementModel[] graphElements,
                                        ConcurrentDictionary<Int32, ConcurrentQueue<EdgeOnVertexToDo>> edgeTodo)
         {
@@ -1542,6 +1556,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='vertex'> Vertex. </param>
         /// <param name='writer'> Writer. </param>
+        [RequiresUnreferencedCode(Serializer.SerializationWriter.PayloadTypesAreNotTrimSafe)]
         private void WriteVertex(VertexModel vertex, SerializationWriter writer)
         {
             writer.Write(SerializedVertex);
@@ -1603,6 +1618,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <param name='reader'> Reader. </param>
         /// <param name='graphElements'> Graph elements. </param>
         /// <param name='sneakPeaks'> Sneak peaks. </param>
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         private void LoadEdge(SerializationReader reader, AGraphElementModel[] graphElements,
                                      ref List<EdgeSneakPeak> sneakPeaks)
         {
@@ -1663,6 +1679,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         /// <param name='edge'> Edge. </param>
         /// <param name='writer'> Writer. </param>
+        [RequiresUnreferencedCode(Serializer.SerializationWriter.PayloadTypesAreNotTrimSafe)]
         private void WriteEdge(EdgeModel edge, SerializationWriter writer)
         {
             writer.Write(SerializedEdge);

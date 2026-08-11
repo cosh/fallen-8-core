@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -144,6 +145,11 @@ namespace NoSQL.GraphDB.Tests
                 get; set;
             }
 
+            // A test double repeats the trim annotations of the interface members it implements: the
+            // trim analyzer requires an implementation to match the declaration exactly. This project
+            // does not enable the analyzer, so nothing checks it here today - the annotations are what
+            // keeps the double compiling the day it is switched on.
+            [RequiresUnreferencedCode(NoSQL.GraphDB.Core.Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
             public bool TryRunAnalytics(out NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsResult result, string algorithmName, NoSQL.GraphDB.Core.Algorithms.Analytics.GraphAnalyticsDefinition definition)
             {
                 if (AnalyticsFails)
@@ -212,9 +218,12 @@ namespace NoSQL.GraphDB.Tests
                 => _inner.FulltextIndexScan(out result, indexId, searchQuery);
             public bool VectorIndexScan(out NoSQL.GraphDB.Core.Index.Vector.VectorSearchResult result, string indexId, float[] query, int k, NoSQL.GraphDB.Core.Index.Vector.VectorSearchConstraint constraint = null)
                 => _inner.VectorIndexScan(out result, indexId, query, k, constraint);
+            [RequiresUnreferencedCode(NoSQL.GraphDB.Core.Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
             public bool TryCalculateShortestPath(out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, string plugin, ShortestPathDefinition definition)
                 => _inner.TryCalculateShortestPath(out result, plugin, definition);
-            public bool TryCalculateShortestPath<T>(out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm
+            public bool TryCalculateShortestPath<
+                [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(
+                out List<NoSQL.GraphDB.Core.Algorithms.Path.Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm
                 => _inner.TryCalculateShortestPath<T>(out result, definition);
         }
     }

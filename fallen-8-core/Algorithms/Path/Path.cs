@@ -182,6 +182,15 @@ namespace NoSQL.GraphDB.Core.Algorithms.Path
 
         #region IEnumerable<VertexModel> Members
 
+        /// <summary>
+        ///   Enumerates the vertex each hop ARRIVES AT - one vertex per path element, in path order -
+        ///   so a 5-edge path yields 5 vertices and does NOT include the source vertex. That is
+        ///   deliberate (the enumeration walks the hops, and <see cref="GetLength" /> likewise counts
+        ///   hops, not vertices), but it surprises code that expects the full vertex chain: for the
+        ///   source, read <c>GetPathElements()[0].SourceVertex</c>, or iterate
+        ///   <see cref="GetPathElements" /> and take each element's <c>SourceVertex</c>/<c>TargetVertex</c>
+        ///   pair.
+        /// </summary>
         public IEnumerator<VertexModel> GetEnumerator()
         {
             if (_pathElements != null)

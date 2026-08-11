@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -222,9 +223,20 @@ namespace NoSQL.GraphDB.Core.Serializer
 
     /// <summary>
     /// Static utility class for serializing and deserializing delegates to/from JSON.
+    ///
+    /// <para>NOT TRIM-SAFE, by nature: a delegate is rebuilt from the assembly-qualified type name
+    /// and method name recorded in its JSON - <c>Type.GetType</c>, <c>Type.GetMethod</c> and
+    /// <c>Activator.CreateInstance</c> over values that only exist as strings until read. The
+    /// members that do this declare <see cref="DelegateReconstructionIsNotTrimSafe" />. Nothing in
+    /// the engine calls this today (it is a utility for hosts that persist delegates), so the
+    /// requirement stops here.</para>
     /// </summary>
     public static class DelegateJson
     {
+        /// <summary>THE trim-requirement message for delegate reconstruction (see the type remarks).</summary>
+        internal const string DelegateReconstructionIsNotTrimSafe =
+            "Delegate JSON records a target type and method by name and rebuilds them with Type.GetType/GetMethod/Activator, which a trimmer cannot preserve. Reference the delegate's target type directly, or keep delegates in code.";
+
         private static readonly JsonSerializerOptions JsonOptions = CreateJsonOptions();
 
         private static JsonSerializerOptions CreateJsonOptions()
@@ -253,6 +265,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <returns>A JSON string descriptor of the delegate.</returns>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="del"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when the delegate cannot be serialized (e.g., closure without targetSpec).</exception>
+        [RequiresUnreferencedCode(DelegateReconstructionIsNotTrimSafe)]
         public static string Serialize(Delegate del, DelegateTargetSpec targetSpec = null, bool includeSignatureHash = false)
         {
             if (del == null)
@@ -313,6 +326,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="json"/> is null.</exception>
         /// <exception cref="InvalidOperationException">Thrown when deserialization fails due to type mismatches or missing methods.</exception>
         /// <exception cref="SecurityException">Thrown when security validation fails.</exception>
+        [RequiresUnreferencedCode(DelegateReconstructionIsNotTrimSafe)]
         public static TDelegate Deserialize<TDelegate>(string json, IServiceProvider services = null, DelegateSecurityConfig securityConfig = null)
             where TDelegate : Delegate
         {
@@ -410,6 +424,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <summary>
         /// Safely resolves a type with security validation.
         /// </summary>
+        [RequiresUnreferencedCode(DelegateReconstructionIsNotTrimSafe)]
         private static Type SafeResolveType(string assemblyQualifiedName, DelegateSecurityConfig config, string typeCategory)
         {
             if (string.IsNullOrWhiteSpace(assemblyQualifiedName))
@@ -477,6 +492,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <summary>
         /// Checks if two delegate types have compatible signatures.
         /// </summary>
+        [RequiresUnreferencedCode(DelegateReconstructionIsNotTrimSafe)]
         private static bool AreDelegateSignaturesCompatible(Type type1, Type type2)
         {
             if (!typeof(Delegate).IsAssignableFrom(type1) || !typeof(Delegate).IsAssignableFrom(type2))
@@ -511,6 +527,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <summary>
         /// Reconstructs a target object using the specified target specification.
         /// </summary>
+        [RequiresUnreferencedCode(DelegateReconstructionIsNotTrimSafe)]
         private static object ReconstructTarget(DelegateTargetSpec targetSpec, IServiceProvider services, DelegateSecurityConfig config)
         {
             var factoryType = SafeResolveType(targetSpec.FactoryTypeAssemblyQualifiedName, config, "factory");

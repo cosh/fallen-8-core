@@ -32,6 +32,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Reflection;
 using System.Text;
@@ -63,6 +64,19 @@ namespace NoSQL.GraphDB.Core.Serializer
     public sealed class SerializationWriter : BinaryWriter
     {
         #region Statics and constants
+
+        /// <summary>
+        ///   THE trim-requirement message for the members that fall back to reflection for a value
+        ///   whose type this writer does not encode directly: <see cref="WriteObject" /> stores such a
+        ///   value through reflection-based JSON, and the recreatable-type check reads its
+        ///   constructors. The recognized set (primitives, string, DateTime, Guid, arrays of those, …)
+        ///   is closed and statically known, so writing THOSE is trim-safe; an exotic value's type is
+        ///   by definition not statically known. Mirrors
+        ///   <see cref="SerializationReader.PayloadTypesAreNotTrimSafe" />.
+        /// </summary>
+        internal const string PayloadTypesAreNotTrimSafe =
+            "Writing a value whose type this codec does not encode directly falls back to reflection-based JSON and reads the type's constructors, which a trimmer cannot preserve. Primitives, strings and the other directly-encoded types are unaffected.";
+
         /// <summary>
         /// Default capacity for the underlying MemoryStream
         /// </summary>
@@ -268,6 +282,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// if the ArrayList is guaranteed never to be null.
         /// </summary>
         /// <param name="value">The ArrayList to store.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void Write(ArrayList value)
         {
             if (value == null)
@@ -397,6 +412,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// compensate.
         /// </summary>
         /// <param name="value">The object to store.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void WriteObject(object value)
         {
             // The following routine uses a main if-else tree which is somewhat flattened. Every if/else branch simply
@@ -659,6 +675,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// An empty ArrayList takes 1 byte.
         /// </summary>
         /// <param name="value">The ArrayList to store. Must not be null.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void WriteOptimized(ArrayList value)
         {
             CheckOptimizable(value != null, "Cannot optimize a null ArrayList");
@@ -1325,6 +1342,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// The contents of the array will be stored optimized.
         /// </summary>
         /// <param name="values">The object[] to store.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void Write(object[] values)
         {
             if (values == null)
@@ -1587,6 +1605,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// The contents of the array will be stored optimized.
         /// </summary>
         /// <param name="values">The object[] to store. Must not be null.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void WriteOptimized(object[] values)
         {
             CheckOptimizable(values != null, "Cannot optimize a null object[]");
@@ -1606,6 +1625,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         /// <param name="values1">The first object[] value which must not be null and must have the same length as values2</param>
         /// <param name="values2">The second object[] value which must not be null and must have the same length as values1</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void WriteOptimized(object[] values1, object[] values2)
         {
             CheckOptimizable(((values1 != null) && (values2 != null)), "Cannot optimimize an object[] pair that is null");
@@ -2060,6 +2080,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Synonym for WriteObject().
         /// </summary>
         /// <param name="value">The Nullable value to store.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void WriteNullable(ValueType value)
         {
             WriteObject(value);
@@ -2077,6 +2098,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <typeparam name="K">The key Type.</typeparam>
         /// <typeparam name="V">The value Type.</typeparam>
         /// <param name="value">The generic dictionary.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void Write<K, V>(Dictionary<K, V> value)
         {
             var keys = new K[value.Count];
@@ -2101,6 +2123,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </remarks>
         /// <typeparam name="T">The list Type.</typeparam>
         /// <param name="value">The generic List.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void Write<T>(List<T> value)
         {
             WriteTypedArray(value.ToArray(), false);
@@ -2110,6 +2133,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// Writes a null or a typed array into the stream.
         /// </summary>
         /// <param name="values">The array to store.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void WriteTypedArray(Array values)
         {
             if (values == null)
@@ -2253,6 +2277,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         ///
         /// </summary>
         /// <param name="value">The object to tokenize. Must not be null and must not be a string.</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void WriteTokenizedObject(object value)
         {
             WriteTokenizedObject(value, false);
@@ -2272,6 +2297,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// <param name="value">The object to tokenize. Must not be null and must not be a string.</param>
         /// <param name="recreateFromType">true if the object can be recreated using a parameterless constructor;
         /// false if the object should be serialized as-is</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         public void WriteTokenizedObject(object value, bool recreateFromType)
         {
             CheckOptimizable(value != null, "Cannot write a null tokenized object");
@@ -2851,6 +2877,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// This routine is called by the Write(object[]), WriteOptimized(object[]) and Write(object[], object[])) methods.
         /// </summary>
         /// <param name="values"></param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         void WriteObjectArray(object[] values)
         {
             Write7BitEncodedSigned32BitValue(values.Length);
@@ -2935,6 +2962,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </remarks>
         /// <param name="value">The non-null typed array to store.</param>
         /// <param name="storeType">True if the type should be stored; false otherwise</param>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         void WriteTypedArray(Array value, bool storeType)
         {
             var elementType = value.GetType().GetElementType();
@@ -3173,6 +3201,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </remarks>
         /// <param name="type">The Type to check</param>
         /// <returns>true if the Type is recreatable; false otherwise.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         static bool IsTypeRecreatable(Type type)
         {
             if (type.IsValueType) return typeof(IOwnedDataSerializable).IsAssignableFrom(type);
@@ -3185,6 +3214,7 @@ namespace NoSQL.GraphDB.Core.Serializer
         /// </summary>
         /// <param name="type">The Type to check</param>
         /// <returns>true if the Type has a default/empty constructor; false otherwise.</returns>
+        [RequiresUnreferencedCode(PayloadTypesAreNotTrimSafe)]
         static bool HasEmptyConstructor(Type type)
         {
             return type.GetConstructor(Type.EmptyTypes) != null;

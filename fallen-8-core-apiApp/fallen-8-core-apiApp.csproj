@@ -34,6 +34,23 @@
     <PublishTrimmed>false</PublishTrimmed>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
     <SuppressTrimAnalysisWarnings>false</SuppressTrimAnalysisWarnings>
+    <!-- IL2026 ("using a member with RequiresUnreferencedCode") is NOT an error in the SERVICE, and
+         only here. The engine declares which of its features cannot survive trimming - plugin
+         discovery and everything named by string, checkpoint save/load, delegate JSON - and this
+         service exists to expose exactly those over REST: /path?algorithm=BLS, /analytics/PAGERANK,
+         index creation by plugin name, /savegames. So every call into those declared-not-trim-safe
+         features warns here, and none of the warnings is actionable: the service is published
+         UNTRIMMED (PublishTrimmed=false above, and the container is framework-dependent on the
+         aspnet runtime image), so trimming never happens to this build.
+         WarningsNotAsErrors and not NoWarn, on purpose - the same choice the repo already makes for
+         the NuGet audit advisories in Directory.Build.props (which is where TreatWarningsAsErrors is
+         set): the diagnostics must not FAIL this build, but erasing them would hide NEW reflection
+         from the next reader, so they stay visible in the build output. Every OTHER trim diagnostic
+         stays an error, so the analyzer still catches a real mistake in this project (an annotation
+         mismatch like IL2046, or an unannotated reflective construction like IL2087). The gate that
+         matters for consumers lives in the LIBRARY: fallen-8-core sets IsTrimmable and has zero
+         warnings. -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);IL2026</WarningsNotAsErrors>
     <!-- Alternative: If you want trimming, disable it for problematic assemblies -->
     <!-- <TrimMode>partial</TrimMode> -->
     <!-- <TrimmerRootAssembly Include="Microsoft.AspNetCore.Mvc.Core" /> -->
