@@ -251,6 +251,49 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void EnumeratingAPath_YieldsOneVertexPerHop_AndOmitsTheSource()
+        {
+            // Arrange - the abc graph is a straight 0->1->...->25 chain, so the 0->5 path is
+            // unambiguous AND acyclic: the source vertex cannot reappear later in the path, which is
+            // what makes "the enumerator omits the source" a safe assertion here.
+            var loggerFactory = TestLoggerFactory.Create();
+            var fallen8 = new Fallen8(loggerFactory);
+            TestGraphGenerator.GenerateAbcGraphAsync(fallen8).Wait();
+
+            List<Path> paths;
+            var definition = new ShortestPathDefinition
+            {
+                SourceVertexId = 0,
+                DestinationVertexId = 5,
+                MaxDepth = 10,
+                MaxResults = 1
+            };
+            fallen8.TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, definition);
+
+            Assert.IsNotNull(paths, "Paths should not be null");
+            Assert.AreEqual(1, paths.Count, "The chain graph has exactly one 0->5 path");
+            var path = paths[0];
+
+            // Act - Path implements IEnumerable<VertexModel>; this is what a foreach over it sees.
+            var enumerated = path.ToList();
+
+            // Assert
+            Assert.AreEqual(5, path.GetLength(), "0->5 on the chain is a 5-edge path");
+            Assert.AreEqual(path.GetLength(), enumerated.Count,
+                "The enumerator yields one vertex per path ELEMENT, so its count equals GetLength() - not GetLength() + 1");
+            CollectionAssert.AreEqual(
+                path.GetPathElements().Select(_ => _.TargetVertex.Id).ToList(),
+                enumerated.Select(_ => _.Id).ToList(),
+                "The enumerated vertices are each element's direction-aware TargetVertex, in path order");
+
+            Assert.AreEqual(definition.SourceVertexId, path.GetPathElements()[0].SourceVertex.Id,
+                "The source vertex is on the path, as the first element's SourceVertex");
+            Assert.IsFalse(enumerated.Any(_ => _.Id == definition.SourceVertexId),
+                "The enumerator OMITS the source vertex - it walks the vertex each hop arrives at - so the "
+                + "start of the path is reachable only through GetPathElements()[0].SourceVertex");
+        }
+
+        [TestMethod]
         public void FindPathWithRestrictions_ShouldLimitResults()
         {
             // Arrange - Create a new isolated instance for this test

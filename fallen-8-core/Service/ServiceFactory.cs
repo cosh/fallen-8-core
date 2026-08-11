@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
@@ -81,6 +82,7 @@ namespace NoSQL.GraphDB.Core.Service
         ///   Gets the available service plugins.
         /// </summary>
         /// <returns> The available service plugins. </returns>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public IEnumerable<String> GetAvailableServicePlugins()
         {
             Dictionary<String, string> result;
@@ -98,6 +100,7 @@ namespace NoSQL.GraphDB.Core.Service
         /// <param name='servicePluginName'> The name of the service plugin. </param>
         /// <param name="serviceName"> The name of the service instance </param>
         /// <param name='parameter'> The parameters of this service. </param>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryAddService(out IService service, string servicePluginName, string serviceName,
                                   IDictionary<string, object> parameter)
         {
@@ -251,6 +254,7 @@ namespace NoSQL.GraphDB.Core.Service
         /// <param name="reader">Serialization reader</param>
         /// <param name="fallen8">Fallen-8</param>
         /// <param name="startService">Start the service?</param>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         internal void OpenService(string serviceName, string servicePluginName, SerializationReader reader, IFallen8 fallen8, Boolean startService)
         {
             IService service;

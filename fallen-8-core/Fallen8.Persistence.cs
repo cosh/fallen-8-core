@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Persistency;
@@ -41,7 +42,23 @@ namespace NoSQL.GraphDB.Core
         ///   never captured in a snapshot (an "unanchored" log), replays them onto the empty initial
         ///   graph so a crash before the first Save still recovers those transactions. Runs during
         ///   construction, before the instance is handed out, so the replay is single-threaded.
+        ///
+        ///   <para>TRIMMING - this is the one durability limit a trimming consumer must know, and the
+        ///   reason the requirement is declared HERE rather than propagated out of the codec: a log frame
+        ///   stores property VALUES through the reflective object codec, and publishing trimmed sets
+        ///   <c>System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault=false</c>, so the codec's
+        ///   JSON fallback for a value it does not encode directly throws - deterministically, in every
+        ///   trimmed app, not just for exotic types. Such a transaction still COMMITS in memory and is
+        ///   reported <c>Finished</c> with <see cref="TransactionInformation.Durable" /> false (the
+        ///   documented degraded-durability signal), but its frame never reaches the log, so a restart
+        ///   does not recover it. Verified by a trimmed round trip: two committed vertices, one carrying a
+        ///   nested value, recovered as one. Directly-encoded values (every primitive, string, DateTime,
+        ///   Guid, and arrays of those) are unaffected and stay durable, so a trimmed app that stores
+        ///   those is fine; one that stores richer values must either not trim or not rely on the log.
+        ///   Declaring it on this opt-in keeps <c>EnqueueTransaction</c> - trim-safe for every payload -
+        ///   free of a warning it does not deserve.</para>
         /// </summary>
+        [RequiresUnreferencedCode(WriteAheadLogNeedsReflectionForRichValues)]
         private void EnableWriteAheadLog(string walPath)
         {
             _wal = new WriteAheadLog(walPath, CreateLogger<WriteAheadLog>());
@@ -64,6 +81,7 @@ namespace NoSQL.GraphDB.Core
             }
         }
 
+        [RequiresUnreferencedCode(Serializer.SerializationWriter.PayloadTypesAreNotTrimSafe)]
         internal string Save(string path, int savePartitions = 5)
         {
             // Cold-path instrumentation (feature observability): a save is seconds of I/O, so
@@ -349,7 +367,16 @@ namespace NoSQL.GraphDB.Core
                     }
                     else if (type == Persistency.WalEntryType.CreateSubGraph)
                     {
-                        ReplaySubGraphCreate(payload);
+                        // Trimming: the replay resolves the recorded subgraph ALGORITHM by plugin name,
+                        // which a trimmer cannot preserve (declared on PluginFactory). Suppressed rather
+                        // than propagated, because propagating would put the warning on
+                        // EnableWriteAheadLog and therefore on the engine CONSTRUCTOR, for a
+                        // best-effort branch: a subgraph entry whose algorithm cannot be resolved is
+                        // warned and SKIPPED, recovery continues with the next entry (the documented D4
+                        // skip-and-continue rule for subgraph entries), and a subgraph is rebuildable
+                        // derived state. Opening a log needs a filesystem, so a browser build never
+                        // reaches this at all.
+                        ReplaySubGraphCreateSuppressed(payload);
                     }
                     else if (type == Persistency.WalEntryType.RegisterStoredQuery)
                     {
@@ -374,6 +401,27 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   THE trim-requirement message for opening a write-ahead log (see
+        ///   <see cref="EnableWriteAheadLog" /> for the mechanism and the measurement). Public so a host
+        ///   that wraps the WAL constructor can declare the same requirement with the same words.
+        /// </summary>
+        public const String WriteAheadLogNeedsReflectionForRichValues =
+            "A write-ahead log frame stores property values through a reflective codec, and a trimmed application has reflection-based JSON disabled: a property value that the codec does not encode directly (anything beyond primitives, string, DateTime, Guid and arrays of those) then commits in memory but is NOT written to the log, so it is lost on restart - Durable is reported false. Store directly-encoded values, or do not trim, or use snapshots instead of the log.";
+
+        /// <summary>
+        ///   The suppression seam for <see cref="ReplaySubGraphCreate" />: a one-line pass-through whose
+        ///   only purpose is to carry the suppression, so it covers exactly this call and nothing else in
+        ///   the replay loop. THE reasoning for suppressing rather than propagating lives at the call
+        ///   site in <c>ReplayWriteAheadLog</c>.
+        /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = "See the call site in ReplayWriteAheadLog.")]
+        private void ReplaySubGraphCreateSuppressed(byte[] payload)
+        {
+            ReplaySubGraphCreate(payload);
+        }
+
+        /// <summary>
         ///   Replays one logged <see cref="Persistency.WalEntryType.CreateSubGraph" /> entry:
         ///   recompiles the persisted recipe (via the registered <see cref="SubGraphRecipeCompiler" />)
         ///   and re-executes the equivalent create against the graph as replayed so far. Because
@@ -395,6 +443,7 @@ namespace NoSQL.GraphDB.Core
         ///   <c>collectible-codegen-assemblies</c>), so K subgraphs sharing one recipe spec compile
         ///   once and recovery time scales with the number of DISTINCT specs, not the subgraph count.</para>
         /// </summary>
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         private void ReplaySubGraphCreate(byte[] payload)
         {
             if (!WalTransactionCodec.TryDecodeSubGraphCreate(payload, out var recipe, out var sourceSubGraphName))
@@ -724,6 +773,7 @@ namespace NoSQL.GraphDB.Core
 
         #endregion
 
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         internal void Load_internal(String path, Boolean startServices = false)
         {
             if (String.IsNullOrWhiteSpace(path))
@@ -764,6 +814,7 @@ namespace NoSQL.GraphDB.Core
             span?.SetTag("checkpoint.wal.replayed", replayedEntries);
         }
 
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         private bool LoadCore(String path, Boolean startServices, out int replayedEntries)
         {
             replayedEntries = 0;

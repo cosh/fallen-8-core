@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
@@ -180,8 +181,12 @@ namespace NoSQL.GraphDB.Core
         public abstract bool RangeIndexScan(out IReadOnlyList<AGraphElementModel> result, string indexId, IComparable leftLimit, IComparable rightLimit, bool includeLeft = true, bool includeRight = true);
         public abstract bool FulltextIndexScan(out FulltextSearchResult result, string indexId, string searchQuery);
         public abstract bool VectorIndexScan(out Index.Vector.VectorSearchResult result, string indexId, float[] query, int k, Index.Vector.VectorSearchConstraint constraint = null);
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         public abstract bool TryCalculateShortestPath(out List<Path> result, string plugin, ShortestPathDefinition definition);
-        public abstract bool TryCalculateShortestPath<T>(out List<Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm;
+        public abstract bool TryCalculateShortestPath<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(
+            out List<Path> result, ShortestPathDefinition definition) where T : IShortestPathAlgorithm;
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         public abstract bool TryRunAnalytics(out Algorithms.Analytics.GraphAnalyticsResult result, string algorithmName, Algorithms.Analytics.GraphAnalyticsDefinition definition);
         public abstract bool TryInvokeGraphFunction(out Plugins.GraphFunctionResult result, string name, IDictionary<String, Object> parameters);
 

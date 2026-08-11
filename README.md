@@ -81,7 +81,8 @@ Each feature has a deep-dive doc — follow the link.
   feedback loop) to train, evaluate and publish your own model.
 - **[Use as a library](https://cosh.github.io/fallen-8-core/library/)**: reference the engine in-process via the
   `Fallen-8` NuGet package, with no HTTP and no server to operate - including on a single-threaded host
-  such as browser WebAssembly, where transactions are applied inline on the calling thread.
+  such as browser WebAssembly, where transactions are applied inline on the calling thread. The package is
+  trim-compatible, so a fully trimmed client keeps only what it uses.
 - **[Capacity and performance](https://cosh.github.io/fallen-8-core/capacity-and-performance/)**: measured bytes per
   vertex and edge, write throughput, and what a save game costs the writer.
 - **[Security](https://cosh.github.io/fallen-8-core/security/)** — optional all-or-nothing API key; dynamic code execution is

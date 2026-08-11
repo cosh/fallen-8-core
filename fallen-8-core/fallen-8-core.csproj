@@ -21,7 +21,18 @@
          Boolean SupportsPointEqualityLookup, the single home for "can this index be looked up by an
          exact key" (equality capability), replacing the type-switches that had drifted between the
          /status inventory and the semantic layer (consolidation-audit CA-1). Every built-in index
-         implements it; an external IIndex implementer must add it. No REST api/v{version} change. -->
+         implements it; an external IIndex implementer must add it. No REST api/v{version} change.
+         0.3.0 -> 0.4.0: breaking change to the ANNOTATIONS on the public read surface, not to its
+         signatures. The string-named IFallen8Read members (TryCalculateShortestPath by plugin name,
+         TryRunAnalytics) now carry [RequiresUnreferencedCode], and the type parameter of the typed
+         TryCalculateShortestPath<T> carries [DynamicallyAccessedMembers] (trim-safety). Nothing was
+         renamed, no constraint was added and no behaviour changed, so this is binary-compatible and
+         invisible to a consumer that does not run the trim analyzer. A consumer that DOES run it must
+         mirror the annotations on its own code: measured, the analyzer reports IL2046 on an
+         IFallen8Read implementation that omits [RequiresUnreferencedCode], IL2095 on a type parameter
+         whose [DynamicallyAccessedMembers] does not match the one it implements, and IL2091 on a
+         consumer's own generic wrapper that forwards T without the annotation - warnings that fail a
+         build treating warnings as errors. No REST api/v{version} change. -->
     <Authors>Henning Rauch</Authors>
     <Company>RauchEntwicklung</Company>
     <Copyright>Copyright (c) 2011-2026 Henning Rauch</Copyright>
@@ -43,6 +54,17 @@
     <SymbolPackageFormat>snupkg</SymbolPackageFormat>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
+  </PropertyGroup>
+
+  <!-- Trimming. The engine is annotated for the IL trimmer, so it declares itself trim-compatible
+       (IsTrimmable) and keeps the trim ANALYZER on for every build. Because warnings are errors here,
+       that analyzer is the gate: new reflection either becomes statically analyzable (a
+       DynamicallyAccessedMembers annotation, as on the typed path/subgraph overloads) or declares its
+       requirement with [RequiresUnreferencedCode] so a trimming consumer is warned at its own call
+       site. Without this, a consumer publishing trimmed got IL2104 ("assembly produced trim
+       warnings") and, worse, a MissingMethodException at runtime. -->
+  <PropertyGroup>
+    <IsTrimmable>true</IsTrimmable>
   </PropertyGroup>
 
   <!-- Explicit garbage collector configuration (N5). The engine keeps a large resident graph

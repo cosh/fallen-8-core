@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -138,6 +139,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// Gets the available subgraph algorithm plugins.
         /// </summary>
         /// <returns>The available subgraph algorithm plugins.</returns>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public IEnumerable<String> GetAvailableSubGraphPlugins()
         {
             // Reflection-discovered built-ins UNIONED with the addressed namespace's runtime-registered
@@ -166,6 +168,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="algorithmTypeName">The subgraph algorithm plugin name (as reported by the plugin's PluginName). Defaults to the breadth-first search algorithm.</param>
         /// <param name="parameter">Parameter for the algorithm. Default is null.</param>
         /// <returns><c>true</c> if the subgraph was created; otherwise, <c>false</c>.</returns>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryCreateSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                       string algorithmTypeName = BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
                                       IDictionary<string, object> parameter = null)
@@ -179,6 +182,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// Conflict / InternalError) so a waited-on caller can map it to the correct status. The
         /// public overload delegates here and discards the reason.
         /// </summary>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         internal bool TryCreateSubGraph(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                       out TransactionFailureReason reason,
                                       string algorithmTypeName = BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
@@ -193,6 +197,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// The subgraph is registered in this factory and its dependency on the source is
         /// tracked so it participates in recalculation and persistence.
         /// </summary>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryCreateSubGraphFromSource(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                       IFallen8 source,
                                       string algorithmTypeName = BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName,
@@ -205,6 +210,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// Reason-reporting overload of <see cref="TryCreateSubGraphFromSource(out SubGraphResult, string, SubGraphDefinition, IFallen8, string, IDictionary{string, object})"/>
         /// used by the transaction layer.
         /// </summary>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         internal bool TryCreateSubGraphFromSource(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                       IFallen8 source,
                                       out TransactionFailureReason reason,
@@ -239,6 +245,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="algorithmTypeName">The name of the algorithm plugin.</param>
         /// <param name="parameter">Optional parameters for algorithm initialization.</param>
         /// <returns><c>true</c> if the algorithm was successfully retrieved or loaded; otherwise, <c>false</c>.</returns>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         private bool TryGetOrLoadAlgorithm(out ISubGraphAlgorithm algo, IFallen8 fallen8, string algorithmTypeName, IDictionary<string, object> parameter)
         {
             algo = null;
@@ -311,7 +318,11 @@ namespace NoSQL.GraphDB.Core.SubGraph
         }
 
         /// <summary>
-        /// Tries to create a subgraph using a typed algorithm without reflection.
+        /// Tries to create a subgraph with an algorithm named by TYPE rather than by string, so no
+        /// plugin name lookup is involved. The algorithm is still instantiated reflectively, so
+        /// <typeparamref name="T"/> is annotated
+        /// <see cref="DynamicallyAccessedMemberTypes.PublicParameterlessConstructor"/> - that is what
+        /// makes this the trim-safe way in.
         /// </summary>
         /// <typeparam name="T">The type of the subgraph algorithm.</typeparam>
         /// <param name="subGraph">The created subgraph result.</param>
@@ -319,7 +330,9 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="definition">The subgraph definition.</param>
         /// <param name="parameter">Parameter for the algorithm. Default is null.</param>
         /// <returns><c>true</c> if the subgraph was created; otherwise, <c>false</c>.</returns>
-        public bool TryCreateSubGraph<T>(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
+        public bool TryCreateSubGraph<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(
+            out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                          IDictionary<string, object> parameter = null)
             where T : ISubGraphAlgorithm
         {
@@ -327,9 +340,13 @@ namespace NoSQL.GraphDB.Core.SubGraph
         }
 
         /// <summary>
-        /// Typed variant of <see cref="TryCreateSubGraphFromSource"/> (no reflection lookup).
+        /// Typed variant of <see cref="TryCreateSubGraphFromSource"/> (no plugin name lookup). The
+        /// annotation on <typeparamref name="T"/> is required BOTH here and on
+        /// <see cref="TryCreateSubGraph{T}"/>: it does not flow along a generic call chain by itself.
         /// </summary>
-        public bool TryCreateSubGraphFromSource<T>(out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
+        public bool TryCreateSubGraphFromSource<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(
+            out SubGraphResult subGraph, string subGraphName, SubGraphDefinition definition,
                                          IFallen8 source, IDictionary<string, object> parameter = null)
             where T : ISubGraphAlgorithm
         {
@@ -556,6 +573,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// breach an element ceiling in <see cref="Quota"/> is rejected and the subgraph keeps its
         /// previous contents.
         /// </remarks>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryRecalculateSubGraph(string subGraphName)
         {
             return TryRecalculateSubGraph(subGraphName, out _);
@@ -572,6 +590,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="subGraphName">The name of the subgraph to recalculate.</param>
         /// <param name="reason">The structured failure category; <see cref="TransactionFailureReason.None"/> on success.</param>
         /// <returns><c>true</c> if the subgraph was successfully recalculated; otherwise, <c>false</c>.</returns>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryRecalculateSubGraph(string subGraphName, out TransactionFailureReason reason)
         {
             reason = TransactionFailureReason.None;
@@ -693,6 +712,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
             }
         }
 
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public int RecalculateAllSubGraphs()
         {
             int successes = 0;
@@ -742,6 +762,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="sourceGraphId">The ID of the source graph whose dependent subgraphs should be recalculated.</param>
         /// <param name="visited">Subgraph ids already recalculated in this pass (cycle/revisit guard).</param>
         /// <returns>A tuple containing the number of successful recalculations and failures.</returns>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         private (int successes, int failures) RecalculateSubGraphsRecursive(Guid sourceGraphId, HashSet<Guid> visited)
         {
             int successes = 0;
@@ -834,6 +855,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         /// <param name="recipes">The recipes to rehydrate.</param>
         /// <param name="compiler">Compiler that turns a recipe back into a definition.</param>
         /// <returns>The number of subgraphs successfully rehydrated.</returns>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public int RehydrateFromRecipes(IEnumerable<SubGraphRecipe> recipes, ISubGraphRecipeCompiler compiler)
         {
             if (recipes == null)

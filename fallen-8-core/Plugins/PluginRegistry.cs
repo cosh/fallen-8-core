@@ -214,8 +214,6 @@ namespace NoSQL.GraphDB.Core.Plugins
         ///   resolution seam relied on by the path/subgraph/analytics endpoints and graph-function
         ///   invocation (feature plugin-registration).
         /// </summary>
-        [UnconditionalSuppressMessage("Trimming", "IL2072:Target parameter argument does not satisfy 'DynamicallyAccessedMembersAttribute' in call to target method.",
-            Justification = "The plugin type was produced by runtime compilation and validated to have a public parameterless constructor at registration; trimming is disabled for this application.")]
         public bool TryActivate<T>(out T result, String name) where T : class
         {
             result = null;

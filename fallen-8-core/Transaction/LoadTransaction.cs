@@ -25,11 +25,25 @@
 
 using NoSQL.GraphDB.Core.Model;
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NoSQL.GraphDB.Core.Transaction
 {
+    /// <summary>
+    ///   Loads a checkpoint. Annotated at the TYPE, which is the useful place for a trimming
+    ///   consumer: the warning lands where the transaction is constructed rather than deep inside the
+    ///   persistency layer, and it covers this transaction's body without marking the abstract
+    ///   <see cref="ATransaction.TryExecute" /> - the write path itself stays trim-safe.
+    /// </summary>
+    [RequiresUnreferencedCode(RequiresReflectiveCheckpoint)]
     public class LoadTransaction : ATransaction
     {
+        /// <summary>THE trim-requirement message shared by the two checkpoint transactions: a
+        /// checkpoint stores property values plus index and service plugin NAMES, and load resolves
+        /// all of them reflectively.</summary>
+        internal const String RequiresReflectiveCheckpoint =
+            "A checkpoint stores property values and index/service plugin names that are resolved reflectively on load, which a trimmer cannot preserve. It also needs a filesystem, so a browser build cannot use it at all.";
+
         public String Path
         {
             get;

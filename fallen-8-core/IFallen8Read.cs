@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using NoSQL.GraphDB.Core.Algorithms;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
@@ -188,25 +189,39 @@ namespace NoSQL.GraphDB.Core
         #region calculations
 
         /// <summary>
-        ///   Calculates the shortest path using a plugin
+        ///   Calculates the shortest path using a plugin named by STRING, resolved through plugin
+        ///   discovery. NOT trim-safe for that reason: a trimmed application cannot keep a type that
+        ///   exists only as a name in a string. The benign outcome is that discovery finds nothing and
+        ///   this returns <c>false</c>; a partially trimmed assembly can instead throw out of discovery,
+        ///   which is why <see cref="Plugin.PluginFactory" /> - the one home for this - spells out the
+        ///   failure modes. Prefer <see cref="TryCalculateShortestPath{T}" /> where the algorithm is
+        ///   known at compile time.
         /// </summary>
         /// <param name="result"> The resulting path. </param>
         /// <param name="plugin"> The name of the algorithm. </param>
         /// <param name="definition"> The shortest path calculation parameters. </param>
         /// <returns> True if at least one path was found, otherwise false. </returns>
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         bool TryCalculateShortestPath(
             out List<Path> result,
             string plugin,
             ShortestPathDefinition definition);
 
         /// <summary>
-        ///   Calculates the shortest path using a plugin without reflection
+        ///   Calculates the shortest path with an algorithm named by TYPE rather than by string, so no
+        ///   assembly scanning and no name map is involved. It is not reflection-free - the algorithm is
+        ///   still instantiated with <c>Activator.CreateInstance(typeof(T))</c> - but it is the
+        ///   TRIM-SAFE overload: <typeparamref name="T"/> is annotated
+        ///   <see cref="DynamicallyAccessedMemberTypes.PublicParameterlessConstructor"/>, so a trimmer
+        ///   keeps the constructor of whatever type a caller substitutes. The string overload cannot make
+        ///   that promise, because its plugin is resolved from scanned assemblies.
         /// </summary>
         /// <typeparam name="T">The generic variable for the IShortestPathPlugin type</typeparam>
         /// <param name="result"> The resulting path. </param>
         /// <param name="definition"> The shortest path calculation parameters. </param>
         /// <returns> True if at least one path was found, otherwise false. </returns>
-        public bool TryCalculateShortestPath<T>(
+        public bool TryCalculateShortestPath<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(
             out List<Path> result,
             ShortestPathDefinition definition)
                 where T : IShortestPathAlgorithm;
@@ -220,6 +235,7 @@ namespace NoSQL.GraphDB.Core
         /// <param name="result"> The analytics result (scores or partitions + run metadata). </param>
         /// <param name="algorithmName"> The plugin name, e.g. "PAGERANK". </param>
         /// <param name="definition"> Scoping, budgets and algorithm parameters. </param>
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         bool TryRunAnalytics(
             out Algorithms.Analytics.GraphAnalyticsResult result,
             string algorithmName,

@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
@@ -74,6 +75,7 @@ namespace NoSQL.GraphDB.Core.Index
         ///   Gets the available index plugins.
         /// </summary>
         /// <returns> The available index plugins. </returns>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public IEnumerable<String> GetAvailableIndexPlugins()
         {
             IEnumerable<String> result;
@@ -91,6 +93,7 @@ namespace NoSQL.GraphDB.Core.Index
         /// <param name='indexName'> Index name. </param>
         /// <param name='indexTypeName'> Index type. Default is DictionaryIndex </param>
         /// <param name='parameter'> Parameter for the index. Default is Null </param>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryCreateIndex(out IIndex index, string indexName, string indexTypeName = "DictionaryIndex",
                                    IDictionary<string, object> parameter = null)
         {
@@ -308,6 +311,7 @@ namespace NoSQL.GraphDB.Core.Index
         /// <param name="indexPluginName"> The index plugin name </param>
         /// <param name="reader"> Serialization reader </param>
         /// <param name="fallen8"> Fallen-8 </param>
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         internal void OpenIndex(string indexName, string indexPluginName, SerializationReader reader)
         {
             IIndex index;

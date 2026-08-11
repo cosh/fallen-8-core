@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Cache;
@@ -401,6 +402,7 @@ namespace NoSQL.GraphDB.Core
         ///   Initializes a new instance of the Fallen-8 class and loads the vertices from a save point.
         /// </summary>
         /// <param name='path'> Path to the save point. </param>
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         public Fallen8(String path, ILoggerFactory loggerfactory)
             : this(loggerfactory)
         {
@@ -440,7 +442,16 @@ namespace NoSQL.GraphDB.Core
         ///   optional <paramref name="storedQueryCompiler" /> follows the same rule for stored-query
         ///   entries, and an optional <paramref name="changeFeedOptions" /> activates the change feed
         ///   (feature change-feed).</para>
+        ///
+        ///   <para>This is the constructor a trimming consumer is warned on, because opting into the log
+        ///   is opting into the one durability limit trimming imposes - see
+        ///   <see cref="WriteAheadLogNeedsReflectionForRichValues" /> for what happens and to which
+        ///   values. Passing a null <paramref name="writeAheadLogOptions" /> (or one with no path) opens
+        ///   no log, but the warning is on the constructor, so a consumer that wants the other options
+        ///   without the log and without the warning should use the constructor overloads that do not
+        ///   mention a log at all.</para>
         /// </summary>
+        [RequiresUnreferencedCode(WriteAheadLogNeedsReflectionForRichValues)]
         public Fallen8(ILoggerFactory loggerfactory, WriteAheadLogOptions writeAheadLogOptions,
             ISubGraphRecipeCompiler subGraphRecipeCompiler = null,
             IStoredQueryCompiler storedQueryCompiler = null,
@@ -510,6 +521,7 @@ namespace NoSQL.GraphDB.Core
             return new Snapshot(segments, count);
         }
 
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public override bool TryCalculateShortestPath(
             out List<Path> result,
             string plugin,
@@ -543,6 +555,7 @@ namespace NoSQL.GraphDB.Core
         ///   <see cref="PluginFactory"/>, initialized with this engine, registered, and
         ///   returned. Null when no plugin carries the name.
         /// </summary>
+        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         private T ResolveCachedPlugin<T>(Microsoft.Extensions.Caching.Memory.IMemoryCache cache,
             string pluginName, Action<T> register) where T : class, Plugin.IPlugin
         {
@@ -605,7 +618,18 @@ namespace NoSQL.GraphDB.Core
             }
         }
 
-        public override bool TryCalculateShortestPath<T>(
+        /// <summary>
+        ///   The trim-safe path overload: the algorithm is named by TYPE, and
+        ///   <typeparamref name="T"/> carries the
+        ///   <see cref="DynamicallyAccessedMemberTypes.PublicParameterlessConstructor"/> annotation the
+        ///   <c>Activator.CreateInstance</c> below needs, so a trimmer keeps the substituted type's
+        ///   constructor instead of removing it and failing at runtime. The annotation is repeated on
+        ///   the interface and abstract declarations because it does NOT flow from an override to its
+        ///   base (or the other way round) on its own. See
+        ///   <see cref="IFallen8Read.TryCalculateShortestPath{T}" /> for the contract.
+        /// </summary>
+        public override bool TryCalculateShortestPath<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>(
             out List<Path> result,
             ShortestPathDefinition definition)
         {
@@ -638,6 +662,7 @@ namespace NoSQL.GraphDB.Core
             return false;
         }
 
+        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public override bool TryRunAnalytics(
             out Algorithms.Analytics.GraphAnalyticsResult result,
             string algorithmName,

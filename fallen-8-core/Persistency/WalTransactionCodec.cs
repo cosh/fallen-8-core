@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Text.Json;
 using NoSQL.GraphDB.Core.Model;
@@ -47,9 +48,28 @@ namespace NoSQL.GraphDB.Core.Persistency
     ///   (var-int ids/counts, tokenized string keys/labels/edge-property-ids, <c>WriteObject</c> for
     ///   polymorphic property values), so a property value round-trips through the log exactly as it
     ///   does through a snapshot (a complex value comes back as a JSON element on both paths).</para>
+    ///
+    ///   <para>TRIMMING: the six property helpers below go through the reflective object codec, and each
+    ///   carries its own suppression with <see cref="PropertyValuesAreDeclaredOnTheWalOptIn" />. The
+    ///   requirement is real but it is declared ONE level out, on
+    ///   <c>Fallen8.EnableWriteAheadLog</c> - the opt-in a consumer actually chooses - because
+    ///   propagating from here would reach <c>LogCommittedTransaction</c> on the commit path and log
+    ///   replay in the constructor, i.e. it would mark <c>EnqueueTransaction</c> and every engine
+    ///   constructor trim-unsafe for payloads that are perfectly trimmable. The suppressions are
+    ///   deliberately per-member rather than on the type, so the next reflective thing anyone adds to
+    ///   this codec still fails the build.</para>
     /// </summary>
     internal static class WalTransactionCodec
     {
+        /// <summary>
+        ///   The shared justification for the property helpers' suppressions. Read
+        ///   <c>Fallen8.EnableWriteAheadLog</c> for what actually happens to a rich value in a trimmed
+        ///   app (it commits, is reported non-durable, and is not recovered) - that is where the
+        ///   consumer-facing requirement is declared.
+        /// </summary>
+        private const String PropertyValuesAreDeclaredOnTheWalOptIn =
+            "Property values go through the reflective object codec. The requirement is declared one level out, on Fallen8.EnableWriteAheadLog, so it reaches the consumer at the durability opt-in instead of marking EnqueueTransaction and every engine constructor trim-unsafe.";
+
         /// <summary>
         ///   Classifies <paramref name="tx" /> as a loggable operation. Data-mutating transactions,
         ///   the id-space lifecycle transactions (Trim, TabulaRasa), and the subgraph transactions
@@ -575,6 +595,8 @@ namespace NoSQL.GraphDB.Core.Persistency
             };
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = PropertyValuesAreDeclaredOnTheWalOptIn)]
         private static void WritePropertyAddDefinition(SerializationWriter writer, PropertyAddDefinition def)
         {
             writer.WriteVarInt32(def.GraphElementId);
@@ -582,6 +604,8 @@ namespace NoSQL.GraphDB.Core.Persistency
             writer.WriteObject(def.Property);
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = PropertyValuesAreDeclaredOnTheWalOptIn)]
         private static PropertyAddDefinition ReadPropertyAddDefinition(SerializationReader reader)
         {
             var id = reader.ReadOptimizedInt32();
@@ -596,6 +620,8 @@ namespace NoSQL.GraphDB.Core.Persistency
         ///   the reader reads all four fields unconditionally, keeping the frame fixed-shape like every
         ///   sibling rather than conditionally sized.
         /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = PropertyValuesAreDeclaredOnTheWalOptIn)]
         private static void WritePropertySetDefinition(SerializationWriter writer, PropertySetDefinition def)
         {
             writer.WriteVarInt32(def.GraphElementId);
@@ -604,6 +630,8 @@ namespace NoSQL.GraphDB.Core.Persistency
             writer.WriteObject(def.Remove ? null : def.Property);
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = PropertyValuesAreDeclaredOnTheWalOptIn)]
         private static PropertySetDefinition ReadPropertySetDefinition(SerializationReader reader)
         {
             var id = reader.ReadOptimizedInt32();
@@ -624,6 +652,8 @@ namespace NoSQL.GraphDB.Core.Persistency
         ///   value pairs). A null or empty map is written as a zero count; both read back as null,
         ///   which is indistinguishable to element creation (an empty map allocates no store).
         /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = PropertyValuesAreDeclaredOnTheWalOptIn)]
         private static void WriteProperties(SerializationWriter writer, Dictionary<String, Object> properties)
         {
             var count = properties == null ? 0 : properties.Count;
@@ -639,6 +669,8 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = PropertyValuesAreDeclaredOnTheWalOptIn)]
         private static Dictionary<String, Object> ReadProperties(SerializationReader reader)
         {
             var count = reader.ReadOptimizedInt32Checked("wal properties");

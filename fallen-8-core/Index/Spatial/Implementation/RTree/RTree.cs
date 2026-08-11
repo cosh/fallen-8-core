@@ -30,6 +30,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -1943,6 +1944,8 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
             throw new CollisionException();
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = "The metric and dimension helpers are recorded in the checkpoint as assembly-qualified type names and rebuilt reflectively (declared on CreateConfiguredInstance, which documents how a trimmed-away helper fails). PersistencyFactory.LoadIndices catches ANY exception around an index load, so a trimmed helper - however it fails - skips just this index: a degraded load, never a crash. The engine reaches this only through that annotated checkpoint load, which needs a filesystem; Load is public, so a consumer calling it directly is not warned.")]
         public void Load(SerializationReader reader, IFallen8 fallen8)
         {
             if (WriteResource())
@@ -2052,10 +2055,14 @@ namespace NoSQL.GraphDB.Core.Index.Spatial.Implementation.RTree
         /// assembly-qualified type name via its parameterless constructor (public OR non-public - a
         /// stateful metric like <c>GeoMetric</c> keeps its parameterless ctor non-public so it does not
         /// widen the public surface, and the caller restores its state via
-        /// <see cref="IMetric.RestoreState"/> right after). A type that cannot be resolved or
-        /// instantiated throws <see cref="InvalidDataException"/>, which
-        /// <c>PersistencyFactory.LoadIndices</c> catches to skip just this index.
+        /// <see cref="IMetric.RestoreState"/> right after). A name that resolves to no type - or to a
+        /// type that is not a <typeparamref name="T"/> - throws <see cref="InvalidDataException"/>; a
+        /// type that survived trimming but lost its parameterless constructor surfaces instead as the
+        /// <see cref="MissingMethodException"/> from <c>Activator.CreateInstance</c>.
+        /// <c>PersistencyFactory.LoadIndices</c> catches ANY exception from an index load, so either
+        /// way only this index is skipped.
         /// </summary>
+        [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
         private static T CreateConfiguredInstance<T>(string assemblyQualifiedTypeName, string what) where T : class
         {
             if (String.IsNullOrEmpty(assemblyQualifiedTypeName))

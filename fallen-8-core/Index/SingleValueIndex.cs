@@ -27,6 +27,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -244,6 +245,7 @@ namespace NoSQL.GraphDB.Core.Index
 
         public Boolean CanPersist => true;
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = IIndex.KeysAreNotTrimSafe)]
         public void Save(SerializationWriter writer)
         {
             if (ReadResource())
@@ -264,6 +266,7 @@ namespace NoSQL.GraphDB.Core.Index
             throw new CollisionException();
         }
 
+        [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = IIndex.KeysAreNotTrimSafe)]
         public void Load(SerializationReader reader, IFallen8 fallen8)
         {
             // The real load path (IndexFactory.OpenIndex) activates the plugin WITHOUT calling

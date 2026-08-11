@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NoSQL.GraphDB.Core.Plugins
 {
@@ -63,7 +64,15 @@ namespace NoSQL.GraphDB.Core.Plugins
         ///   <see cref="Type"/> rather than a materialized instance because algorithm plugins are
         ///   activated fresh per resolution (matching <c>PluginFactory</c>); holding the type keeps the
         ///   collectible load context alive, and dropping it on delete lets the context unload.
+        ///
+        ///   <para>Annotated <see cref="DynamicallyAccessedMemberTypes.PublicParameterlessConstructor"/>
+        ///   because <c>PluginRegistry.TryActivate</c> constructs it reflectively: the requirement flows
+        ///   from whoever assigns the type into this property, so a host that one day registers a
+        ///   statically-known plugin type here gets its constructor preserved by the trimmer instead of
+        ///   a silent activation failure. For a runtime-COMPILED artifact the annotation costs nothing
+        ///   (the trimmer never sees that type at all).</para>
         /// </summary>
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
         public Type Artifact
         {
             get;
@@ -83,7 +92,8 @@ namespace NoSQL.GraphDB.Core.Plugins
         ///   non-null artifact type; the other states carry none.
         /// </summary>
         public PluginEntry(PluginDefinition definition, PluginCompileState compileState,
-            Type artifact, String compileDiagnostics = null)
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type artifact,
+            String compileDiagnostics = null)
         {
             if (definition == null)
             {

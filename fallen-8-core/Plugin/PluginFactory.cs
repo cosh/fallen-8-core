@@ -27,6 +27,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Frozen;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -37,9 +38,34 @@ namespace NoSQL.GraphDB.Core.Plugin
 {
     /// <summary>
     ///   Fallen8 plugin factory.
+    ///
+    ///   <para>
+    ///   NOT TRIM-SAFE, by nature: discovery enumerates the DLLs in the base directory,
+    ///   <c>Assembly.Load</c>s them, reads their exported types and activates a type resolved from a
+    ///   STRING name. None of that is statically analyzable, so a trimmer cannot know which plugin
+    ///   types to keep. Every member that takes part carries
+    ///   <see cref="RequiresUnreferencedCodeAttribute" /> with
+    ///   <see cref="DiscoveryIsNotTrimSafe" /> - THE home for this explanation - so a trimming consumer
+    ///   is warned at its own call site at build time instead of finding out at runtime. A name that
+    ///   resolves to nothing is a clean not-found: <see cref="TryFindPlugin{T}" /> returns
+    ///   <c>false</c>. A partially trimmed or malformed assembly is NOT that benign - the guards here
+    ///   are narrow (only <c>FileLoadException</c> around the load, only <c>TypeLoadException</c>
+    ///   around the activation, with <c>GetExportedTypes</c> and <c>GetInterfaces</c> unguarded), so a
+    ///   missing dependency, an exported type whose base type or interface is gone, or a removed
+    ///   constructor throws OUT of discovery - and not every caller guards the lookup (index creation,
+    ///   the subgraph algorithm load and the engine's cached-plugin resolve do not).
+    ///   </para>
     /// </summary>
     public static class PluginFactory
     {
+        /// <summary>The single trim-requirement message for every discovery member (see the type
+        /// remarks). Named types resolved from scanned assemblies cannot be kept by a trimmer.
+        /// <para>PUBLIC so implementers of the annotated interface members outside this assembly can
+        /// carry the SAME message instead of a hand-copied paraphrase; the engine declares no
+        /// <c>InternalsVisibleTo</c> by decision, so public is the available way to share it.</para></summary>
+        public const String DiscoveryIsNotTrimSafe =
+            "Plugin discovery scans and loads assemblies and activates types resolved from string names, so a trimmer cannot keep them. Reference the plugin type directly instead - for path finding, the typed TryCalculateShortestPath<T> overload.";
+
         #region discovery memoization (finding P5)
 
         /// <summary>
@@ -78,6 +104,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <param name='result'> Result. </param>
         /// <param name='name'> The unique name of the pluginN. </param>
         /// <typeparam name='T'> The interface type of the plugin. </typeparam>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         public static Boolean TryFindPlugin<T>(out T result, String name)
             where T : class, IPlugin
         {
@@ -107,6 +134,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
         /// <param name='result'> Result. </param>
         /// <typeparam name='T'> The interface type of the plugin. </typeparam>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         public static Boolean TryGetAvailablePluginsWithDescriptions<T>(out Dictionary<String, String> result)
         {
             result = (from aPluginTypeOfT in GetAllTypes<T>()
@@ -123,6 +151,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <returns> <c>true</c> if something was found; otherwise, <c>false</c> . </returns>
         /// <param name='result'> Result. </param>
         /// <typeparam name='T'> The interface type of the plugin. </typeparam>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         public static Boolean TryGetAvailablePlugins<T>(out IEnumerable<String> result)
         {
             result = (from aPluginTypeOfT in GetAllTypes<T>()
@@ -161,6 +190,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// </summary>
         /// <returns> The all types. </returns>
         /// <typeparam name='T'> The type of the plugin. </typeparam>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static IEnumerable<Type> GetAllTypes<T>(Boolean checkForIPlugin = true)
         {
             return FilterTypes<T>(GetCandidateTypes(), checkForIPlugin);
@@ -172,6 +202,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   name-map build can filter a candidate set captured ONCE under <see cref="_discoveryLock" />
         ///   (finding M1) without re-entering that lock.
         /// </summary>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static IEnumerable<Type> FilterTypes<T>(IEnumerable<Type> candidates, Boolean checkForIPlugin = true)
         {
             return FilterTypes(typeof(T), candidates, checkForIPlugin);
@@ -184,6 +215,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   <see cref="AvailableBuiltInNames" />, which knows the contract interface only as a
         ///   runtime <see cref="Type" /> (from <see cref="ContractInterface" />).
         /// </summary>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static IEnumerable<Type> FilterTypes(Type contractType, IEnumerable<Type> candidates, Boolean checkForIPlugin = true)
         {
             foreach (var candidate in candidates)
@@ -207,6 +239,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   (finding P5). On a discovery failure the cache stays <c>null</c> so the next call retries,
         ///   matching the old per-call behaviour.
         /// </summary>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static IReadOnlyList<Type> GetCandidateTypes()
         {
             var cached = _candidateTypes;
@@ -227,6 +260,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   Exists so <see cref="GetNameMap{T}" /> can discover candidates and build the derived name
         ///   map under a SINGLE lock acquisition (finding M1), with no re-entrancy.
         /// </summary>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static IReadOnlyList<Type> GetCandidateTypesLocked()
         {
             return _candidateTypes ??= DiscoverCandidateTypes();
@@ -238,6 +272,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   non-abstract classes with a parameterless constructor). The interface/category filters
         ///   are applied later, per query, in <see cref="GetAllTypes{T}" />.
         /// </summary>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static IReadOnlyList<Type> DiscoverCandidateTypes()
         {
             var result = new List<Type>();
@@ -266,6 +301,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   rebuilds). The candidate set is captured once here and passed into the build, so the build
         ///   never re-enters the lock.
         /// </summary>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static FrozenDictionary<String, Type> GetNameMap<T>()
             where T : class, IPlugin
         {
@@ -297,6 +333,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   duplicated name, matching the old first-match linear scan. An activation that throws is
         ///   skipped so a single malformed plugin cannot break name resolution for the whole category.
         /// </summary>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static FrozenDictionary<String, Type> BuildNameMap<T>(IReadOnlyList<Type> candidates)
             where T : class, IPlugin
         {
@@ -352,6 +389,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <returns> <c>true</c> if this instance is interface of the specified type; otherwise, <c>false</c> . </returns>
         /// <param name='type'> Type. </param>
         /// <typeparam name='T'> The interface type. </typeparam>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static Boolean IsInterfaceOf<T>(Type type)
         {
             return IsInterfaceOf(typeof(T), type);
@@ -360,6 +398,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// <summary>The non-generic core of <see cref="IsInterfaceOf{T}" />: whether
         /// <paramref name="type" /> implements <paramref name="interfaceType" /> (matched by full
         /// name, tolerating a component whose <c>FullName</c> throws).</summary>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static Boolean IsInterfaceOf(Type interfaceType, Type type)
         {
             var interestingInterface = interfaceType.FullName;
@@ -414,6 +453,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   list and filter as the generic path, so the set and order are identical. An unknown
         ///   contract (or one with no built-in implementation, e.g. GraphFunction) yields empty.
         /// </summary>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         public static IEnumerable<String> AvailableBuiltInNames(PluginContract contract)
         {
             var contractType = ContractInterface(contract);
@@ -433,6 +473,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         ///   Activate the specified currentPluginType.
         /// </summary>
         /// <param name='currentPluginType'> Current plugin type. </param>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         internal static T Activate<T>(Type currentPluginType)
             where T : class
         {
@@ -457,6 +498,7 @@ namespace NoSQL.GraphDB.Core.Plugin
         /// </summary>
         /// <param name="file">The interesting file</param>
         /// <returns>Enumerable of candidate types</returns>
+        [RequiresUnreferencedCode(DiscoveryIsNotTrimSafe)]
         private static IEnumerable<Type> ProcessAFile(string file)
         {
             Assembly assembly;
