@@ -126,7 +126,7 @@ unknown index is `false`, not an exception.
 
 ## Writing
 
-Every mutation is a transaction. `EnqueueTransaction` hands it to the single writer thread and returns a
+Every mutation is a transaction. `EnqueueTransaction` hands it to the single writer and returns a
 `TransactionInformation`; `WaitUntilFinished()` blocks until it commits or rolls back, and
 `GetTransactionState(txId)` polls instead.
 
@@ -174,6 +174,46 @@ soft-delete model has no generic un-remove. A body that only creates and sets pr
 reversible; a body that also removes elements has a weaker guarantee. Split the removal into its own
 transaction when that matters.
 
+### Single-threaded hosts, such as browser WebAssembly
+
+By default the engine owns a dedicated writer thread: enqueuing hands the transaction over, and the
+writer drains whatever is ready into one commit group with one fsync. Some hosts cannot start a thread at
+all — a single-threaded WebAssembly runtime in the browser is the usual case, where `Thread.Start` throws
+`PlatformNotSupportedException`. There, the engine applies each transaction **inline on the calling
+thread** instead:
+
+```csharp
+var fallen8 = new Fallen8(loggerFactory);   // no special argument needed
+
+// In a single-threaded host this reports Inline; on a server, Threaded.
+Console.WriteLine(fallen8.TransactionExecution);
+
+var info = fallen8.EnqueueTransaction(tx);
+// Already terminal: the write happened inside the call above.
+Assert(info.Completion.IsCompleted && info.TransactionState == TransactionState.Finished);
+```
+
+The mode is detected at runtime, so the same package works in both places with no compile-time switch and
+no host configuration. `TransactionExecutionMode` states it explicitly when you would rather assert than
+detect: `Threaded` fails loudly on a host that cannot start the writer, `Inline` forces inline execution
+anywhere.
+
+| In inline mode                                | Behaviour                                                                |
+| --------------------------------------------- | ------------------------------------------------------------------------ |
+| `EnqueueTransaction`                          | Applies, flushes and completes the transaction before returning           |
+| `WaitUntilFinished()`, `await Completion`      | Return immediately — there is nothing left to wait for                    |
+| Ordering, rollback, `GetTransactionState`      | Unchanged; the same execution path runs                                   |
+| Write-ahead log, change feed                  | Both work; each transaction is its own commit group, so one fsync each     |
+| Concurrent callers                            | Serialized, so the single-writer invariant holds even if the host has threads |
+| Group commit                                  | Given up — the only thing the queue was buying                            |
+
+Two limits are worth knowing before you build on this. Snapshots (`SaveTransaction`/`LoadTransaction`) and
+the write-ahead log need a filesystem, which a browser does not have. And plugin lookup **by name** —
+`TryCalculateShortestPath(out paths, "BLS", definition)` — discovers plugins by enumerating assemblies in
+the application's base directory, which is empty in a browser; the typed overload
+`TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, definition)` resolves without
+discovery and works there.
+
 ## Durability and options
 
 The constructor you pick decides what the instance carries:
@@ -186,7 +226,8 @@ The constructor you pick decides what the instance carries:
 | `new Fallen8(loggerFactory, writeAheadLogOptions, ...)`                | A [write-ahead log](/fallen-8-core/save-games/) plus the optional compilers    |
 
 The widest overload also takes `ISubGraphRecipeCompiler`, `IStoredQueryCompiler`, `IPluginCompiler`, a
-`ChangeFeedOptions` and a metrics scope id, so a host can opt into exactly the capabilities it wants.
+`ChangeFeedOptions`, a metrics scope id and a `TransactionExecutionMode`, so a host can opt into exactly
+the capabilities it wants.
 Snapshots are written and read with `SaveTransaction` and `LoadTransaction`, in the same on-disk format
 the service uses, which means a graph saved in-process can be loaded by the service and the other way
 round.
