@@ -263,6 +263,16 @@ namespace NoSQL.GraphDB.Core
         private int ReplayWriteAheadLog()
         {
             _walSuspended = true;
+
+            // Recovery-integrity signal (feature platform-integrity-audit W5). Replay is FAIL-STOP for
+            // core-data entries, so it can legitimately return a graph that is internally consistent but
+            // is a PREFIX of the committed history. That used to be visible only as one log line, which
+            // means a client reconciling against the result - and deciding to DELETE what nothing
+            // asserts any more - could draw a conclusion from truncated history with no way to know.
+            _recoveryRan = true;
+            _lastRecoveryTruncated = false;
+            _lastRecoveryReplayedEntries = 0;
+
             try
             {
                 var replayed = 0;
@@ -280,6 +290,7 @@ namespace NoSQL.GraphDB.Core
                         // format problem; stop replay at the last good entry rather than risk
                         // misapplying it.
                         _logger.LogError(ex, "A write-ahead-log entry could not be decoded; recovery stops at the last good entry ({Count} replayed).", replayed);
+                        _lastRecoveryTruncated = true;
                         break;
                     }
 
@@ -310,6 +321,7 @@ namespace NoSQL.GraphDB.Core
                             }
 
                             _logger.LogError(ex, "Re-executing a logged {Type} transaction during recovery threw; recovery STOPS at the last good entry ({Count} replayed).", type, replayed);
+                            _lastRecoveryTruncated = true;
                             break;
                         }
 
@@ -322,6 +334,7 @@ namespace NoSQL.GraphDB.Core
                             else
                             {
                                 _logger.LogError("Re-executing a logged {Type} transaction during recovery returned false; recovery STOPS at the last good entry ({Count} replayed).", type, replayed);
+                                _lastRecoveryTruncated = true;
                                 break;
                             }
                         }
@@ -350,6 +363,7 @@ namespace NoSQL.GraphDB.Core
                     replayed++;
                 }
 
+                _lastRecoveryReplayedEntries = replayed;
                 _logger.LogInformation("Recovered {Count} transaction(s) from the write-ahead log.", replayed);
                 return replayed;
             }

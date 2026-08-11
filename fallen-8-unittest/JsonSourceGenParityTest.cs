@@ -448,6 +448,55 @@ namespace NoSQL.GraphDB.Tests
                     }
                 }, "EdgeSpecification"),
                 (new PropertySpecification { PropertyId = "age", PropertyValue = "42", FullQualifiedTypeName = "System.Int32" }, "PropertySpecification"),
+                // The batch property-write element (feature platform-integrity-audit W2). Remove=true is
+                // the interesting shape: the value fields are still serialized and must round-trip.
+                (new PropertyWriteSpecification
+                {
+                    GraphElementId = 42,
+                    PropertyId = "stale",
+                    PropertyValue = "yes",
+                    FullQualifiedTypeName = "System.String",
+                    Remove = true
+                }, "PropertyWriteSpecification"),
+                // Index repair from element state (feature platform-integrity-audit W4).
+                (new IndexBackfillSpecification { PropertyId = "name", Replace = true, Label = "person" },
+                    "IndexBackfillSpecification"),
+                (new IndexRebuildREST
+                {
+                    IndexId = "byName",
+                    PropertyId = "name",
+                    Replaced = false,
+                    ScannedElements = 1200,
+                    IndexedElements = 1180,
+                    SkippedUnindexableValues = 2
+                }, "IndexRebuildREST"),
+                // The durability / recovery-integrity block on /status (feature platform-integrity-audit
+                // W5). Every flag set, so a naming-policy slip on any of them would show up.
+                (new DurabilityStatusREST
+                {
+                    WalEnabled = true,
+                    Degraded = true,
+                    RecoveryRan = true,
+                    LastRecoveryTruncated = true,
+                    LastRecoveryReplayedEntries = 17,
+                    LastCheckpointDroppedIndices = 1
+                }, "DurabilityStatusREST"),
+                // The batch element READ (feature platform-integrity-audit W6). The projection derives
+                // from AGraphElement, so this also guards that the inherited property projection keeps
+                // its naming under source generation.
+                (new GraphElementProjectionREST(7, 1713862800u, 60u, "device",
+                    System.Collections.Immutable.ImmutableDictionary<string, object>.Empty
+                        .Add("ip", "10.0.0.9"),
+                    "vertex"), "GraphElementProjectionREST"),
+                (new GraphElementBatchREST
+                {
+                    Elements = new List<GraphElementProjectionREST>
+                    {
+                        new GraphElementProjectionREST(7, 1713862800u, 0u, "device",
+                            System.Collections.Immutable.ImmutableDictionary<string, object>.Empty, "vertex")
+                    },
+                    NotFound = new List<int> { 999999 }
+                }, "GraphElementBatchREST"),
                 (new StatusREST
                 {
                     UsedMemory = 1073741824L,

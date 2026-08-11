@@ -437,6 +437,19 @@ namespace NoSQL.GraphDB.App
                     }
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Ingestion));
                 });
+
+                // The integrations gate (feature integrations): same shape - off by default,
+                // orthogonal to auth, 403 when off. That 403 IS the opt-out (F8_INTEGRATIONS=false)
+                // and is what a client gates the feature on, so no /integrations action checks the
+                // flag itself.
+                o.AddPolicy(Fallen8IntegrationsOptions.IntegrationsPolicy, p =>
+                {
+                    if (keyConfigured)
+                    {
+                        p.RequireAuthenticatedUser();
+                    }
+                    p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Integrations));
+                });
             });
 
             // Embedding provider (feature embedding-provider). The backend generator resolves
@@ -490,6 +503,17 @@ namespace NoSQL.GraphDB.App
                 new NoSQL.GraphDB.App.Ingestion.NlpClient(
                     sp.GetRequiredService<IOptions<Fallen8NlpOptions>>(),
                     sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Ingestion.NlpClient>>()));
+
+            // The integration runtime proxy (feature integrations): the client is inert until a
+            // /integrations route is called - with the flag off (the default) those routes answer 403
+            // and nothing is contacted, and with no endpoint configured they answer 503 rather than
+            // timing out. Tests replace IIntegrationsClient.
+            builder.Services.Configure<Fallen8IntegrationsOptions>(
+                builder.Configuration.GetSection(Fallen8IntegrationsOptions.SectionName));
+            builder.Services.AddSingleton<NoSQL.GraphDB.App.Integrations.IIntegrationsClient>(sp =>
+                new NoSQL.GraphDB.App.Integrations.IntegrationsClient(
+                    sp.GetRequiredService<IOptions<Fallen8IntegrationsOptions>>(),
+                    sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Integrations.IntegrationsClient>>()));
 
             // CORS: one named policy, default deny. Only the configured origins are allowed; never a
             // wildcard-with-credentials.

@@ -47,6 +47,9 @@ Each feature has a deep-dive doc — follow the link.
   search and traversable like everything else.
 - **[Bulk import/export](https://cosh.github.io/fallen-8-core/bulk-import-export/)** — stream whole graphs as newline-delimited
   JSON that round-trips exactly.
+- **[Integrations](https://cosh.github.io/fallen-8-core/integrations/)**: a sidecar that reads a system on
+  your own network (a CSV inventory, a UniFi console, a Fronius inverter) and writes what it saw into a
+  namespace, with credentials that are held for one run and never stored, and exact-match identity.
 - **[Live change feed](https://cosh.github.io/fallen-8-core/change-feed/)** — committed mutations as Server-Sent Events, in
   commit order, with in-band resync.
 - **[Save games](https://cosh.github.io/fallen-8-core/save-games/)** — checkpoints tracked by a registry that drives startup,
@@ -93,7 +96,9 @@ the app (`fallen-8-core-apiApp`) is the thin HTTP layer that can serve F8 Studio
 all-in-one image (engine + API + UI) still ships and runs with a bare `docker compose up`, but the
 default `npm run env:up` now runs F8 Studio as its own
 [standalone](https://cosh.github.io/fallen-8-core/standalone-ui/) nginx container talking to the REST API cross-origin, so
-the UI and the data plane deploy apart, alongside a model sidecar.
+the UI and the data plane deploy apart, alongside a model sidecar. A third deployable, the
+[integrations runtime](https://cosh.github.io/fallen-8-core/integrations/), reads systems on your own network and
+writes what it saw in through the same REST API.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','lineColor':'#666666'}}}%%
@@ -104,6 +109,7 @@ flowchart TB
     services["Your services / code"]:::client
 
     mcp["MCP server<br/>fallen-8-mcp"]:::mcp
+    integrations["Integrations runtime<br/>fallen-8-integrations · no host port"]:::mcp
 
     subgraph unit["Fallen-8 · one Docker unit"]
         direction TB
@@ -115,6 +121,7 @@ flowchart TB
     sidecar["Model sidecar<br/>Ollama"]:::ext
     docling["Document sidecar<br/>docling-serve"]:::ext
     nlp["NLP sidecar<br/>spaCy · entities + terms"]:::ext
+    sources["Your network<br/>CSV · UniFi console · Fronius inverter"]:::ext
     obs["Observability<br/>Collector · Prometheus · Tempo · Loki · Grafana"]:::obs
 
     agents -->|MCP| mcp
@@ -127,6 +134,10 @@ flowchart TB
     rest -.->|entity + term enrichment| nlp
     rest -.->|OTLP push| obs
     mcp -.->|OTLP push| obs
+    rest -->|proxy /integrations/*| integrations
+    integrations -->|HTTP · REST| rest
+    integrations -.->|reads| sources
+    integrations -.->|OTLP push| obs
 
     classDef client fill:#45494D,stroke:#666666,color:#FEFEFE
     classDef mcp fill:#E2001A,stroke:#FC0606,color:#FEFEFE
@@ -137,14 +148,16 @@ flowchart TB
     style unit fill:#000000,stroke:#E2001A,stroke-width:1.5px,color:#C6C7C8
 ```
 
-Full details — the writer thread, plugin system, durability, and the model sidecar — are in
+Full details, the writer thread, plugin system, durability, the model sidecar and the
+integrations runtime, are in
 [docs/architecture.md](https://cosh.github.io/fallen-8-core/architecture/).
 
 ## Running it
 
 One command brings up the whole environment from the published images of the
 [latest release](https://github.com/cosh/fallen-8-core/releases/latest): engine, REST API,
-F8 Studio, the MCP server for agents, the model sidecar, and the observability stack, with
+F8 Studio, the MCP server for agents, the integrations runtime, the model sidecar, and the
+observability stack, with
 every feature on, no authentication in the way, and nothing to build. An NVIDIA GPU is
 detected and used automatically; without one everything runs on the CPU (same on macOS,
 Linux, and Windows PowerShell):

@@ -428,20 +428,27 @@ namespace NoSQL.GraphDB.App.Ingestion
         /// (<c>AddOrUpdate</c>), cheap, and a no-op when the index is absent or NLP is off.</summary>
         private void ReconcileEntityIndex()
         {
-            if (!_options.EnsureEntityIndex ||
-                !_fallen8.IndexFactory.TryGetIndex(out var index, _options.EntityIndexId) ||
-                !index.SupportsPointEqualityLookup)
+            if (!_options.EnsureEntityIndex)
             {
                 return;
             }
 
-            foreach (var entity in _fallen8.GetAllVertices(DocumentGraphSchema.EntityLabel))
+            // One home for repairing a derived index from element state (feature
+            // platform-integrity-audit W4). This used to be a hand-rolled loop here; it was the
+            // SECOND copy of the pattern in the tree (the bound vector index rebuilds its slab the
+            // same way), which is what made it a platform gap rather than a local workaround. The
+            // shared primitive adds the guards this loop lacked - a bound or non-equality index is
+            // refused with a reason instead of silently doing nothing - and reports what it did.
+            // Add-only, exactly as before, so nothing is briefly missing; idempotent because
+            // AddOrUpdate is idempotent per (key, element) since W3.
+            if (!Services.IndexRepair.TryRepairFromProperty(_fallen8, _logger, _options.EntityIndexId,
+                    DocumentGraphSchema.EntityKeyProperty, out _, out var error,
+                    replace: false, interestingLabel: DocumentGraphSchema.EntityLabel))
             {
-                if (entity.TryGetProperty<String>(out var key, DocumentGraphSchema.EntityKeyProperty) &&
-                    !String.IsNullOrEmpty(key))
-                {
-                    index.AddOrUpdate(key, entity);
-                }
+                // Not fatal, exactly as the previous silent early-return was not: entity dedup is
+                // additive, and ingestion still writes Document/Chunk state without it. The reason is
+                // logged now rather than being invisible.
+                _logger.LogDebug("Entity index repair skipped: {Reason}", error);
             }
         }
 

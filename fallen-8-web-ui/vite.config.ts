@@ -65,6 +65,7 @@ const API_PREFIXES = [
   "^/index(/|\\?|$)",
   "/embedding",
   "/document",
+  "/integrations",
   "/bulk",
   "/delegates",
   "/save",

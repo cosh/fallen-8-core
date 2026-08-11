@@ -37,6 +37,7 @@ using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.ChangeFeed;
+using NoSQL.GraphDB.Core.Persistency;
 
 namespace NoSQL.GraphDB.App.Namespaces
 {
@@ -597,9 +598,22 @@ namespace NoSQL.GraphDB.App.Namespaces
                     "The Fallen-8 namespace catalog at \"" + _catalogPath + "\" could not be read.", ex);
             }
 
+            // A PRESENT-but-empty catalog is corruption, not "no namespaces", and is as loud as invalid
+            // JSON below (platform-integrity-audit W1). An ABSENT file legitimately means "only the
+            // default namespace has ever existed"; a present zero-length file means the list of every
+            // non-default namespace was destroyed while their data directories and WALs are still on
+            // disk - and starting empty would strand all of them unreachable. WriteCatalogUnlocked never
+            // writes an empty file, so this is only reachable from a non-durable write by an older build
+            // (now fixed below).
             if (String.IsNullOrWhiteSpace(text))
             {
-                return new NamespaceCatalogDocument();
+                throw new InvalidOperationException(
+                    "The Fallen-8 namespace catalog at \"" + _catalogPath + "\" is present but empty, which " +
+                    "no write path produces - it is a corrupt or truncated catalog (for example a power loss " +
+                    "during a write by an older build). Startup is aborted so a destroyed catalog is never " +
+                    "mistaken for \"no namespaces\" and silently overwritten, which would strand every " +
+                    "non-default namespace's data on disk. Restore the file, or DELETE it to start with only " +
+                    "the default namespace.");
             }
 
             try
@@ -647,18 +661,12 @@ namespace NoSQL.GraphDB.App.Namespaces
             }
 
             Directory.CreateDirectory(Path.GetDirectoryName(_catalogPath));
-            var temp = _catalogPath + ".tmp";
-            File.WriteAllText(temp, JsonSerializer.Serialize(document, _json));
 
-            // Atomic replace: a crash mid-write leaves the previous catalog intact (temp is orphaned).
-            if (File.Exists(_catalogPath))
-            {
-                File.Replace(temp, _catalogPath, null);
-            }
-            else
-            {
-                File.Move(temp, _catalogPath);
-            }
+            // DURABLE and atomic (platform-integrity-audit W1), through the engine's DurableFileIo rather
+            // than a private copy. This file is the only record of which namespaces exist, so losing it
+            // strands every non-default namespace's data directory and WAL; the previous write-then-rename
+            // was atomic for readers but not durable, so a power loss could publish it zero-length.
+            DurableFileIo.ReplaceAllTextDurably(_catalogPath, JsonSerializer.Serialize(document, _json), _logger);
         }
 
         private Fallen8 CreateEngine(String walPath, String metricsScopeId)

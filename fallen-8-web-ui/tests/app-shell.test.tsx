@@ -29,6 +29,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { InstanceConfig } from "../src/instances/types";
 import type { StatusREST } from "../src/api/types";
+import { ApiError } from "../src/api/client";
 
 /**
  * Nav gating in the app shell: every entry but Connect stays locked until the ACTIVE
@@ -64,11 +65,15 @@ vi.mock("../src/state/liveFeed", () => ({
 
 const statusMock =
   vi.fn<(instance: InstanceConfig, signal?: AbortSignal) => Promise<StatusREST>>();
+const listIntegrationProvidersMock =
+  vi.fn<(instance: InstanceConfig, signal?: AbortSignal) => Promise<unknown>>();
 vi.mock("../src/api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/api/endpoints")>();
   return {
     ...original,
     getStatus: (i: InstanceConfig, s?: AbortSignal) => statusMock(i, s),
+    listIntegrationProviders: (i: InstanceConfig, s?: AbortSignal) =>
+      listIntegrationProvidersMock(i, s),
   };
 });
 
@@ -125,9 +130,46 @@ function expectUnlocked(testid: string) {
 
 beforeEach(() => {
   statusMock.mockReset();
+  listIntegrationProvidersMock.mockReset().mockResolvedValue([]);
   useRegistry.setState({
     instances: [SAME_ORIGIN_INSTANCE],
     activeId: SAME_ORIGIN_INSTANCE.id,
+  });
+});
+
+describe("the integrations entry is HIDDEN rather than disabled when the capability is absent", () => {
+  it("is absent on a 403, which is what a secured instance answers", async () => {
+    statusMock.mockResolvedValue(STATUS);
+    listIntegrationProvidersMock.mockRejectedValue(
+      new ApiError(403, "/integrations/providers", "capability off"),
+    );
+
+    renderShell();
+
+    // Hidden, not disabled: an instance either has an integrations runtime or has nothing to say
+    // about integrations, and a permanently greyed icon would advertise a deployable that is not
+    // there.
+    await waitFor(() => expect(screen.queryByTestId("nav-integrations")).not.toBeInTheDocument());
+  });
+
+  it("is absent on a 401 too, which is what an OPEN instance answers", async () => {
+    statusMock.mockResolvedValue(STATUS);
+    listIntegrationProvidersMock.mockRejectedValue(
+      new ApiError(401, "/integrations/providers", "unauthorized"),
+    );
+
+    renderShell();
+
+    await waitFor(() => expect(screen.queryByTestId("nav-integrations")).not.toBeInTheDocument());
+  });
+
+  it("is present once the runtime answers", async () => {
+    statusMock.mockResolvedValue(STATUS);
+    listIntegrationProvidersMock.mockResolvedValue([]);
+
+    renderShell();
+
+    await waitFor(() => expect(screen.getByTestId("nav-integrations")).toBeInTheDocument());
   });
 });
 

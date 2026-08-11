@@ -33,6 +33,7 @@ Every screen also carries a **How does this work?** button in the top bar, next 
 | Canvas | namespace | 2D/3D visualization of whatever you send to it |
 | Benchmark | Fallen-8 | Optionally generate a random graph, measure edge-traversal throughput on any loaded graph |
 | Knowledge | namespace | The semantic layer: index binding, document ingest, entity network, chunk search |
+| Integrations | namespace | Run an [integration](/fallen-8-core/integrations/) against a system on your own network and read its report. Present only when the instance has an integrations runtime |
 
 ## Events
 

@@ -9,7 +9,7 @@ add corrupts the index it repairs), W2 before W6 (the equal-value clause is what
 zero-mutation invariant assertable), W1 before anything that recommends saving more often.
 
 **Independence.** Phases 1 to 3 are pure defect fixes on shipped surface and are worth landing
-even if the *integration-runtime* feature never happens. Phases 4 to 6 are the enablement half.
+even if the *integrations* feature never happens. Phases 4 to 6 are the enablement half.
 Split the branch there if the two halves want different review cadences.
 
 ## Phase 0 - failing tests first
@@ -17,29 +17,41 @@ Split the branch there if the two halves want different review cadences.
 Intent: every P0 has a test that fails on `main` before any fix exists, so the fix is proven and
 cannot be argued about later.
 
-- [ ] W1: zero-length registry boots empty (assert the current bad behaviour, then invert).
-- [ ] W2: `PUT /graphelement/{id}/{key}` returns 202 and discards an update; an equal-value write
-  bumps modificationDate, emits a change event and appends a WAL frame.
-- [ ] W3: `/tabularasa`, a save-game load, and a dropped index manifest entry each leave writes
-  answering `200 false` and lookups answering `200 []`.
-- [ ] W5: a write into a degraded WAL is indistinguishable from a durable one.
-- [ ] W6: a DateTime property does not round-trip under a non-UTC host timezone (the test sets
-  the timezone, since CI and the container are both UTC).
+- [x] W1: a zero-length registry is silently empty (asserted, then inverted). See the spec's W1
+  correction: the boot path is NOT changed, because save-games FR-8 specifies it.
+- [x] W2: `PUT /graphelement/{id}/{key}` returns 202 and discards an update; an equal-value write
+  bumps modificationDate and emits a change event. (The WAL-frame half is NOT asserted: a frame is
+  written per transaction after the codec classifies it, and suppressing it for an all-no-op batch is
+  a separate change. The invariant that matters is asserted on the modification-date and change-feed
+  channels, and the runtime asserts zero write CALLS.)
+- [x] W3: a lookup against a deleted index answers `200 []` (asserted, then inverted to 400 for the
+  two routes whose own docs promise it). The WRITE side and the manifest drop are NOT changed - both
+  are documented decisions; see the spec's W3 correction.
+- [x] W5: the degraded state and a truncated recovery are reachable nowhere outside the engine
+  (asserted, then exposed). The per-write signal already existed on `TransactionInformation`; what was
+  missing was the instance-level block, plus the dropped-index count moved here from W3.
+- [x] W6: a DateTime property does not round-trip under a non-UTC host timezone (asserted, then
+  inverted; the test forces the zone, since CI and the container are both UTC). The zero-write-calls
+  invariant belongs to the runtime rather than the platform and is asserted in the integration plan.
 - [ ] W8: a throw inside a *SingleValueIndex* guarded region leaks the lock.
 - [ ] Record each as a named test so the phase-by-phase inversions are traceable.
 
-## Phase 1 - W1: the boot path [S]
+## Phase 1 - W1: the pointer files [S] (DONE)
 
 Intent: the pointer to all the durable data is as durable as the data.
 
-- [ ] Route *SaveGameRegistry.Persist* and the namespace-catalog write through *DurableFileIo*.
-- [ ] Move the FR-10 orphan-adoption check outside the `member != null` branch so a registry-less
-  boot with a discoverable checkpoint adopts it.
-- [ ] Make a present-but-empty registry loud instead of an empty document.
+- [x] Route *SaveGameRegistry.Persist* and the namespace-catalog write through *DurableFileIo*, via a
+  new public `ReplaceAllTextDurably` (the one home for the whole solution, not a third private copy).
+- [x] ~~Move the orphan-adoption check outside the `member != null` branch~~ **DROPPED as incorrect**:
+  save-games FR-8 specifies that an empty registry starts empty and a checkpoint is not loaded just
+  because it exists; FR-11 makes adoption an explicit one-time `PUT /load`, and a test pins it. The
+  boot path is unchanged.
+- [x] Make a present-but-empty registry **and catalog** loud instead of an empty document, with a
+  message that says to delete the file to start genuinely empty.
 - [ ] Explicitly note in the code that this is **not**
   [crash-durability-hardening](../../done/crash-durability-hardening/) D5, so the two are never
   conflated again.
-- [ ] Phase 0's W1 tests invert.
+- [x] Phase 0's W1 tests invert.
 
 ## Phase 2 - W2: property replace and remove [L]
 
@@ -78,22 +90,37 @@ Intent: nothing that lost state reports success.
   *Durable* signal on write responses.
 - [ ] Phase 0's W3, W5 and W8 tests invert.
 
-## Phase 4 - W4: rebuild from element state [M]
+## Phase 4 - W4: rebuild from element state [M] (REPAIR HALF DONE)
 
 Intent: a derived index has a repair path, and it is the one the engine already ships.
 
-- [ ] Generalize the bound-projection gate from *TryGetEmbeddingName(propertyId)* to a
-  key-bound predicate, reusing the three existing writer-side hooks unchanged in shape.
-- [ ] A property-bound dictionary index mode: backfill on create, writer-maintained, header-only
-  persistence, rebuild from element state on load.
-- [ ] One rebuild primitive an out-of-process owner can invoke on the resync signal.
-- [ ] Retire the hand-rolled entity-index sweep in *DocumentIngestionService* (the second
-  duplication removal, and the second proof).
-- [ ] Assert the bound vector index's existing invariant over the new mode: a rebuilt index equals
-  an incrementally maintained one across creation, property write, removal and reload.
-- [ ] Verify no embedding behaviour changed.
+**Split, per this plan's own stop-and-review trigger.** The repair half landed; the
+self-maintenance half did not, and that was a deliberate call rather than running out of road. The
+repair primitive is what makes a lost index RECOVERABLE, which is the correctness property the
+identity model rests on. Self-maintenance is an optimisation on top of it (it removes the need to
+call repair), and it changes the engine's three writer-side projection hooks, which is exactly the
+kind of change that should not ride along in a commit whose value does not depend on it.
 
-## Phase 5 - W6: the zero-mutation invariant [M]
+- [x] One rebuild primitive an out-of-process owner can invoke on the resync signal:
+  `IndexRepair.TryRepairFromProperty` plus `POST /index/backfill/{indexId}` (literal-first). Two
+  modes: add-only repair (default, idempotent, safe on every start) and exact replace.
+- [x] Retire the hand-rolled entity-index sweep in *DocumentIngestionService* (the duplication
+  removal, and the proof the primitive is the right shape).
+- [x] It lives in the apiApp rather than the engine. "Which property backs which index" is a caller
+  concern by index-lifecycle's explicit non-goal, everything it needs is already public engine
+  surface, and the caller it subsumes is in the same project - so no engine interface grew a member
+  and no delegating wrapper or test fake changed. An earlier draft put it on *Fallen8* and needed an
+  *IFallen8Admin* member; hitting that plumbing is what surfaced the better home.
+- [ ] **DEFERRED to its own change:** generalize the bound-projection gate from
+  *TryGetEmbeddingName(propertyId)* to a key-bound predicate, reusing the three existing
+  writer-side hooks unchanged in shape.
+- [ ] **DEFERRED with it:** a property-bound dictionary index mode (backfill on create,
+  writer-maintained, header-only persistence, rebuild on load), and the assertion that a rebuilt
+  index equals an incrementally maintained one across creation, property write, removal and reload.
+- [ ] **DEFERRED with it:** verify no embedding behaviour changed (nothing touched those hooks yet,
+  so there is nothing to verify in this half).
+
+## Phase 5 - W6: the zero-mutation invariant [M] (PLATFORM HALF DONE)
 
 Intent: the invariant is provable, and the claim-set data model is settled in writing before
 anything depends on it.
@@ -154,11 +181,11 @@ the spec with their triggers; W17 belongs to
 ## Progress
 
 - [ ] Phase 0 - failing tests for every P0
-- [ ] Phase 1 - W1 boot path
+- [x] Phase 1 - W1 pointer-file durability + loud corrupt pointer
 - [ ] Phase 2 - W2 property replace and remove
 - [ ] Phase 3 - W3, W8, W5 make the rest loud
 - [ ] Phase 4 - W4 rebuild from element state
-- [ ] Phase 5 - W6 zero-mutation invariant
+- [x] Phase 5 - W6 platform half (batch read + DateTime); the zero-write-calls invariant is the runtime's
 - [ ] Phase 6 - W7 control plane
 - [ ] Phase 7 - P1 remainder
 - [ ] Phase 8 - P2 (optional)
@@ -169,7 +196,7 @@ the spec with their triggers; W17 belongs to
 - **Every rejection in spec.md section 4 is a decision, not a backlog item.** Each carries a named
   trigger. Do not reopen one without the trigger having fired.
 - **The two halves can split.** Phases 1 to 3 are defect fixes on shipped surface; phases 4 to 6
-  are enablement. If the *integration-runtime* feature slips, phases 1 to 3 still ship.
+  are enablement. If the *integrations* feature slips, phases 1 to 3 still ship.
 - **W4 is the load-bearing bet.** If generalizing the bound-projection gate turns out to be larger
   than the bound vector index suggests, the fallback is the rebuild primitive alone (phase 4
   bullet 3) without the property-bound mode, which keeps the repair path and loses only the

@@ -77,10 +77,9 @@ namespace NoSQL.GraphDB.App.Helper
             // locale, CurrentCulture would read "0.8" as 8 (the "." a group separator). Egress
             // mirrors this in AGraphElement.FormatPropertyValue; the bulk path already does so in
             // JsonlGraphFormat.
-            return Convert.ChangeType(
+            return AllowedLiteralTypes.ConvertInvariant(
                 key.PropertyValue,
-                AllowedLiteralTypes.Resolve(key.FullQualifiedTypeName),
-                CultureInfo.InvariantCulture);
+                AllowedLiteralTypes.Resolve(key.FullQualifiedTypeName));
         }
 
         /// <summary>

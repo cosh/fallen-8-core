@@ -102,6 +102,20 @@ namespace NoSQL.GraphDB.Core.Persistency
         RegisterPlugin = 17,
 
         /// <summary>A plugin removal (feature plugin-registration). Payload: the name.</summary>
-        RemovePlugin = 18
+        RemovePlugin = 18,
+
+        /// <summary>
+        ///   A batch of property SET-or-REMOVE writes with REPLACE semantics (feature
+        ///   platform-integrity-audit W2). Payload: the serialized
+        ///   <see cref="Model.PropertySetDefinition" /> list (element id, key, value, removal flag).
+        ///   Replayed by re-executing the equivalent
+        ///   <see cref="Transaction.SetPropertiesTransaction" /> against the loaded snapshot.
+        ///
+        ///   <para>Distinct from <see cref="AddProperties" /> (ordinal 6) because the semantics differ,
+        ///   not just the payload: an add rejects a value CHANGE as a conflict, so replaying a replace
+        ///   batch as an add batch would fail on exactly the writes that changed something. Since
+        ///   replace is also a true no-op for an unchanged value, a replayed entry is idempotent.</para>
+        /// </summary>
+        SetProperties = 19
     }
 }

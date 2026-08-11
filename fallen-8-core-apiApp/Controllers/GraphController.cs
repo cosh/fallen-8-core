@@ -223,9 +223,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 // Invariant parse of the wire literal (feature property-ingestion-culture; the
                 // ingest home is ServiceHelper.CreateObject): a comma-decimal host must not read
                 // "0.8" as 8.
-                value = targetType == null
-                    ? literal.Value
-                    : (IComparable)Convert.ChangeType(literal.Value, targetType, CultureInfo.InvariantCulture);
+                value = (IComparable)AllowedLiteralTypes.ConvertInvariant(literal.Value, targetType);
                 return true;
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)

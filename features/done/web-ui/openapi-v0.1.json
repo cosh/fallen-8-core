@@ -3402,8 +3402,8 @@
         "tags": [
           "Graph"
         ],
-        "summary": "Adds or updates a property on a graph element (vertex or edge)",
-        "description": "Sample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
+        "summary": "Sets a property on a graph element (vertex or edge), adding it or replacing its value",
+        "description": "REPLACE semantics (feature platform-integrity-audit W2): writing a key that already exists\r\noverwrites it. Until W2 this route ran on the add path, which is \"insert, or verify the\r\nexisting value is equal\" and rolls back a value CHANGE - so this route, documented as\r\n\"adds or updates\", could not update: it answered 500 when waited and, at the default\r\nwaitForCompletion=false, 202 Accepted while discarding the write. Re-writing the value the\r\nelement already holds is a TRUE no-op (no modification-date bump, no change-feed event), so\r\nre-asserting unchanged state costs nothing observable. To change several properties\r\natomically, use PUT /graphelements/properties.\r\n\r\nSample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
         "parameters": [
           {
             "name": "graphElementIdentifier",
@@ -3470,7 +3470,7 @@
         },
         "responses": {
           "202": {
-            "description": "Property addition accepted (and committed when waitForCompletion is true)"
+            "description": "Property write accepted (and committed when waitForCompletion is true)"
           },
           "400": {
             "description": "Malformed request body / invalid property specification. (A non-existent graph element is NOT a 400: an out-of-range id rolls back with an internal error → 500, and an in-range/absent id is a no-op → 202.)",
@@ -3581,6 +3581,265 @@
         }
       }
     },
+    "/graphelements": {
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes many graph elements in ONE atomic transaction (feature platform-integrity-audit)",
+        "description": "The batch removal path. The whole batch is range-checked before anything is removed, so an\r\nout-of-range id removes nothing; an in-range but already-removed id is a committed no-op,\r\nmatching the single-element route. Removing a vertex cascades to its edges exactly as the\r\nsingle route does.\r\n\r\nSample request:\r\n\r\n    DELETE /graphelements\r\n    [1, 2, 3]",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The ids to remove",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Batch accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "A null list",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)"
+          }
+        }
+      }
+    },
+    "/graphelements/get": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Reads many graph elements by id in ONE request (feature platform-integrity-audit)",
+        "description": "The read-side companion to the batch write path. Every scan and every batch write returns IDS\r\nONLY, and the only other many-element reads are a whole-namespace dump (GET /graph) and a\r\nwhole-namespace export - so a caller holding several hundred resolved ids that needs their\r\ncurrent property values, which is what \"write only if something actually changed\" requires,\r\npreviously had one sequential request per element or a full dump per poll.\r\n\r\nEach element is returned WITHOUT its adjacency: this answers \"what does it hold now\", and\r\nshipping every edge id of every element would dominate the payload. Ask GET /vertex/{id} for\r\none element's adjacency.\r\n\r\nProperty values use the same invariant string form as every other read, so a value returned\r\nhere can be written straight back unchanged - which is what makes a value-level comparison\r\nmeaningful rather than a source of spurious differences.\r\n\r\nIds that resolve to no live element come back in \"notFound\" rather than being silently\r\nabsent, because \"gone\" and \"has no properties\" are different conclusions.\r\n\r\nSample request:\r\n\r\n    POST /graphelements/get\r\n    [1, 2, 3]",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The ids to read",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The elements that exist, plus the ids that do not",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphElementBatchREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, or more ids than the page cap allows",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/graphelements/properties": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Sets and/or removes many properties across many elements in ONE atomic transaction (feature platform-integrity-audit)",
+        "description": "The batch write path for properties, and the only ATOMIC way to change a value: the\r\nsingle-element routes are one transaction each, so a reconciliation spanning several\r\nproperties could previously be interrupted half-applied, leaving the element in a state no\r\nsource describes. REPLACE semantics: an existing key is overwritten, and the last write for\r\nan (element, key) pair in one batch wins.\r\n\r\nA semantically empty write is a TRUE no-op - setting a key to the value it already holds, or\r\nremoving one that is already absent, bumps no modification date and publishes no change-feed\r\nevent - so re-asserting unchanged state produces no observable mutation and a replayed batch\r\nis idempotent.\r\n\r\nSample request:\r\n\r\n    PUT /graphelements/properties\r\n    [\r\n      { \"graphElementId\": 42, \"propertyId\": \"ip\", \"fullQualifiedTypeName\": \"System.String\", \"propertyValue\": \"10.0.0.9\" },\r\n      { \"graphElementId\": 42, \"propertyId\": \"stale\", \"remove\": true }\r\n    ]",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The property writes. Each is a set, or a removal when `remove` is true.",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PropertyWriteSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PropertyWriteSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Batch accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "A null list, a null write, an unknown type name, or an unconvertible value. Nothing is enqueued.",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)"
+          }
+        }
+      }
+    },
     "/index": {
       "post": {
         "tags": [
@@ -3634,6 +3893,80 @@
           },
           "400": {
             "description": "The request body was missing or malformed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/index/backfill/{indexId}": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Repopulates an index from a property's values across the live elements (feature platform-integrity-audit)",
+        "description": "Index content is DERIVED state with no durability of its own: index writes are neither\r\nsingle-writer transactions nor WAL-logged, so index state is snapshot-only. After a hard crash\r\nthe elements replay from the WAL but every index key added since the last checkpoint is gone,\r\nand three ORDINARY operations drop an index while a client is running - a tabula rasa, loading\r\na save game, and a per-index serialization failure that drops it from the checkpoint manifest.\r\nThis is the repair path, and it is the only one available to a client that is not in-process.\r\n\r\nDefault mode is a REPAIR: add-only and idempotent, so it is safe to run on every start and\r\nnothing is ever briefly missing. It does not remove keys that element state no longer\r\njustifies. Pass \"replace\": true for an EXACT rebuild, which wipes the index first and\r\ntherefore has a window in which a concurrent scan sees nothing.\r\n\r\nThe route is literal-first (/index/backfill/{indexId}, not /index/{indexId}/backfill) because\r\nPUT /index/vector/{indexId} already occupies three segments and index names are unvalidated\r\ncaller strings: an index legitimately named \"vector\" would otherwise be unreachable here.\r\n\r\nPass \"prefix\": true when propertyId is a KEY PREFIX rather than one exact key: every property\r\nwhose key starts with it is then indexed by its value, so one element can contribute several\r\nentries. That is the mode a client needs whose values are spread across dense ordinal keys\r\n($identity:0, $identity:1, ...), because the property surface accepts scalars and no array: an\r\nexact-key repair would restore only the first value of each element, leaving it findable by\r\none and invisible by the rest.\r\n\r\nSample request:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity\",\r\n       \"replace\": false\r\n    }\r\n\r\nSample request, prefix mode:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity:\",\r\n       \"prefix\": true\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The registered index to repopulate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Which property supplies the keys, and whether to rebuild exactly",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexBackfillSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexBackfillSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The outcome: how many live elements were scanned and indexed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexRebuildREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "No such index, a missing property id, or an index that cannot take arbitrary keys (vector, spatial, or a bound vector index that maintains itself)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -3990,6 +4323,370 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/job": {
+      "post": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Runs one integration job and returns its report (feature integrations)",
+        "description": "A job carries everything one run needs: which provider, the identity it asserts\r\n    as, the namespace to write into, the provider's settings, and its credentials as VALUES in\r\n    credentialValues. The runtime stores none of them: it holds a credential for the run that\r\n    needs it and drops it when the run ends, keeps no job history, and no route reads a job\r\n    back. Those values travel through here in the request body, so serve this API over TLS.\r\n    The call is synchronous: the source is read, what it\r\n    said is written, the report comes back, and the runtime keeps nothing. A job that ran and\r\n    failed still answers 200 with the failure on its report; one that could not be run at all\r\n    is the runtime's 400 or its 409 (one job at a time per identity).\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://cosh.github.io/fallen-8-core/integrations/. The caller owns the stability of the\r\n    integration instance id, which nothing can validate: a run under an identity that\r\n    integration has not always used withdraws and deletes what the real one claimed.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the proxied call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The job report, including a run that failed",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The runtime refused the job as written, its own message saying why",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A job is already running under this identity",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/providers": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Lists the integrations this instance's runtime can run (feature integrations)",
+        "description": "Each entry is a provider descriptor: its id, what it reads, its settings as data\r\n    (key, label, kind, required, help), the entity kinds, claim types and relation types it\r\n    produces, and whether it can observe complete state. A settings form renders from that\r\n    data, so adding an integration needs no client change.\r\n    The response body is the RUNTIME's own contract and is deliberately untyped here, so\r\n    there is exactly one definition of it: see\r\n    https://cosh.github.io/fallen-8-core/integrations/. A provider is C# compiled into the\r\n    runtime, so this list changes only when that deployable does.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The provider catalog, as the runtime describes it",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The runtime refused the request, its own message saying why",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The runtime reported a conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/snapshot/validate": {
+      "post": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Validates a snapshot document without running anything (feature integrations)",
+        "description": "An authoring aid: it says which envelope errors would refuse the whole document\r\n    and which entities would be skipped, with the diagnostic code for each, so somebody writing\r\n    a provider gets the verdict on a document before wiring a source to it. Nothing is written\r\n    and no source is read.\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://cosh.github.io/fallen-8-core/integrations/.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the proxied call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The validation verdict and its diagnostics",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The runtime refused the request, its own message saying why",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The runtime reported a conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/vocabulary": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Returns the identifier vocabulary the runtime resolves claims against (feature integrations)",
+        "description": "One entry per identifier type: its strength (only a strong one may resolve), its\r\n    uniqueness scope, how a value is canonicalised and what values are accepted. It is data a\r\n    provider author reads before declaring a claim type, and it is embedded in the runtime\r\n    rather than mounted, so a deployment cannot silently change whether a claim resolves.\r\n    The response body is the RUNTIME's own contract and is deliberately untyped here, so\r\n    there is exactly one definition of it: see\r\n    https://cosh.github.io/fallen-8-core/integrations/.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The vocabulary, as the runtime describes it",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The runtime refused the request, its own message saying why",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "The runtime reported a conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
               "application/json": { }
             }
           }
@@ -7875,8 +8572,8 @@
         "tags": [
           "Graph"
         ],
-        "summary": "Adds or updates a property on a graph element (vertex or edge)",
-        "description": "Sample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
+        "summary": "Sets a property on a graph element (vertex or edge), adding it or replacing its value",
+        "description": "REPLACE semantics (feature platform-integrity-audit W2): writing a key that already exists\r\noverwrites it. Until W2 this route ran on the add path, which is \"insert, or verify the\r\nexisting value is equal\" and rolls back a value CHANGE - so this route, documented as\r\n\"adds or updates\", could not update: it answered 500 when waited and, at the default\r\nwaitForCompletion=false, 202 Accepted while discarding the write. Re-writing the value the\r\nelement already holds is a TRUE no-op (no modification-date bump, no change-feed event), so\r\nre-asserting unchanged state costs nothing observable. To change several properties\r\natomically, use PUT /graphelements/properties.\r\n\r\nSample request:\r\n\r\n    PUT /graphelement/123/age\r\n    {\r\n       \"propertyValue\": 35,\r\n       \"fullQualifiedTypeName\": \"System.Int32\"\r\n    }",
         "parameters": [
           {
             "name": "graphElementIdentifier",
@@ -7951,7 +8648,7 @@
         },
         "responses": {
           "202": {
-            "description": "Property addition accepted (and committed when waitForCompletion is true)"
+            "description": "Property write accepted (and committed when waitForCompletion is true)"
           },
           "400": {
             "description": "Malformed request body / invalid property specification. (A non-existent graph element is NOT a 400: an out-of-range id rolls back with an internal error → 500, and an in-range/absent id is a no-op → 202.)",
@@ -8070,6 +8767,289 @@
         }
       }
     },
+    "/ns/{ns}/graphelements": {
+      "delete": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Removes many graph elements in ONE atomic transaction (feature platform-integrity-audit)",
+        "description": "The batch removal path. The whole batch is range-checked before anything is removed, so an\r\nout-of-range id removes nothing; an in-range but already-removed id is a committed no-op,\r\nmatching the single-element route. Removing a vertex cascades to its edges exactly as the\r\nsingle route does.\r\n\r\nSample request:\r\n\r\n    DELETE /graphelements\r\n    [1, 2, 3]",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The ids to remove",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Batch accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "A null list",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)"
+          }
+        }
+      }
+    },
+    "/ns/{ns}/graphelements/get": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Reads many graph elements by id in ONE request (feature platform-integrity-audit)",
+        "description": "The read-side companion to the batch write path. Every scan and every batch write returns IDS\r\nONLY, and the only other many-element reads are a whole-namespace dump (GET /graph) and a\r\nwhole-namespace export - so a caller holding several hundred resolved ids that needs their\r\ncurrent property values, which is what \"write only if something actually changed\" requires,\r\npreviously had one sequential request per element or a full dump per poll.\r\n\r\nEach element is returned WITHOUT its adjacency: this answers \"what does it hold now\", and\r\nshipping every edge id of every element would dominate the payload. Ask GET /vertex/{id} for\r\none element's adjacency.\r\n\r\nProperty values use the same invariant string form as every other read, so a value returned\r\nhere can be written straight back unchanged - which is what makes a value-level comparison\r\nmeaningful rather than a source of spurious differences.\r\n\r\nIds that resolve to no live element come back in \"notFound\" rather than being silently\r\nabsent, because \"gone\" and \"has no properties\" are different conclusions.\r\n\r\nSample request:\r\n\r\n    POST /graphelements/get\r\n    [1, 2, 3]",
+        "parameters": [
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The ids to read",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "pattern": "^-?(?:0|[1-9]\\d*)$",
+                  "type": [
+                    "integer",
+                    "string"
+                  ],
+                  "format": "int32"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The elements that exist, plus the ids that do not",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphElementBatchREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, or more ids than the page cap allows",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/graphelements/properties": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Sets and/or removes many properties across many elements in ONE atomic transaction (feature platform-integrity-audit)",
+        "description": "The batch write path for properties, and the only ATOMIC way to change a value: the\r\nsingle-element routes are one transaction each, so a reconciliation spanning several\r\nproperties could previously be interrupted half-applied, leaving the element in a state no\r\nsource describes. REPLACE semantics: an existing key is overwritten, and the last write for\r\nan (element, key) pair in one batch wins.\r\n\r\nA semantically empty write is a TRUE no-op - setting a key to the value it already holds, or\r\nremoving one that is already absent, bumps no modification date and publishes no change-feed\r\nevent - so re-asserting unchanged state produces no observable mutation and a replayed batch\r\nis idempotent.\r\n\r\nSample request:\r\n\r\n    PUT /graphelements/properties\r\n    [\r\n      { \"graphElementId\": 42, \"propertyId\": \"ip\", \"fullQualifiedTypeName\": \"System.String\", \"propertyValue\": \"10.0.0.9\" },\r\n      { \"graphElementId\": 42, \"propertyId\": \"stale\", \"remove\": true }\r\n    ]",
+        "parameters": [
+          {
+            "name": "waitForCompletion",
+            "in": "query",
+            "description": "When true, waits for the transaction to complete before responding",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The property writes. Each is a set, or a removal when `remove` is true.",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PropertyWriteSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/PropertyWriteSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Batch accepted (and committed when waitForCompletion is true)"
+          },
+          "400": {
+            "description": "A null list, a null write, an unknown type name, or an unconvertible value. Nothing is enqueued.",
+            "content": {
+              "text/plain; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The transaction was rolled back with an internal error (only when waited)"
+          }
+        }
+      }
+    },
     "/ns/{ns}/index": {
       "post": {
         "tags": [
@@ -8131,6 +9111,88 @@
           },
           "400": {
             "description": "The request body was missing or malformed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/index/backfill/{indexId}": {
+      "post": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Repopulates an index from a property's values across the live elements (feature platform-integrity-audit)",
+        "description": "Index content is DERIVED state with no durability of its own: index writes are neither\r\nsingle-writer transactions nor WAL-logged, so index state is snapshot-only. After a hard crash\r\nthe elements replay from the WAL but every index key added since the last checkpoint is gone,\r\nand three ORDINARY operations drop an index while a client is running - a tabula rasa, loading\r\na save game, and a per-index serialization failure that drops it from the checkpoint manifest.\r\nThis is the repair path, and it is the only one available to a client that is not in-process.\r\n\r\nDefault mode is a REPAIR: add-only and idempotent, so it is safe to run on every start and\r\nnothing is ever briefly missing. It does not remove keys that element state no longer\r\njustifies. Pass \"replace\": true for an EXACT rebuild, which wipes the index first and\r\ntherefore has a window in which a concurrent scan sees nothing.\r\n\r\nThe route is literal-first (/index/backfill/{indexId}, not /index/{indexId}/backfill) because\r\nPUT /index/vector/{indexId} already occupies three segments and index names are unvalidated\r\ncaller strings: an index legitimately named \"vector\" would otherwise be unreachable here.\r\n\r\nPass \"prefix\": true when propertyId is a KEY PREFIX rather than one exact key: every property\r\nwhose key starts with it is then indexed by its value, so one element can contribute several\r\nentries. That is the mode a client needs whose values are spread across dense ordinal keys\r\n($identity:0, $identity:1, ...), because the property surface accepts scalars and no array: an\r\nexact-key repair would restore only the first value of each element, leaving it findable by\r\none and invisible by the rest.\r\n\r\nSample request:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity\",\r\n       \"replace\": false\r\n    }\r\n\r\nSample request, prefix mode:\r\n\r\n    POST /index/backfill/claimIndex\r\n    {\r\n       \"propertyId\": \"$identity:\",\r\n       \"prefix\": true\r\n    }",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The registered index to repopulate",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Which property supplies the keys, and whether to rebuild exactly",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexBackfillSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexBackfillSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The outcome: how many live elements were scanned and indexed",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexRebuildREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "No such index, a missing property id, or an index that cannot take arbitrary keys (vector, spatial, or a bound vector index that maintains itself)",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -17273,6 +18335,52 @@
         },
         "description": "One document as reported by the ingest/list/get surfaces (FR-2/FR-7)."
       },
+      "DurabilityStatusREST": {
+        "type": "object",
+        "properties": {
+          "walEnabled": {
+            "type": "boolean",
+            "description": "Whether a write-ahead log is configured. When false, a committed transaction is durable\r\nonly as far as the last checkpoint - the documented volatile/no-WAL posture, not a fault,\r\nwhich is why bool DurabilityStatusREST.Degraded stays false and this flag distinguishes the two.",
+            "example": true
+          },
+          "degraded": {
+            "type": "boolean",
+            "description": "Whether write durability is DEGRADED right now: the sticky failure fence tripped, or an\r\nanchored log is awaiting its paired snapshot load. Transactions still commit in memory and\r\nstill report success, so this is the only signal that they are not reaching disk. A\r\nsuccessful save clears it.",
+            "example": false
+          },
+          "recoveryRan": {
+            "type": "boolean",
+            "description": "Whether a log recovery has run in this engine's lifetime. When false the two\r\n    recovery fields below carry no information.",
+            "example": false
+          },
+          "lastRecoveryTruncated": {
+            "type": "boolean",
+            "description": "Whether the last recovery stopped BEFORE the end of the log. Replay is fail-stop for\r\ncore-data entries, because continuing past a bad one would misapply every later entry\r\nagainst a diverged id space - so the graph is internally consistent but is a PREFIX of the\r\ncommitted history.",
+            "example": false
+          },
+          "lastRecoveryReplayedEntries": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many log entries the last recovery replayed.",
+            "format": "int32",
+            "example": 0
+          },
+          "lastCheckpointDroppedIndices": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many indices the last checkpoint could not persist and dropped from its manifest.\r\nDropping is deliberate - one failing index must not cost the whole checkpoint - but the\r\nnext load then comes up with every element intact and those indices gone. Index content is\r\nderived state, so the repair is `POST /index/backfill/{indexId}`; this number is what\r\ntells a client it needs to.",
+            "format": "int32",
+            "example": 0
+          }
+        },
+        "description": "The durability and recovery-integrity block on `GET /status` (feature\r\nplatform-integrity-audit W5).\r\n\r\nEvery fact here was already computed by the engine and reachable nowhere: the\r\ndegraded-log state existed only as an OpenTelemetry gauge, so it existed only if the operator\r\nhad wired a collector, and a truncated recovery logged one error and became an activity tag.\r\nA client could therefore write into a degraded log, receive success for every write, and lose\r\nall of them on the next kill.\r\n\r\nWho needs it and why. Any writer that DELETES state because \"nothing asserts it\r\nany more\" is reading that conclusion out of graph content. If the content is a\r\npost-truncation prefix, or if an index it reasoned over was dropped from the last checkpoint,\r\nthe conclusion is wrong and the deletion is the one mutation that re-syncing cannot undo.\r\nSuch a client checks this block first and DEFERS the deletion when anything here is set:\r\ndeferring is recoverable, deleting wrongly is not."
+      },
       "Edge": {
         "required": [
           "targetVertex",
@@ -18057,6 +19165,98 @@
           ]
         }
       },
+      "GraphElementBatchREST": {
+        "type": "object",
+        "properties": {
+          "elements": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/GraphElementProjectionREST"
+            },
+            "description": "The elements that exist, in the order the requested ids were given (duplicates in\r\n    the request collapse to one entry)."
+          },
+          "notFound": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            },
+            "description": "The requested ids that resolve to no live element - removed, never created, or out\r\n    of range. Stated rather than implied."
+          }
+        },
+        "description": "Result of `POST /graphelements/get` (feature platform-integrity-audit W6): the elements\r\nthat exist, plus the ids that do not.\r\n\r\nWhy the route exists. Every scan and every batch write returns IDS ONLY, and the\r\nonly many-element reads were a whole-namespace dump and a whole-namespace export. So a caller\r\nthat had resolved several hundred ids and needed their current property values - which is what\r\n\"write only if something actually changed\" requires - had one sequential request per element,\r\nor a full graph dump per poll. That is the read-side mirror of the batch write path.\r\n\r\nList&lt;int&gt; GraphElementBatchREST.NotFound is explicit rather than left to the caller to infer from a\r\nmissing entry, because \"this id is gone\" and \"this id has no properties\" are different\r\nconclusions and a reconciling caller acts differently on each."
+      },
+      "GraphElementProjectionREST": {
+        "required": [
+          "id",
+          "creationDate",
+          "modificationDate"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "`vertex` or `edge`. The singular getters are addressed per kind, so a batch read\r\nthat accepts mixed ids has to say which each one turned out to be.",
+            "example": "vertex"
+          },
+          "id": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The unique identifier of the graph element",
+            "format": "int32",
+            "default": 123,
+            "example": 123
+          },
+          "creationDate": {
+            "type": "string",
+            "description": "The date and time when the element was created",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "modificationDate": {
+            "type": "string",
+            "description": "The date and time when the element was last modified",
+            "format": "date-time",
+            "example": "2025-04-22T10:00:00Z"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The type label of the graph element used for categorization",
+            "default": "person",
+            "example": "person"
+          },
+          "properties": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PropertySpecification"
+            },
+            "description": "The collection of properties (key-value pairs) associated with the graph element"
+          }
+        },
+        "description": "One element in a `POST /graphelements/get` result (feature platform-integrity-audit W6):\r\nits identity, label, stamps and properties - and deliberately NOT its adjacency.\r\n\r\nIt derives from AGraphElement so the property projection goes through the\r\none egress home, which is what makes every value here round-trip back through a write\r\nunchanged. Adjacency is omitted on purpose: this route exists so a caller can compare the\r\nvalues it intends to write against the values already stored, and shipping every edge id of\r\nevery element in a several-hundred-element batch would dominate the payload while answering a\r\nquestion nobody asked. A caller that needs adjacency asks for one element through\r\nGET /vertex/{id}, which already returns it."
+      },
       "GraphFunctionInvocation": {
         "type": "object",
         "properties": {
@@ -18234,6 +19434,48 @@
           }
         }
       },
+      "IndexBackfillSpecification": {
+        "required": [
+          "propertyId"
+        ],
+        "type": "object",
+        "properties": {
+          "propertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The property key whose VALUE becomes the index key. Elements not carrying it are skipped.",
+            "default": "name",
+            "example": "name"
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "`false` (default) REPAIRS: add-only and idempotent, so it is safe on every start and\r\nnothing is briefly missing, but keys the elements no longer justify are left alone.\r\n`true` REBUILDS exactly: the index is wiped first, so stale keys go, at the cost of a\r\nwindow in which a concurrent scan sees an empty index.",
+            "default": false,
+            "example": false
+          },
+          "prefix": {
+            "type": "boolean",
+            "description": "`false` (default) selects ONE exact property key. `true` means\r\n`propertyId` is a KEY PREFIX and EVERY property whose key starts with it is indexed\r\nby its value, so one element can contribute several entries. Prefix mode exists because a\r\nset of values is spread across dense ordinal keys (`$identity:0`,\r\n`$identity:1`, ...): the property surface accepts scalars and no array, so a set is\r\nnot expressible under one key, and an exact-key repair then restores only the first value\r\nof each element - leaving it findable by one and invisible by the rest.",
+            "default": false,
+            "example": false
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional label restriction, for when the property only occurs on one kind of element.\r\nOmit to scan every live element.",
+            "example": "person"
+          }
+        },
+        "description": "Body of `POST /index/backfill/{indexId}` (feature platform-integrity-audit W4): which\r\nproperty supplies the index keys, and whether to rebuild exactly or merely repair.",
+        "example": {
+          "propertyId": "name",
+          "replace": false
+        }
+      },
       "IndexDescriptionREST": {
         "type": "object",
         "properties": {
@@ -18307,6 +19549,57 @@
           }
         },
         "description": "A registered index: its id and the index plugin type. Appears on\r\nStatusREST (live inventory) and in save-game KPIs (inventory at save time)."
+      },
+      "IndexRebuildREST": {
+        "type": "object",
+        "properties": {
+          "indexId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The index that was repopulated."
+          },
+          "propertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The property whose values became the keys."
+          },
+          "replaced": {
+            "type": "boolean",
+            "description": "Whether the index was wiped first (an exact rebuild rather than a repair)."
+          },
+          "scannedElements": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Live elements scanned.",
+            "format": "int32"
+          },
+          "indexedElements": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Live elements that carried the property and were indexed.",
+            "format": "int32"
+          },
+          "skippedUnindexableValues": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "Elements carrying the property whose value cannot be an index key (not comparable, for\r\nexample a vector written through the raw property surface). Skipped, and counted here so the\r\nskip is not silent.",
+            "format": "int32"
+          }
+        },
+        "description": "Outcome of an index backfill. Reports the numbers rather than a bare boolean so a caller can\r\ntell a no-op from real work, and can spot having named the wrong property (scanned many,\r\nindexed none)."
       },
       "IndexScanSpecification": {
         "required": [
@@ -18579,6 +19872,7 @@
         },
         "description": "Raw-text ingestion (spec unstructured-ingestion FR-3) - works without the\r\n    docling sidecar."
       },
+      "JsonElement": { },
       "LinkSpecificationREST": {
         "type": "object",
         "properties": {
@@ -19689,6 +20983,68 @@
           "propertyValue": "1000"
         }
       },
+      "PropertyWriteSpecification": {
+        "required": [
+          "graphElementId",
+          "propertyId",
+          "fullQualifiedTypeName",
+          "propertyValue"
+        ],
+        "type": "object",
+        "properties": {
+          "graphElementId": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The element to write to. An in-range but absent id is a committed no-op (matching the\r\nsingle-element routes); an out-of-range id rolls the WHOLE batch back.",
+            "format": "int32",
+            "default": 0,
+            "example": 42
+          },
+          "remove": {
+            "type": "boolean",
+            "description": "When `true` the property is REMOVED and the value fields are ignored. Removing an\r\nabsent property succeeds and changes nothing, which makes a replayed batch safe.",
+            "default": false,
+            "example": false
+          },
+          "propertyId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The identifier name of the property",
+            "default": "cacheSize",
+            "example": "cacheSize"
+          },
+          "fullQualifiedTypeName": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The fully qualified .NET type name of the property",
+            "default": "System.Int32",
+            "example": "System.Int32"
+          },
+          "propertyValue": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The string representation of the property value",
+            "default": "1000",
+            "example": 1000
+          }
+        },
+        "description": "One write in a `PUT /graphelements/properties` batch (feature\r\nplatform-integrity-audit W2): set string PropertySpecification.PropertyId on\r\nint PropertyWriteSpecification.GraphElementId to the given value, or REMOVE it when bool PropertyWriteSpecification.Remove\r\nis `true`.\r\n\r\nWrites have REPLACE semantics, so a key that already exists is overwritten. Setting a\r\nkey to the value it already holds, or removing one that is already absent, is a TRUE no-op:\r\nit bumps no modification date and publishes no change-feed event. That is what lets a caller\r\nre-assert the state an external source describes without producing mutations.",
+        "example": {
+          "graphElementId": 42,
+          "propertyId": "ip",
+          "fullQualifiedTypeName": "System.String",
+          "propertyValue": "10.0.0.9"
+        }
+      },
       "RangeIndexScanSpecification": {
         "required": [
           "indexId",
@@ -20351,6 +21707,10 @@
           "nlp": {
             "description": "The semantic-layer NLP enrichment state (feature semantic-layer): a config read\r\nplus a cached sidecar probe. Null only when the host wired no NLP options.",
             "$ref": "#/components/schemas/NlpStatsREST"
+          },
+          "durability": {
+            "description": "Whether this namespace's writes are actually reaching disk, and whether the state being\r\nserved is the complete committed history or a prefix of it (feature\r\nplatform-integrity-audit W5). A cheap read of state the engine already publishes.",
+            "$ref": "#/components/schemas/DurabilityStatusREST"
           }
         },
         "description": "Represents the current status of the Fallen-8 database",
@@ -21299,6 +22659,9 @@
     },
     {
       "name": "Graph"
+    },
+    {
+      "name": "Integrations"
     },
     {
       "name": "Namespaces"

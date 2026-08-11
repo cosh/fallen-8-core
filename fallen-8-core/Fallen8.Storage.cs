@@ -935,6 +935,135 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Applies a batch of property SET-or-REMOVE writes atomically with REPLACE semantics
+        ///   (feature platform-integrity-audit W2). Structurally validates the whole batch before
+        ///   mutating anything; there is deliberately NO conflict validation, because replace means
+        ///   the last write for an (element, key) pair wins, intra-batch included - the same rule
+        ///   <see cref="SetEmbeddings_internal" /> already applies to the reserved embedding keys.
+        ///   An out-of-range id keeps the historical throw, during validation and before any apply,
+        ///   so the batch stays atomic; a missing (null) slot stays a no-op, matching every sibling.
+        ///
+        ///   <para>A SEMANTICALLY EMPTY write - setting a key to the value it already holds, or
+        ///   removing a key that is already absent - is skipped entirely: no mutation, no undo entry,
+        ///   and therefore no change-feed event and no <c>ModificationDate</c> bump. This is what makes
+        ///   re-asserting an unchanged external state observably free rather than merely harmless, and
+        ///   it makes a replayed batch idempotent. The comparison is canonical-to-canonical, exactly as
+        ///   <see cref="SetProperties_internal" />'s conflict check does it, so "equal" means the same
+        ///   thing on both paths.</para>
+        ///
+        ///   <para>The mutation primitive is <see cref="AGraphElementModel.RestoreProperty" /> (remove
+        ///   plus conditional set), the same "set to exactly this state" operation the embedding path
+        ///   uses, so replace never hits <see cref="AGraphElementModel.SetProperty" />'s same-key
+        ///   conflict throw. <paramref name="appliedRemovals"/> is filled in lockstep with
+        ///   <paramref name="undo"/> so the change feed can report a removal as a removal.</para>
+        /// </summary>
+        internal Boolean SetProperties_replace_internal(List<PropertySetDefinition> definitions,
+            List<Transaction.PropertyMutationUndo> undo, List<Boolean> appliedRemovals,
+            out Transaction.TransactionFailureReason reason)
+        {
+            reason = Transaction.TransactionFailureReason.None;
+
+            if (definitions == null)
+            {
+                reason = Transaction.TransactionFailureReason.InvalidInput;
+                return false;
+            }
+
+            if (definitions.Count == 0)
+            {
+                return true;
+            }
+
+            // 1. Structural validation (no null definitions, no null keys) - a clean InvalidInput,
+            //    no throw. A null key is rejected here rather than stored: the add path tolerates it
+            //    historically, but a batch whose key cannot be addressed again is never intentional.
+            foreach (var aDefinition in definitions)
+            {
+                if (aDefinition == null || aDefinition.PropertyId == null)
+                {
+                    reason = Transaction.TransactionFailureReason.InvalidInput;
+                    return false;
+                }
+            }
+
+            // 2. Resolve every target BEFORE applying, so an out-of-range id throws with nothing
+            //    applied (the batch stays atomic even though replace needs no conflict pass).
+            foreach (var aDefinition in definitions)
+            {
+                GetGraphElementForMutation(aDefinition.GraphElementId);
+            }
+
+            // 3. Apply. `pending` tracks the effective value after prior items in THIS batch so the
+            //    no-op check is correct for a key written twice: [x=1, x=1] applies once, and
+            //    [x=1, x=2] applies twice with the second seen as a real change.
+            var pending = new Dictionary<(Int32, String), (Boolean HasValue, Object Value)>();
+            foreach (var aDefinition in definitions)
+            {
+                var graphElement = GetGraphElementForMutation(aDefinition.GraphElementId);
+                if (graphElement == null)
+                {
+                    continue; // no-op target (empty slot), as on every sibling path
+                }
+
+                var key = (aDefinition.GraphElementId, aDefinition.PropertyId);
+                Boolean hasEffective;
+                Object effective;
+                if (pending.TryGetValue(key, out var pendingState))
+                {
+                    hasEffective = pendingState.HasValue;
+                    effective = pendingState.Value;
+                }
+                else
+                {
+                    hasEffective = graphElement.TryGetPropertyRaw(out effective, aDefinition.PropertyId);
+                }
+
+                var wantsValue = !aDefinition.Remove;
+                var candidate = wantsValue ? AGraphElementModel.CanonicalizeProperty(aDefinition.Property) : null;
+
+                // The no-op cases: already absent and asked to remove, or already equal and asked to set.
+                if (!wantsValue && !hasEffective)
+                {
+                    continue;
+                }
+
+                if (wantsValue && hasEffective && AGraphElementModel.ArePropertyValuesEqual(effective, candidate))
+                {
+                    continue;
+                }
+
+                undo.Add(new Transaction.PropertyMutationUndo(aDefinition.GraphElementId, aDefinition.PropertyId,
+                    hasEffective, effective));
+                appliedRemovals.Add(!wantsValue);
+
+                //intern the property key (finding M2)
+                graphElement.RestoreProperty(Intern(aDefinition.PropertyId), wantsValue, aDefinition.Property);
+
+                pending[key] = (wantsValue, candidate);
+            }
+
+            // 4. Project reserved embedding keys into bound vector indices (feature
+            //    element-embeddings) AFTER every write applied - see SetEmbeddings_internal for why
+            //    projection follows the whole apply pass rather than interleaving with it. Only the
+            //    writes that actually applied are projected; a skipped no-op changed nothing to project.
+            for (var i = 0; i < undo.Count; i++)
+            {
+                var applied = undo[i];
+                var graphElement = GetGraphElementForMutation(applied.GraphElementId);
+                if (graphElement == null)
+                {
+                    continue;
+                }
+
+                graphElement.TryGetPropertyRaw(out var currentValue, applied.PropertyId);
+                ProjectEmbeddingPropertyWrite(graphElement, applied.PropertyId,
+                    appliedRemovals[i] ? null : currentValue);
+            }
+
+            return true;
+        }
+
+        /// <summary>
         ///   Restores the property state recorded by <see cref="SetProperties_internal"/> when the
         ///   batch is rolled back (feature transaction-atomicity). Replays the recorded inverses in
         ///   REVERSE apply order so a key set more than once in the batch is returned to its original

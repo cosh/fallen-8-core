@@ -405,8 +405,22 @@ namespace NoSQL.GraphDB.Tests
             CollectionAssert.AreEquivalent(new List<int> { ids["Alice"] },
                 await IndexScanEquals(client, "nameIdx", "Alice"));
 
-            var unknownIndex = await IndexScanEquals(client, "no-such-index", "Alice");
-            Assert.AreEqual(0, unknownIndex.Count, "an unknown index answers 200 with an empty array");
+            // An unknown index is a 400, NOT an empty 200 (feature platform-integrity-audit W3). This
+            // assertion used to pin the opposite. Two reasons it was wrong rather than deliberate:
+            // the route's own documented contract already says "400 Invalid scan specification or index
+            // not found", and api-error-contract's governing principle is exactly this - E3 refuses "an
+            // empty 200 masquerading as searched" for a blank term, and E7 refuses "an ambiguous 0 that
+            // also means zero edges" for a missing vertex. A missing index was the same class, unfixed.
+            // It matters because three ORDINARY operations drop an index while a client is running
+            // (/tabularasa, loading a save game, a per-index serialization failure during a checkpoint),
+            // and a client resolving keys against a vanished index would read "nothing matches" and then
+            // duplicate everything it created.
+            using (var unknownIndex = await client.PostAsync("/scan/index/all",
+                Json("{\"indexId\":\"no-such-index\",\"operator\":0,\"literal\":{\"value\":\"Alice\",\"fullQualifiedTypeName\":\"System.String\"},\"resultType\":\"Vertices\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.BadRequest, unknownIndex.StatusCode,
+                    "a scan against a non-existent index must be loud, not an empty result");
+            }
 
             using (var badType = await client.PostAsync("/scan/index/all",
                 Json("{\"indexId\":\"nameIdx\",\"operator\":0,\"literal\":{\"value\":\"Alice\",\"fullQualifiedTypeName\":\"System.Nope\"},\"resultType\":\"Vertices\"}")))

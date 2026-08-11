@@ -131,9 +131,28 @@ namespace NoSQL.GraphDB.App.Services
                     "The Fallen-8 save-game registry at \"" + path + "\" could not be read.", ex);
             }
 
+            // A PRESENT-but-empty registry is corruption, not an empty registry, and it is treated as
+            // loudly as invalid JSON below (platform-integrity-audit W1). The distinction that matters:
+            // an ABSENT file means "nothing was ever saved" (the legitimate first-boot and FR-8 case,
+            // handled above); a present zero-length file means something destroyed the pointer to a
+            // checkpoint that may still be sitting on disk. Persist() never writes an empty document, so
+            // this state is unreachable by any code path here - it is what a non-durable write-then-rename
+            // used to publish on a power loss (now fixed in Persist, but a registry written by an older
+            // build can still be in this state, so the guard stays).
+            //
+            // Deliberately NOT "adopt the checkpoint on disk": save-games FR-8 specifies that a checkpoint
+            // is not loaded just because it exists, and FR-11 makes the one-time adoption an explicit
+            // PUT /load. Starting empty on an EMPTY registry is correct; the defect was only that a
+            // DESTROYED registry was indistinguishable from an empty one.
             if (String.IsNullOrWhiteSpace(text))
             {
-                return new SaveGameRegistryDocument();
+                throw new InvalidOperationException(
+                    "The Fallen-8 save-game registry at \"" + path + "\" is present but empty, which no " +
+                    "write path produces - it is a corrupt or truncated registry (for example a power loss " +
+                    "during a write by an older build). Startup/registry access is aborted so a destroyed " +
+                    "registry is never mistaken for an empty one and silently overwritten. If a checkpoint " +
+                    "is still on disk, restore the registry file or load the checkpoint once via PUT /load. " +
+                    "To start genuinely empty, DELETE the file rather than leaving it empty.");
             }
 
             try
@@ -179,23 +198,18 @@ namespace NoSQL.GraphDB.App.Services
             var directory = _options.ResolveDirectory();
             Directory.CreateDirectory(directory);
             var path = RegistryPath;
-            var temp = path + ".tmp";
 
             // Every write is by this build, so every write is the current schema (v1 entries inside
             // the document stay readable regardless).
             document.SchemaVersion = SaveGameRegistryDocument.CurrentSchemaVersion;
             var text = JsonSerializer.Serialize(document, _json);
-            File.WriteAllText(temp, text);
 
-            // Atomic replace: a crash mid-write leaves the previous registry intact (temp is orphaned).
-            if (File.Exists(path))
-            {
-                File.Replace(temp, path, null);
-            }
-            else
-            {
-                File.Move(temp, path);
-            }
+            // DURABLE and atomic (platform-integrity-audit W1). This file is the pointer that makes every
+            // fsync'd checkpoint byte reachable, so it gets the same fsync-before-rename discipline the
+            // engine applies to the checkpoints themselves - via the engine's DurableFileIo, not a private
+            // copy of it. The previous write-then-rename was atomic for readers but not durable, so a power
+            // loss could publish a zero-length registry pointing at nothing.
+            DurableFileIo.ReplaceAllTextDurably(path, text, _logger);
         }
 
         #endregion

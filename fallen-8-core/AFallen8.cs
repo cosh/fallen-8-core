@@ -63,6 +63,14 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Durability and recovery-integrity state (feature platform-integrity-audit W5).
+        /// </summary>
+        public abstract DurabilityState Durability
+        {
+            get;
+        }
+
+        /// <summary>
         ///   Gets the service factory.
         /// </summary>
         public abstract ServiceFactory ServiceFactory

@@ -75,7 +75,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     .Str("op", "The mutation.", required: true, choices: new[]
                     {
                         "create_vertex", "create_edge", "create_vertices", "create_edges",
-                        "set_property", "remove_property", "remove_element", "set_embedding",
+                        "set_property", "set_properties", "remove_property", "remove_element",
+                        "remove_elements", "set_embedding",
                     })
                     .Int("id", "Target element id (set_property/remove_property/remove_element/set_embedding).")
                     .Str("label", "Element label (create_vertex/create_edge).")
@@ -87,6 +88,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     .ObjArray("edges", "Batch of {source, target, edgePropertyId, label?, properties?} (create_edges); returns ids.")
                     .Str("key", "Property key (set_property/remove_property).")
                     .Any("value", "Property value, JSON-native (set_property).")
+                    .ObjArray("properties", "Batch of {id, key, value} or {id, key, remove:true} (set_properties); ONE atomic transaction, values REPLACE, an equal value is a no-op.")
+                    .ObjArray("ids", "Batch of element ids (remove_elements); ONE atomic transaction.")
                     .Str("name", "Embedding name (set_embedding).")
                     .NumArray("vector", "Embedding vector (set_embedding).")
                     .Build(),
@@ -256,6 +259,80 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     return Applied("remove_element", $"element {id} removed (no-op if absent).");
                 }
 
+                case "set_properties":
+                {
+                    // Batch set-or-remove, one atomic transaction (feature platform-integrity-audit W2).
+                    // The only atomic way to change several property values at once; the singular ops
+                    // are one transaction each.
+                    if (!ToolArgs.TryGetElement(arguments, "properties", out var writeArr) || writeArr.ValueKind != JsonValueKind.Array)
+                    {
+                        return ToolResults.Error(400, "Invalid arguments", "set_properties requires a 'properties' array.");
+                    }
+                    var writes = new List<PropertyWriteDto>();
+                    foreach (var w in writeArr.EnumerateArray())
+                    {
+                        if (w.ValueKind != JsonValueKind.Object)
+                        {
+                            return ToolResults.Error(400, "Invalid arguments", "each property write must be an object.");
+                        }
+                        var targetId = ElementInt(w, "id");
+                        var writeKey = ElementString(w, "key");
+                        if (targetId is null || String.IsNullOrEmpty(writeKey))
+                        {
+                            return ToolResults.Error(400, "Invalid arguments", "each property write needs 'id' and 'key'.");
+                        }
+                        var isRemoval = w.TryGetProperty("remove", out var removeFlag)
+                            && removeFlag.ValueKind == JsonValueKind.True;
+                        if (isRemoval)
+                        {
+                            writes.Add(new PropertyWriteDto { GraphElementId = targetId.Value, PropertyId = writeKey, Remove = true });
+                            continue;
+                        }
+                        if (!w.TryGetProperty("value", out var writeValue))
+                        {
+                            return ToolResults.Error(400, "Invalid arguments",
+                                $"property write '{writeKey}' needs a JSON-native 'value' (or \"remove\": true).");
+                        }
+                        if (!ValueMapping.TryFromJson(writeValue, out var writeLiteral, out var writeFqtn, out var writeError))
+                        {
+                            return ToolResults.Error(400, "Invalid arguments", $"property write '{writeKey}': " + writeError);
+                        }
+                        writes.Add(new PropertyWriteDto
+                        {
+                            GraphElementId = targetId.Value,
+                            PropertyId = writeKey,
+                            PropertyValue = writeLiteral,
+                            FullQualifiedTypeName = writeFqtn
+                        });
+                    }
+                    await _bridge.RequestVoidAsync(HttpMethod.Put, @namespace, "graphelements/properties" + Wait,
+                        writes, cancellationToken).ConfigureAwait(false);
+                    return Applied("set_properties",
+                        $"{writes.Count} property writes applied in one transaction (equal values are no-ops).");
+                }
+
+                case "remove_elements":
+                {
+                    // Batch removal, one atomic transaction. An out-of-range id removes nothing; an
+                    // absent-but-in-range id is a no-op, matching the singular op.
+                    if (!ToolArgs.TryGetElement(arguments, "ids", out var idArr) || idArr.ValueKind != JsonValueKind.Array)
+                    {
+                        return ToolResults.Error(400, "Invalid arguments", "remove_elements requires an 'ids' array.");
+                    }
+                    var ids = new List<Int32>();
+                    foreach (var candidate in idArr.EnumerateArray())
+                    {
+                        if (candidate.ValueKind != JsonValueKind.Number || !candidate.TryGetInt32(out var parsed))
+                        {
+                            return ToolResults.Error(400, "Invalid arguments", "every id must be an integer.");
+                        }
+                        ids.Add(parsed);
+                    }
+                    await _bridge.RequestVoidAsync(HttpMethod.Delete, @namespace, "graphelements" + Wait,
+                        ids, cancellationToken).ConfigureAwait(false);
+                    return Applied("remove_elements", $"{ids.Count} elements removed in one transaction (absent ids are no-ops).");
+                }
+
                 case "set_embedding":
                 {
                     var id = ToolArgs.GetInt(arguments, "id");
@@ -274,7 +351,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 default:
                     return ToolResults.Error(400, "Invalid arguments",
                         "op must be create_vertex, create_edge, create_vertices, create_edges, set_property, " +
-                        "remove_property, remove_element, or set_embedding.");
+                        "set_properties, remove_property, remove_element, remove_elements, or set_embedding.");
             }
         }
 

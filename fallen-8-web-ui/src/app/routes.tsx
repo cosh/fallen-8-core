@@ -49,6 +49,7 @@ import { PluginsScreen } from "../screens/PluginsScreen";
 import { CanvasScreen } from "../screens/CanvasScreen";
 import { BenchmarkScreen } from "../screens/BenchmarkScreen";
 import { KnowledgeScreen } from "../screens/KnowledgeScreen";
+import { IntegrationsScreen } from "../screens/IntegrationsScreen";
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -212,10 +213,19 @@ const legacyRedirectRoutes = LEGACY_SCOPED_PATHS.map((path) =>
   }),
 );
 
+// Integrations are Fallen-8-level: one runtime serves the whole instance and a job names the
+// namespace it writes into, so the route stays OUTSIDE /q/$ns - like Benchmark and Save games.
+const integrationsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/integrations",
+  component: IntegrationsScreen,
+});
+
 const routeTree = rootRoute.addChildren([
   connectRoute,
   saveGamesRoute,
   benchmarkRoute,
+  integrationsRoute,
   namespaceRoute.addChildren([
     dashboardRoute,
     samplesRoute,

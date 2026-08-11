@@ -45,7 +45,8 @@ import { FirstRunOverlay } from "../firstrun/FirstRunOverlay";
 import { useFirstRun } from "../firstrun/firstRunStore";
 import { help } from "../lib/fieldHelp";
 import { DOCS_BASE } from "../lib/sectionHelp";
-import { NAV, type NavItem } from "./nav";
+import { NAV, navCapability, type NavItem } from "./nav";
+import { capabilityOf, useIntegrationProviders } from "../state/integrations";
 import { useStudioConfig } from "./studioConfig";
 
 /**
@@ -147,6 +148,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const feedInstance = active ? { ...active, id: `${active.id}/${ns}`, namespace: ns } : null;
   const liveStatus = useLiveChangeFeed(feedInstance);
   const connection = useConnectionState(active);
+  // The integrations capability (feature integrations), read from the one route that answers it. The
+  // rail HIDES that entry rather than disabling it: an instance either has a runtime or has nothing
+  // to say about integrations, and a permanently disabled icon would advertise a deployable that is
+  // not there. Only probed once the instance is connected, so a disconnected shell asks nothing.
+  const integrationProviders = useIntegrationProviders(connection === "connected" ? active : null);
+  const integrations = capabilityOf(integrationProviders);
   // The Events panel (feature studio-event-feed): opened from the bell, closed by the
   // Radix overlay behaviors; an InspectLink hands off to the Browser via the one-shot
   // prefill and closes the panel.
@@ -231,7 +238,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           title="F8 Studio"
           className="mb-3 w-12"
         />
-        {NAV.map((item) => {
+        {NAV.filter((item) => navCapability(item) !== "integrations" || integrations !== "absent").map((item) => {
           const testid = `nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`;
           const target = navTarget(item);
           const inner = (

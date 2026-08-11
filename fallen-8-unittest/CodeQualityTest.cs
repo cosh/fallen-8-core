@@ -41,8 +41,8 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class CodeQualityTest
     {
-        private static readonly string[] _allProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-mcp", "fallen-8-unittest" };
-        private static readonly string[] _productProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-mcp" };
+        private static readonly string[] _allProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-unittest" };
+        private static readonly string[] _productProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp" };
 
         private static IEnumerable<string> SourceFiles(params string[] projects)
         {

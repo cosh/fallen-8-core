@@ -182,6 +182,23 @@ namespace NoSQL.GraphDB.App.Controllers
                 return ProblemResults.BadRequest(error);
             }
 
+            // A MISSING index is loud, not an empty result (feature platform-integrity-audit W3). The
+            // engine's IndexScan returns false both for "no such index" and for "no hits", so mapping
+            // false to an empty 200 made a destroyed index indistinguishable from a genuine miss - and
+            // three ordinary operations destroy an index while a client is running (/tabularasa, a
+            // save-game load, and a per-index serialization failure that drops it from the checkpoint
+            // manifest). A caller resolving keys against a vanished index would silently conclude
+            // "nothing matches" and duplicate everything it then created.
+            //
+            // 400 rather than 404 because this route's documented contract already says
+            // "400 Invalid scan specification OR INDEX NOT FOUND" - the implementation simply never
+            // honoured it. The sibling range/fulltext/vector scans document the same, and share this
+            // guard through the helper below.
+            if (!TryResolveIndexForScan(definition.IndexId, out var missing))
+            {
+                return missing;
+            }
+
             IReadOnlyList<AGraphElementModel> graphElements;
             if (!_fallen8.IndexScan(out graphElements, definition.IndexId, value, definition.Operator))
             {
@@ -244,13 +261,24 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 // Invariant parse of the wire limits (feature property-ingestion-culture; ingest
                 // home ServiceHelper.CreateObject).
-                left = (IComparable)Convert.ChangeType(definition.LeftLimit, limitType ?? typeof(string), CultureInfo.InvariantCulture);
-                right = (IComparable)Convert.ChangeType(definition.RightLimit, limitType ?? typeof(string), CultureInfo.InvariantCulture);
+                left = (IComparable)AllowedLiteralTypes.ConvertInvariant(definition.LeftLimit, limitType ?? typeof(string));
+                right = (IComparable)AllowedLiteralTypes.ConvertInvariant(definition.RightLimit, limitType ?? typeof(string));
             }
             catch (Exception ex) when (ex is InvalidCastException || ex is FormatException || ex is OverflowException || ex is ArgumentNullException)
             {
                 return ProblemResults.BadRequest(String.Format("A range limit could not be converted to '{0}': {1}",
                     definition.FullQualifiedTypeName, ex.Message));
+            }
+
+            // A missing index is loud, per this route's own documented 400 (see TryResolveIndexForScan
+            // and the sibling /scan/index/all). NOTE the deliberate asymmetry with the fulltext, vector
+            // and spatial scans: each of those documents its own miss shape explicitly (fulltext: "a
+            // miss yields 204 No Content, not a 404"), so they keep it. The rule applied here is "make
+            // the implementation match the contract the route already publishes", not "make every scan
+            // behave alike".
+            if (!TryResolveIndexForScan(definition.IndexId, out var missing))
+            {
+                return missing;
             }
 
             IReadOnlyList<AGraphElementModel> graphElements;
@@ -431,6 +459,30 @@ namespace NoSQL.GraphDB.App.Controllers
             }
             _logger.LogError(String.Format("Could not find graph element {0}.", definition.GraphElementId));
             return null;
+        }
+
+        /// <summary>
+        ///   The ONE home for "the scan's index must exist" (feature platform-integrity-audit W3).
+        ///   Returns <c>true</c> when the index is registered; otherwise <c>false</c> with the 400 to
+        ///   hand back. Every indexed scan needs this because the engine's scan methods report a
+        ///   missing index and an empty result identically (both <c>false</c>), so without it a
+        ///   destroyed index reads as "nothing matches" - and an index is destroyed by three ordinary
+        ///   operations, not only by a crash.
+        /// </summary>
+        private Boolean TryResolveIndexForScan(String indexId, out ActionResult<IEnumerable<Int32>> problem)
+        {
+            if (_fallen8.IndexFactory.TryGetIndex(out _, indexId))
+            {
+                problem = null;
+                return true;
+            }
+
+            _logger.LogError("Scan against a non-existent index {IndexId}.", indexId);
+            problem = ProblemResults.BadRequest(String.Format(
+                "There is no index with id '{0}'. An index is dropped by /tabularasa, by loading a save " +
+                "game, and by a per-index serialization failure during a checkpoint, so re-create or " +
+                "re-populate it rather than treating this as an empty result.", indexId));
+            return false;
         }
     }
 }

@@ -1,14 +1,14 @@
-# Fallen-8 Skill Library — Specification
+# Fallen-8 Skill Library - Specification
 
 > **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
-> repository root `CLAUDE.md`. Feature branch: `feature/skill-library` (branch-only workflow —
+> repository root `CLAUDE.md`. Feature branch: `feature/skill-library` (branch-only workflow -
 > no GitHub issue/PR).
 >
 > **Interpretation note (please correct if wrong):** "skill library" is read here as a
-> curated library of **Agent Skills** — folders with a `SKILL.md` in the open agent-skills
-> format — that teach AI agents (Claude Code and other skill-capable runtimes) how to work
-> with a running Fallen-8. The alternative reading — a *server-side* library of stored,
-> reusable delegate/traversal definitions inside the engine (i.e. stored procedures) — is
+> curated library of **Agent Skills** - folders with a `SKILL.md` in the open agent-skills
+> format - that teach AI agents (Claude Code and other skill-capable runtimes) how to work
+> with a running Fallen-8. The alternative reading - a *server-side* library of stored,
+> reusable delegate/traversal definitions inside the engine (i.e. stored procedures) - is
 > explicitly **not** this feature; that engine feature now exists as
 > [stored-query-library](../../done/stored-query-library/) (skills should teach the
 > register-once/invoke-by-name flow where it fits).
@@ -19,7 +19,7 @@
 >
 > **Revision history:**
 > - *2026-08-09a* - **v2 catalog: integration authoring.** The
->   [integration-runtime](../integration-runtime/spec.md) feature adds a provider contract an agent is
+>   [integrations](../integrations/spec.md) feature adds a provider contract an agent is
 >   expected to implement unaided, so the catalog grows by two skills and one existing entry grows a
 >   section (§3.2a), plus one new CI gate (§3.3 item 6) and one plan phase. Recorded as a revision to
 >   this feature rather than a new feature, because the layout, frontmatter contract, voice rules,
@@ -32,8 +32,8 @@ An agent pointed at Fallen-8 today has to reverse-engineer everything from the O
 document and the README: how to model a domain as a property graph, which index fits which
 query, the exact delegate-fragment contract the dynamic endpoints compile, the transaction
 idiom (`waitForCompletion`), the security posture flags, the save-game lifecycle. All of that
-knowledge exists — scattered across `CLAUDE.md` (contributor-facing), feature docs, controller
-XML docs, and the NL-assist prompt contract — but none of it is packaged for an *agent that
+knowledge exists - scattered across `CLAUDE.md` (contributor-facing), feature docs, controller
+XML docs, and the NL-assist prompt contract - but none of it is packaged for an *agent that
 uses* Fallen-8 rather than develops it.
 
 Agent Skills are the established packaging for exactly this: a directory with a `SKILL.md`
@@ -46,9 +46,9 @@ Fallen-8 surface, installable into Claude Code (per-project or via plugin packag
 usable by any runtime that honours the format.
 
 **What makes it a feature and not "just docs":** the library is held to the repo's test bar.
-Every skill is validated in CI — frontmatter contract, link/file integrity, endpoint
+Every skill is validated in CI - frontmatter contract, link/file integrity, endpoint
 references checked against the pinned OpenAPI snapshot, and (uniquely) **every delegate
-example compiled against the real engine** — so the skills cannot silently rot as the API
+example compiled against the real engine** - so the skills cannot silently rot as the API
 evolves.
 
 ## 2. Goals / non-goals
@@ -62,7 +62,7 @@ evolves.
   subgraphs, operations.
 - **Format compliance** with the open agent-skills conventions: `name` (lowercase,
   hyphenated, ≤ 64 chars, matches the directory), `description` (≤ 1024 chars, written as a
-  *trigger* — what the skill does + when to use it), lean body (≤ 500 lines), deep material
+  *trigger* - what the skill does + when to use it), lean body (≤ 500 lines), deep material
   pushed to `references/`.
 - **CI-enforced accuracy** (§3.3): a `SkillLibraryTest` MSTest class in `fallen-8-unittest`
   that fails the build when a skill drifts from the actual system.
@@ -71,19 +71,19 @@ evolves.
   `claude plugin marketplace add cosh/fallen-8-core` → install works from this repo.
 - **Single-source discipline:** where authoritative contracts already exist (the NL-assist
   prompt contract for delegates, the OpenAPI snapshot for endpoints, feature READMEs for
-  posture flags), skills *reference or derive from* them — never fork the facts.
+  posture flags), skills *reference or derive from* them - never fork the facts.
 
 **Non-goals**
 
-- **Server-side skill storage** — no engine/API surface changes at all in this feature; the
+- **Server-side skill storage** - no engine/API surface changes at all in this feature; the
   apiApp and engine are untouched.
-- **Auto-generation of skills from OpenAPI** — the value is curation (idioms, pitfalls,
+- **Auto-generation of skills from OpenAPI** - the value is curation (idioms, pitfalls,
   decision guidance), which generation cannot produce; the OpenAPI snapshot is the *checker*,
   not the author.
-- **Contributor skills** for developing Fallen-8 itself — that is `CLAUDE.md`'s job.
-- **Shipping skills inside the Docker image / server** — skills live with the agent, not the
+- **Contributor skills** for developing Fallen-8 itself - that is `CLAUDE.md`'s job.
+- **Shipping skills inside the Docker image / server** - skills live with the agent, not the
   database.
-- **A general skill marketplace** — one repo, one plugin, Fallen-8 skills only.
+- **A general skill marketplace** - one repo, one plugin, Fallen-8 skills only.
 
 ## 3. Design sketch
 
@@ -109,12 +109,12 @@ skills/
 | Skill | Teaches | Grounded in |
 |-------|---------|-------------|
 | `fallen8-graph-modeling` | Modeling a domain as an F8 property graph: labels, properties, when to index (index types and their scan endpoints), edge direction conventions, supernode cautions, ID semantics. | engine model + index feature docs |
-| `fallen8-rest-api` | Operating the REST surface: auth header, versioning, the transaction idiom (`waitForCompletion` — never act on an unapplied write), scan vs. get, the problem+json error contract, rate-limit/413 behaviour. | OpenAPI snapshot + `api-error-contract` + `api-security-boundary` READMEs |
-| `fallen8-delegates` | Authoring the C# filter/cost fragments: the "return a lambda" shape, `TryGetProperty` idiom, the exact `VertexModel`/`EdgeModel`/`AGraphElementModel` members, the validate-before-use loop (`/delegates/validate`), the security posture (dynamic code is always on; a compiled fragment is trusted-as-the-process — honesty note). | NL-assist prompt contract (`features/done/web-ui/nl-assist/spec.md` §5) + `DelegateValidationHelper` |
+| `fallen8-rest-api` | Operating the REST surface: auth header, versioning, the transaction idiom (`waitForCompletion` - never act on an unapplied write), scan vs. get, the problem+json error contract, rate-limit/413 behaviour. | OpenAPI snapshot + `api-error-contract` + `api-security-boundary` READMEs |
+| `fallen8-delegates` | Authoring the C# filter/cost fragments: the "return a lambda" shape, `TryGetProperty` idiom, the exact `VertexModel`/`EdgeModel`/`AGraphElementModel` members, the validate-before-use loop (`/delegates/validate`), the security posture (dynamic code is always on; a compiled fragment is trusted-as-the-process - honesty note). | NL-assist prompt contract (`features/done/web-ui/nl-assist/spec.md` §5) + `DelegateValidationHelper` |
 | `fallen8-subgraphs` | Subgraph recipes/patterns: defining, registering, recalculation semantics, quotas, code-free vs. code-bearing recipes. | `features/done/subgraph/` + `subgraph-quotas` |
-| `fallen8-operations` | Running F8: durability modes, save-games, WAL recovery, the security flags, docker/compose deployment, TLS via a fronting proxy (deployment recipe — no in-app TLS by project decision). | `hosted-durability-lifecycle`, `save-games`, `api-security-boundary` docs |
+| `fallen8-operations` | Running F8: durability modes, save-games, WAL recovery, the security flags, docker/compose deployment, TLS via a fronting proxy (deployment recipe - no in-app TLS by project decision). | `hosted-durability-lifecycle`, `save-games`, `api-security-boundary` docs |
 
-Each skill body leads with *when to reach for what* (decision guidance), shows 2–4 canonical
+Each skill body leads with *when to reach for what* (decision guidance), shows 2-4 canonical
 request/response examples (curl + PowerShell), and links its references. Access-path phrasing
 is REST-first in v1; the MCP-alignment pass (§3.4) adds "via MCP use tool `f8_…`" mappings.
 
@@ -124,7 +124,7 @@ is REST-first in v1; the MCP-alignment pass (§3.4) adds "via MCP use tool `f8_�
 
 ### 3.2a v2 catalog: integration authoring (revision 2026-08-09a)
 
-The [integration-runtime](../integration-runtime/spec.md) feature's stated bar is that an agent can
+The [integrations](../integrations/spec.md) feature's stated bar is that an agent can
 write the fourth integration unaided. That is a procedural-knowledge requirement, so it lands here.
 
 **Two new skills, and one existing entry extended.** The v1 catalog already reserves
@@ -134,9 +134,9 @@ spelling would fork an existing catalog entry.
 
 | Skill | Teaches | Grounded in |
 |-------|---------|-------------|
-| `fallen8-integration-authoring` | The provider contract, the snapshot schema (incl. `completeness`), the instance lifecycle, the configuration JSON Schema, credential handling and the never-return-a-secret rule, testing, and **how to run the conformance suite**. | [integration-runtime](../integration-runtime/spec.md) + [integration-blueprints](../integration-blueprints/spec.md) |
-| `fallen8-entity-resolution` | Claims, the identifier vocabulary and its three-valued *scope*, strong versus weak, merge candidates, the semantic-layer boundary, and enriching an entity you did not create. **Fronius is the worked example** (no MAC, no serial, so the only overlap is a weak IP claim). | [integration-identity](../integration-identity/spec.md) |
-| `fallen8-graph-modeling` **(extended)** | Gains the service-selection decision table (transactions for all mutation, the claim index for resolution, range for numeric, fulltext for names, spatial for coordinates, path finding for topology, vector when embeddings are on, subgraphs plus bulk export for views, stored queries for shipped queries, the change feed for reacting to other writers, and **never property scans or ad-hoc fragments in the ingest path**), plus embedding opt-in and what the engine is fast and slow at. | [integration-runtime](../integration-runtime/spec.md) §7 |
+| `fallen8-integration-authoring` | The provider contract, the snapshot schema including *completeness* and what declaring it licenses, the descriptor as data, credential handling by NAME with nothing stored, testing offline, and **how to run the conformance suite**. | [integrations](../integrations/spec.md) |
+| `fallen8-integration-identity` | Claims, the identifier vocabulary and its three-valued *scope*, strong resolving versus weak never resolving, that resolution is scoped to the claiming integration and **nothing is ever merged**, and that finding an overlap is a query a person or an agent runs themselves. **Fronius is the worked example** (no MAC, no serial, so the only shared key is a weak address). | [integrations](../integrations/spec.md) |
+| `fallen8-graph-modeling` **(extended)** | Gains the service-selection decision table (transactions for all mutation, the claim index for resolution, range for numeric, fulltext for names, spatial for coordinates, path finding for topology, vector when embeddings are on, subgraphs plus bulk export for views, the change feed for reacting to other writers, and **never property scans or ad-hoc fragments in the ingest path**), plus embedding opt-in and what the engine is fast and slow at. | [integrations](../integrations/spec.md) |
 
 **Two content rules specific to these skills**, because they are the ones an agent will get wrong:
 
@@ -159,14 +159,14 @@ Three findings, recorded rather than worked around:
    deliberately delegated to the conformance suite, which is the authority the skills point at.
 3. **A skill cannot verify the thing these skills teach.** The v1 harness can compile a delegate
    fragment because the engine is in the solution. It cannot run a candidate integration. That is
-   precisely why [integration-runtime](../integration-runtime/spec.md) §9 makes the conformance
+   precisely why [integrations](../integrations/spec.md) makes the conformance
    verifier the authority and these skills the pointer to it, and why the verifier's own negative
    fixtures matter more than the skills' prose.
 
 ### 3.3 CI enforcement (`SkillLibraryTest`, fallen-8-unittest)
 
 1. **Frontmatter contract:** every `skills/*/SKILL.md` parses (the frontmatter is a flat
-   `key: value` block — a small test-side parser, no new runtime dependency); `name` matches
+   `key: value` block - a small test-side parser, no new runtime dependency); `name` matches
    the directory, is lowercase-hyphenated, ≤ 64 chars; `description` non-empty, ≤ 1024 chars,
    contains both a "what" and a "when/use when" clause.
 2. **Integrity:** every relative link/file reference in a skill resolves inside the repo; no
@@ -174,10 +174,10 @@ Three findings, recorded rather than worked around:
 3. **Endpoint drift-guard:** every `METHOD /path` token in fenced code blocks (and the
    `fallen8-rest-api` endpoint inventory) exists in the pinned OpenAPI snapshot
    (`features/done/web-ui/openapi-v0.1.json`) with that method. An API change that invalidates
-   a skill fails the suite — the same drift-guard philosophy as the web UI's contract test.
+   a skill fails the suite - the same drift-guard philosophy as the web UI's contract test.
 4. **Delegate examples compile:** every C# fragment in `fallen8-delegates` (marked by fence
    info-string, e.g. ` ```csharp delegate:path-filter `) is run through the real validation
-   path (`CodeGenerationHelper`/`DelegateValidationHelper` in-process — the engine is right
+   path (`CodeGenerationHelper`/`DelegateValidationHelper` in-process - the engine is right
    there in the solution). A contract change that breaks published examples fails the suite.
    This is the library's strongest honesty guarantee and is unique to having the skills live
    in the engine's own repo.
@@ -194,7 +194,7 @@ Three findings, recorded rather than worked around:
 
 ### 3.4 Distribution & lifecycle
 
-- **Copy-install (phase 1):** README section — clone/copy `skills/fallen8-*` into a project's
+- **Copy-install (phase 1):** README section - clone/copy `skills/fallen8-*` into a project's
   `.claude/skills/` (or `~/.claude/skills/`); works for any skill-capable runtime.
 - **Plugin (phase 2):** `.claude-plugin/marketplace.json` at the repo root lists a single
   `fallen-8` plugin whose `skills` point at `skills/`; users run
@@ -216,7 +216,7 @@ Three findings, recorded rather than worked around:
 
 - **Catalog present:** the five v1 skills exist under `skills/`, each format-compliant
   (frontmatter contract, body budget, references resolve).
-- **CI gates live:** `SkillLibraryTest` enforces §3.3 items 1–5 and is green; deliberately
+- **CI gates live:** `SkillLibraryTest` enforces §3.3 items 1-5 and is green; deliberately
   breaking a skill (bad endpoint, non-compiling delegate example) fails the suite (verified
   once during development, then reverted).
 - **Delegate examples proven:** every published fragment in `fallen8-delegates` compiles
@@ -235,10 +235,10 @@ Three findings, recorded rather than worked around:
 ## 5. Risks
 
 - **Interpretation risk** (§ header note): if "skill library" meant stored server-side
-  procedures, this spec is the wrong shape — flagged prominently; the companion-feature
+  procedures, this spec is the wrong shape - flagged prominently; the companion-feature
   framing (MCP tools + agent knowledge) is the best-fit reading of the request.
 - **Doc rot** is the failure mode of all curated docs. Mitigation: the CI gates are the
-  feature (§3.3) — endpoint drift and delegate-contract drift fail the build in this repo,
+  feature (§3.3) - endpoint drift and delegate-contract drift fail the build in this repo,
   the moment the drift happens, not when a user hits it.
 - **Format evolution:** the agent-skills conventions are young. Mitigation: v1 uses only the
   stable core (name/description/body/references); plugin manifests are isolated in phase 2 so
@@ -253,13 +253,13 @@ Three findings, recorded rather than worked around:
 
 ## 6. Keep (do not regress)
 
-- **`CLAUDE.md` stays the contributor guide** — nothing moves out of it; the skill library
+- **`CLAUDE.md` stays the contributor guide** - nothing moves out of it; the skill library
   addresses a different audience (agents *using* a running F8).
 - **The OpenAPI snapshot's role** (`features/done/web-ui/openapi-v0.1.json`) as the pinned
-  REST contract, already code-referenced by the web UI build — the drift-guard reads it
+  REST contract, already code-referenced by the web UI build - the drift-guard reads it
   in place; its path/consumers are unchanged.
 - **The NL-assist prompt contract** (`features/done/web-ui/nl-assist/spec.md` §5) as the
   authority on delegate-fragment grounding for the *model*; the skill derives from it.
-- **The security honesty notes** from `api-security-boundary` — reproduced, never softened,
+- **The security honesty notes** from `api-security-boundary` - reproduced, never softened,
   wherever a skill touches the dynamic-code surface.
 - **Repo test discipline:** skills enter the same `dotnet test` gate as everything else.

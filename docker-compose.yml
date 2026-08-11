@@ -90,6 +90,13 @@ services:
       # turns the capability off AND (via env:up) skips the sidecar. The apiApp is the only caller.
       - Fallen8__Nlp__Enabled=${F8_NLP:-true}
       - Fallen8__Nlp__Endpoint=http://nlp:8100
+      # Integration jobs (feature integrations): the f8-integrations sidecar below reads a system
+      # on the user's own network and writes what it saw into a namespace. The apiApp only proxies
+      # its four routes, so F8_INTEGRATIONS=false makes them answer 403 AND (via env:up) skips the
+      # sidecar (compose profile "integrations"). The endpoint is in-network only: that container
+      # has no host port.
+      - Fallen8__Integrations__Enabled=${F8_INTEGRATIONS:-true}
+      - Fallen8__Integrations__Endpoint=http://f8-integrations:8110
       # Fleet observability (feature fleet-observability): push metrics + traces + logs to the
       # in-network collector and declare this instance's fleet identity. Always on with env:up;
       # override the identity per deployment (F8_TENANT_ID / F8_INSTANCE_ID / ...).
@@ -225,6 +232,79 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8090/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - f8-net
+
+  # Integration jobs (feature integrations): a SEPARATE deployable that reads a system on the
+  # user's own network (a UniFi console, a Fronius inverter, a CSV inventory), describes what it
+  # saw, and writes that description into one namespace over REST. It loads no engine assemblies.
+  # Rides the "integrations" profile, default ON like the rest of the environment;
+  # F8_INTEGRATIONS=false skips the sidecar AND turns the capability off (the fallen8 service reads
+  # the same variable). The apiApp is the ONLY caller: see the no-ports note below.
+  f8-integrations:
+    image: ghcr.io/cosh/fallen-8-core-integrations:${F8_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: fallen-8-integrations/Dockerfile
+    restart: unless-stopped
+    profiles: ["integrations"]
+    # A synchronous run writes the graph in several transactions, so a recreate must not kill one
+    # between writes and leave a half-applied snapshot (compose's default grace is 10s).
+    stop_grace_period: 120s
+    # NO ports: key at all, and this is the only first-party service with none. This container is
+    # handed third-party credentials, so nothing on the host's network may talk to it directly; the
+    # browser reaches it through the apiApp, which is already the authenticated front door, so the
+    # runtime needs no second auth story. Publishing 8110 "just to debug it" is the instinct this
+    # posture exists to rule out: it would hand the job route to anything on the host. The expose:
+    # key below documents the port for a reader without opening it to the host.
+    expose: ["8110"]
+    # A job runner keeps nothing between runs, so it needs no writable layer and no data volume. A
+    # read-only filesystem makes a leftover write fail loudly instead of leaving an invisible
+    # container-layer file that vanishes on the next recreate; /tmp is the one scratch path.
+    read_only: true
+    tmpfs:
+      - /tmp
+    volumes:
+      # ONE mount, and deliberately no credential mount: a credential arrives with the job that needs
+      # it and is dropped when the run ends, so this container has nothing to store and nothing to
+      # rotate. Whoever submits a job is whoever already holds the credential.
+      # The files mount, read only: a provider's file setting names a file in here and the runtime
+      # opens it (the csv-device-list blueprint). ./samples is mounted purely because it is tracked
+      # and non-empty, so the default path has something readable behind it after a clone: a
+      # convenience for having any readable file present, NOT a coupling to the samples gallery.
+      - ./samples:/files:ro
+    environment:
+      # The downstream Fallen-8 this runtime writes into (in-network) + its own single credential,
+      # reusing the existing F8_API_KEY exactly as f8-mcp does, so a secured instance needs no
+      # second key. A caller's credential is NEVER forwarded: the runtime writes as itself.
+      - Fallen8Target__BaseUrl=http://fallen8:8080
+      - Fallen8Target__ApiKey=${F8_API_KEY:-}
+      # The two host lists, both configuration-only because a source address arrives in a job's
+      # settings from whoever can reach the API. The allowed-host list is what stops a credential
+      # being aimed at a host of somebody's choosing; the self-signed list is the ONE place this
+      # feature reduces trust and must never be a job or provider setting, since a caller able to
+      # add a host could name one it controls. Empty by default, and env:up warns about each.
+      - Integrations__Credentials__AllowedHosts=${F8_INTEGRATIONS_ALLOWED_HOSTS:-}
+      - Integrations__SelfSignedHosts=${F8_INTEGRATIONS_SELF_SIGNED_HOSTS:-}
+      # Fleet observability (feature fleet-observability): push job telemetry to the same collector,
+      # declaring the SAME identity as the fallen8 instance it feeds, so the fleet dashboards
+      # resolve its panels under that instance rather than as an unrelated service.
+      - Integrations__Observability__Otlp__Endpoint=http://otel-collector:4317
+      - Integrations__Identity__Tenant__Id=${F8_TENANT_ID:-local}
+      - Integrations__Identity__Tenant__Name=${F8_TENANT_NAME:-Local}
+      - Integrations__Identity__Instance__Id=${F8_INSTANCE_ID:-f8-local}
+      - Integrations__Identity__Instance__Name=${F8_INSTANCE_NAME:-Fallen-8 (compose)}
+    depends_on:
+      fallen8:
+        condition: service_healthy
+    healthcheck:
+      # GET /health, NOT /healthz: that is the route this runtime serves, and copying the f8-mcp
+      # line verbatim gives a permanently unhealthy container.
+      test: ["CMD", "curl", "-sf", "http://localhost:8110/health"]
       interval: 10s
       timeout: 5s
       retries: 12

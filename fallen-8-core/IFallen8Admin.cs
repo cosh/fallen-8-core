@@ -47,6 +47,17 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Whether this engine's writes are actually reaching disk, and whether the state it serves
+        ///   is the complete committed history or a prefix of it (feature platform-integrity-audit W5).
+        ///   A cheap read of already-published state - see <see cref="DurabilityState" /> for why a
+        ///   client and not only an operator needs it.
+        /// </summary>
+        DurabilityState Durability
+        {
+            get;
+        }
+
+        /// <summary>
         ///   Gets the service factory.
         /// </summary>
         ServiceFactory ServiceFactory

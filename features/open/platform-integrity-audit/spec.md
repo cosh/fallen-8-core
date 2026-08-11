@@ -4,7 +4,7 @@
 > repository root `CLAUDE.md`. Feature branch: `feature/platform-integrity-audit` (branch-only
 > workflow, no GitHub issue/PR).
 >
-> **How this feature came to exist.** Designing the *integration-runtime* feature (a first-party
+> **How this feature came to exist.** Designing the *integrations* feature (a first-party
 > sidecar that pulls data from systems on the user's own network into a Fallen-8) required a
 > survey of what the platform does and does not support. That survey produced thirteen claimed
 > gaps. Each was then hard-verified against the code by principal engineers, reviewed
@@ -91,9 +91,35 @@ A truncated-but-non-empty registry is the *loud* path (it throws on invalid JSON
 zero-length case is silent, and zero-length is exactly what an unflushed create-then-rename
 produces.
 
-**Fix:** route both writes through *DurableFileIo*; move the orphan-adoption check outside the
-`member != null` branch so a registry-less boot with a discoverable checkpoint adopts it instead
-of warning; make a present-but-empty registry loud rather than an empty document.
+**Fix, corrected during implementation.** The original proposal was to route both writes through
+*DurableFileIo*, **move the orphan-adoption check outside the `member != null` branch**, and make a
+present-but-empty registry loud. The middle item is **wrong and was not implemented**:
+
+> **[save-games](../../done/save-games/spec.md) FR-8 specifies the empty-registry behaviour
+> deliberately**, verbatim: "No `metadata/savegames.json`, or an empty registry → **start empty**. A
+> checkpoint sitting in the storage directory is NOT loaded just because it exists." FR-11 makes the
+> adoption an explicit one-time `PUT /load` and says the startup log must state that plainly. The code
+> the review called an unreachable rescue path is the **FR-11 migration hint doing its specified job**,
+> and *SaveGamesEndpointTest.Startup_EmptyRegistry_StartsEmpty* pins it. Auto-adopting would resurrect
+> unregistered data unnoticed, which is the same hazard FR-9 refuses for a missing file.
+
+So the defect is narrower than the review stated, and the narrower statement is the accurate one:
+**a destroyed registry was indistinguishable from a legitimately empty one.** An absent file
+honestly means "nothing was ever saved"; a present zero-length file means the pointer was
+destroyed while the checkpoint it named may still be on disk. The registry's own read path already
+treats invalid JSON as loud ("never silently overwritten"), so zero-length being silent was an
+inconsistency inside its own contract rather than a violation of FR-8.
+
+**What was implemented:**
+
+1. Both writes go through a new *DurableFileIo.ReplaceAllTextDurably* (write to a GUID-unique temp,
+   fsync, atomic rename), which also promoted *DurableFileIo* to public as the one home for the
+   whole solution rather than letting the apiApp carry a third private copy of the discipline. The
+   engine declares no *InternalsVisibleTo* by decision, so public was the available way to share it.
+2. A present-but-empty registry **and** a present-but-empty namespace catalog are loud, with messages
+   that say to delete the file to start genuinely empty. The catalog case is the worse of the two:
+   losing it strands every non-default namespace's data directory and WAL.
+3. The boot path is **unchanged**. FR-8 governs.
 
 **Do not conflate this with [crash-durability-hardening](../../done/crash-durability-hardening/)
 D5** (write-through rename via P/Invoke, WAL header identity pairing). That deferral is correct
@@ -183,14 +209,38 @@ The only in-band signal is the change feed's resync event (*ResyncReasonTabulaRa
 *ResyncReasonLoad*). That makes an open SSE subscription on `GET /changefeed` a **hard design
 constraint** on any client that owns a derived index, not an optimization.
 
-**Fix:** make *AddOrUpdate* idempotent for an identical (key, element) pair so a backfill is not
-a bucket-doubling machine whose output is then persisted into the next snapshot; make a missing
-index a distinguishable failure on both the write and the read side rather than `200 false` and
-`200 []`; make the *SaveIndex* null-drop loud; document the resync-equals-rebuild contract. Route
-shape must be **literal-first** (`PUT /index/entries/{indexId}`), because
-`PUT /index/vector/{indexId}` already occupies three segments and an index legitimately named
-*vector* would otherwise be silently unreachable on the new routes (index names are unvalidated
-caller strings).
+**Fix, corrected during implementation.** Three of the four proposed changes turned out to target
+deliberate, documented decisions. The rule that resolved each one: **make the implementation match
+the contract the route already publishes, rather than making every route behave alike.**
+
+1. **Idempotent *AddOrUpdate*: implemented.** The real bug, with no contract conflict. The guard
+   reads the existing reverse map, so it is O(1) rather than a bucket scan.
+2. **Loud missing index on the READ side: implemented for `/scan/index/all` and
+   `/scan/index/range` only.** Both already document "400 Invalid specification **or index not
+   found**", so the implementation was contradicting its own published contract, and
+   [api-error-contract](../../done/api-error-contract/)'s governing principle is exactly that (E3
+   refuses "an empty 200 masquerading as searched"; E7 refuses "an ambiguous 0 that also means zero
+   edges"). **`/scan/index/fulltext` is deliberately left alone**: its doc explicitly says "a miss
+   yields 204 No Content, not a 404", which is a justified decision rather than an unfixed
+   ambiguity. Vector and spatial likewise keep their own documented shapes.
+3. **Loud missing index on the WRITE side: NOT implemented.** *AddToIndex*'s doc states the choice
+   and its reason verbatim: "false if the index or the graph element does not exist (a miss is
+   reported as 200 with a false body, not a 404)". It returns a real signal; a caller must check the
+   boolean. Changing it would break a documented contract to fix a caller's discipline problem.
+4. **Loud *SaveIndex* null-drop: NOT implemented, and moved to W5.** That code's comment states the
+   reason it swallows: "a persistable index that nonetheless fails to serialize ... must not abort
+   the whole checkpoint", and it already logs at Error. Aborting the checkpoint would trade a lost
+   index for a lost checkpoint, which is strictly worse. What was actually missing is a **signal**,
+   so "the last checkpoint dropped an index" belongs in W5's durability block, not here.
+
+**Route shape** stays a live constraint for W4: use **literal-first**
+(`POST /index/backfill/{indexId}`), because `PUT /index/vector/{indexId}` already occupies three
+segments and an index legitimately named *vector* would otherwise be silently unreachable (index
+names are unvalidated caller strings). W3 adds no `/index/...` route, so it creates no collision.
+
+**One deliberate behaviour change to flag:** `/scan/index/all` and `/scan/index/range` now answer
+400 where they previously answered an empty 200. A smoke-test assertion pinned the old behaviour
+with no rationale and has been inverted with the reasoning recorded in place.
 
 **W3 is a hard prerequisite of W4.** A backfill over a non-idempotent add corrupts the index it
 was meant to repair.
@@ -222,10 +272,29 @@ The gate is one predicate, *TryGetEmbeddingName(propertyId)*. Widening it from "
 embedding name" to "bound to a property key" gives a property-bound dictionary index that
 maintains itself, backfills itself, and survives a crash, with **zero new on-disk ordinals**.
 
-**Fix:** a rebuild-from-element-state primitive, writer-ordered, exposed once (so an
-out-of-process owner can invoke it on the resync signal from W3), plus the property-bound index
-mode. All four architects independently endorsed this shape and independently rejected the
-alternative (see section 4).
+**Fix, split during implementation.** All four architects independently endorsed this shape and
+independently rejected the alternative (section 4). It landed in two halves, and the split was a
+deliberate call under this feature's own stop-and-review trigger rather than an overrun:
+
+1. **The repair half: DONE.** `IndexRepair.TryRepairFromProperty` plus
+   `POST /index/backfill/{indexId}`, with add-only repair as the default and an exact replace mode.
+   This is the half that makes a lost index **recoverable**, which is the correctness property the
+   identity model rests on, and it is the half an out-of-process owner needs on the resync signal.
+   It subsumes the document-ingestion sweep, which is the duplication removal that proves the shape.
+2. **The self-maintenance half: DEFERRED to its own change.** Generalizing the three writer-side
+   projection hooks from an embedding-name predicate to a key-bound one. This removes the *need* to
+   call repair, so it is an optimisation on top of a correct system rather than part of making it
+   correct, and it modifies engine hooks that the shipped embedding behaviour depends on. Riding it
+   along in a commit whose value does not depend on it would have made the review harder for no gain.
+
+**One placement correction from implementation.** The primitive lives in the **apiApp**, not the
+engine. "Which property backs which index" is a caller concern by
+[index-lifecycle](../../done/index-lifecycle/)'s explicit non-goal, so putting the mapping in the
+engine would import a schema concept the engine deliberately does not carry. Everything it needs is
+already public engine surface, and the in-process caller it subsumes lives in the apiApp too, so no
+engine interface grew a member and no delegating wrapper or test fake changed. An earlier draft put
+it on *Fallen8* and required an *IFallen8Admin* member plus changes to *AddressedFallen8* and two
+test fakes; hitting that plumbing is what surfaced the better home.
 
 #### W5. Durability and recovery-integrity signal on the REST surface [M]
 
@@ -322,6 +391,14 @@ Two consequences to settle here:
 
 **Scoped credentials, RBAC, multiple API keys and per-caller quotas are rejected**; see
 section 4.
+
+**Implementation status: the DECISION is done, the CODE is deferred to Phase 2 of the integration
+plan.** The channel choice is what had to be made before any route table existed, and it is made and
+recorded above with both rejected alternatives and their reasons. The facade itself faces a sidecar
+that does not exist yet: building an *IntegrationsClient* plus controllers proxying to nothing would
+be speculative, untestable and unreviewable, and the third *SidecarHttpClient* implementation is a
+few dozen lines once there is something behind it. Nothing else in Phase 0 depends on it, which is
+why it was the one P0 item safe to sequence with its consumer.
 
 ### P1 - ships alongside, all small
 
@@ -422,6 +499,31 @@ lenses, and the first three were rejected unanimously.
 | **A REST throughput regression gate** | [capacity-bench](../../done/capacity-bench/) deliberately ships no regression gate and that decision is right; a threshold on the noisy REST path would false-alarm. Instead add one opt-in benchmark case recording "240 property updates: 480 single round-trips versus one batch" as a published number. | None. |
 | **New MCP tools for any batch operation** | The tool set is deliberately small and every schema is paid for in every agent's context on every call. Batch operations are already modelled as **ops** inside *f8_mutate*. | The control plane needs more than three verbs an agent should reach, and then it is one tool, not one per verb. |
 
+## 4a. What the implementation review found
+
+The Phase 0 work was reviewed against the code as it was written, not only after. What that pass
+produced, recorded because it changes how much the rest of this document should be trusted:
+
+**Three items shrank on contact with their owning contract.** W1's boot-path change and three of
+W3's four proposed changes turned out to target deliberate, documented decisions. In every case the
+reviewer had read a behaviour as an accident without checking whether the route, the code or the
+owning feature stated a reason for it. The rule that resolved all of them, and that is now the
+standing rule for the remaining items: **make the implementation match the contract the route
+already publishes, rather than making every route behave alike.**
+
+**Two defects were found by writing the tests rather than by reading the code.** A round-trip test
+over every allowed literal type showed that *TimeSpan* and *Guid* are on the allow-list but cannot be
+produced by *Convert.ChangeType* (neither is IConvertible), so both had always failed - the
+advertised set was not the accepted set. And the interaction between W3's idempotency guard and W4's
+exact-rebuild mode is only safe because *Wipe* clears the reverse map as well as the buckets; if it
+ever stopped doing so, an exact rebuild would silently produce an EMPTY index. That is a repair that
+destroys, with no error and no log line, so it now has its own named regression guard.
+
+**One placement was corrected by hitting the plumbing.** W4's primitive was drafted on the engine and
+needed an *IFallen8Admin* member plus changes to the namespace wrapper and two test fakes; that cost
+is what surfaced the better home in the apiApp. W5's genuinely did belong on the interface, and its
+cost was the same six mechanical edits - which is why the two decisions differ despite looking alike.
+
 ## 5. Corrections to the original thirteen
 
 Recorded so the audit's own errors do not propagate.
@@ -443,6 +545,18 @@ Recorded so the audit's own errors do not propagate.
 - **Two claims were understated.** Element ids are not stable across `HEAD /trim`, and the
   property surface is scalar-only with no CAS. Both change a consumer's data model, not just its
   call pattern.
+- **Three of W3's four proposed changes targeted deliberate, documented decisions**, found while
+  implementing them (see W3). The pattern is the same as W1's: a reviewer read a behaviour as an
+  accident without checking whether the route or the code stated a reason for it. Net effect on the
+  audit's credibility: of the seven P0 items, W1 and W3 both shrank substantially on contact with the
+  code, and both shrank in the same direction. **Treat any remaining "make X loud" item as unproven
+  until its owning contract has been read.**
+- **W1's proposed boot-path change was wrong**, found while implementing it: the empty-registry
+  behaviour is [save-games](../../done/save-games/spec.md) FR-8, specified and test-pinned, and the
+  code the review read as a misplaced rescue path is the FR-11 migration hint. Four reviewers and both
+  PMs missed it because none read the governing feature's requirements before proposing a fix to its
+  boot path. The durability half was correct; see W1 for the corrected, narrower statement. **Lesson
+  for the remaining items: check the owning feature's FRs before calling a behaviour a bug.**
 
 ## 6. Impact on existing features (cross-feature sweep)
 

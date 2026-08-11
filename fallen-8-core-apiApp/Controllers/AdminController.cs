@@ -273,6 +273,30 @@ namespace NoSQL.GraphDB.App.Controllers
                     HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None),
                 Nlp = await NlpStatsREST.From(_nlpOptions, _nlpClient,
                     HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None),
+                Durability = DurabilityBlock(_fallen8.Durability),
+            };
+        }
+
+        /// <summary>
+        ///   Projects the engine's durability/recovery state onto the wire (feature
+        ///   platform-integrity-audit W5). A straight field copy: the engine composes the state, and
+        ///   duplicating any of its reasoning here would give the same question two answers.
+        /// </summary>
+        private static DurabilityStatusREST DurabilityBlock(DurabilityState state)
+        {
+            if (state == null)
+            {
+                return null;
+            }
+
+            return new DurabilityStatusREST
+            {
+                WalEnabled = state.WalEnabled,
+                Degraded = state.Degraded,
+                RecoveryRan = state.RecoveryRan,
+                LastRecoveryTruncated = state.LastRecoveryTruncated,
+                LastRecoveryReplayedEntries = state.LastRecoveryReplayedEntries,
+                LastCheckpointDroppedIndices = state.LastCheckpointDroppedIndices,
             };
         }
 

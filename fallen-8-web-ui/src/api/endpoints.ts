@@ -35,6 +35,9 @@ import type {
   DocumentSearchSpecification,
   DocumentSummary,
   IngestTextSpecification,
+  IntegrationJobReport,
+  IntegrationJobRequest,
+  IntegrationProvider,
   NamespaceEntry,
   NamespacesResponse,
   AnalyticsSpecification,
@@ -690,4 +693,20 @@ export const listEntities = (
   apiRequest<DocumentEntityList>(i, "/document/entities", {
     signal,
     query: { type: options.type, contains: options.contains, limit: options.limit },
+  });
+
+// ---- integrations (feature integrations) ----
+// Fallen-8-level: one runtime serves the whole instance and a job names the namespace it writes
+// into, so these are pinned to their bare form and never namespace-prefixed.
+
+/** The integrations this instance's runtime ships. A 403 or 401 means the capability is off. */
+export const listIntegrationProviders = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<IntegrationProvider[]>(i, "/integrations/providers", { signal, scope: "fallen8" });
+
+/** Runs one job and returns its report. A job that RAN and failed still answers 200. */
+export const submitIntegrationJob = (i: InstanceConfig, job: IntegrationJobRequest) =>
+  apiRequest<IntegrationJobReport>(i, "/integrations/job", {
+    method: "POST",
+    body: job,
+    scope: "fallen8",
   });

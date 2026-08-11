@@ -66,7 +66,16 @@ namespace NoSQL.GraphDB.Core.Transaction
         Boolean TryCreateEdge(out EdgeModel edge, Int32 sourceVertexId, String edgePropertyId, Int32 targetVertexId,
             UInt32 creationDate, String label = null, IDictionary<String, Object> properties = null);
 
-        /// <summary>Sets (adds or updates) a property on a graph element. Reversible on rollback.</summary>
+        /// <summary>
+        ///   ADDS a property to a graph element, or verifies an existing one is EQUAL. It does NOT
+        ///   update: a key already present with a different value throws
+        ///   (<see cref="System.ArgumentException" />), which a delegate body surfaces as a rolled-back
+        ///   transaction. This doc comment previously said "adds or updates" and was wrong
+        ///   (platform-integrity-audit W2). To change a value from a body, call
+        ///   <see cref="RemoveProperty" /> first; to change values transactionally, prefer
+        ///   <see cref="SetPropertiesTransaction" />, which has REPLACE semantics and is atomic across
+        ///   many elements. Reversible on rollback.
+        /// </summary>
         void SetProperty(Int32 graphElementId, String propertyId, Object value);
 
         /// <summary>Removes a property from a graph element. Reversible on rollback.</summary>

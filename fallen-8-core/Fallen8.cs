@@ -110,6 +110,46 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Durability and recovery-integrity state, composed fresh per read from state the engine
+        ///   already publishes (feature platform-integrity-audit W5). No flush, no scan, no probe.
+        ///   The recovery and checkpoint fields are set by the paths that produce them; the degraded
+        ///   flag is the same value the OpenTelemetry gauge reads, so the two can never disagree.
+        /// </summary>
+        public override DurabilityState Durability => new DurabilityState
+        {
+            WalEnabled = _wal != null,
+            Degraded = WalDegradedForMetrics,
+            RecoveryRan = _recoveryRan,
+            LastRecoveryTruncated = _lastRecoveryTruncated,
+            LastRecoveryReplayedEntries = _lastRecoveryReplayedEntries,
+            LastCheckpointDroppedIndices = _lastCheckpointDroppedIndices,
+        };
+
+        /// <summary>Whether a WAL recovery has run in this engine's lifetime (W5).</summary>
+        private volatile Boolean _recoveryRan;
+
+        /// <summary>Whether the last recovery stopped before the end of the log (W5).</summary>
+        private volatile Boolean _lastRecoveryTruncated;
+
+        /// <summary>How many entries the last recovery replayed (W5).</summary>
+        private volatile Int32 _lastRecoveryReplayedEntries;
+
+        /// <summary>How many indices the last checkpoint dropped from its manifest (W5).</summary>
+        private volatile Int32 _lastCheckpointDroppedIndices;
+
+        /// <summary>
+        ///   Records the outcome of a checkpoint's index manifest (W5). Called by the persistency layer
+        ///   after it has decided which index sidecars made it in. Dropping a failed index is
+        ///   deliberate - one bad index must not cost the whole checkpoint - so this is a SIGNAL, not
+        ///   an error path: the next load will come up with those indices gone, and a client that owns
+        ///   a derived index needs to know it must repopulate.
+        /// </summary>
+        internal void RecordCheckpointIndexOutcome(Int32 droppedIndices)
+        {
+            _lastCheckpointDroppedIndices = droppedIndices;
+        }
+
+        /// <summary>
         ///   The service factory.
         /// </summary>
         public override ServiceFactory ServiceFactory

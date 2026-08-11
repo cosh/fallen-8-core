@@ -118,6 +118,34 @@ function main() {
         : 'NLP enrichment is off (ingestion is off).'
   );
 
+  // Integration jobs (feature integrations): the f8-integrations sidecar rides its own
+  // "integrations" profile, default ON like the rest of the environment. Standalone rather than
+  // nested under ingestion (unlike nlp): an integration reads a live system on the user's own
+  // network, which has nothing to do with document conversion. F8_INTEGRATIONS=false is a true
+  // opt-out - no sidecar, and the apiApp's four /integrations routes answer 403 (the fallen8
+  // service reads the same variable).
+  const integrations = process.env.F8_INTEGRATIONS !== 'false';
+  if (integrations) profiles.push('--profile', 'integrations');
+  console.log(
+    integrations
+      ? 'Integrations are ON - the f8-integrations sidecar comes up. It is the one service with NO\n' +
+        'host port (jobs hand it third-party credentials), so the API proxy is the only way in.'
+      : 'F8_INTEGRATIONS=false - no integrations sidecar; the /integrations routes answer 403.'
+  );
+  // Both lists are configuration-only (never a job setting) and both default to empty, so the two
+  // states worth knowing about at startup are stated here rather than discovered on a failed run.
+  if (integrations && !process.env.F8_INTEGRATIONS_ALLOWED_HOSTS) {
+    console.log('! F8_INTEGRATIONS_ALLOWED_HOSTS is unset, so a run HOLDING a credential may contact any host.');
+    console.log('  Name the sources you trust with one, comma separated, e.g.');
+    console.log('    F8_INTEGRATIONS_ALLOWED_HOSTS=console.lan,inverter.lan');
+  }
+  if (integrations && !process.env.F8_INTEGRATIONS_SELF_SIGNED_HOSTS) {
+    console.log('! F8_INTEGRATIONS_SELF_SIGNED_HOSTS is unset, so a source serving a self-signed certificate');
+    console.log('  (a UniFi console or a Fronius inverter on a private address no authority will sign)');
+    console.log('  cannot be reached until it is named there. It is the ONE place trust is reduced, so it');
+    console.log('  is deliberately per-host and never a job setting.');
+  }
+
   console.log(
     'F8 Studio runs as its own container (feature standalone-ui): UI on ' +
       `http://localhost:${process.env.F8_UI_PORT || '8081'}, REST API on ` +

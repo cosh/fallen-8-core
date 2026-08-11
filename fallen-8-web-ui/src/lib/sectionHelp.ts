@@ -161,6 +161,14 @@ export const SECTION_HELP: Record<string, SectionHelpEntry> = {
       { slug: "architecture", title: "Architecture", blurb: "How the engine and REST API fit together." },
     ],
   },
+  "/integrations": {
+    heading: "How integrations work",
+    links: [
+      { slug: "integrations", title: "Integrations", blurb: "Read a system on your own network and write what it saw into a namespace." },
+      { slug: "running", title: "Running Fallen-8", blurb: "The compose variables that bring the runtime up and bound where a credential may go." },
+      { slug: "architecture", title: "Architecture", blurb: "Where the runtime sits: a separate deployable with no host port." },
+    ],
+  },
   knowledge: {
     heading: "How the knowledge layer works",
     links: [

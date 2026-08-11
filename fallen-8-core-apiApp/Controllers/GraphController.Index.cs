@@ -323,6 +323,83 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
+        /// Repopulates an index from a property's values across the live elements (feature platform-integrity-audit)
+        /// </summary>
+        /// <param name="indexId">The registered index to repopulate</param>
+        /// <param name="definition">Which property supplies the keys, and whether to rebuild exactly</param>
+        /// <remarks>
+        /// Index content is DERIVED state with no durability of its own: index writes are neither
+        /// single-writer transactions nor WAL-logged, so index state is snapshot-only. After a hard crash
+        /// the elements replay from the WAL but every index key added since the last checkpoint is gone,
+        /// and three ORDINARY operations drop an index while a client is running - a tabula rasa, loading
+        /// a save game, and a per-index serialization failure that drops it from the checkpoint manifest.
+        /// This is the repair path, and it is the only one available to a client that is not in-process.
+        ///
+        /// Default mode is a REPAIR: add-only and idempotent, so it is safe to run on every start and
+        /// nothing is ever briefly missing. It does not remove keys that element state no longer
+        /// justifies. Pass "replace": true for an EXACT rebuild, which wipes the index first and
+        /// therefore has a window in which a concurrent scan sees nothing.
+        ///
+        /// The route is literal-first (/index/backfill/{indexId}, not /index/{indexId}/backfill) because
+        /// PUT /index/vector/{indexId} already occupies three segments and index names are unvalidated
+        /// caller strings: an index legitimately named "vector" would otherwise be unreachable here.
+        ///
+        /// Pass "prefix": true when propertyId is a KEY PREFIX rather than one exact key: every property
+        /// whose key starts with it is then indexed by its value, so one element can contribute several
+        /// entries. That is the mode a client needs whose values are spread across dense ordinal keys
+        /// ($identity:0, $identity:1, ...), because the property surface accepts scalars and no array: an
+        /// exact-key repair would restore only the first value of each element, leaving it findable by
+        /// one and invisible by the rest.
+        ///
+        /// Sample request:
+        ///
+        ///     POST /index/backfill/claimIndex
+        ///     {
+        ///        "propertyId": "$identity",
+        ///        "replace": false
+        ///     }
+        ///
+        /// Sample request, prefix mode:
+        ///
+        ///     POST /index/backfill/claimIndex
+        ///     {
+        ///        "propertyId": "$identity:",
+        ///        "prefix": true
+        ///     }
+        /// </remarks>
+        /// <response code="200">The outcome: how many live elements were scanned and indexed</response>
+        /// <response code="400">No such index, a missing property id, or an index that cannot take arbitrary keys (vector, spatial, or a bound vector index that maintains itself)</response>
+        [HttpPost("/index/backfill/{indexId}")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(IndexRebuildREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public ActionResult<IndexRebuildREST> BackfillIndex([FromRoute] String indexId,
+            [FromBody] IndexBackfillSpecification definition)
+        {
+            if (definition == null)
+            {
+                return ProblemResults.BadRequest("An index backfill specification is required.");
+            }
+
+            if (!Services.IndexRepair.TryRepairFromProperty(_fallen8, _logger, indexId, definition.PropertyId,
+                    out var outcome, out var error, definition.Replace, definition.Label, definition.Prefix))
+            {
+                return ProblemResults.BadRequest(error);
+            }
+
+            return new IndexRebuildREST
+            {
+                IndexId = indexId,
+                PropertyId = definition.PropertyId,
+                Replaced = outcome.Replaced,
+                ScannedElements = outcome.ScannedElements,
+                IndexedElements = outcome.IndexedElements,
+                SkippedUnindexableValues = outcome.SkippedUnindexableValues
+            };
+        }
+
+        /// <summary>
         ///   The ONE home of the bound-index write refusal shared by every explicit content write
         ///   on <c>/index/…</c> (add a vector, remove a key, remove an element). A BOUND vector
         ///   index is a derived projection of the named element embedding (feature

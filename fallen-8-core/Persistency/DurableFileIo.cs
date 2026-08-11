@@ -25,6 +25,7 @@
 
 using System;
 using System.IO;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Helper;
 
@@ -38,8 +39,17 @@ namespace NoSQL.GraphDB.Core.Persistency
     ///   flag and a log-message wording); a single source keeps the two atomic-write commit points from
     ///   drifting apart. The write path is: write bytes to a unique temp name, fsync, then the caller
     ///   atomically renames it into place (findings C2, load-path-integrity).
+    ///
+    ///   <para>PUBLIC because it is the one home for the WHOLE SOLUTION, not just the engine
+    ///   (platform-integrity-audit W1). The host's two pointer files - the save-game registry and the
+    ///   namespace catalog - are what make every fsync'd byte in here reachable, and they were written
+    ///   with a plain write-then-rename: rename atomicity is not content durability, so a power loss
+    ///   could publish a zero-length pointer to a complete checkpoint. They now go through
+    ///   <see cref="ReplaceAllTextDurably" /> rather than carrying a third private copy of this
+    ///   discipline. The engine declares no <c>InternalsVisibleTo</c> by decision, so public is the
+    ///   available way to share it.</para>
     /// </summary>
-    internal static class DurableFileIo
+    public static class DurableFileIo
     {
         /// <summary>
         ///   The temporary name a file is written under before it is fsync'd and atomically renamed
@@ -83,6 +93,51 @@ namespace NoSQL.GraphDB.Core.Persistency
             catch (Exception ex)
             {
                 logger?.LogWarning(ex, "Could not delete the temporary or stale file \"{File}\".", file);
+            }
+        }
+
+        /// <summary>
+        ///   Replaces a small text file's contents durably and atomically: write UTF-8 bytes to a
+        ///   unique temp name, <b>fsync</b>, then atomically rename over the target. This is the whole
+        ///   discipline in one call for callers whose payload is a single small document, so they cannot
+        ///   accidentally get the atomic half without the durable half - which is exactly what happened
+        ///   to the two host pointer files before platform-integrity-audit W1.
+        ///
+        ///   <para>Why both halves matter: <see cref="File.Replace(String,String,String)" /> is atomic
+        ///   with respect to READERS (a reader sees either the old or the new file, never a mix), but it
+        ///   says nothing about whether the new file's BYTES have reached the platter. Without the fsync,
+        ///   a power loss can publish a rename whose content is still only in the OS write cache, i.e. a
+        ///   zero-length or partial file. Callers that must survive a power cut need this, not
+        ///   <c>File.WriteAllText</c> plus a rename.</para>
+        ///
+        ///   <para>The temp file is removed on a failed attempt (best effort) so a throwing write does
+        ///   not litter the directory. NOT the same thing as crash-durability-hardening D5 (write-through
+        ///   rename / directory fsync), which is a separate, still-deferred concern about the RENAME's own
+        ///   durability; this is the ordinary content fsync the engine already performs everywhere.</para>
+        /// </summary>
+        /// <param name="path">The final path to replace.</param>
+        /// <param name="text">The full contents to write.</param>
+        /// <param name="logger">Optional logger for the best-effort temp cleanup.</param>
+        public static void ReplaceAllTextDurably(String path, String text, ILogger logger = null)
+        {
+            var temp = TempNameFor(path);
+            try
+            {
+                WriteAllBytesDurably(temp, new UTF8Encoding(false).GetBytes(text ?? String.Empty), FileOptions.None);
+
+                if (File.Exists(path))
+                {
+                    File.Replace(temp, path, null);
+                }
+                else
+                {
+                    File.Move(temp, path);
+                }
+            }
+            catch
+            {
+                TryDeleteFile(temp, logger);
+                throw;
             }
         }
     }

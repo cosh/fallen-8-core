@@ -424,6 +424,16 @@ namespace NoSQL.GraphDB.Core.Persistency
                 }
             }
 
+            // A dropped index is a SIGNAL, not an error (feature platform-integrity-audit W5). Dropping
+            // is deliberate and stays that way: aborting the checkpoint would trade a lost index for a
+            // lost checkpoint, which is strictly worse. But the consequence is real - the next load comes
+            // up with every element intact and those indices GONE - and it was previously visible only as
+            // a log line. Index content is derived state, so a client that owns one can repopulate it from
+            // element state; this count is what tells it that it must.
+            // The parameter is IFallen8 (the save path is written against the interface); the recorder is
+            // engine-internal state, so this narrows rather than widening the public surface for it.
+            (fallen8 as Fallen8)?.RecordCheckpointIndexOutcome(indexSaver.Length - indexEntries.Count);
+
             // Only reference the services that persisted successfully: SaveService returns null for any
             // service that failed to serialize, so one bad service does not abort the whole checkpoint
             // (nor leave a dangling manifest entry pointing at a broken file).
