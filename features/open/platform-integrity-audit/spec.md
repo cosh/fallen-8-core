@@ -1,8 +1,15 @@
 # Platform integrity audit - Specification
 
-> **Status:** Open, spec only (no implementation yet). Follow the feature workflow in the
-> repository root `CLAUDE.md`. Feature branch: `feature/platform-integrity-audit` (branch-only
-> workflow, no GitHub issue/PR).
+> **Status:** Open, LARGELY IMPLEMENTED. W1 (pointer-file durability), W2 (atomic property
+> replace/remove), W3 (idempotent index AddOrUpdate + loud missing index), the W4 repair half
+> (`POST /index/backfill`), W5 (durability/recovery state on `GET /status`) and W6's platform half
+> (batch element read + literal ingress/egress inverse) shipped to main on 2026-08-09/10 - commits
+> f81d86e, 8e58d72, f160d7f, 6f2b7f3, 13bb370, 02ddca1, 0764b38, merged inside the integrations
+> branch (ae7f094), which consumed them. Still pending: W7, W8, the P1 remainder, and this
+> feature's OWN Phase 9 gate - in particular the docs-site pages for the new REST surface never
+> happened because the code rode another feature's merge (recorded as debt in
+> [review-findings-2026-08-11](../review-findings-2026-08-11/report.md)). Feature branch:
+> `feature/platform-integrity-audit` (branch-only workflow, no GitHub issue/PR).
 >
 > **How this feature came to exist.** Designing the *integrations* feature (a first-party
 > sidecar that pulls data from systems on the user's own network into a Fallen-8) required a

@@ -136,12 +136,18 @@ call sites, 54 warnings), which is exactly why a number in a comment is a liabil
 ## Size of the change
 
 114 `[RequiresUnreferencedCode]` sites, 15 per-member suppressions (one pre-existing suppression
-DELETED, in `PluginRegistry`), 10 `[DynamicallyAccessedMembers]` annotations, across 33 files. Most of
-the `RequiresUnreferencedCode` count is the payload codec's own internals: `SerializationReader`/`Writer`
-members call each other, so the requirement has to be repeated along those chains. A reviewer proposed
-collapsing over half of them by splitting a trim-safe primitive core out of `ProcessObject` and having
-the typed readers route through it. That is a real improvement and a real refactor of a vendored
-serializer, so it is recorded as a follow-up rather than smuggled into this change.
+DELETED, in `PluginRegistry`), 10 `[DynamicallyAccessedMembers]` annotations, across 33 files.
+
+A follow-up review (2026-08-11) corrected this section's original hope that a serializer refactor
+would collapse "over half" of the annotations. The honest arithmetic: only 36 of the 114 sites are
+the codec's (reader 20, writer 16), and most of those are GENUINE - property values legitimately
+include enums, which the codec resolves by type name, so `ReadObject`, the object arrays,
+dictionaries and everything `PersistencyFactory` chains from them must keep their declarations. What
+a `TryProcessDirectObject` primitive core genuinely buys is smaller and better: the three reader
+suppressions (`ReadNullablePrimitive`, `ReadStringArray`, `ReadOptimizedStringArray`) become
+STRUCTURAL impossibilities instead of prose justifications, plus a few writer members drop their
+RUC. Deferred with a named trigger: do the split the next time a `SerializationReader` suppression
+needs a new or amended justification.
 
 ## Verified
 
@@ -212,7 +218,7 @@ host-provided entry needs a "not persisted" state of its own. That is its own fe
 | `TrimMode=partial` consumers | Behaviour DOES change: `IsTrimmable` means the engine now gets member-trimmed in partial mode too, where before it was left whole. String-named plugin calls that worked can start returning `false` - warned at publish, not silent |
 | Reading rich property values in a trimmed app | Now WORKS (the read side stopped using reflective JSON). Writing them to a log still cannot, and is declared |
 | REST contract, OpenAPI snapshot, MCP | None - no controller, route or XML doc changed |
-| apiApp | `AddressedFallen8` forwarders annotated (required to match the interface); `NoWarn IL2026` added with reasoning |
+| apiApp | `AddressedFallen8` forwarders annotated (required to match the interface); IL2026 moved to `WarningsNotAsErrors` (NOT `NoWarn` - the diagnostics stay visible) with reasoning |
 | Persistence, WAL, change feed, indices | No behaviour change; the reflective paths are declared or suppressed, never altered |
 | Studio UI, NL-assist | None |
 | Docs | `library.mdx` gains a "Publishing trimmed" section; the README library entry mentions it |

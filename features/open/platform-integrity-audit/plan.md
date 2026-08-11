@@ -180,16 +180,23 @@ the spec with their triggers; W17 belongs to
 
 ## Progress
 
-- [ ] Phase 0 - failing tests for every P0
-- [x] Phase 1 - W1 pointer-file durability + loud corrupt pointer
-- [ ] Phase 2 - W2 property replace and remove
-- [ ] Phase 3 - W3, W8, W5 make the rest loud
-- [ ] Phase 4 - W4 rebuild from element state
-- [x] Phase 5 - W6 platform half (batch read + DateTime); the zero-write-calls invariant is the runtime's
+- [x] Phase 0 - failing tests for every P0 (0764b38 and the per-commit tests)
+- [x] Phase 1 - W1 pointer-file durability + loud corrupt pointer (f81d86e)
+- [x] Phase 2 - W2 property replace and remove (8e58d72: `SetPropertiesTransaction`, WAL ordinal 19,
+      `PUT /graphelements/properties`, `DELETE /graphelements`)
+- [x] Phase 3 - W3 + W5 shipped (f160d7f idempotent AddOrUpdate + loud missing index; 13bb370
+      `/status` durability block). W8 NOT shipped - still open
+- [x] Phase 4 - W4 repair half shipped (6f2b7f3, `POST /index/backfill/{indexId}`)
+- [x] Phase 5 - W6 platform half (02ddca1: batch read + literal inverse); the zero-write-calls
+      invariant is the runtime's
 - [ ] Phase 6 - W7 control plane
-- [ ] Phase 7 - P1 remainder
+- [ ] Phase 7 - P1 remainder (and W8, moved out of Phase 3 above)
 - [ ] Phase 8 - P2 (optional)
-- [ ] Phase 9 - gate, merge, move to done
+- [ ] Phase 9 - gate, merge, move to done. NOTE: the shipped phases rode the integrations merge, so
+      this gate never ran for them; the docs-site coverage debt is tracked in
+      `features/open/review-findings-2026-08-11/report.md`. Known defects found in review against
+      the shipped code (fulltext AddOrUpdate idempotence, DateTimeOffset egress, `/status` torn
+      group during re-replay, bucket removed-element guard) are tracked THERE, not here
 
 ## Decision / revisit conditions
 
