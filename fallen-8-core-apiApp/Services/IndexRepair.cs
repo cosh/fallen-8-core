@@ -100,6 +100,16 @@ namespace NoSQL.GraphDB.App.Services
         ///   concurrent scan sees an empty index. Repair is the default because an incomplete index and a
         ///   briefly empty one fail very differently.</para>
         ///
+        ///   <para><paramref name="prefix" /> picks what <paramref name="propertyId" /> selects. <c>false</c>
+        ///   (default) is ONE exact property key. <c>true</c> treats it as a KEY PREFIX and indexes every
+        ///   property whose key starts with it, by that property's value, so one element can contribute
+        ///   several entries. That mode exists because a caller's set of values is spread across dense
+        ///   ordinal keys (<c>$identity:0</c>, <c>$identity:1</c>, ...): the property surface accepts
+        ///   scalars and no array, so a set is not expressible under one key, and an exact-key repair then
+        ///   restores only the FIRST value of each element. The element stays findable by one of its
+        ///   values and is invisible by the rest, which looks like a successful repair and then duplicates
+        ///   the element on the next lookup-then-create pass.</para>
+        ///
         ///   <para>Refused, with a reason rather than a silent no-op: an index that does not answer exact
         ///   point-equality lookups (a vector index ranks approximate neighbours; a spatial index is
         ///   keyed by geometry), and a BOUND vector index - the latter for the opposite reason, because
@@ -113,7 +123,7 @@ namespace NoSQL.GraphDB.App.Services
         /// </summary>
         public static Boolean TryRepairFromProperty(IFallen8 fallen8, ILogger logger, String indexId,
             String propertyId, out Result result, out String error, Boolean replace = false,
-            String interestingLabel = null)
+            String interestingLabel = null, Boolean prefix = false)
         {
             result = null;
             error = null;
@@ -178,6 +188,34 @@ namespace NoSQL.GraphDB.App.Services
             {
                 var element = elements[i];
 
+                if (prefix)
+                {
+                    // PREFIX mode: every property whose KEY starts with propertyId contributes its own
+                    // value as a key, so an element carrying several of them is findable by all of them.
+                    // GetAllProperties is the public snapshot of the element's keys; the exact-key path
+                    // below cannot be reused here because it can only ask for one key it already knows.
+                    foreach (var property in element.GetAllProperties())
+                    {
+                        if (property.Key == null ||
+                            !property.Key.StartsWith(propertyId, StringComparison.Ordinal) ||
+                            property.Value == null)
+                        {
+                            continue;
+                        }
+
+                        if (!(property.Value is IComparable))
+                        {
+                            outcome.SkippedUnindexableValues++;
+                            continue;
+                        }
+
+                        index.AddOrUpdate(property.Value, element);
+                        outcome.IndexedElements++;
+                    }
+
+                    continue;
+                }
+
                 // TryGetProperty<Object> is the PUBLIC read (the raw accessor is engine-internal, and
                 // this deliberately lives outside the engine). Asking for Object rather than IComparable
                 // directly is what lets an unindexable value be COUNTED rather than silently skipped.
@@ -199,16 +237,16 @@ namespace NoSQL.GraphDB.App.Services
             if (outcome.SkippedUnindexableValues > 0)
             {
                 logger?.LogWarning(
-                    "Index repair of '{IndexId}' from property '{PropertyId}' skipped {Skipped} element(s) whose " +
-                    "value cannot be an index key (not comparable).",
+                    "Index repair of '{IndexId}' from '{PropertyId}' skipped {Skipped} value(s) that cannot be an " +
+                    "index key (not comparable).",
                     indexId, propertyId, outcome.SkippedUnindexableValues);
             }
 
             logger?.LogInformation(
-                "Index '{IndexId}' repopulated from property '{PropertyId}': {Indexed} of {Scanned} live element(s) " +
-                "indexed ({Mode}).",
-                indexId, propertyId, outcome.IndexedElements, outcome.ScannedElements,
-                replace ? "exact rebuild, index wiped first" : "repair, add-only");
+                "Index '{IndexId}' repopulated from {Selector} '{PropertyId}': {Indexed} entr(ies) from {Scanned} " +
+                "live element(s) ({Mode}).",
+                indexId, prefix ? "property key prefix" : "property", propertyId, outcome.IndexedElements,
+                outcome.ScannedElements, replace ? "exact rebuild, index wiped first" : "repair, add-only");
 
             result = outcome;
             return true;

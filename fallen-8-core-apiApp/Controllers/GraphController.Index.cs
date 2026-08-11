@@ -344,12 +344,27 @@ namespace NoSQL.GraphDB.App.Controllers
         /// PUT /index/vector/{indexId} already occupies three segments and index names are unvalidated
         /// caller strings: an index legitimately named "vector" would otherwise be unreachable here.
         ///
+        /// Pass "prefix": true when propertyId is a KEY PREFIX rather than one exact key: every property
+        /// whose key starts with it is then indexed by its value, so one element can contribute several
+        /// entries. That is the mode a client needs whose values are spread across dense ordinal keys
+        /// ($identity:0, $identity:1, ...), because the property surface accepts scalars and no array: an
+        /// exact-key repair would restore only the first value of each element, leaving it findable by
+        /// one and invisible by the rest.
+        ///
         /// Sample request:
         ///
         ///     POST /index/backfill/claimIndex
         ///     {
         ///        "propertyId": "$identity",
         ///        "replace": false
+        ///     }
+        ///
+        /// Sample request, prefix mode:
+        ///
+        ///     POST /index/backfill/claimIndex
+        ///     {
+        ///        "propertyId": "$identity:",
+        ///        "prefix": true
         ///     }
         /// </remarks>
         /// <response code="200">The outcome: how many live elements were scanned and indexed</response>
@@ -368,7 +383,7 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             if (!Services.IndexRepair.TryRepairFromProperty(_fallen8, _logger, indexId, definition.PropertyId,
-                    out var outcome, out var error, definition.Replace, definition.Label))
+                    out var outcome, out var error, definition.Replace, definition.Label, definition.Prefix))
             {
                 return ProblemResults.BadRequest(error);
             }

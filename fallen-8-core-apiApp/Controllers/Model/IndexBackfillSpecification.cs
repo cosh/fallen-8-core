@@ -69,6 +69,23 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
+        ///   <c>false</c> (default) selects ONE exact property key. <c>true</c> means
+        ///   <c>propertyId</c> is a KEY PREFIX and EVERY property whose key starts with it is indexed
+        ///   by its value, so one element can contribute several entries. Prefix mode exists because a
+        ///   set of values is spread across dense ordinal keys (<c>$identity:0</c>,
+        ///   <c>$identity:1</c>, ...): the property surface accepts scalars and no array, so a set is
+        ///   not expressible under one key, and an exact-key repair then restores only the first value
+        ///   of each element - leaving it findable by one and invisible by the rest.
+        /// </summary>
+        /// <example>false</example>
+        [DefaultValue(false)]
+        [JsonPropertyName("prefix")]
+        public Boolean Prefix
+        {
+            get; set;
+        }
+
+        /// <summary>
         ///   Optional label restriction, for when the property only occurs on one kind of element.
         ///   Omit to scan every live element.
         /// </summary>

@@ -381,6 +381,129 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region repair in PREFIX mode
+
+        [TestMethod]
+        public void Repair_InPrefixMode_IndexesEveryMatchingPropertyOfOneElement()
+        {
+            // The reason prefix mode exists: a caller's set of values is spread across dense ordinal
+            // keys because the property surface accepts scalars and no array, so ONE element carries
+            // several claim keys. Restoring only the first leaves it findable by one identity and
+            // invisible by the rest, which looks like a successful repair and then duplicates the
+            // element on the next lookup-then-create pass.
+            var index = NewIndex("identity");
+            var id = NewVertex();
+            RunSetProperty(id, "$identity:0", "mac:44d244aabbcc");
+            RunSetProperty(id, "$identity:1", "serial:AB-1234");
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "identity", "$identity:",
+                out var result, out var error, prefix: true), "prefix repair failed: " + error);
+
+            Assert.AreEqual(1, result.ScannedElements, "ScannedElements counts ELEMENTS, not entries");
+            Assert.AreEqual(2, result.IndexedElements, "IndexedElements counts the ENTRIES indexed");
+            Assert.AreEqual(2, index.CountOfKeys());
+            Assert.IsTrue(index.TryGetValue(out var byMac, "mac:44d244aabbcc"), "findable by the first claim");
+            Assert.AreEqual(id, byMac.Single().Id);
+            Assert.IsTrue(index.TryGetValue(out var bySerial, "serial:AB-1234"), "findable by the second claim");
+            Assert.AreEqual(id, bySerial.Single().Id);
+        }
+
+        [TestMethod]
+        public void Repair_ExactKeyMode_IsUnchangedByThePrefixAddition()
+        {
+            // The default stays ONE exact key: the prefix string matches no property key at all, and the
+            // real key contributes exactly its own value. This is the failure prefix mode was added for,
+            // pinned from the other side so the addition cannot quietly change the default.
+            var index = NewIndex("identity");
+            var id = NewVertex();
+            RunSetProperty(id, "$identity:0", "mac:44d244aabbcc");
+            RunSetProperty(id, "$identity:1", "serial:AB-1234");
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "identity", "$identity:",
+                out var byPrefixString, out _), "an exact-key repair of a prefix is not an error");
+            Assert.AreEqual(0, byPrefixString.IndexedElements, "no property is keyed '$identity:' exactly");
+            Assert.AreEqual(0, index.CountOfKeys());
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "identity", "$identity:0",
+                out var byExactKey, out _), "exact-key repair");
+            Assert.AreEqual(1, byExactKey.IndexedElements);
+            Assert.AreEqual(1, index.CountOfKeys(), "exactly the one named key, never the sibling ordinal");
+            Assert.IsTrue(index.TryGetValue(out _, "mac:44d244aabbcc"));
+            Assert.IsFalse(index.TryGetValue(out _, "serial:AB-1234"),
+                "the second claim is invisible in exact-key mode - the whole point of the prefix option");
+        }
+
+        [TestMethod]
+        public void Repair_InPrefixMode_IsAddOnlyAndIdempotent()
+        {
+            var index = NewIndex("identity");
+            var id = NewVertex();
+            RunSetProperty(id, "$identity:0", "mac:44d244aabbcc");
+            RunSetProperty(id, "$identity:1", "serial:AB-1234");
+
+            for (var run = 0; run < 3; run++)
+            {
+                Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "identity", "$identity:",
+                    out _, out var error, prefix: true), "prefix repair failed: " + error);
+            }
+
+            Assert.AreEqual(2, index.CountOfKeys());
+            Assert.IsTrue(index.TryGetValue(out var bucket, "mac:44d244aabbcc"));
+            Assert.AreEqual(1, bucket.Count,
+                "three prefix repairs must leave ONE entry per key, exactly as the exact-key mode does");
+
+            // Add-only, unchanged by the prefix path: a key element state no longer justifies is left
+            // alone, and the current value is added next to it.
+            RunSetProperty(id, "$identity:0", "mac:ffffffffffff");
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "identity", "$identity:",
+                out var afterChange, out _, prefix: true));
+            Assert.IsFalse(afterChange.Replaced, "prefix mode does not imply a rebuild");
+            Assert.AreEqual(3, index.CountOfKeys(), "add-only leaves the stale key - documented, not a bug");
+            Assert.IsTrue(index.TryGetValue(out _, "mac:ffffffffffff"));
+        }
+
+        [TestMethod]
+        public void Repair_InPrefixMode_MatchingNothing_IndexesNothing_AndIsNotAnError()
+        {
+            // "The elements carry nothing under this prefix" and "the prefix is wrong" are the same
+            // answer from here, and both are legitimate: on a graph no client has written to yet the
+            // repair is a no-op. The numbers are what let a caller tell that apart (scanned many,
+            // indexed none), so it must not be a refusal.
+            var index = NewIndex("identity");
+            var id = NewVertex();
+            RunSetProperty(id, "name", "alpha");
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "identity", "$claim:",
+                out var result, out var error, prefix: true), "an empty prefix match is not an error: " + error);
+
+            Assert.AreEqual(1, result.ScannedElements);
+            Assert.AreEqual(0, result.IndexedElements);
+            Assert.AreEqual(0, result.SkippedUnindexableValues);
+            Assert.AreEqual(0, index.CountOfKeys());
+            Assert.AreEqual(0, index.CountOfValues());
+        }
+
+        [TestMethod]
+        public void Repair_InPrefixMode_CountsAnUnindexableValueUnderAMatchingKey()
+        {
+            // The counting rule is per VALUE in this mode: the indexable sibling still lands, and the
+            // value that cannot be a key is counted rather than silently dropped.
+            var index = NewIndex("identity");
+            var id = NewVertex();
+            RunSetProperty(id, "$identity:0", "mac:44d244aabbcc");
+            _fallen8.EnqueueTransaction(new SetPropertiesTransaction()
+                .SetProperty(id, "$identity:1", new float[] { 1f, 2f })).WaitUntilFinished();
+
+            Assert.IsTrue(IndexRepair.TryRepairFromProperty(_fallen8, null, "identity", "$identity:",
+                out var result, out _, prefix: true));
+
+            Assert.AreEqual(1, result.IndexedElements);
+            Assert.AreEqual(1, result.SkippedUnindexableValues);
+            Assert.AreEqual(1, index.CountOfKeys());
+        }
+
+        #endregion
+
         [TestMethod]
         public void RangeIndex_AddOrUpdate_IsIdempotentToo()
         {

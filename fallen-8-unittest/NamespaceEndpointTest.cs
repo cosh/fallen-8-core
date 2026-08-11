@@ -325,7 +325,12 @@ namespace NoSQL.GraphDB.Tests
                     continue; // a twin itself
                 }
 
-                var isFallen8Level = fallen8Level.Contains(path) || path.StartsWith("/savegames", StringComparison.Ordinal);
+                // The whole /integrations prefix is instance-wide (feature integrations): one runtime
+                // serves the whole instance and a job names the namespace it writes into, so twinning
+                // would offer a second way to say the same thing and let the two disagree.
+                var isFallen8Level = fallen8Level.Contains(path)
+                    || path.StartsWith("/savegames", StringComparison.Ordinal)
+                    || path.StartsWith("/integrations", StringComparison.Ordinal);
                 var hasTwin = paths.Contains("/ns/{ns}" + path);
                 if (isFallen8Level)
                 {

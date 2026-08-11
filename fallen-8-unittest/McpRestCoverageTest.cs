@@ -122,6 +122,19 @@ namespace NoSQL.GraphDB.Tests
             new(op => op == "GET /config",
                 "instance configuration is an operator/setup surface (semantic providers + observability " +
                 "posture); agents read capability state via f8_overview, not this aggregate"),
+            // All four /integrations routes are deferred rather than bridged (feature integrations
+            // spec section 18). Three of them are DECLARATIONS rather than capabilities: the provider
+            // catalog and the vocabulary describe what COULD be run, and snapshot validation is an
+            // authoring aid - a provider is C# compiled into the fallen-8-integrations deployable, so
+            // an agent cannot add one over the API at any tier. The fourth, running a job, has a real
+            // agent case and one specific reason to withhold it: a run is a complete-snapshot write, so
+            // a job submitted under an identity that is not EXACTLY the one that integration has always
+            // used withdraws and deletes every element the real integration claimed, nothing can detect
+            // it, and an agent composing a job is the caller most likely to invent a plausible-looking
+            // identifier. Revisit when the runtime can tell a new identity from a mistyped one.
+            // Contains, not StartsWith: the predicate matches "METHOD /path".
+            new(op => op.Contains("/integrations"),
+                "the integration runtime proxy is deferred: three routes are declarations, and a job run is a complete-snapshot write no unverifiable identity may trigger"),
         };
 
         [TestMethod]
