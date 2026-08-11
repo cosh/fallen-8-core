@@ -7,7 +7,7 @@
 #
 # Publish targets, all gated on the full test suite:
 #   - GHCR images (GITHUB_TOKEN):  ghcr.io/cosh/fallen-8-core (+ -api, -studio, -mcp,
-#     -ollama, -nlp), multi-arch except -nlp (see the matrix note).
+#     -integrations, -ollama, -nlp), multi-arch except -nlp (see the matrix note).
 #   - nuget.org (Trusted Publishing via OIDC - NO stored API key, no fallback):  Fallen-8.
 #   - GitHub Packages NuGet feed (GITHUB_TOKEN):  continuity mirror, best-effort.
 #   - A GitHub release with generated notes and the package attached.
@@ -109,6 +109,12 @@ jobs:
             platforms: linux/amd64,linux/arm64
             build_args: version
             description: "Fallen-8 MCP server: Model Context Protocol bridge to the Fallen-8 REST API"
+          - image: fallen-8-core-integrations
+            dockerfile: fallen-8-integrations/Dockerfile
+            context: .
+            platforms: linux/amd64,linux/arm64
+            build_args: version
+            description: "Fallen-8 integrations runtime: runs integration jobs that read a system on your own network and write what they saw into a graph"
           - image: fallen-8-core-ollama
             dockerfile: Dockerfile.ollama
             context: .
