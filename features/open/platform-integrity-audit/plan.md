@@ -9,7 +9,7 @@ add corrupts the index it repairs), W2 before W6 (the equal-value clause is what
 zero-mutation invariant assertable), W1 before anything that recommends saving more often.
 
 **Independence.** Phases 1 to 3 are pure defect fixes on shipped surface and are worth landing
-even if the *integration-runtime* feature never happens. Phases 4 to 6 are the enablement half.
+even if the *integrations* feature never happens. Phases 4 to 6 are the enablement half.
 Split the branch there if the two halves want different review cadences.
 
 ## Phase 0 - failing tests first
@@ -196,7 +196,7 @@ the spec with their triggers; W17 belongs to
 - **Every rejection in spec.md section 4 is a decision, not a backlog item.** Each carries a named
   trigger. Do not reopen one without the trigger having fired.
 - **The two halves can split.** Phases 1 to 3 are defect fixes on shipped surface; phases 4 to 6
-  are enablement. If the *integration-runtime* feature slips, phases 1 to 3 still ship.
+  are enablement. If the *integrations* feature slips, phases 1 to 3 still ship.
 - **W4 is the load-bearing bet.** If generalizing the bound-projection gate turns out to be larger
   than the bound vector index suggests, the fallback is the rebuild primitive alone (phase 4
   bullet 3) without the property-bound mode, which keeps the repair path and loses only the

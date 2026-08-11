@@ -19,7 +19,7 @@
 >
 > **Revision history:**
 > - *2026-08-09a* - **v2 catalog: integration authoring.** The
->   [integration-runtime](../integration-runtime/spec.md) feature adds a provider contract an agent is
+>   [integrations](../integrations/spec.md) feature adds a provider contract an agent is
 >   expected to implement unaided, so the catalog grows by two skills and one existing entry grows a
 >   section (§3.2a), plus one new CI gate (§3.3 item 6) and one plan phase. Recorded as a revision to
 >   this feature rather than a new feature, because the layout, frontmatter contract, voice rules,
@@ -124,7 +124,7 @@ is REST-first in v1; the MCP-alignment pass (§3.4) adds "via MCP use tool `f8_�
 
 ### 3.2a v2 catalog: integration authoring (revision 2026-08-09a)
 
-The [integration-runtime](../integration-runtime/spec.md) feature's stated bar is that an agent can
+The [integrations](../integrations/spec.md) feature's stated bar is that an agent can
 write the fourth integration unaided. That is a procedural-knowledge requirement, so it lands here.
 
 **Two new skills, and one existing entry extended.** The v1 catalog already reserves
@@ -134,9 +134,9 @@ spelling would fork an existing catalog entry.
 
 | Skill | Teaches | Grounded in |
 |-------|---------|-------------|
-| `fallen8-integration-authoring` | The provider contract, the snapshot schema (incl. `completeness`), the instance lifecycle, the configuration JSON Schema, credential handling and the never-return-a-secret rule, testing, and **how to run the conformance suite**. | [integration-runtime](../integration-runtime/spec.md) + [integration-blueprints](../integration-blueprints/spec.md) |
-| `fallen8-entity-resolution` | Claims, the identifier vocabulary and its three-valued *scope*, strong versus weak, merge candidates, the semantic-layer boundary, and enriching an entity you did not create. **Fronius is the worked example** (no MAC, no serial, so the only overlap is a weak IP claim). | [integration-identity](../integration-identity/spec.md) |
-| `fallen8-graph-modeling` **(extended)** | Gains the service-selection decision table (transactions for all mutation, the claim index for resolution, range for numeric, fulltext for names, spatial for coordinates, path finding for topology, vector when embeddings are on, subgraphs plus bulk export for views, stored queries for shipped queries, the change feed for reacting to other writers, and **never property scans or ad-hoc fragments in the ingest path**), plus embedding opt-in and what the engine is fast and slow at. | [integration-runtime](../integration-runtime/spec.md) §7 |
+| `fallen8-integration-authoring` | The provider contract, the snapshot schema including *completeness* and what declaring it licenses, the descriptor as data, credential handling by NAME with nothing stored, testing offline, and **how to run the conformance suite**. | [integrations](../integrations/spec.md) |
+| `fallen8-integration-identity` | Claims, the identifier vocabulary and its three-valued *scope*, strong resolving versus weak never resolving, that resolution is scoped to the claiming integration and **nothing is ever merged**, and that finding an overlap is a query a person or an agent runs themselves. **Fronius is the worked example** (no MAC, no serial, so the only shared key is a weak address). | [integrations](../integrations/spec.md) |
+| `fallen8-graph-modeling` **(extended)** | Gains the service-selection decision table (transactions for all mutation, the claim index for resolution, range for numeric, fulltext for names, spatial for coordinates, path finding for topology, vector when embeddings are on, subgraphs plus bulk export for views, the change feed for reacting to other writers, and **never property scans or ad-hoc fragments in the ingest path**), plus embedding opt-in and what the engine is fast and slow at. | [integrations](../integrations/spec.md) |
 
 **Two content rules specific to these skills**, because they are the ones an agent will get wrong:
 
@@ -159,7 +159,7 @@ Three findings, recorded rather than worked around:
    deliberately delegated to the conformance suite, which is the authority the skills point at.
 3. **A skill cannot verify the thing these skills teach.** The v1 harness can compile a delegate
    fragment because the engine is in the solution. It cannot run a candidate integration. That is
-   precisely why [integration-runtime](../integration-runtime/spec.md) §9 makes the conformance
+   precisely why [integrations](../integrations/spec.md) makes the conformance
    verifier the authority and these skills the pointer to it, and why the verifier's own negative
    fixtures matter more than the skills' prose.
 

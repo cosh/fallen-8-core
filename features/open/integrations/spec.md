@@ -1,0 +1,498 @@
+# Integrations
+
+**Status:** open, nothing implemented yet. It replaces the three superseded `features/open/integration-*`
+directories, deleted when this lands (section 18). The plan that sequences it is [plan.md](plan.md).
+
+**What this covers.** A first-party sidecar that runs integration jobs: the deployable and how the apiApp reaches it,
+the job model, credentials, the identity model and its vocabulary, resolution and reconciliation, the REST write
+path, the provider contract, the conformance suite, three blueprints, and the repository impact.
+
+| The design in five sentences | |
+| --- | --- |
+| The run | one job reads a system on the user's own network, describes what it saw as a snapshot, and writes that description into one Fallen-8 namespace over the public REST API, after which the runtime forgets everything |
+| Identity | element state: every element a run creates carries the run's identity claims as reserved properties, so resolution is exact-match on a canonical claim key against elements this same integration already claimed, and nothing ever unifies two elements |
+| Deletion | a snapshot declares whether it describes the whole source, and only that declaration licenses reconciliation to withdraw a claim and, on the last claim, delete the element |
+| Credentials | named rather than stored: the value is read from a mounted directory when a job starts and dropped when it ends, so rotating one is overwriting a file |
+| A provider | a data descriptor plus one *ObserveAsync* method, judged by a conformance suite that observes a candidate rather than believing it, because the point of the feature is that the fourth integration gets written without the owner in the loop |
+
+## 1. What this is, and what it is for
+
+**The goal is not three integrations. It is that an agent can write the fourth one without the owner in the loop.**
+Three ship because three is the smallest number that measures the contract: one with no credential, no paging and one
+entity kind; one with many entity kinds, paging and topology; one with no strong identifier overlap at all. Wherever a
+decision would have made a provider author learn the identity model, it went the other way.
+
+| Decision | Value |
+| --- | --- |
+| Project | *fallen-8-integrations*, root namespace *NoSQL.GraphDB.Integrations* |
+| Image | `ghcr.io/cosh/fallen-8-core-integrations`, built `linux/amd64` and `linux/arm64` |
+| Compose service | *f8-integrations*, on the *integrations* profile, `stop_grace_period: 120s` so a recreate cannot kill a synchronous run between graph writes |
+| Container port | 8110, **not published to the host**, unlike every other service. This container can read third-party credentials, so nothing on the host's network may talk to it directly; the browser reaches it through the apiApp, already the authenticated front door, so the runtime needs no second auth story and no CORS arrangement. The image sets *Integrations__BindAddress=0.0.0.0* because a container binding loopback is unreachable; the code's own default stays loopback |
+| Config prefixes | *Integrations__* (own behaviour) and *Fallen8Target__* (the graph it writes into), split as *fallen-8-mcp* splits *Mcp:\** from *Fallen8Target:\**, because conflating them leaves a compose reader unable to tell which values describe the process and which its target |
+| Opt-out | *F8_INTEGRATIONS=false*: no sidecar, and the API's proxy answers 403 |
+| apiApp config | *Fallen8:Integrations:Enabled*, *Fallen8:Integrations:Endpoint*, *Fallen8:Integrations:TimeoutSeconds* (120) |
+| Files mount | *Integrations:FilesDirectory*, default `/files`, read only |
+| Credential mount | *Integrations:Credentials:Directory*, default `/run/secrets`, read only (section 3) |
+| Filesystem | read only with a *tmpfs* on `/tmp` and no data volume, so a leftover write fails loudly instead of leaving an invisible container-layer file that vanishes on the next recreate |
+
+| apiApp route (authenticated) | Runtime route |
+| --- | --- |
+| `GET /integrations/providers` | `GET /integration/providers` |
+| `POST /integrations/job` | `POST /integration/job` |
+| `GET /integrations/vocabulary` | `GET /integration/vocabulary` |
+| `POST /integrations/snapshot/validate` | `POST /integration/snapshot/validate` |
+
+| Boundary rule | Why |
+| --- | --- |
+| The proxy forwards bodies untouched | re-declaring descriptors, jobs and reports in the API layer would create a second definition to keep in step for no gain: the proxy reads nothing in those bodies and decides nothing from them |
+| Runtime failures pass through, including a 400 naming a missing setting; unreachable becomes 503; disabled answers 403 | the runtime's own message is more use to whoever is configuring an integration than a proxy-shaped error, and a bare `dotnet run` with no sidecar says so rather than timing out |
+| The four routes are Fallen-8-level, with no */ns/{ns}* twin | one runtime serves the whole instance and a job names the namespace it writes into, so twinning would offer a second way to say the same thing and let the two disagree |
+| The runtime's health route is `GET /health`, unauthenticated, and says nothing about configuration | it is the path the shared sidecar client base's cached reachability probe calls, as for the docling and NLP sidecars, and a probe disclosing which integrations exist would be a disclosure surface on the one container that can read mounted credentials |
+| No project reference to *fallen-8-core* or *fallen-8-core-apiApp*: the target is reached over the public REST API only, exactly as *fallen-8-mcp* does | a container that can read somebody's network-admin credential must not load the engine in process, and the two must version independently against a contract a REST boundary makes explicit and a project reference would widen to the whole engine surface |
+| The identifier vocabulary is embedded as a resource, not mounted | a deployment that could edit or lose it could silently change whether a claim resolves |
+| *Fallen8Target:BaseUrl*, *Fallen8Target:ApiKey*, *Fallen8Target:ApiKeyHeader* (default *X-Api-Key*, which the apiApp already accepts alongside a bearer token), *Fallen8Target:DefaultNamespace* (the reserved *default*, used only when a job names no namespace) | section name and shape match *fallen-8-mcp*'s as a small copied options class: an operator configuring two sidecars should not learn two spellings, and a shared library to save five properties would couple two deployables that must version independently |
+| **A caller's credential is never forwarded**; the runtime authenticates to the graph as itself | a job cannot escalate beyond what this deployable may already do, and a graph audit trail names one writer per sidecar instead of whoever submitted a job. This key is not an exception to section 3, which governs credentials held on somebody else's behalf; this one is rotated by whoever restarts the deployable |
+| Downstream TLS is validated normally, with no insecure-target escape hatch | it keeps section 4's named host list the feature's single reduction of trust. *Trigger to reopen:* a target reachable only over https with a certificate no authority signs, answered by the same named-host mechanism rather than a blanket switch |
+
+## 2. The job model
+
+The runtime is a job runner: no scheduler, no configured instance, no stored state. A **job definition** arrives with
+everything one run needs; the source is observed, what it said is written to the graph, the report goes back, and nothing
+is kept. `POST /integration/job` is the only verb.
+
+| *IntegrationJob* field | Meaning |
+| --- | --- |
+| *providerId* | which integration to run, from `GET /integration/providers` |
+| *integrationInstanceId* | the identity this run asserts as |
+| *namespace* | the namespace to write into, defaulting to *Fallen8Target:DefaultNamespace* |
+| *settings* | the provider's non-credential settings, keyed as its descriptor declares them |
+| *credentials* | which credential each credential setting uses, **by name** |
+
+| Rule | Why |
+| --- | --- |
+| No interval, no floor, no enable step, no run history, no instance store. **Timing is not this runtime's subject and appears nowhere in it, including in a provider's descriptor** | a runtime holding a schedule would own a second copy of a decision only whoever wants the data can make, in a place with no way to know what the data is for |
+| A job definition is the whole configuration of a run and carries credential names rather than values | so it is safe to keep, to commit next to whatever submits it, and to read back as a record of what was asked for |
+| *JobReport* is the only account of the job: *providerId*, *integrationInstanceId*, *startedUtc*, *durationMilliseconds*; the counts *elementsCreated*, *elementsMatched*, *edgesCreated*, *claimsWithdrawn*, *elementsDeleted*, *deletionsDeferred*; *issuedMutations* (section 10); *error* and *errorKind*; *credentialFingerprint* (section 3); *diagnostics*, each a *DiagnosticDto* with a stable *code*, a message and the subject it concerns | the runtime keeps none |
+| A provider's diagnostics ride along on its snapshot into the same list, and diagnostics are never dropped | one report then covers both what the source could not tell the run and what the graph could not be told |
+| **One job at a time per identity**, refused with a conflict rather than queued | two concurrent runs under one identity both resolve against the graph as it was before either wrote, so both create the elements the other is creating: the duplicate-everything failure, with no index ever going missing. It refuses rather than queueing because the caller is waiting on this call |
+| A job that **ran** and failed answers 200 with the failure on the report; a job that could not be run at all raises *JobRejectedException*, kind *configuration* on a 400 or *conflict* on a 409 | the request did what was asked, so the interesting outcome is the run's. *conflict* is a rejection kind rather than a fifth run failure: nothing was read, nothing written, and the caller has something to fix |
+| **The caller owns the stability of *integrationInstanceId***, which nothing can validate, and it is documented on the field and on the route | every element a run creates carries a claim keyed on it, instance-scoped identifiers embed it, and reconciliation is a set difference against everything it claimed before. A fresh identity per run leaves every run's elements claimed by an identity no later run knows about, so the graph accumulates orphans nothing will ever withdraw; a reused identity inherits everything the other one claimed and, being a complete snapshot that does not mention them, withdraws and deletes them. Neither is detectable from inside |
+| Its **shape** is validated on every request as an allow-list: letters, digits, dot, dash, underscore, at most 64 characters | the value is substituted into a property key and a claim key, and derived edge keys join their parts with a pipe, so a colon, at sign, pipe or dollar lets two identities compose one identical key, and one run then resolves into and reconciles away another integration's elements |
+| **Nothing bounds the write-ahead log**: it truncates only inside a save, and this runtime issues no save and no trim, which it says at startup | whoever submits jobs decides when a checkpoint is worth taking. Saving on a caller's behalf is not built, because a save is a whole-graph durability decision belonging to whoever owns the graph. *Trigger to reopen:* a job report has to promise durability rather than commitment |
+| A failure names the system that failed, as one of the four kinds below | "the mount is broken", "the password is wrong", "the console will not answer" and "the graph will not answer" send a reader to four different places, and only a named kind gets them there |
+
+| *errorKind* | What failed |
+| --- | --- |
+| *configuration* | the job cannot be run as written |
+| *credential* | a named credential could not be read |
+| *source* | the source did not answer, or answered unusably |
+| *graph* | the graph did not answer |
+
+## 3. Credentials
+
+| Rule | The failure it prevents |
+| --- | --- |
+| The runtime is told a credential's **name**, reads the value when the job starts, uses it, and drops it when the job ends. No sealing, no encryption, and no cache of any kind including "resolve once per run and keep it" | the reason is not a preference about secret handling: these credentials belong to other people and other systems who rotate them on their own timetable, so a stored copy silently becomes the wrong value the moment one is rotated and the integration then fails for a reason invisible from the graph. Reading per run makes rotation overwriting a file, with no restart and nothing re-entered, and means a stolen volume is not a stolen controller account |
+| One file per credential in a read-only bind-mounted directory, not compose's *secrets:* list | with *secrets:* adding a credential means editing compose and recreating the service; with a directory, adding one is writing a file and rotating one is overwriting it |
+| Content verbatim except exactly one trailing line ending; leading, internal and trailing spaces untouched | `printf 'pw' > f`, `echo pw > f` and a projected secret differ by one byte, and the symptom is an authentication failure from somebody's controller with nothing to explain it. Any of those spaces can be part of a real password |
+| An empty or whitespace-only file is a **failure**, never "no credential" | a rotation script that truncated a file would otherwise produce a run that reads what the source shows the public, declares it complete, and withdraws every claim the instance ever made |
+| A credential value may never arrive as a **setting** | a setting is neither leased nor redacted, so it would be logged and reported like any other value |
+| Both maps are re-keyed case-insensitively before anything looks in them | a job arrives as JSON and deserialising into a dictionary yields an ordinal comparer whatever the initialiser says, so *Password* slips past a lookup for *password* and defeats the guard with the shift key. Folding also turns two keys differing only in case into a rejection instead of a duplicate-key throw further in |
+| *CredentialLease* is run scoped and disposed in a *finally* spanning **both the source read and the graph write** | the value stays redactable for as long as anything can mention it, and a provider that squirrelled the context away fails loudly instead of quietly authenticating with a password the operator rotated away |
+| Credentials are fetched once, eagerly, before the provider is invoked | a lazy fetch moves the failure into the middle of a source read, after the run has begun making withdrawal-relevant decisions; an unreadable credential is "I could not look" (section 9) |
+| A provider needing none gets *CredentialLease.Empty()*, a factory and not a shared instance | one caller putting a static lease in a *using* would end it permanently for every uncredentialed provider afterwards |
+| *ActiveCredentials* counts what runs are **holding**, by value, and is what redaction substitutes against | two instances can be configured against the same credential, so per-run counting would switch the other run's redaction off on the first run's completion. With no run in flight the set is empty, so the process's common state is a filter with nothing to do |
+| *RedactingLoggerProvider* substitutes inside the structured state before a line is formed, matching on **values** | a sink may serialise the state rather than the message, so scrubbing the rendered string leaves the credential in that sink's JSON; redacting by key name misses the line logging a request URL with the password in the query string, and pattern-matching misses credentials that do not look like anything. Coverage is the message, the structured state including non-string values by what they render as, log scopes, and the exception object, which most sinks render in full |
+| *WrapRegisteredProviders* is installed **last** in DI and rewrites existing registrations rather than clearing them | the OTLP log exporter registers a provider, so installed before it the collector receives exactly what the console was spared. Rewriting is what makes the filter cover the sinks an operator configured rather than only the one this code knows about |
+| The report is scrubbed inside the lease, and a failing exception is logged inside the lease | the report never passes through a logger, and one frame later the runtime no longer knows what the credential was. A provider whose exception message quotes the request it sent, which is ordinary, otherwise hands a credential to the caller in one place and to the container log in the other |
+| Redaction is a safety net, not a licence | nothing in the runtime logs a credential on purpose, but a provider is written by somebody else and one careless line in an HTTP failure path would write a network-admin password into the container log |
+| What the lease does **not** claim, stated exactly: no zeroed buffers, no *SecureString* | a provider runs in process at full trust and must receive the credential as a string to put it in a request, and .NET strings are immutable, so those would be theatre and a hostile contract for every author. The guarantee is that no credential is written to disk, returned by any route or emitted to any log sink, and none is reachable through the runtime's seams once the run that fetched it has ended. Against a careless provider the design buys time-boxing rather than prevention |
+| *RootedNames.TryResolve(root, name, what, out path, out failure)* is the one primitive for every file this runtime opens: shape (no separators, no `..`, not rooted, no invalid file-name characters) then resolved location | credential names and provider file names arrive over the API from the same caller with the same consequence if either can name a path. Either check alone is historically the bug here: shape checks miss what the platform normalises, and a prefix check on the resolved path misses a root that is itself a prefix of a sibling directory |
+| **A provider never opens a file**: *ProviderContext.ReadFileAsync(settingKey, cancellationToken)* reads it | a provider taking a **path** could be pointed at the credential directory and made to return a credential in the report, and blocklisting that directory only moves the target. It also means a provider needs no real file system to be tested, which is what lets the conformance suite exercise the whole path offline |
+| *credentialFingerprint* on the report, under a key random per process and never written down, echoed in the run's log line | a credential file replaced by moving a new file over it gives the file a new inode and a bind-mounted container keeps reading the old one, so the job succeeds with the credential the operator believes they revoked. A fingerprint that does not change after a rotation is how that is seen, so rotation is documented as overwriting in place. Deliberately not stable across processes, because a stable one would be an offline verifier for guessing a short credential |
+
+| Rejected credential source | Why | Trigger to reopen |
+| --- | --- | --- |
+| An environment variable | visible in `/proc/self/environ` and in every crash dump | none |
+| A command | would make the credential-holding container remotely programmable | never |
+| An HTTP broker | fetching a credential needs a credential, and every broker can already write a file | a user who cannot mount a file, or an audit-trail requirement |
+| Any cache | a copy with a lifetime is the thing this design removes | none |
+
+## 4. Where a credential may be sent, and whose certificate is trusted
+
+| Decision | Why |
+| --- | --- |
+| *Integrations:Credentials:AllowedHosts* is the set of hosts a run **holding a credential** may contact, comma separated in one configuration key rather than an indexed list | an operator sets it in a compose file, where an indexed list reads as three lines to add one host |
+| Enforced **on the way out** by *CredentialHostGuard*, a delegating handler on the client a provider reaches its source with, rather than by inspecting configuration | a source address arrives in the job's settings from whoever can reach the API, so without this a caller who edits a base URL aims somebody's admin password at a host of their choosing and the runtime authenticates to it. Policing what actually leaves also means the guard need not know which setting is the address, which keeps it correct as providers are added by people who never read it |
+| Redirects are not followed automatically | redirects are followed by the inner handler the guard sits above, so a source answering 302 to another host would walk a credential off the list |
+| Plain http is refused for a credentialed run, loopback excepted | a caller who can edit a base URL would downgrade an allowed host and read the credential off the wire. Loopback has no wire |
+| A run holding no credential is not restricted | an unexpected host learns nothing it could not read from the source itself |
+| An empty list means no restriction, and the runtime warns at startup and in *env:up* output | otherwise the control reads as present and is not |
+| One list per runtime, not one per credential | per-credential binding needs a named-source structure whose only other purpose would be to hold locations already in this configuration, and the real case is "the credentials in this container belong to my own controllers". *Trigger to reopen:* one runtime has to hold credentials for hosts at different levels of trust |
+| *Integrations:SelfSignedHosts* names hosts whose TLS certificate is not validated, the callback accepting an unvalidated certificate only for a named host, validating normally for every other, and not installed at all when the list is empty. **It is the only place in this feature where trust is reduced** | a UniFi console and a Fronius inverter serve HTTPS with a self-signed certificate for a private address no authority will sign, so a runtime that validates strictly cannot reach the sources this feature exists for, and both alternatives are worse: a provider that turns validation off for itself, or a user told to send an admin credential over plain http |
+| **It must not be a job or provider setting** | a caller able to add a host could name one it controls, and a credentialed run would authenticate to that machine with nothing looking wrong. So it comes from configuration only, exactly like the credential directory and the allowed-hosts list |
+| **It is not pinning**: a named host is trusted for whatever certificate it presents | over a private address the operator owns that states the existing situation rather than weakening it. *Trigger to reopen:* a source must be reached across a network the operator does not control, where the answer is a pinned fingerprint rather than a host name |
+
+## 5. Claims
+
+A claim is one statement, written onto one element, that a source reported one identifier value for it: not a link, not a
+merge, not a suggestion, but evidence. Nothing here unifies anything (section 8), so a claim's whole value is that it is
+queryable: two sources reporting one MAC produce two elements carrying one identical claim key, findable by any query.
+
+| Scope | Key form | Example |
+| --- | --- | --- |
+| global | `<type>:<canonical>` | `mac:44d244aabbcc` |
+| provider | `<type>@<providerId>:<canonical>` | `unifi-device-id@unifi:2f3c9a04-...` |
+| instance | `<type>@<instanceId>:<canonical>` | `fronius-unique-id@garage:476` |
+
+| Property | Holds | Written by |
+| --- | --- | --- |
+| `$identity:<ordinal>` | one canonical claim key | any instance that observes the claim |
+| `$claim:<instanceId>` | that instance's id, repeated | that instance only |
+
+| Index | Projects | Answers |
+| --- | --- | --- |
+| *f8i-identity* | `$identity:` | claim key to element ids |
+| *f8i-claims* | `$claim:` | instance id to element ids |
+
+| Rule | Why |
+| --- | --- |
+| A claim key is composed in exactly one place, *ClaimKeyComposer.TryCompose*, and the value is canonicalised before the key is composed, never after | exact string equality on this key **is** the resolution rule, so the key must be the only comparison surface in the runtime |
+| A provider- or instance-scoped type composed without its scope segment is refused (*ClaimKeyFailure.MissingScope*), never falling back to the global form | a global fallback gives two installations' different values one key, which is the false equality the scope field exists to prevent |
+| An edge carries a derived key from *ClaimKeyComposer.ForEdge*: `edge:<sourcePrimaryKey>\|<edgeType>\|<targetPrimaryKey>`, whose *edge* segment is deliberately not a vocabulary type | an edge has no intrinsic identifier and the graph cannot answer "is there already an edge of this type between these two elements" in one call, and a derived key must never stand in for an element's identity |
+| An endpoint contributes its **primary key**: its strongest claim, and among equals of one strength the ordinally first | deriving from whichever claim a provider happened to list first would compose two keys for one relation across two runs and create it twice |
+| Identity is element state, and the two indices are derived projections with no authority of their own | index content is snapshot-only, index writes are neither single-writer transactions nor write-ahead logged, and three ordinary operations (a tabula rasa, loading a save game, a per-index serialization failure) drop an index while this runtime is running. Since a job runner keeps nothing between runs, the graph is the sole system of record, and claims in an index alone would let a crash between checkpoints silently fork every device |
+| *ClaimSchema* is the only place that composes the two reserved prefixes, and *$identity:* uses dense ordinals from zero | the property surface accepts scalars and no array, and a structured value does not survive a reload with its type, so a set is not expressible. The ordinal is an encoding detail nothing reads and nothing may depend on |
+| *$claim:* keys the property by the **claimant**, and its value carries no timestamp | there is no compare-and-set anywhere in the REST contract, so a read-modify-write over a shared property silently loses a concurrent writer; with the claimant in the key, two integrations asserting one device never touch the same property and withdrawal is an idempotent, replay-safe remove. A last-confirmed stamp would rewrite every claim property on every run and make the zero-mutation invariant false by construction, while repeating the id means one index lookup answers "every element this instance claims" |
+| The *$* sigil follows the engine's convention for reserved keys (*$embedding:*), and the validator rejects any provider-supplied key beginning with it (*reservedPropertyKey*) | a provider writing one would be forging a claim or a claim set |
+| **Invariant:** graph state this runtime owns but does not claim carries no *$claim:* property, and no repair may ever give it one | an element with no claim is an orphan a run may reclaim; an element with a claim is one that instance asserts, so an invented claim would have reconciliation withdraw it and, on the last withdrawal, delete the element |
+| Both indices are *DictionaryIndex* instances created by *EnsureIndicesAsync*, which runs before every job rather than once at startup | "it existed when I started" is not a fact that stays true |
+| *EnsureIndicesAsync* returns true when it had to create an index, and that obliges the caller to repair before trusting a lookup | a fresh index is empty, and empty is indistinguishable from "no element carries this claim"; an ensure that created silently would turn a dropped index into the worst outcome in the feature, where every entity resolves to nothing, every element is duplicated, and the originals keep claims no instance knows about so no withdrawal removes them. The runtime cannot tell "empty because new" from "empty because destroyed" and does not need to: both demand the same repair, which on a genuinely new graph is a no-op |
+| *RepairIndicesAsync* is an add-only backfill posted per index with the **prefix** as the property selector (*propertyId* set to the prefix, *prefix* true, *replace* false), reported as *identityIndexRebuilt* | an exact-key backfill restores only the first claim of each element: it stays findable by one identity and invisible by the rest, which looks like a successful repair and then duplicates the element on the next resolve |
+| A lookup against a missing index raises *GraphIndexMissingException* rather than returning empty, and the caller ensures, repairs from element state and retries **once** | an empty answer would read as "nothing carries this claim". Once only: a second failure is a real fault and must surface rather than loop. A declined index write is reported as *claimNotIndexed* (section 10) |
+
+## 6. The identifier vocabulary, a validated data file
+
+| Rule | Why |
+| --- | --- |
+| The vocabulary is *identifier-vocabulary.v1.json*, an embedded resource loaded by *IdentifierVocabulary.Load*, which throws on a malformed file rather than starting with a half-understood one. It is data, not code | both ways to get one entry wrong are unrepairable by running again: an entry wrongly marked strong makes a run attach its data to the wrong element it claimed before, and one wrongly marked weak, or a canonicalisation that does not converge, makes a run fail to find its own element and duplicate its devices on every run. Data with a validator is reviewable as a table and extendable without touching resolution logic |
+| An unknown type is rejected (*unknownIdentifierType*), never ignored; a value failing its accept pattern becomes a diagnostic (*invalidIdentifierValue*), never a silent drop | ignoring the type drops the identity a provider relies on and creates a duplicate on the next run. Every entry carries an accept pattern, which is what makes a bad value visible |
+| *IdentifierStrength* is *Weak* or *Strong*, and only strong may resolve (section 7). A provider declares a **type** and never a strength; the schema accepts a declared strength only so a disagreement with the file can be rejected (*declaredStrengthMismatch*) | that is how an author who has misunderstood finds out instead of shipping. *mac* is strong because a globally administered address is assigned per interface; *ipv4* is weak because an address is a lease that DHCP reassigns, a departing device frees, and two separate networks duplicate |
+| *IdentifierScope* is *Global*, *Provider* or *Instance*, because equal keys must mean the same value in the same uniqueness domain | *unifi-device-id* is a UUID, unique wherever it appears, so provider scope is honest and global would have been safe. *fronius-unique-id* is a short integer unique only inside one inverter's own API, so provider or global scope would compose one key for two installations' different inverters and advertise an overlap that does not exist. Two instances composing the same global key on two elements is the normal case, and is what makes an overlap findable |
+| Declared claim types are checked against the vocabulary at **startup** (section 12), not only per run | a provider that would emit an unknown or wrongly scoped identifier is rejected before it creates one duplicate |
+
+| Type | Strength | Scope | Canonical | What it is |
+| --- | --- | --- | --- | --- |
+| *mac* | strong | global | `lowerHexStripSeparators` | IEEE MAC address, assigned per interface. The workhorse strong identifier for devices and clients |
+| *serial* | strong | global | `trimUpper` | manufacturer serial as printed on the unit |
+| *imei* | strong | global | `digitsOnly` | cellular equipment identity, fifteen digits. The check digit is not verified, so a mistyped value surfaces as a diagnostic rather than being reinterpreted |
+| *ipv4* | weak | global | `trimLower` | an address is a lease, not an identity. Recorded and indexed because it is the only overlap two providers often have |
+| *ipv6* | weak | global | `trimLower` | weak for the same reason. Full RFC 4291 canonicalisation is deliberately not attempted, since a weak key resolves nothing and an imperfectly normalised one costs at most a missed overlap in somebody's query |
+| *hostname* | weak | global | `trimLower` | user-editable and routinely duplicated (`raspberrypi`, `android`). Evidence, never identity |
+| *unifi-site-id* | strong | provider | `trimLower` | UniFi site UUID |
+| *unifi-device-id* | strong | provider | `trimLower` | UniFi adopted-device UUID |
+| *unifi-client-id* | strong | provider | `trimLower` | UniFi client UUID |
+| *fronius-unique-id* | strong | instance | `trimUpper` | Fronius Solar API inverter `UniqueID`, a short integer unique only inside one inverter's API |
+| *fronius-logger-id* | strong | instance | `trimUpper` | Fronius logging-device `UniqueID`: a datamanager card, a hybridmanager, or whatever else fronts the Solar API. A separate entry rather than a reuse of *fronius-unique-id* because the vendor's own example of a logger id is `240.107620` and the inverter type's pattern rejects the dot, so sharing the type would leave every logging device with no identity and a diagnostic nobody reads. The two id spaces are also not documented as disjoint, so one type for both would let a logger and an inverter reporting the same value resolve to one element inside a single instance |
+
+## 7. Resolution
+
+Resolution asks one question per entity: **is there an element I myself already claimed that carries one of this
+entity's strong claim keys?** No configuration, no threshold, no second question.
+
+| Rule | Why |
+| --- | --- |
+| The graph target **narrows**: it looks up strong claim keys only, in *f8i-identity*, reads every element the index named in one batch (*ReadElementsAsync*), and keeps an id only if that element is in scope. Every strong claim of every entity goes into one lookup pass | nothing is kept between jobs, so every run is a cold resolve, and the narrowing is a question about element **state** that the index cannot answer |
+| *IdentityResolver.Resolve* **decides** from that pre-narrowed set: entity claims plus lookup result in, a *Resolution* out, with no graph, no network and no clock | these rules are the part of the feature most likely to be wrong, and purity is what makes them reviewable and testable with nothing in the way |
+| **In scope** means the element carries *$claim:&lt;thisInstance&gt;*, **or** carries no *$claim:* property at all | the unclaimed arm is load-bearing, not lax: it is the orphan-reclaim path. A withdrawal removes only the claim property and the deletion that follows can be deferred under degraded durability, leaving an element carrying this instance's identity claims and no claim; excluding it makes that element invisible forever and the graph gains a duplicate on every run, permanently |
+| Scope is read from element state, never by intersecting with *f8i-claims* | that index has no remove path and so answers "ever claimed", and using it would re-attach this instance to an element it deliberately abandoned |
+| **Zero of its own matched: create**, even when another instance's element carries the identical claim key | that element is not touched, and the two elements share a queryable key, which is the whole mechanism by which an overlap becomes findable |
+| **Exactly one matched: match.** Missing claims at every strength are appended at the next free ordinal, properties are written only where they differ, and the claim property only if absent | the absent case is the orphan being reclaimed |
+| **More than one of its own matched: match deterministically and report *duplicateClaimedElements***. The pick is content-derived: the element whose ordinally-first matched key sorts first, ties to the lower id | an earlier run claimed one thing under two strong keys before it saw a source row carrying both. Content-derived rather than id-derived because `HEAD /trim` renumbers element ids in place, so an id-based rule could land the same entity on a different element after a trim. Resolving to neither is not an option: it contributes no element id to what the run claims, so reconciliation withdraws this instance's claim from **both** of its own elements and deletes them, on every run, which is a regression test from the start. Nothing is unified here either: the element not chosen keeps its own claims, stops being asserted, and this same run's reconciliation withdraws this instance's claim from it, so the graph converges within the run |
+| **Weak claims are canonicalised, written onto the element and indexed exactly like strong ones, and never consulted during resolution**: not across instances, and not even against an element this instance already claims | an address moves between devices, so matching on one attaches this run's data to whichever element last held the value, and the most likely victim is the runtime's own element, which is why the "not even my own" half is explicit. Their purpose is the overlap: two sources reporting one MAC, address or hostname become two elements sharing one queryable claim key, and what to make of that is a person's or an agent's call |
+| An entity carrying no strong claim is a **warning** (*weakOnlyIdentity*); a relation addressed by a weak target is an **error** (*weakRelationTarget*) | reporting a weakly known thing is legitimate and an entity-level error would drop it from the run entirely, but the author needs to know nothing can ever resolve to it, so a complete snapshot creates it again on every run and withdraws the one the previous run created. For a relation there is no reading that does what its author meant: the edge would either be dropped or attach to whichever element last held the value |
+| Similarity is never an identity signal: not embedding similarity, not semantic similarity, not any vector distance, at any strength, under any configuration | two identical smart plugs produce identical text and therefore identical vectors, and they are different devices. Stated so a future reader who notices the graph has a vector index does not improve resolution with it |
+| A relation is addressed by claim, never by an element id, and edge wiring is one lookup batch asking two questions at once: does the edge already exist, by its derived key, and does its target exist, by claim, under the same in-scope rule after a batched read | a provider then never needs to know whether the thing it points at exists yet or in which order its entities are applied |
+| **The one asymmetry:** an edge found by its derived key counts as already wired only if it carries **this** instance's claim; a foreign hit falls through and this instance creates its own | the derived key encodes the endpoints and the type, not the creator, so two instances asserting one relation find the same edge. Admitting a foreign edge id into the claimed-now set makes this instance's reconciliation responsible for another instance's edge, and skipping creation instead leaves this instance with no edge to claim at all. It also self-heals an orphan edge left by a deferred deletion: the fresh edge is claimed, and the orphan, claimed by nobody, is removed by the next healthy reconciliation |
+| An edge whose target is not an element this instance claims is reported (*droppedRelation*) and is never fatal, the report saying it is created on a later run if this integration comes to claim that element and never if another integration owns it | because the derived key encodes the endpoints' primary keys rather than the element chosen, an edge once wired across instances would be found by its own key forever and never re-wire, so a cross-instance attach is a permanently mis-wired edge that cannot heal |
+| More than one of this instance's own elements carrying the target key: the lowest id wins and *ambiguousRelationTarget* is reported | the relation-side face of case 3, chosen so the pick is stable within the run |
+
+## 8. Nothing merges
+
+| Rule | Detail |
+| --- | --- |
+| **This runtime writes claims and never unifies two elements.** Not across instances, not across providers, not within one instance, not behind a setting, not on a strong key collision, not on similarity, not with a human in a confirmation loop | deciding that two records describe one physical thing is a person's or an agent's act outside this feature: what this feature integrates is graphs from external sources, and what it produces is evidence somebody else acts on |
+| **Never built here, and its absence is the design rather than a gap:** cross-instance and cross-provider matching at any strength; merge candidates and the elements representing them; confirm and reject paths, or any review queue; consolidation with its survivor rules and adjacency rewire; the incident-edge read only consolidation needs; a *user-asserted* claim type, or any vocabulary entry whose source is a decision rather than an observation; similarity of any kind as an input to resolution | if unification is wanted it is a separate feature whose subject is a durable record of somebody's decision, and it cannot live here at all: a job runner keeps nothing, and such a decision outlives every run |
+
+## 9. The snapshot, and what completeness licenses
+
+| Rule | Why |
+| --- | --- |
+| A provider returns a *SnapshotDocument*: a schema version, the provider id, the integration instance id, an optional captured-at instant and source version, a completeness declaration, the *EntityDto* list and the provider's own diagnostics. An entity is a kind, its *IdentityClaimDto* list, its namespaced properties and its *RelationDto* list, each relation addressed by a *ClaimReferenceDto* rather than an element id. It travels as camelCase JSON | a relation addressed by claim rather than by id is what lets a provider ignore the order its entities are applied in (section 7) |
+| *schemaVersion* 1 only, honoured rather than assumed; the vocabulary file carries its own *schemaVersion* too | a document from a later contract is refused instead of being read with the fields this one happens to recognise |
+| A snapshot carries entities and nothing weaker: no collection of non-asserted observations, such as an OUI lookup saying a MAC belongs to a manufacturer | with nothing here unifying elements it would have no consumer, and a field read by nothing is a field a provider author fills in for nothing. *Trigger to reopen:* a consumer exists, which in practice means the separate feature in section 8 |
+| *SnapshotCompleteness* is *Unspecified*, *Complete* or *Partial*, and *Unspecified* occupies the zero value and fails validation (*missingCompleteness*, or *unknownCompleteness* for a value that is neither `complete` nor `partial`) | the zero value is taken precisely so neither of the other two can be inherited by a provider that forgot to declare. It is an **envelope** error and therefore fatal: nothing in a document can be trusted whose one field licensing deletion is absent |
+| *Partial* exists before any provider needs it | it is the single field that keeps an event-driven provider addable later without reopening the identity model: such a source produces the same assertions incrementally and must be able to say "absence here means nothing", or its first delivery would withdraw the entire graph it had built. *Trigger to build one:* a source that delivers changes rather than state. Until then every provider declares *Complete* |
+| **No provider setting may narrow the scope of a complete snapshot.** The worked example is the pair the UniFi provider deliberately does not have: a site filter and an *includeClients* flag | completeness licenses withdrawal, so a setting that changes the size of what was looked at changes the meaning of every absence: turning it off after a run that saw everything withdraws and deletes whatever it stopped looking at, and turning it back on does not undo the deletion. Documenting the trap in help text is worse than not building the switch, because a reader who understands the warning still cannot recover the deleted elements and one who skips it loses data. A source too noisy to describe in one snapshot is a reason to give it its own integration |
+| A setting that renames what a run produces, such as the CSV blueprint's *label*, is allowed | it cannot change what "complete" covers |
+| A provider whose descriptor says it cannot observe complete state and that returns a snapshot marked complete is **refused** rather than trusted | the consequence is the worst available: every unobserved element becomes a withdrawal and the graph deletes what the source still has |
+| A provider that returns no snapshot at all is a failure; one that observed nothing says so with an empty snapshot and a completeness declaration | "I saw nothing" and "I could not look" license opposite actions |
+| A source that cannot be read fails the run with kind *source* and withdraws nothing | an answer that cannot be trusted is a failure, not an empty snapshot. **"I could not look" must never become "there is nothing there"** |
+| A credential that cannot be read fails the job before the provider is invoked (section 3) | otherwise the run reads whatever the source shows the public and declares that complete |
+| A failed run is cheap: nothing withdrawn, nothing deleted, the report names which system failed | the next run starts from the same graph |
+| *SnapshotValidator* refuses at the **envelope** level: *unsupportedSchemaVersion*, *missingProviderId*, *missingInstanceId*, *malformedCapturedAt*, *missingCompleteness*, *unknownCompleteness* | applying part of a document whose envelope is broken would be guessing |
+| It skips at the **entity** level with an *entitySkipped* diagnostic: *missingEntityKind*, *entityWithoutIdentity*, *duplicateClaimWithinEntity*, *unknownIdentifierType*, *invalidIdentifierValue*, *unknownStrengthWord*, *declaredStrengthMismatch*, *reservedPropertyKey*, *unprefixedPropertyKey*, *missingRelationType*, *missingRelationTarget*, *weakRelationTarget*, and the warning *weakOnlyIdentity* | one bad row of a spreadsheet should not leave every other entity unobserved; a skipped entity is simply not claimed this round, which is the honest answer for a row nobody can identify |
+| Validation is reachable on its own at `POST /integration/snapshot/validate` | an author writing a provider wants the verdict on a document before wiring a source to it |
+
+## 10. The write path
+
+*JobRunner* owns the run: the checks, the credential lease, the provider call and the report (sections 2 and 3).
+*SnapshotApplier* turns one validated snapshot into graph writes, in this order and no other: resolve, create or match,
+write properties only where they differ, wire edges, index claims, reconcile. The order is the design, because
+reconciliation withdraws by set difference and so must run after everything the run asserts (section 11). The graph side
+is one seam, *IGraphTarget*, naming the exact platform surface this feature depends on: every method below maps to one
+REST route at the job's namespace through the bare routes or */ns/{ns}*, every mutation is one atomic transaction with
+*waitForCompletion=true*, and it has two implementations, *Fallen8RestTarget* and *InMemoryGraphTarget*.
+
+| Seam method | Route |
+| --- | --- |
+| *EnsureIndicesAsync* | `POST /index` |
+| *RepairIndicesAsync* | `POST /index/backfill/{indexId}` |
+| *ResolveClaimKeysAsync*, *ElementsClaimedByAsync* | `POST /scan/index/all` |
+| *ReadElementsAsync* | `POST /graphelements/get` |
+| *CreateVerticesAsync* | `PUT /vertices` |
+| *CreateEdgesAsync* | `PUT /edges` |
+| *ApplyPropertyWritesAsync* | `PUT /graphelements/properties` |
+| *RemoveElementsAsync* | `DELETE /graphelements` |
+| *IndexClaimsAsync* | `PUT /index/{indexId}` |
+| *ReadDurabilityAsync* | `GET /status` |
+
+| Rule | Why |
+| --- | --- |
+| What lands: one vertex per entity, labelled with the entity's kind, carrying the provider's namespaced properties, its canonical identity claims as *$identity:N* properties and this run's claim as *$claim:&lt;integrationInstanceId&gt;*; one edge per relation, typed by the relation type; index entries in *f8i-identity* and *f8i-claims* | that is the whole of a run's effect on the graph |
+| The batch shapes are why this feature needed platform work first | without a batched element read and an atomic property replace, a run over a few hundred devices is over a thousand round-trips, most producing no change. Two per-item loops remain and are visible in the seam rather than hidden: the index scan, whose route takes a single literal, and the identity-index write, because the engine maintains no property-keyed index automatically |
+| An index write can be declined with a plain `false` and no error, so *IndexClaimsAsync* returns an *IndexWriteOutcome* rather than a task and refusals become diagnostics | an element findable by none of its claims is duplicated on the next resolve, so this is never merely informational; a task-returning seam would discard the signal and make the omission untestable, since a fake would have to invent a harsher behaviour than the platform has |
+| Element ids are valid only within one call sequence: none is cached across runs or persisted, and every durable handle here is a claim key | `HEAD /trim` renumbers every element id in place, unwaited and agent-reachable. The target is created per job and disposed by the runner, so a target owning a connection does not leak one per run |
+| **The zero-mutation invariant: every write is conditional on a difference**, and *issuedMutations* says whether the run issued any mutation call at all, so a re-run over an unchanged source reports false. It is asserted on the **call channel**, not on stored values | the platform already treats an equal-value write as a true no-op, so a runtime that wrote unconditionally would still leave the graph correct while churning the change feed on every run, growing the write-ahead log that nothing here bounds, and making the invariant unobservable. An invariant nobody can observe decays without a failing test |
+| **Shape and coarse state, never time series.** Fronius lands no numeric readings and issues no realtime request | the fleet observability stack in the same environment already holds metrics and is better at them. Power, current, voltage and energy counters change between any two runs, so landing them makes **every run a write** and makes the invariant unobservable for the one provider whose source is never unchanged. What lands is what a thing *is* plus its coarse operational *state*, which changes at dawn and dusk rather than every second |
+| **Properties are namespaced by provider with nothing promoted** (*unifi.model*, *fronius.status*, *csv.name*), and the validator reports an unprefixed key (*unprefixedPropertyKey*) | two providers describing "the name" of one device rarely mean the same thing, and an unprefixed key means the value depends on which integration ran last. A precedence table is machinery to add when something concrete demands it |
+| **An absent value is absent, not empty** | writing an empty string for a field the source did not answer makes the property exist and overwrites what another integration knows |
+| **A set is sorted before being joined into a property value** | the vendor's *features* and *interfaces* lists are sets, and two runs may serve one set in a different order, which would make every run a write |
+
+## 11. Reconciliation
+
+| Rule | Why |
+| --- | --- |
+| Reconciliation runs last, after every assertion the run makes, and only for a snapshot declaring itself complete | a withdrawal can then never precede the assertion that would have kept an element alive, and absence in a partial snapshot means nothing |
+| *ElementsClaimedByAsync(instanceId)* is one lookup in *f8i-claims*, and the withdrawal set is what it returns minus the element ids this run asserted, entities and this instance's own edges alike | one lookup is what makes reconciliation a set difference instead of a graph scan, and confining it to this instance's own claim property is what makes it incapable of touching anybody else's data |
+| The claimed-now set is what the run **claimed**, not what the snapshot listed | an entity dropped by entity-level validation is not claimed this round, so if it was claimed before it is withdrawn (section 9) |
+| If *f8i-claims* is missing, reconciliation is skipped, the index is repaired, and *reconciliationDeferred* is reported | an empty answer from a missing index reads as "this instance claims nothing", which would withdraw everything the instance ever asserted and then delete whatever nothing else claims |
+| **Withdrawal is effective-only**: an idempotent removal of this instance's own claim property, issued and counted only for elements that still actually carry *$claim:&lt;instance&gt;* | *f8i-claims* has no remove path, so it answers "ever claimed" and an element this instance already stopped claiming stays in that answer forever; re-issuing the removal would report a withdrawal and a mutation on every future run over a completely unchanged source. Since the only element keeping another instance's claim after this one lets go is one somebody unified by hand, the unfiltered version permanently falsifies the zero-mutation invariant on exactly that case and reports work the run did not do |
+| **Deletion happens on the last claim**: after withdrawing, the withdrawal set is **re-read** and only elements carrying no *$claim:* property at all are deleted, judged over every withdrawal rather than only the effective ones | the decision is made from what the elements say now rather than from what the runtime believed before it wrote, and an element that already carried no claim is an orphan left by a deferred deletion, cleaned up here once durability is healthy |
+| Deletion requires *ReadDurabilityAsync* to report *TargetDurability.SafeToDelete*: writes reaching disk, the last recovery not truncated, the last checkpoint dropping no indices. Otherwise deletions are deferred, counted in *deletionsDeferred* and reported as *deletionDeferredUnsafeDurability* | deletion is the one mutation re-running cannot undo, and it is driven by a conclusion read out of graph content: on truncated history or a lost claim index the claim state the elements were judged by may be incomplete. Deferring is recoverable; deleting wrongly is not |
+
+## 12. The provider contract
+
+```csharp
+public interface IIntegrationProvider
+{
+    ProviderDescriptor Descriptor { get; }
+
+    Task<SnapshotDocument> ObserveAsync(ProviderContext context, CancellationToken cancellationToken);
+}
+```
+
+| Contract point | Detail |
+| --- | --- |
+| *Descriptor* is data that is true before any run exists; *ObserveAsync* observes the source once and describes what it saw | throwing is a legitimate outcome meaning "I could not reach the source": the job fails, the caller is told which system did not answer, and nothing is withdrawn. Returning a snapshot that says nothing is a different statement, because a complete snapshot with no entities declares the source empty and withdraws everything this identity ever claimed |
+| *ProviderContext* is the whole of what a provider is handed: *ProviderId*, *InstanceId*, *Settings* (credentials deliberately not among them), *Required* and *Optional* for settings, *RequiredCredential* and *TryGetCredential* for values with a lifetime, *CredentialsEnded*, *ReadFileAsync* and *TryResolveFile* for a file the runtime opens on the provider's behalf, *Http*, *Logger*, *Diagnostics* | **that boundary is the deliverable** section 1 needs: every irreversible decision (claim canonicalisation, resolution, reconciliation, index repair, deletion safety) is on the runtime's side, so the worst a wrong provider can do is describe its source wrongly, which is visible in its snapshot. Move any of it across the line and reviewing a new integration means re-reviewing identity, which is exactly the review the boundary exists to remove |
+
+| A provider never | Because |
+| --- | --- |
+| resolves identity | "are these two records the same thing" is decided once, in *IdentityResolver*, under review, instead of once per provider where it is got wrong once per provider |
+| sees the graph, a target, or an element id | a provider that could read the graph could condition its output on it, and then two runs over one source are no longer comparable |
+| learns whether an entity was created or matched | an author who can see that outcome starts tuning for it, which is identity logic leaking back into the provider |
+| opens a file | settings come from whoever submitted the job, so a provider that opened what it was told to could be aimed at the credential directory and made to hand the contents back in a report or write them into the graph (section 3) |
+| holds a credential past the run | the values belong to other systems that rotate them, so a kept copy is a wrong copy, and *CredentialLease* refuses after the run so a provider that kept the context finds out |
+| declares a strength for its own claims | a provider able to call its own weak identifier strong makes an address resolve, and the run attaches its data to whichever element last held that address |
+| declares an interval, a schedule or any timing | timing is not this runtime's subject, so a declaration about it has nothing to bind to |
+
+| Descriptor field | Meaning |
+| --- | --- |
+| *Id* | the stable provider id. It appears inside every provider-scoped claim key, so it is assigned once and never reused: changing it renames every identity that provider ever asserted |
+| *DisplayName* | what a person sees in a list |
+| *Description* | what it reads and from where, in a sentence a user can act on |
+| *Settings* | the settings, as data: each a *ProviderSetting* with *Key*, *Label*, *Kind*, *Required*, *Help* and *DefaultValue*, where *SettingKind* is one of *Text*, *Number*, *Boolean*, *Url* or *Credential*. *Help* says where to find the value in the source system, which is the difference between a setting a user fills in and one they give up on; *DefaultValue* never carries a credential |
+| *EntityKinds* | the kinds it produces, which become element labels |
+| *ClaimTypes* | the identifier types it claims, checked against the vocabulary at startup |
+| *RelationTypes* | the relations it emits, which become edge types |
+| *CanObserveCompleteState* | whether a run can see the source's whole state |
+| *ReadOnly* | whether it only ever reads from the source |
+| Settings as data is what makes "adding a provider requires zero Studio code change" true rather than aspirational | a form is rendered from *Kind*, *Required* and *Help*, so a provider needing its own React component is a contract failure and not a UI task, and an agent authoring the fourth integration cannot write one anyway |
+| **The descriptor must not carry** an interval or any other timing, a summary template expressed as code rather than declaratively, or a strength for its own claim types | the first has nothing to bind to; the second puts provider-authored code on the path that produces embedding text; the third is the wrong-element-attribution hole above |
+| *ProviderCatalog* validates every declared claim type against *IdentifierVocabulary* when the catalog is built, so a wrongly scoped or unknown identifier stops the process from starting | the per-run validator checks each emitted claim too, and the startup check is that same check moved as early as it can go, because the late version costs duplicates: an unknown claim type fails validation per entity, the entity arrives with no strong claim, it never resolves against what the same instance wrote last time, and every run creates another copy. By the time a diagnostic on a job report is read the duplicates exist and re-running does not remove them. A typo caught at startup costs a restart |
+
+## 13. Conformance
+
+| Check | Value | What it asserts |
+| --- | --- | --- |
+| *SnapshotValid* | 0 | the envelope satisfies the contract: schema version, provider id, integration instance id, and a completeness declaration |
+| *ClaimsWellFormed* | 1 | every identity claim names a vocabulary type whose value canonicalises and then validates |
+| *StrengthDeclarationHonest* | 2 | no claim declares a strength the vocabulary disagrees with |
+| *Deterministic* | 3 | two runs over one fixture describe it identically, compared on the serialised snapshot with *capturedAt* normalised |
+| *Idempotent* | 4 | a second run over an unchanged source issues zero write calls to the graph |
+| *ClaimScoped* | 5 | every element the run created or matched carries this integration's claim, and no element another instance claims was written to. A run writes only to what it claims, to what it withdraws its own claim from, and to an unclaimed orphan it reclaims |
+| *NoSimilarityIdentity* | 6 | nothing in the snapshot offers a score, a threshold or a confidence for identity |
+| *RunsOffline* | 7 | the run completed against substituted seams alone |
+| *NoCredentialLeak* | 8 | no credential value reached a log sink, the job report or the graph |
+| *NoPathEscape* | 9 | every file read was one the fixture offered, by name |
+| *CompletenessHonest* | 10 | a provider that cannot observe the whole source did not declare a complete snapshot |
+| *UnreadableSourceFails* | 11 | a run that failed withdrew nothing |
+
+| Rule | Why |
+| --- | --- |
+| The suite, not prose, is what makes the "fourth integration without review" claim safe, and *ConformanceCheck* has pinned numeric values | a provider that promotes its own weak identifier attaches a run's data to the wrong element, one that declares a complete snapshot it cannot observe deletes what the source still has, and one that returns an empty snapshot when it could not reach its source withdraws everything it ever claimed: none looks wrong in a diff, and all three fail a named check. The values are pinned because the report is exposed over the wire, so retiring a member must leave its value as a gap rather than renumber the members after it |
+| A *ConformanceFinding* carries the check, whether it passed, and a detail sentence an author can act on; a *ConformanceReport* exposes *Findings*, *Conforms* and *Failed* | *Failed* is what a negative fixture asserts on |
+| **The checks are named and stable, because a negative fixture asserts a specific one** | a verifier answering only "invalid" cannot be tested: the only way to know it looks at the right thing is for a deliberately broken provider to fail the check it was broken for, and for the suite to say which. An untested verifier certifies rather than verifies, which is worse than no verifier because it is trusted |
+| **Every check is observed, never asked.** *ConformanceVerifier.VerifyAsync* takes the candidate, a job, a fixture file map, a fixture credential map and optionally a stand-in for the provider's source, then runs the candidate **twice** through the real *JobRunner*, *ProviderCatalog*, *SnapshotValidator*, *CredentialResolver* and redacting logger provider against *InMemoryGraphTarget*, and looks at what reached the graph, what reached the log sink and what the second run wrote | a verifier that trusted a declaration would certify exactly the provider that lies: *CompletenessHonest* compares the declaration against the snapshot actually produced, and *StrengthDeclarationHonest* comes out of the real validator's findings. Twice rather than once because *Deterministic* and *Idempotent* are statements about a repeat. *InMemoryGraphTarget*'s fidelity to *Fallen8RestTarget* is enforced separately by a shared contract suite |
+| A provider opts into *IObservableProvider* (a single *LastSnapshot* property) for the suite's benefit, and one that does not is recorded as **unjudgeable and failing** rather than passed by default | the snapshot checks need the document the provider returned; the runtime never needs it. A check that cannot fail is not a check |
+| Whole-suite offline operation is a requirement, not a convenience: no live source, no live graph, no network | an author who needs a controller on the desk to iterate will not iterate, and an integration nobody can iterate on is one nobody writes |
+| ***RunsOffline* means the run completed against substituted seams alone**, not "the provider attempted no request". The verifier installs a recording handler behind the *HttpClient* it hands the provider and records every attempt either way: with a source double supplied (an *HttpMessageHandler* standing in for the provider's own service) the provider must reach its source through it and the run must produce a report; with none supplied nothing may be attempted, and the handler throws naming the address that was tried | the tempting definition is wrong in both directions: "attempted no request" fails every network provider for doing the only thing it can do, and it **passes** a provider that opened its own socket behind the runtime's back, since a refusing handler sees nothing in that case either, and a pass there certifies the one provider that has escaped every seam the runtime controls |
+
+| Suite fixture | Tests |
+| --- | --- |
+| Positives | *AWellBehavedProviderConforms*, *TheShippedCsvBlueprintConforms* |
+| One negative per check, each failing its **own** check and asserting on *Failed* | *AProviderWithNoCompletenessDeclarationFailsTheEnvelopeCheck* (0), *AProviderEmittingAnUnknownIdentifierTypeFailsTheClaimCheck* (1), *AProviderThatPromotesItsOwnWeakIdentifierFailsTheStrengthCheck* (2), *ANonDeterministicProviderFailsTheDeterminismCheck* (3), *AProviderThatRewritesTheSameSourceFailsTheIdempotenceCheck* (4), *AProviderThatOffersASimilarityScoreFailsTheSimilarityCheck* (6), *AProviderThatReachesTheNetworkCannotBeJudgedOffline* (7), *AProviderThatLogsItsCredentialFailsTheLeakCheck* and *AProviderThatPutsItsCredentialInThePropertiesIsCaught* (8), *AProviderNamingAFileTheFixtureDoesNotHaveFails* (9), *AProviderThatOverDeclaresCompletenessFailsTheCompletenessCheck* (10), *AProviderThatTurnsAnUnreachableSourceIntoAnEmptySnapshotFailsTheUnreadableSourceCheck* (11), plus *AProviderThatHidesItsSnapshotCannotBeJudged* for the *IObservableProvider* rule. ***ClaimScoped* (5) is the one check no candidate provider can turn red**, because the runtime owns every claim write, so its negative is *ACrossInstanceResolverSubstitutedIntoTheSameStackFailsTheClaimScopeCheck*, a wrong resolver inside the real stack over a graph seeded with a foreign-claimed element rather than a wrong provider. Stated because a check with no red path is the failure this suite exists to prevent, and this one's red path is not provider-shaped |
+| The test that closes the set | *EveryCheckTheEnumDeclaresIsActuallyReported* runs a candidate and asserts that every member of *ConformanceCheck* appears in the findings. Without it, a thirteenth check that is never recorded reads as a passing suite and the report becomes a shorter document than it claims to be |
+
+## 14. The three blueprints
+
+**Order is fixed: minimal, UniFi, Fronius**, so the contract's floor is measured while the contract is still cheap
+to change. If the minimal provider cannot be written in roughly a hundred lines of parsing, the contract is too
+heavy, and that is a finding to report rather than a budget to raise quietly.
+
+| ***csv-device-list*, the floor** | |
+| --- | --- |
+| What it is for | it proves that no credential, no paging, no rate limiting, no topology, no relation type and no second entity kind is mandatory, so it tests whether the contract is the right shape rather than merely a working one. It is also genuinely useful: a spreadsheet is the most common inventory in existence, and the cheapest way to give a graph the names, owners and notes no controller knows |
+| Settings | *file* (Text, required, the NAME of a file in the runtime's files directory), *delimiter* (Text, optional, default `,`), *label* (Text, optional, default *device*) |
+| Entity kinds | *device*. Claim types *mac* (strong, global) and *hostname* (weak, global). No relation types |
+| Properties | *csv.name*, *csv.note*, *csv.hostname* |
+| Completeness | complete: a file read shows the whole list every time |
+| Traps | the runtime reads the file through *ProviderContext.ReadFileAsync* and the provider never sees a path, which is the *NoPathEscape* boundary made structural rather than advisory; a missing or unreadable file fails the run, since "the list is empty" withdraws every device this identity claimed, and so do a missing header row and a missing *mac* column, the refusal naming the columns found; a row with no MAC is reported (*rowWithoutMac*) and skipped rather than fatal, since losing a whole run to one typo leaves every later row unobserved and the run then withdraws; a repeated MAC is reported (*duplicateMacInFile*) and only the first row used, since two rows resolve to one element and overwrite each other by file order; *delimiter* accepts named forms (*tab*, *semicolon*, *pipe*, *comma*) because a literal tab does not survive a human editing a JSON configuration field; *label* renames rows and does not select them, which is why a setting is allowed here where a filter is not (section 9); the CSV parser is hand-written rather than a dependency in a container holding other people's credentials to read a grammar whose whole content is quotes, doubled quotes and a separator, and a newline inside a quoted field is unsupported and reported as the row it looks like rather than silently mis-parsed |
+
+| ***unifi-network*, the many-entity one** | |
+| --- | --- |
+| What it is for | everything the CSV list does not have: a credential whose lifetime it does not own, paged lists it must follow to the end, three entity kinds in one snapshot, and edges addressed by claim to devices it has not emitted yet. It proves entity ordering is not a provider's problem |
+| Settings | *baseUrl* (Url, required, the full integration API base URL), *apiKey* (Credential, required, the NAME of a credential) |
+| Entity kinds | *site*, *device*, *client* |
+| Claim types | *mac* (strong, global), *unifi-site-id*, *unifi-device-id*, *unifi-client-id* (strong, provider scope), *ipv4* (weak) |
+| Relation types | *site*, *uplink*, *connectedTo*, all addressed by claim |
+| Completeness | complete, and only honest because the paging loop refuses to return a short list |
+
+| Fact | Source |
+| --- | --- |
+| Two published servers, both just a base URL: a local console at `https://{consoleIP}/proxy/network/integration` and the cloud connector at `https://api.ui.com/v1/connector/consoles/{consoleId}/proxy/network/integration`, so one setting reaches either | the vendor's OpenAPI 3.1.0 document, read whole from `https://developer.ui.com/network/v10.4.57/openapi.json` (44 paths, 379 schemas) before a DTO is written |
+| Paging by offset and limit, with *count*, *offset*, *limit*, *totalCount* and *data* all required and *limit* capped at 200 | same document |
+| ***uplink.deviceId* is on the device DETAILS resource, not in the list**, and is a nested object rather than a flat *uplinkDeviceId* | same document |
+| Client *type* discriminates WIRED, WIRELESS, VPN and TELEPORT, and only the first two require *macAddress* and *uplinkDeviceId*; *firmwareVersion* is the one device field not required; a site requires *id*, *name* and *internalReference* | same document |
+| An Error Message schema exists (*statusCode*, *statusName*, a machine *code* such as `api.authentication.missing-credentials`, *message*) and is referenced from no response at all: the only documented responses anywhere in the document are 200 and 201 | same document |
+| The *X-API-Key* header, because **the document declares no security scheme**. The distinction is kept at the constant, so the document's silence is never read as permission | the vendor's machine-readable developer index at `https://developer.ui.com/llms.txt`, which states these APIs use API key authentication via that header |
+| Where a key is created: in the Network application, under Settings then Integrations, which the setting's help text says | a UI location no published contract covers |
+| **No documented 401, 404, 429 or 5xx and no documented rate limit**, so everything this provider does about failure is defensive and says so where it is done | confirmed in three vendor sources rather than one, because the entire 429 design rests on it: the OpenAPI document, the vendor's Postman collection (no auth and no rate limit either, its only base URL variable the cloud connector form), and the vendor's Error Handling page (the error shape, no rate limiting) |
+
+| Trap | What the provider does |
+| --- | --- |
+| Paging is where a wrong answer DELETES data | a complete snapshot's absences are withdrawals, so a list that stops early does not miss devices, it removes them. Three defences, each with a test: advance by the number of items actually returned rather than by the size asked for; stop when a page returns nothing rather than trusting *totalCount*; and refuse the run if it ends with fewer items than *totalCount* promised. *PageLimit* is a fourth, a page-count backstop against a console that reports more than it will serve |
+| *uplink* lives on the details resource | one extra request per device, with no setting to skip it: skipping withdraws those edges and recreates them when switched back, which reads as a topology change that never happened. Clients are cheaper, their uplink device being on the list item |
+| A device listed and then answering 404 was removed mid-run | omitted entirely (*deviceRemovedDuringRun*) rather than emitted without its uplink. Any other failure on that read fails the run, because a 500 does not mean the device is gone |
+| A console listing no sites | fails the run. A console always has at least one, so an empty list is an answer that cannot be trusted, and an empty complete snapshot withdraws everything |
+| The key cannot be scoped to reads | read-only by construction: two request methods, both GET, with a test asserting over a whole run that nothing else was issued. The contract has verbs that restart devices and rewrite firewall policy, and with no declared security scheme there is no published way to scope a key, so it must be assumed authorised for everything |
+| The client schema is a discriminated union | read with one flat type, so a fifth client type in a future version finds two fields missing instead of throwing on an unmapped discriminator. VPN and Teleport clients carry no MAC and no uplink device, so they are counted once (*clientsWithoutHardwareIdentity*) rather than emitted, nothing about them identifying the same thing next run. A client with no *id* breaks the published contract and is reported individually |
+| The ten-value *state* enum | carried through as the source's own string: ISOLATED is not OFFLINE, and a mapping table would answer a question the vendor already answers |
+| 429 is undocumented | defensive and never a partial success. A short *Retry-After* is honoured a bounded number of times (*LongestRetryAfter*, *RetryBudget*); anything longer, or a 429 with no guidance, fails the run naming what the console asked for, because the snapshot either describes the whole console or must not claim to |
+| A bare host in *baseUrl* | refused, not repaired, with the refusal naming both published forms: guessing wrong sends an API key to the console's web UI |
+| A stock console serves a self-signed certificate for a private address | reaching one needs the operator to name it in *Integrations:SelfSignedHosts* (section 4) |
+| No setting narrows the run | not by site and not by whether clients are included (section 9) |
+
+| Not built | Trigger to reopen |
+| --- | --- |
+| Legacy username and password auth for self-hosted installs that cannot issue an API key | the vendor publishes a contract for it; building it now means inventing third-party API surface. A self-hosted host that *does* serve the integration API needs no code, only the right base URL, which only its operator can discover |
+| *port* and *network* entity kinds | somebody needs them. Ports are on the device details resource already read and networks are their own paged list, so both are additive, and every kind added to a complete snapshot is one more thing whose absence deletes something |
+| A *hasIp* relation | never. An address is a claim on the thing that holds it; making it an entity would need identity rules for addresses |
+
+| ***fronius-solar*, the no-strong-overlap one** | |
+| --- | --- |
+| What it is for | it proves that a source sharing **no strong identifier with anything else** still works, and that nothing in the contract forces a credential. The local Solar API has no MAC address and no manufacturer serial anywhere, so its only overlap with the UniFi view of the same box is the IP address, which is weak and resolves nothing; its identity across its own runs comes entirely from instance-scoped native ids |
+| Settings | *baseUrl* (Url, required). **No credential setting at all**: the Solar API is unauthenticated local HTTP |
+| Entity kinds | *inverter*, *datamanager* |
+| Claim types | *fronius-unique-id*, *fronius-logger-id* (strong, **instance** scope), *ipv4* (weak) |
+| Relation types | *loggedBy*, inverter to the logging device, by claim |
+| Completeness | complete: one request returns every inverter the device has seen in the last 24 hours, so absence means removal rather than sleep |
+
+**From Fronius Solar API V1, vendor document 42,0410,2012, all 91 pages read whole before a DTO is written.** The first
+five are each worth a test, and each a thing a provider written from a summary gets wrong:
+
+| Vendor finding | What it forces |
+| --- | --- |
+| **Failure arrives with HTTP 200.** Every response carries *Head.Status.Code* and only 0 means the body is data; a 200 with code 12 is *DeviceNotAvailable*, the device saying it could not read the inverter | a provider checking only the HTTP status reads that as an empty installation, and an empty complete snapshot withdraws everything. The document's code table (thirteen failures plus OKAY) is transcribed, so a failure says *DeviceNotAvailable* rather than "12" |
+| ***StatusCode* is declared an integer and is the string `"Running"` on a GEN24** | a typed integer throws there and loses the run, so it is read as a raw element and a numeric code translated through the document's own table |
+| ***CustomName* arrives as HTML entities on a Datamanager or Symo Hybrid and as plain text on a GEN24**, the vendor's own example being the run `&#80;&#114;&#105;` | that run is what would otherwise land in the graph. Decoding is idempotent on plain text, which is what makes one code path correct for both platforms |
+| **The logging device's UniqueID contains a dot** (the vendor's example is `240.107620`) | the inverter type's accept pattern rejects it, hence *fronius-logger-id* as its own vocabulary entry (section 6) |
+| ***GetLoggerInfo* fails by design on GEN24, Tauro and Verto**, where the inverter itself serves the API | that is a fact about the device, not a failed run, and it is the **one** tolerated call |
+| *GetAPIVersion.cgi* reports the *BaseURL* every other request hangs off | v0 versus v1 is **asked rather than configured** |
+| A GEN24, Tauro or Verto delivered at bundle version 1.14.1 or higher, or factory reset at it, has the Solar API **off by default** and answers **404 with "Solar API disabled by customer config"**. A device merely updated to 1.14.1 keeps whatever it had | a 404 from this provider says that, names where the switch is (the inverter's web interface, under Communication then Solar API), and quotes what the device said |
+| **Not from the vendor's contract, and labelled as such:** that a *UniqueID* can be a short integer. The document says only "Unique ID of the inverter (e.g. serial number)" and its own examples run from `38183` on a Datamanager to `29301000987160033` on a GEN24; values as short as `476` and `3113` come from independent captures, the Victron *dbus-fronius* sample collection and the Home Assistant integration | that evidence is what forces instance scope on both id types, the single highest-consequence entry in the vocabulary, so where it came from matters |
+
+| Further trap | What the provider does |
+| --- | --- |
+| Which device holds the address is derived from the contract, not assumed | a datamanager card fronts several inverters at one address, so giving each inverter that address would advertise one overlap per inverter against the same switch port, all but one wrong. If *GetLoggerInfo* answers, the address belongs to the logging device; if it fails the documented way, it belongs to the single inverter. A host **name** rather than an IPv4 literal asserts no address claim at all, plus a diagnostic (*addressIsNotAnIpv4Literal*), because that claim is the only overlap this provider has and its silent absence would be invisible |
+| An empty inverter list | fails the run: a datamanager reports every inverter it has seen in 24 hours, so an empty list is not an empty installation |
+| An inverter with no UniqueID | skipped and counted (*inverterWithoutUniqueId*), because without it every run creates another copy |
+| The device-type number | recorded as a number, not mapped to a model name. The document's table has more than 250 entries, exists only in a PDF, and is wrong anyway on the newest platforms, which the document says always report device type 1 |
+| *Show* | recorded, not obeyed. "Do not display this in visualizations" is a dashboard preference, and dropping the inverter would withdraw it from the graph the moment somebody set it |
+| *ErrorCode* of -1 | absence, per the document, not an error numbered minus one |
+| Recorded but not met | in *Scope=System*, older platforms nest readings under *Values* and a GEN24 under *Value*, singular. This provider reads no realtime data, so it never meets that divergence; whoever adds readings will |
+
+## 15. No provider ships stored queries
+
+| Rule | Why |
+| --- | --- |
+| No provider registers a stored query, and the reason is not the delivery mechanism: **a registered query cannot express what these queries mean** | the useful query is "the elements this integration wrote", a per-instance claim property on each element. No static artefact can carry it, and it cannot even be named after the instance, because an instance id may contain a dot while a stored-query name may not |
+| Scoping by element label instead returns **the wrong rows** | two providers legitimately write the label *device* and one of them takes its label from a setting, and for a GraphRAG entry point a wrong result set becomes a confident wrong answer downstream, with nothing in the answer indicating the scope was wrong. The graph is queryable and the docs carry worked examples scoped by the claim property; nothing is registered on anybody's behalf |
+
+## 16. Observability
+
+| Decision | Detail |
+| --- | --- |
+| Metrics, traces and logs go over OTLP to the same collector as the Fallen-8 the runtime feeds, declaring the **same** tenant and instance identity (*Integrations:Identity*) | the fleet dashboards then resolve its panels under that instance rather than as an unrelated service |
+| Meter *NoSQL.GraphDB.Integrations*, instruments *f8i.job.runs*, *f8i.job.duration*, *f8i.job.elements*, *f8i.job.claims_withdrawn*, *f8i.job.elements_deleted*, *f8i.job.deletions_deferred* | one instrument per count the report carries |
+| The job's claim identity is deliberately not a metric tag; the provider id is a closed set and is safe, and the run outcome is *ok* or *failed* | the identity arrives from a caller on every request, so tagging by it lets a caller mint unbounded time series in somebody else's monitoring backend |
+| Log export runs behind the redaction wrap | which is why that wrap is installed last (section 3) |
+
+## 17. The AI surface, which is a later phase
+
+| Eventually in scope, or deliberately out | Detail |
+| --- | --- |
+| **In scope: embedding opt-in** | a provider may declare an optional **entity summary template**, declarative and not code, producing the text to embed ("Fronius Symo 8.2-3-M inverter, VLAN 30, garage"). Embedding is **opt-in per provider and per instance, default off**, because embedding every client on a busy network by default is cost and noise in equal measure. Dimension and metric are read from the target's declared embedding configuration, which `GET /status` already publishes (*dimension*, *intendedMetric*, anonymous, no key needed), so no model, dimension or metric is hardcoded anywhere |
+| **In scope: the degradation matrix over it**, and it is later rather than early | the runtime has to behave correctly with *F8_EMBEDDINGS*, *F8_CHAT*, *F8_NLP* and *F8_INGESTION* each off, in any combination, with every AI-dependent behaviour degrading to **absent** rather than to broken: sixteen combinations, asserted over observable behaviour. **The matrix cannot be written before the behaviour it degrades exists**, because sixteen cells over behaviour that has not been built pass in all sixteen while asserting nothing: there is no observable difference between "degraded to absent" and "absent because it was never built". It would be the most expensive-looking check in the suite and the only one incapable of turning red, and would then be trusted by everyone who saw it pass. So the sequence is fixed: build the embedding opt-in, then write the matrix over it, and write each cell only where a fixture can make it fail |
+| **Deliberately out: NLP enrichment** | structured sources do not need entity extraction; a CSV row, a UniFi device and a Fronius inverter are already fields with names, and running an extractor over them invents structure the source already stated. *Trigger to reopen:* a provider whose source carries genuine free text, such as device notes, client aliases, room or zone labels, or attached documents. When one arrives the rule it must satisfy is already decided: **a provider declares which fields are free text, and enrichment runs only on those**, never speculatively across all properties, with a conformance check asserting that the set of fields sent for enrichment is exactly the declared set. Extracted entities and key terms never enter the claim space, at any strength, under any configuration |
+
+## 18. Impact on existing features
+
+| Layer | Impact, each row checked against the files as they are rather than from memory |
+| --- | --- |
+| The engine (*fallen-8-core*) | **No change.** Everything this runtime needs exists after the platform-integrity-audit work: atomic property replace and remove, batch element read, add-only index backfill from element state, a loud missing-index signal on scan, and the durability and recovery-integrity facts |
+| The REST surface (*fallen-8-core-apiApp*) | **Four new routes, all Fallen-8-level.** A new *IntegrationsController* with the four routes in section 1, a new *IntegrationsClient* on the existing sidecar client base, and a new *Fallen8IntegrationsOptions* bound to *Fallen8:Integrations*. No existing route changes shape |
+| The pinned OpenAPI snapshot | `features/done/web-ui/openapi-v0.1.json` regenerated with `powershell.exe -File scripts/update-openapi-snapshot.ps1`, additions only: the four operations, nothing removed |
+| *NamespaceEndpointTest* | four entries in the Fallen-8-level set, which is keyed by full path, or `/integrations` becomes a prefix rule as `/savegames` already is |
+| The MCP coverage gate (*McpRestCoverageTest*) | **One deferral rule, with its reason.** All four routes are deferred rather than bridged. Three are declarations rather than capabilities: the provider catalog and the vocabulary describe what could be run, and snapshot validation is an authoring aid, since a provider is C# compiled into this deployable so an agent cannot add one over the API at any tier. The fourth, running a job, has a real agent case and one specific reason to withhold it: a run is a complete-snapshot write, so a job submitted under an identity that is not exactly the one that integration has always used withdraws and deletes every element the real integration claimed, nothing can detect it, and an agent composing a job is the caller most likely to invent a plausible-looking identifier. **Revisit when the runtime can tell a new identity from a mistyped one**, for instance by refusing an unknown identity unless the job declares itself a first run. There is no credential route to argue about, because the runtime stores none |
+| *CodeQualityTest* and the other standing gates | *fallen-8-integrations* joins *_allProjects* and *_productProjects*, so the MIT header, no-`Console.Write*`, no-`DateTime.Now` and exact-package-version gates cover it from the first commit; warnings stay errors (`Directory.Build.props`) for the new project, and *AuditDefectRemarksTest* (at most one `<remarks>` per doc block) covers the new controller's XML docs. The test project gains a project reference to it, which is also what lets one shared contract suite point *Fallen8RestTarget* at an apiApp hosted in process |
+| F8 Studio (*fallen-8-web-ui*) | **A new screen, and no per-provider code.** An Integrations screen lists providers, renders a settings form from *SettingKind*, *Required* and *Help*, submits a job and shows the report and its diagnostics. Adding a fourth provider must require zero Studio change; a provider needing its own component is a contract failure. The screen is absent when `GET /integrations/providers` answers 403, which is what *F8_INTEGRATIONS=false* produces. Studio list caps apply as everywhere else |
+| The docs site (`docs/`) | **One new page, registered in the sidebar.** `docs/src/content/docs/integrations.md` in the *Features* group in `docs/astro.config.mjs`, covering what an integration is, the three shipped ones, how a credential is provided and rotated, the two host lists, what a job report says, and the worked claim-property queries section 15 promises instead of stored queries. The README "Key features" list gains a one-line entry linking `https://cosh.github.io/fallen-8-core/integrations/`. The link-checked docs build must stay green |
+| The architecture diagrams | **Both change, in the same PR**, since the runtime is a new deployable and a new channel by which data reaches a graph. In the root `README.md` diagram it is a new node reaching the REST API and the user's own network, drawn on the internal side to show it has no host port. In `docs/src/content/docs/architecture.md`, the same node plus its credential and files mounts, its OTLP push, and the apiApp proxy edge. Colours stay the fixed dark surfaces with the `#E2001A` accent |
+| The compose environment | **One service, one profile, three new variables.** *f8-integrations* on the *integrations* profile, unpublished, read-only with a `/tmp` tmpfs, `stop_grace_period: 120s`, and the two read-only mounts. Its *Fallen8Target__BaseUrl* points at the *fallen8* service and its *Fallen8Target__ApiKey* reuses the existing *F8_API_KEY*, exactly as *f8-mcp* does, so a secured instance needs no second key. The *fallen8* service gains *Fallen8__Integrations__Enabled* and *Fallen8__Integrations__Endpoint*. `scripts/env-up.js` pushes the profile unless *F8_INTEGRATIONS=false* and warns when *F8_INTEGRATIONS_ALLOWED_HOSTS* or *F8_INTEGRATIONS_SELF_SIGNED_HOSTS* is unset; `scripts/env-info.js` prints the API-side URL and deliberately no localhost URL for the runtime itself; `package.json`'s *env:down*, *env:logs* and *env:status* pass `--profile integrations` so a running sidecar is covered. `.github/workflows/release.yml` gains the image to the multi-arch matrix. A `secrets/` directory with a `.gitignore` ignoring everything in it ships so the default mount path exists |
+| The identifier vocabulary | new here, and this feature's own file: eleven entries, embedded in this project, not shared with the engine, and nothing else in the repository reads it |
+| NL assist (*nl-assist-finetune*) | **No impact, no retrain entry.** That dataset teaches the model to write Fallen-8 delegate and filter code against the engine's type model. This feature adds no delegate surface, no new query construct and no engine type, and its routes are not something the assistant composes code for, so nothing is appended to `RETRAIN-LOG.md` |
+| Sample graphs and the Samples gallery | **No change.** An integration writes into a live namespace from a live source; a curated sample is a static dataset. The CSV blueprint's files mount pointing at `sample-graphs` by default is a convenience for having any readable file present, not a coupling |
+| Stored queries | **No change, deliberately.** Section 15 |
+| Superseded feature records | `features/open/integration-runtime/`, `features/open/integration-identity/` and `features/open/integration-blueprints/` are replaced by this directory and are deleted, so there is exactly one home for the explanation |

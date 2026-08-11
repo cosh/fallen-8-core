@@ -4,7 +4,7 @@
 > repository root `CLAUDE.md`. Feature branch: `feature/platform-integrity-audit` (branch-only
 > workflow, no GitHub issue/PR).
 >
-> **How this feature came to exist.** Designing the *integration-runtime* feature (a first-party
+> **How this feature came to exist.** Designing the *integrations* feature (a first-party
 > sidecar that pulls data from systems on the user's own network into a Fallen-8) required a
 > survey of what the platform does and does not support. That survey produced thirteen claimed
 > gaps. Each was then hard-verified against the code by principal engineers, reviewed
