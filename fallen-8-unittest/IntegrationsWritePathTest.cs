@@ -26,10 +26,15 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.Integrations.Conformance;
 using NoSQL.GraphDB.Integrations.Contract;
+using NoSQL.GraphDB.Integrations.Credentials;
+using NoSQL.GraphDB.Integrations.Diagnostics;
 using NoSQL.GraphDB.Integrations.Graph;
 using NoSQL.GraphDB.Integrations.Identity;
 using NoSQL.GraphDB.Integrations.Run;
@@ -42,6 +47,11 @@ namespace NoSQL.GraphDB.Tests
     ///   turns red if that rule alone is inverted. These rules are the part of the feature most likely to be
     ///   wrong, and every one of them fails in the same direction when it is missing - the graph silently gains
     ///   duplicates, or silently loses elements a source still has.
+    ///
+    ///   <para>The region "what one RUN owes" covers the rules the RUNNER owns rather than the applier, because
+    ///   they fail the same way: an apply phase that honours the caller's cancellation, an instance id that forks
+    ///   on a capital letter, an outcome no log line accounts for, and a log line that accounts for it
+    ///   falsely.</para>
     /// </summary>
     [TestClass]
     public class IntegrationsWritePathTest
@@ -522,6 +532,187 @@ namespace NoSQL.GraphDB.Tests
                 "invariant false by construction");
         }
 
+        [TestMethod]
+        public async Task AClientTimeoutOnTheEmbeddingWrite_IsAGraphFailure_NotACancellation()
+        {
+            // HttpClient reports its OWN timeout as a TaskCanceledException, which IS an
+            // OperationCanceledException. The embedding write caught HttpRequestException alone, so a sidecar or
+            // proxy that timed out escaped this seam as a cancellation - indistinguishable one frame up from the
+            // caller walking away, and the two license opposite statements about what the run wrote. Every other
+            // route through this target already rewraps it.
+            using var client = new HttpClient(new TimingOutHandler())
+            {
+                BaseAddress = new Uri("http://localhost/"),
+            };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var failure = await Assert.ThrowsExceptionAsync<GraphTargetException>(
+                () => target.EmbedSummariesAsync("default", new[] { new SummaryWrite(0, "device printer") },
+                    CancellationToken.None),
+                "a target that did not answer in time is this seam's own failure, and only the caller's token can " +
+                "make a cancellation the caller's");
+
+            StringAssert.Contains(failure.Message, "embedding write",
+                "and the failure names which write did not come back: " + failure.Message);
+        }
+
+        #endregion
+
+        #region what one RUN owes: the apply phase, the outcome line, one identity
+
+        [TestMethod]
+        public async Task TheApplyPhaseFinishesEvenAfterTheCallerHasWalkedAway()
+        {
+            // The trigger is not theoretical: the job endpoint binds the request-abort token and the apiApp proxy
+            // has a finite timeout, so a source that legitimately takes longer than the proxy waits used to have
+            // its GRAPH WRITES killed between calls. The source read is cancellable and losing it costs nothing;
+            // interrupting a bounded handful of batched writes leaves a half-applied snapshot instead.
+            var graph = new InMemoryGraphTarget();
+            using var walkedAway = new CancellationTokenSource();
+
+            // A target that honours the token, because the live one does: every write is an HTTP call, and
+            // HttpClient throws the moment the token it was handed is cancelled.
+            using var harness = Harness(new CancellationHonouringTarget(graph));
+            harness.Provider.WhileObserving = (context, token) => walkedAway.Cancel();
+
+            JobReport report = null;
+            try
+            {
+                report = await harness.Runner.RunAsync(RunnerJob(Instance), walkedAway.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Asserted below rather than here, so the failure says what was lost instead of naming an exception.
+            }
+
+            Assert.IsNotNull(report,
+                "the apply phase passed the caller's token to the graph, so the writes died between calls and the " +
+                "snapshot landed by halves - repairable, but invisible to everyone including the next run");
+            Assert.IsFalse(report.Failed, "the run finished what it started: " + report.ErrorKind + " " + report.Error);
+            Assert.AreEqual(1, report.ElementsCreated, Describe(report));
+            Assert.AreEqual(1, graph.AllElements().Count(), "and the element really is in the graph");
+        }
+
+        [TestMethod]
+        public async Task ACancelledRunIsLoggedAsAbandoned_NeverAsAFinishedRunThatCreatedNothing()
+        {
+            var graph = new InMemoryGraphTarget();
+            using var walkedAway = new CancellationTokenSource();
+            using var harness = Harness(graph);
+            harness.Provider.WhileObserving = (context, token) =>
+            {
+                walkedAway.Cancel();
+                token.ThrowIfCancellationRequested();
+            };
+
+            var propagated = false;
+            try
+            {
+                await harness.Runner.RunAsync(RunnerJob(Instance), walkedAway.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                propagated = true;
+            }
+
+            Assert.IsTrue(propagated, "a cancelled run has no report to hand back, so the cancellation propagates");
+            Assert.IsFalse(harness.Log.Lines.Any(line => line.Contains("finished in", StringComparison.Ordinal)),
+                "the one line a cancelled run leaves behind must not be the success-shaped one: the report it " +
+                "would read was never completed, so its duration and every count on it are zero. Lines: " +
+                String.Join(" | ", harness.Log.Lines));
+            Assert.IsTrue(harness.Log.Lines.Any(line => line.Contains("ABANDONED", StringComparison.Ordinal)),
+                "and the abandonment is logged, because a run that was asked for and then dropped is worth " +
+                "exactly one honest line. Lines: " + String.Join(" | ", harness.Log.Lines));
+        }
+
+        [TestMethod]
+        public async Task ARunAbandonedINSIDETheApplyPhase_IsNeverLoggedAsHavingWrittenNothing()
+        {
+            // The apply phase is handed CancellationToken.None, so a cancellation surfacing from inside it is not
+            // the caller's: it is a write failing - a client-side timeout is the shipped shape - while the caller's
+            // token happens to be cancelled too, because the proxy in front of this runtime gave up. The runner's
+            // filter can only see the caller's token, so the durability claim in its ABANDONED line has to come
+            // from WHICH SIDE of the apply call it stands on.
+            var graph = new InMemoryGraphTarget();
+            using var walkedAway = new CancellationTokenSource();
+            using var harness = Harness(new TimingOutEmbeddingTarget(graph, walkedAway));
+
+            var job = RunnerJob(Instance);
+            job.EmbedSummaries = true;
+
+            try
+            {
+                await harness.Runner.RunAsync(job, walkedAway.Token);
+                Assert.Fail("the fixture fails the embedding write, so this run cannot come back with a report");
+            }
+            catch (OperationCanceledException)
+            {
+                // The outcome under test is the LINE, asserted below.
+            }
+
+            Assert.AreEqual(1, graph.AllElements().Count(),
+                "the fixture must fail AFTER the graph write, or there is nothing for a log line to be wrong about");
+
+            var abandoned = harness.Log.Lines.FirstOrDefault(
+                line => line.Contains("ABANDONED", StringComparison.Ordinal));
+            Assert.IsNotNull(abandoned,
+                "the abandonment is still logged: " + String.Join(" | ", harness.Log.Lines));
+            Assert.IsFalse(abandoned.Contains("nothing was written", StringComparison.Ordinal),
+                "an element, its claims and its index entries are in the graph. A confident false statement about " +
+                "durability-relevant work is worse than a vague one, and this is the failure class where the log " +
+                "line is the only account there is. Line: " + abandoned);
+            StringAssert.Contains(abandoned, "1 created",
+                "and the line says what had landed, because the reader's next question is what to repair: " +
+                abandoned);
+        }
+
+        [TestMethod]
+        public async Task ACredentialTheRuntimeCannotUse_FailsAsCredential_AndStillLeavesALogLine()
+        {
+            var graph = new InMemoryGraphTarget();
+            using var harness = Harness(graph);
+
+            // A form submitted before the paste: the value arrives, and it is whitespace.
+            var job = RunnerJob(Instance);
+            job.CredentialValues["apiKey"] = "   ";
+
+            var report = await harness.Runner.RunAsync(job, CancellationToken.None);
+
+            Assert.AreEqual(JobErrorKinds.Credential, report.ErrorKind,
+                "a value the runtime could not use and a source that refused one send a reader to the same place");
+            Assert.AreEqual(0, graph.MutationCalls.Count, "and a failed run mutates nothing at all");
+            Assert.IsTrue(
+                harness.Log.Lines.Any(line => line.Contains("FAILED (credential)", StringComparison.Ordinal)),
+                "this failure returns BEFORE the lease exists, so it is the one outcome that never passes the " +
+                "using-block's log, and 'the run that produced no log line at all' is the worst shape for the one " +
+                "failure class an operator fixes by looking at the credential. Lines: " +
+                String.Join(" | ", harness.Log.Lines));
+        }
+
+        [TestMethod]
+        public async Task RetypingTheInstanceIdInAnotherCase_IsTheSameIdentity_AndDuplicatesNothing()
+        {
+            // Every claim key is composed with the instance id and compared ordinally, so unfolded, "Garage" and
+            // "GARAGE" are two identities: the second claims nothing, so it duplicates every element, and the
+            // first is never reconciled again, so everything it claimed is orphaned. The run gate is
+            // case-insensitive, so the two would not even collide there.
+            var graph = new InMemoryGraphTarget();
+            using var harness = Harness(graph);
+
+            var first = await harness.Runner.RunAsync(RunnerJob("Garage"), CancellationToken.None);
+            Assert.AreEqual(1, first.ElementsCreated, Describe(first));
+
+            var second = await harness.Runner.RunAsync(RunnerJob("GARAGE"), CancellationToken.None);
+
+            Assert.AreEqual(0, second.ElementsCreated,
+                "retyping the name in another case is what a reader does, and it must be the same identity: " +
+                Describe(second));
+            Assert.AreEqual(1, second.ElementsMatched, Describe(second));
+            Assert.AreEqual(1, graph.AllElements().Count(), "so the graph holds one device, not two");
+            Assert.IsTrue(graph.TryReadElement(0, out var state) && state.IsClaimedBy(Instance),
+                "and the claim is keyed on the folded id, so the gate, the keys and reconciliation all agree");
+        }
+
         #endregion
 
         #region helpers
@@ -658,15 +849,38 @@ namespace NoSQL.GraphDB.Tests
             // duplicates it) and invisible to reconciliation (which withdraws by set difference over that
             // index).
             var graph = new InMemoryGraphTarget();
+            await graph.EnsureIndicesAsync(CancellationToken.None);
 
-            await ApplyAsync(graph, TwoDevicesWithAnUplink());
+            // A run over creates alone has no property write to place, so the fixture gives one element a STALE
+            // property: this run then issues all three call kinds and the ordering of all three is observable.
+            graph.SeedVertex("device", new[]
+            {
+                new GraphProperty(ClaimSchema.IdentityProperty(0), "System.String", "mac:44d244aabbcc"),
+                new GraphProperty(ClaimSchema.ClaimProperty(Instance), "System.String", Instance),
+                new GraphProperty("csv.name", "System.String", "printer"),
+            });
 
-            var firstIndex = graph.MutationCalls.ToList().FindIndex(c => c.StartsWith("indexClaims", StringComparison.Ordinal));
-            var firstEdge = graph.MutationCalls.ToList().FindIndex(c => c.StartsWith("createEdges", StringComparison.Ordinal));
+            var stale = Device("44:D2:44:AA:BB:CC", ("csv.name", "plotter"));
+            stale.Relations.Add(new RelationDto
+            {
+                Type = "uplink",
+                Target = new ClaimReferenceDto { Type = "mac", Value = "44:D2:44:AA:BB:DD" },
+            });
 
-            Assert.IsTrue(firstIndex >= 0, "the run must index its claims: " + String.Join(", ", graph.MutationCalls));
+            var report = await ApplyAsync(graph, Document(stale, Device("44:D2:44:AA:BB:DD")));
+
+            var calls = graph.MutationCalls.ToList();
+            var firstIndex = calls.FindIndex(c => c.StartsWith("indexClaims", StringComparison.Ordinal));
+            var firstProperty = calls.FindIndex(c => c.StartsWith("setProperties", StringComparison.Ordinal));
+            var firstEdge = calls.FindIndex(c => c.StartsWith("createEdges", StringComparison.Ordinal));
+
+            Assert.AreEqual(1, report.EdgesCreated, "the fixture must wire an edge: " + Describe(report));
+            Assert.IsTrue(firstIndex >= 0, "the run must index its claims: " + String.Join(", ", calls));
+            Assert.IsTrue(firstProperty > firstIndex,
+                "the claims are indexed before the property writes, which is the half of this rule a fixture of " +
+                "pure creates cannot see at all: " + String.Join(", ", calls));
             Assert.IsTrue(firstEdge > firstIndex,
-                "the entity claims are indexed before the edges are wired: " + String.Join(", ", graph.MutationCalls));
+                "the entity claims are indexed before the edges are wired: " + String.Join(", ", calls));
         }
 
         [TestMethod]
@@ -700,6 +914,68 @@ namespace NoSQL.GraphDB.Tests
             var found = await graph.ResolveClaimKeysAsync(new[] { "serial:SN-1" }, Instance, CancellationToken.None);
             Assert.IsTrue(found.ByKey.TryGetValue("serial:SN-1", out var named) && named.Contains(id),
                 "after the heal the index names the element for the claim it already carried");
+        }
+
+        [TestMethod]
+        public async Task AnElementClaimedNowButMissingFromTheClaimsIndex_IsReAssertedByReconciliation()
+        {
+            // The OTHER half of the interrupted-run fingerprint, and the half the identity-index heal cannot see:
+            // the element is findable by its claim key and says it is claimed, but the CLAIMS index does not name
+            // it. Reconciliation withdraws by set difference over exactly that scan, so an element it never names
+            // is never withdrawn and never deleted while staying invisible to every future reconciliation.
+            var graph = new InMemoryGraphTarget();
+            await graph.EnsureIndicesAsync(CancellationToken.None);
+
+            var id = Seed(graph, "device", new[] { "mac:44d244aabbcc" }, Instance);
+            graph.RemoveIndexEntry(ClaimSchema.ClaimsIndexId, Instance, id);
+
+            var report = await ApplyAsync(graph, Document(Device("44:D2:44:AA:BB:CC")));
+
+            Assert.AreEqual(1, report.ElementsMatched, "the element resolves as usual: " + Describe(report));
+            var healed = report.Diagnostics.FirstOrDefault(d => d.Code == DiagnosticCodes.ClaimReindexed);
+            Assert.IsNotNull(healed, "the heal is reported: " + Describe(report));
+            StringAssert.Contains(healed.Message, "reconciliation cannot see them at all",
+                "and it is the RECONCILE half that reported it, not the identity-index half");
+
+            var claimed = await graph.ElementsClaimedByAsync(Instance, CancellationToken.None);
+            CollectionAssert.Contains(claimed.ToList(), id,
+                "the claims index names the element again, which is the whole repair");
+
+            // And the proof that it is repaired rather than merely reported: the next complete snapshot that no
+            // longer mentions the element can now withdraw and delete it. Without the re-assert the element would
+            // sit in the graph claimed by this instance forever, invisible to every reconciliation there is.
+            var next = await ApplyAsync(graph, Document());
+            Assert.AreEqual(1, next.ClaimsWithdrawn, Describe(next));
+            Assert.AreEqual(1, next.ElementsDeleted, Describe(next));
+        }
+
+        [TestMethod]
+        public async Task TwoEntitiesAssertingOneStrongClaim_AreReportedWithTheKeyThatCollided()
+        {
+            // A recycled strong identifier - an RMA'd serial, a swapped MAC - is how this arrives in a real
+            // source. Converging is the right behaviour, but silence makes it undiagnosable: the two entities'
+            // properties overwrite each other on one element and the only visible symptom is churn.
+            var graph = new InMemoryGraphTarget();
+
+            var left = Device("44:D2:44:AA:BB:CC", ("csv.name", "printer"));
+            left.Claims.Add(new IdentityClaimDto { Type = "serial", Value = "SN-1" });
+            var right = Device("44:D2:44:AA:BB:DD", ("csv.name", "plotter"));
+            right.Claims.Add(new IdentityClaimDto { Type = "serial", Value = "SN-1" });
+
+            var report = await ApplyAsync(graph, Document(left, right));
+
+            var collision = report.Diagnostics.FirstOrDefault(d => d.Code == DiagnosticCodes.CollidingStrongClaim);
+            Assert.IsNotNull(collision,
+                "two entities of one snapshot asserting one strong claim is a provider fault the author can only " +
+                "fix if it is named: " + Describe(report));
+            StringAssert.Contains(collision.Message, "serial:SN-1",
+                "the report says WHICH key collided, or the author has a churning integration and no lead");
+            StringAssert.Contains(collision.Message, "mac:44d244aabbcc",
+                "and which entities did it, so the source row is findable");
+
+            Assert.AreEqual(2, report.ElementsCreated,
+                "the report is a diagnostic and not a merge: nothing here ever unifies two elements, and each " +
+                "entity keeps the element its own strong claims found");
         }
 
         [TestMethod]
@@ -756,6 +1032,162 @@ namespace NoSQL.GraphDB.Tests
             return graph.SeedVertex(label, properties);
         }
 
+        private static IntegrationJob RunnerJob(String instanceId)
+        {
+            return new IntegrationJob { ProviderId = Provider, IntegrationInstanceId = instanceId };
+        }
+
+        private static RunnerHarness Harness(IGraphTarget target)
+        {
+            return new RunnerHarness(target);
+        }
+
+        /// <summary>
+        ///   The REAL runner over a graph a test can read, with the one seam a run's outcome cannot be judged
+        ///   without: a capturing log sink, because for a cancelled or credential-refused run the log LINE is the
+        ///   only account there is.
+        /// </summary>
+        private sealed class RunnerHarness : IDisposable
+        {
+            private readonly ILoggerFactory _loggers;
+            private readonly IntegrationsMetrics _metrics;
+
+            public RunnerHarness(IGraphTarget target)
+            {
+                Log = new CapturingLoggerProvider();
+                _loggers = LoggerFactory.Create(builder => builder.AddProvider(Log));
+                _metrics = new IntegrationsMetrics();
+                Provider = new ScriptedProvider();
+
+                var vocabulary = IdentifierVocabulary.Shipped;
+                var active = new ActiveCredentials();
+                Runner = new JobRunner(
+                    new ProviderCatalog(new IIntegrationProvider[] { Provider }, vocabulary),
+                    new SnapshotValidator(vocabulary),
+                    new SnapshotApplier(new IdentityResolver()),
+                    new CredentialResolver(active),
+                    new OneTargetFactory(target),
+                    new NoNetworkHttpFactory(),
+                    new NoFilesFileStore(),
+                    active,
+                    new RunGate(),
+                    _metrics,
+                    _loggers);
+            }
+
+            public ScriptedProvider Provider { get; }
+
+            /// <summary>Every line the runner logged, formatted.</summary>
+            public CapturingLoggerProvider Log { get; }
+
+            public JobRunner Runner { get; }
+
+            public void Dispose()
+            {
+                _loggers.Dispose();
+                _metrics.Dispose();
+            }
+        }
+
+        /// <summary>
+        ///   Describes one device, identically on every run, and runs a hook WHILE observing - which is where a
+        ///   caller's cancellation arrives in the only place a run is meant to honour it.
+        /// </summary>
+        private sealed class ScriptedProvider : IIntegrationProvider
+        {
+            public ProviderDescriptor Descriptor { get; } = new ProviderDescriptor
+            {
+                Id = Provider,
+                DisplayName = "Write-path fixture",
+                Description = "Describes one device, reading nothing.",
+                Settings = new[]
+                {
+                    new ProviderSetting
+                    {
+                        Key = "apiKey",
+                        Label = "API key",
+                        Kind = SettingKind.Credential,
+                        Required = false,
+                        Help = "Supplied only by the credential-failure fixture.",
+                    },
+                },
+                EntityKinds = new[] { "device" },
+                ClaimTypes = new[] { "mac" },
+
+                // Declared, so the provider half of the embedding opt-in is available to the one fixture that
+                // needs the apply phase to reach the embedding write. The job half stays off by default.
+                EntitySummaryTemplate = "{kind} {csv.name}",
+                CanObserveCompleteState = true,
+                ReadOnly = true,
+            };
+
+            public Action<ProviderContext, CancellationToken> WhileObserving { get; set; }
+
+            public Task<SnapshotDocument> ObserveAsync(ProviderContext context, CancellationToken cancellationToken)
+            {
+                WhileObserving?.Invoke(context, cancellationToken);
+
+                var snapshot = new SnapshotDocument
+                {
+                    ProviderId = context.ProviderId,
+                    IntegrationInstanceId = context.InstanceId,
+                };
+                snapshot.Declares = SnapshotCompleteness.Complete;
+                snapshot.CapturedNow();
+                snapshot.Entities.Add(Device("44:D2:44:AA:BB:CC", ("csv.name", "printer")));
+                return Task.FromResult(snapshot);
+            }
+        }
+
+        /// <summary>Hands every run the same graph, and survives the runner disposing it.</summary>
+        private sealed class OneTargetFactory : IGraphTargetFactory
+        {
+            private readonly IGraphTarget _target;
+
+            public OneTargetFactory(IGraphTarget target)
+            {
+                _target = target;
+            }
+
+            public IGraphTarget Create(String namespaceName)
+            {
+                return _target;
+            }
+        }
+
+        /// <summary>A client nothing may reach a network through: this fixture's provider reads no source.</summary>
+        private sealed class NoNetworkHttpFactory : IProviderHttpFactory
+        {
+            public HttpClient Create(Boolean holdsCredential)
+            {
+                return new HttpClient(new RefusingHandler(), disposeHandler: true);
+            }
+
+            private sealed class RefusingHandler : HttpMessageHandler
+            {
+                protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+                    CancellationToken cancellationToken)
+                {
+                    throw new NotSupportedException("This fixture's provider reads no source.");
+                }
+            }
+        }
+
+        /// <summary>A files mount with nothing in it, for the same reason.</summary>
+        private sealed class NoFilesFileStore : IProviderFileStore
+        {
+            public Task<String> ReadAsync(String fileName, CancellationToken cancellationToken)
+            {
+                throw new NotSupportedException("This fixture offers no files.");
+            }
+
+            public Boolean TryResolve(String fileName, out String failure)
+            {
+                failure = "This fixture offers no files.";
+                return false;
+            }
+        }
+
         private static String Describe(JobReport report)
         {
             return String.Format(
@@ -803,6 +1235,97 @@ namespace NoSQL.GraphDB.Tests
             {
                 return Task.FromResult(new IndexWriteOutcome(0,
                     System.Collections.Immutable.ImmutableArray.CreateRange(entries)));
+            }
+        }
+
+        /// <summary>
+        ///   A target that HONOURS the cancellation token on every write, which is what the live one does: each
+        ///   write is an HTTP call and <c>HttpClient</c> throws the moment the token it was handed is cancelled.
+        ///   The in-memory graph ignores the token entirely, so without this the apply phase's uncancellability
+        ///   could not be observed at all.
+        /// </summary>
+        private sealed class CancellationHonouringTarget : DelegatingGraphTarget
+        {
+            public CancellationHonouringTarget(InMemoryGraphTarget inner)
+                : base(inner)
+            {
+            }
+
+            public override Task<IReadOnlyList<Int32>> CreateVerticesAsync(IReadOnlyList<VertexWrite> vertices,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return base.CreateVerticesAsync(vertices, cancellationToken);
+            }
+
+            public override Task<IReadOnlyList<Int32>> CreateEdgesAsync(IReadOnlyList<EdgeWrite> edges,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return base.CreateEdgesAsync(edges, cancellationToken);
+            }
+
+            public override Task ApplyPropertyWritesAsync(IReadOnlyList<PropertyWrite> writes,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return base.ApplyPropertyWritesAsync(writes, cancellationToken);
+            }
+
+            public override Task<IndexWriteOutcome> IndexClaimsAsync(IReadOnlyList<IndexEntry> entries,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return base.IndexClaimsAsync(entries, cancellationToken);
+            }
+
+            public override Task RemoveElementsAsync(IReadOnlyCollection<Int32> ids,
+                CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return base.RemoveElementsAsync(ids, cancellationToken);
+            }
+        }
+
+        /// <summary>
+        ///   A target whose embedding write fails the way a client-side timeout arrives - as the
+        ///   <see cref="TaskCanceledException"/> it is - with the caller's request already cancelled underneath it,
+        ///   which is the coincidence that let a timeout pass for the caller walking away.
+        ///   <c>Fallen8RestTarget</c> rewraps that into a graph failure (pinned separately), so this fixture stands
+        ///   for the RULE rather than for that target: the runner's account must hold for any
+        ///   <see cref="IGraphTarget"/>, and the runner is the only frame that knows which side of the apply call
+        ///   it is standing on.
+        /// </summary>
+        private sealed class TimingOutEmbeddingTarget : DelegatingGraphTarget
+        {
+            private readonly CancellationTokenSource _caller;
+
+            public TimingOutEmbeddingTarget(InMemoryGraphTarget inner, CancellationTokenSource caller)
+                : base(inner)
+            {
+                _caller = caller;
+            }
+
+            public override Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
+                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken)
+            {
+                _caller.Cancel();
+                throw new TaskCanceledException("the embedding sidecar did not answer in time");
+            }
+        }
+
+        /// <summary>
+        ///   A handler that fails the way <see cref="HttpClient"/> fails on its own timeout: a
+        ///   <see cref="TaskCanceledException"/> wrapping a <see cref="TimeoutException"/>, with nobody's token
+        ///   cancelled.
+        /// </summary>
+        private sealed class TimingOutHandler : HttpMessageHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout",
+                    new TimeoutException());
             }
         }
 

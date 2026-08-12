@@ -172,10 +172,10 @@ namespace NoSQL.GraphDB.Integrations.Contract
         public const String ClaimNotIndexed = "claimNotIndexed";
 
         /// <summary>
-        ///   A claim an element carried as a PROPERTY that the claim index did not name, re-asserted by this run.
-        ///   It is the fingerprint of an earlier run interrupted between its creates and its index write, and it
-        ///   never healed on its own: the next resolve could not find those elements and duplicated them, while
-        ///   reconciliation - which withdraws by set difference over the index - could not see them either.
+        ///   A claim an element carried as a PROPERTY that the claim index did not name, re-asserted by this run:
+        ///   the fingerprint of an earlier run interrupted between its creates and its index write, which used to
+        ///   be permanent. <see cref="Run.SnapshotApplier"/> owns which shapes of that state the heal reaches and
+        ///   which two it leaves to an index rebuild.
         /// </summary>
         public const String ClaimReindexed = "claimReindexed";
 

@@ -445,15 +445,8 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 Content = JsonContent.Create(new { name = embeddingName, items }, mediaType: null, JsonOptions),
             };
 
-            HttpResponseMessage response;
-            try
-            {
-                response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new GraphTargetException("The graph did not answer the embedding write: " + ex.Message, ex);
-            }
+            var response = await SendCoreAsync(request, "the embedding write", cancellationToken)
+                .ConfigureAwait(false);
 
             using (response)
             {
@@ -792,21 +785,8 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 request.Content = JsonContent.Create(body, mediaType: null, JsonOptions);
             }
 
-            HttpResponseMessage response;
-            try
-            {
-                response = await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new GraphTargetException(String.Format(
-                    "The graph did not answer {0} {1}: {2}", method, suffix, ex.Message), ex);
-            }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new GraphTargetException(String.Format(
-                    "The graph did not answer {0} {1} within the request timeout.", method, suffix), ex);
-            }
+            var response = await SendCoreAsync(request, String.Format("{0} {1}", method, suffix), cancellationToken)
+                .ConfigureAwait(false);
 
             using (response)
             {
@@ -825,6 +805,40 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
                 var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 return String.IsNullOrWhiteSpace(text) || text.Trim() == "null" ? null : text;
+            }
+        }
+
+        /// <summary>
+        ///   The ONE place a transport failure becomes this seam's failure, for every request this target sends,
+        ///   including the embedding write, which reads the status code itself and so cannot go through
+        ///   <see cref="SendTextAsync"/>.
+        ///
+        ///   <para>A client-side timeout arrives as a <c>TaskCanceledException</c>, which IS an
+        ///   <see cref="OperationCanceledException"/>. Letting one escape would present "the target was too slow"
+        ///   to every layer above as "the caller walked away", and those two license opposite statements about
+        ///   what a run wrote. The token is consulted rather than the type, because a cancellation the caller DID
+        ///   request must stay a cancellation.</para>
+        /// </summary>
+        /// <param name="request">The prepared request; the caller owns and disposes it.</param>
+        /// <param name="what">How the failure names this call, e.g. "PUT vertices" or "the embedding write".</param>
+        /// <param name="cancellationToken">The caller's token, and the only thing that distinguishes its
+        /// cancellation from a timeout.</param>
+        private async Task<HttpResponseMessage> SendCoreAsync(HttpRequestMessage request, String what,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                return await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new GraphTargetException(String.Format(
+                    "The graph did not answer {0}: {1}", what, ex.Message), ex);
+            }
+            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                throw new GraphTargetException(String.Format(
+                    "The graph did not answer {0} within the request timeout.", what), ex);
             }
         }
     }
