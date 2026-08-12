@@ -302,10 +302,20 @@ export function Canvas2D({
 
   return (
     <div className="relative h-full w-full">
+      {/*
+        role="img" is what makes the aria-label legal: a bare div exposes no role, so there is
+        nothing for an accessible name to attach to, and axe rightly flags aria-prohibited-attr.
+        Sigma fills this element with WebGL canvas layers that expose nothing to assistive
+        technology, so presenting the whole thing as ONE labelled image is not a workaround - it is
+        an honest description of what is there. Deliberately not role="application" or "group":
+        both would also make the label legal, but they change how a screen reader treats the
+        subtree, and there is no keyboard-navigable structure inside here to justify that.
+      */}
       <div
         ref={containerRef}
         data-testid="graph-canvas"
         className="bg-ink h-full w-full"
+        role="img"
         aria-label="graph canvas"
       />
       <div ref={eclipseRef} className="eclipse-highlight" style={{ display: "none" }} aria-hidden />
