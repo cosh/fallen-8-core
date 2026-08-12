@@ -45,6 +45,17 @@ namespace NoSQL.GraphDB.Core.Plugins
         Analytics,
 
         /// <summary>An <see cref="IGraphFunction"/> (category <see cref="PluginCategory.Function"/>).</summary>
-        GraphFunction
+        GraphFunction,
+
+        /// <summary>
+        ///   An <c>IIndex</c> (category <see cref="PluginCategory.Index"/>). Reachable only through
+        ///   host type registration (<c>Fallen8.RegisterPluginType</c>), which is what lets a host
+        ///   create an index where assembly scanning finds nothing.
+        /// </summary>
+        Index,
+
+        /// <summary>An <c>IService</c> (category <see cref="PluginCategory.Service"/>), host-registered
+        /// like <see cref="Index"/>.</summary>
+        Service
     }
 }

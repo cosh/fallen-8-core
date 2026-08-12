@@ -1,7 +1,15 @@
 # Host plugin registration - Specification
 
-> **Status:** Open, spec only (no implementation yet). Feature branch:
-> `feature/host-plugin-registration` (branch-only workflow, no GitHub issue/PR unless asked).
+> **Status:** IMPLEMENTED and merged to `main` (branch `feature/host-plugin-registration`, branch-only
+> workflow, no GitHub issue/PR unless asked). Every phase of [plan.md](plan.md) is done. This closes
+> the largest remaining browser blocker: a browser host can now create indexes and run vector search.
+> Phases 0-3 are in the engine and pinned by
+> `HostPluginRegistrationTest` and `TrimSafetyTest`. The browser claim is not asserted but gated: the
+> committed trimmed browser-wasm harness `tools/browser-probe` runs headless under node in CI, and all
+> seven of its checks pass - a thread cannot start on that runtime, an engine can be constructed and
+> written to, index creation FAILS before registration and SUCCEEDS after it, vector search works, a
+> checkpoint round trip keeps a host-registered index and its content, and a host registration survives a
+> Load. See [plan.md](plan.md) for what each phase did and did not do.
 >
 > This is the follow-up recorded in [features/done/trim-safety/spec.md](../../done/trim-safety/spec.md)
 > ("Known gap"), designed in a principal architecture review on 2026-08-11 and written down here so
@@ -76,6 +84,16 @@ public TransactionInformation RegisterPluginType<
   (`InvalidInput` / `Conflict` / `QuotaExceeded`). On an Inline-mode engine (the browser) it is
   terminal on return; threaded hosts wait. Single-writer discipline preserved, no new machinery.
   Host entries count against the existing registry quota (the ceiling is about registry size).
+- **Decided during implementation (the open question in the signature above): the member lives on the
+  concrete `Fallen8` ONLY - not on `AFallen8`, not on `IFallen8Write`.** Reasons: registration is host
+  wiring rather than graph mutation, so the read/write abstraction has no business carrying it; and the
+  DAM annotation does NOT flow between a declaration and its override, so every extra declaration is
+  another place it can silently drift (the cost the typed path overload already pays).
+  **Consequence, accepted:** code holding only an `AFallen8` or `IFallen8Write` reference cannot register
+  a type. It needs the concrete `Fallen8` that the host constructed, so an embedder passing an
+  abstraction around must register at construction time or keep the concrete reference.
+  `TrimSafetyTest.HostTypeRegistration_IsTrimSafe_AndKeepsTheRegisteredTypesConstructor` reads the member
+  off `typeof(Fallen8)`, which makes a later move a deliberate, test-visible change.
 
 ### 2. Persistence exclusion: a derived rule, not a new state
 
@@ -174,16 +192,18 @@ need this feature (it has Roslyn).
 
 ## Impact on existing features
 
+Re-checked against what was actually built; a row that turned out differently says so.
+
 | Area | Impact |
 | --- | --- |
-| Engine public surface | One new member (`RegisterPluginType<T>`), one new derived property (`PluginEntry.IsPersistable`), two new `PluginContract` members. Additive |
-| REST contract / OpenAPI | None planned - registration is an in-process host API. If a later feature wants it over REST, the apiApp already has the Roslyn path; a conscious non-goal here |
-| MCP | No new REST operation, nothing to bridge. If `PluginContract.Index`/`Service` change any discovery-backed inventory response shape, re-check the snapshot |
-| WAL / checkpoint | Two choke-point changes (`TryGetEntryType`, `SavePlugins`) plus the `RehydratePlugins` merge rule. No format change; existing logs replay unchanged |
-| Trim safety | The reason this design exists; the `TryCreateIndex` RUC decision is the one deliberate trim-surface change and is pinned |
-| Browser | Closes the "no index in the browser" blocker; with it, vector search works in wasm. The checkpoint fan-out blocker recorded alongside it is already closed (save and load pick a sequential arm from `HostCapabilities.SupportsBackgroundWork`), so index creation is what a browser host is still missing |
-| Studio / NL-assist | None - no REST change, no delegate surface |
-| Docs | `library.mdx` gains the registration story (replacing the "typed overload is the only trim-safe way" framing with "register your plugins, then names work"); README library bullet gets a clause |
+| Engine public surface | As built: `Fallen8.RegisterPluginType<T>` (concrete class only - see section 1), `PluginEntry.IsPersistable`, and `PluginContract.Index` / `PluginContract.Service`. Additive, with one behaviour change on existing members the row did not anticipate: `IndexFactory.GetAvailableIndexPlugins` and `ServiceFactory.GetAvailableServicePlugins` now UNION the registry's names with the discovered ones, so a registered type is listed. The rehydration entry point `PluginRegistry.ReplaceAll` became `ReplacePersistedEntries`, which is `internal`, so no consumer can see the rename |
+| REST contract / OpenAPI | **No new route or shape, but two controller files DID change, so the row as first written was wrong.** Registration stayed an in-process host API and the apiApp still reaches the same registry through its Roslyn path. What changed: `AdminController`'s `GET /status` built its index and service inventories from discovery alone, so a host-registered type - the point of the feature - was invisible there while path/subgraph/analytics registered plugins were visible; and `PluginREST`'s XML docs enumerated the old `category`/`contract` values. Both are DESCRIPTION and CONTENT changes rather than schema changes, but the XML docs reach the published document, so the **OpenAPI snapshot was regenerated** |
+| MCP | Nothing to bridge: no new REST operation and no response SHAPE changed, so `McpRestCoverageTest` has nothing new to cover. The available-plugins lists can now carry one more NAME (a host-registered type), which is content, not shape |
+| WAL / checkpoint | As planned (`TryGetEntryType`, `SavePlugins`, the `RehydratePlugins` merge), plus one mechanism the spec called for and implementation made concrete: `RemovePluginTransaction` carries an `internal` `RemovedEntryWasPersistable` set in `TryExecute`, which is what lets the remove side be classified not-loggable. No format change; existing logs replay unchanged |
+| Trim safety | Correction - the trim-surface change is FOUR members, not one. `IndexFactory.TryCreateIndex` and `OpenIndex` and `ServiceFactory.TryAddService` and `OpenService` all dropped `[RequiresUnreferencedCode]`, each factory keeping exactly one suppressed one-line discovery seam (`TryFindDiscoveredIndexSuppressed`, `TryFindDiscoveredServiceSuppressed`); the section-4 hardening WAS done, so the justification is true (`PluginFactory`'s `GetExportedTypes` and `Assembly.Load` now degrade through `IsDeploymentFailure`). `TrimSafetyTest` pins both the absent requirement and the seams. `SaveTransaction` / `LoadTransaction` deliberately keep theirs - a checkpoint resolves property value types reflectively on load, which host registration does not address - so a browser host that checkpoints suppresses IL2026 at its own call site, as `tools/browser-probe` does |
+| Browser | As built and gated by the probe rather than argued: index creation and vector search work in wasm once the host registers the type, and a host-registered index survives a checkpoint round trip. The checkpoint fan-out blocker recorded alongside it was already closed (save and load pick a sequential arm from `HostCapabilities.SupportsBackgroundWork`), so both halves of the gap recorded in trim-safety are now closed. Residue, deliberate: the path and analytics name-based members keep their `[RequiresUnreferencedCode]`, so a browser host that prefers a NAME there registers the type and suppresses IL2026 at its own call site, and it must re-register on every start (before any `LoadTransaction`) and move the checkpoint bytes out of the Emscripten filesystem itself |
+| Studio / NL-assist | None, confirmed as built - no REST change and no delegate surface was touched |
+| Docs | As built: `library.mdx` gained a "Registering plugin types when discovery cannot help" section, its false "no index in a browser at all" paragraph is gone, and one row of its trim table had to change too, because index and service creation no longer warn. The README library bullet gained a clause. `plugin-registration.md` keeps its own home (source-compiled plugins over REST) and is not re-narrated |
 
 ## Out of scope
 

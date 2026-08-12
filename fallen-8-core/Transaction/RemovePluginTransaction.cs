@@ -50,6 +50,20 @@ namespace NoSQL.GraphDB.Core.Transaction
         private PluginEntry _removedEntry;
 
         /// <summary>
+        ///   Whether the entry this removal actually took out was persistable
+        ///   (<see cref="PluginEntry.IsPersistable"/>), which is what decides whether the removal is
+        ///   itself loggable: a remove of an entry the log never carried would replay against nothing.
+        ///   A separate flag rather than a read of <see cref="_removedEntry"/> because the entry
+        ///   reference is dropped when the transaction goes terminal, while the classification stays
+        ///   readable afterwards.
+        /// </summary>
+        internal Boolean RemovedEntryWasPersistable
+        {
+            get;
+            private set;
+        }
+
+        /// <summary>
         /// Cleans up the transaction resources.
         /// </summary>
         internal override void Cleanup()
@@ -101,6 +115,7 @@ namespace NoSQL.GraphDB.Core.Transaction
                 return false;
             }
 
+            RemovedEntryWasPersistable = _removedEntry.IsPersistable;
             return true;
         }
     }

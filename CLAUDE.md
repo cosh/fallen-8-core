@@ -135,14 +135,14 @@ dotnet run --project fallen-8-core-apiApp
 - **Convention tests** (`fallen-8-unittest/CodeQualityTest.cs`) fail the suite on: a missing
   MIT header, `Console.Write*` in product code, `DateTime.Now` outside the documented
   `DateHelper` allowlist, or a non-exact package version.
-- **OpenAPI snapshot**: regenerate with `pwsh scripts/update-openapi-snapshot.ps1` whenever
+- **OpenAPI snapshot**: regenerate with `powershell -File scripts/update-openapi-snapshot.ps1` whenever
   a controller's routes or XML docs change; review the printed diff - additions are
   expected, removals only where a deliberately edited remark shrank.
 - **Provider-descriptor snapshot**: the three shipped integration descriptors are pinned in
   `features/done/integrations/provider-descriptors.json` (the JSON the providers route
   actually returns), and `ProviderDescriptorSnapshotTest` fails the suite when a shipped
   descriptor drifts from it. Regenerate with
-  `pwsh scripts/update-provider-descriptor-snapshot.ps1`. The snapshot is also what the
+  `powershell -File scripts/update-provider-descriptor-snapshot.ps1`. The snapshot is also what the
   docs-screenshot capture replays, so **a descriptor change means recapturing
   `screen-integrations.png`** - that is why the gate exists: the published screenshot once
   showed settings the runtime deliberately does not offer.
@@ -156,6 +156,19 @@ dotnet run --project fallen-8-core-apiApp
   re-narrate a feature's story across call-site comments, controller remarks, the root
   README and the feature README; the feature README is the LIVING doc (specs/plans are
   historical records and are not rewritten).
+- **Browser host (trimmed wasm probe)**: `tools/browser-probe` runs the engine as a trimmed
+  browser-wasm app, headless under node, and its exit code is the verdict. It is the ONLY
+  thing that executes the single-threaded arms: everything gated on
+  `HostCapabilities.SupportsBackgroundWork` takes the threaded branch on every machine the
+  unit suite runs on, so the browser halves of the transaction writer, the checkpoint
+  fan-out, the change-feed teardown and the traversal sweep are covered by no test. Run it
+  with `dotnet publish tools/browser-probe -c Release` (publishing is where ILLink reports
+  what the analyzer cannot see) then
+  `node tools/browser-probe/bin/Release/net10.0/browser-wasm/AppBundle/main.mjs`; needs the
+  `wasm-tools` workload. It is deliberately NOT in `fallen-8-core.sln`, so a plain
+  `dotnet build` never requires that workload; CI runs it as its own `browser` job. **If you
+  change anything a browser host depends on, run it** - a green unit suite says nothing about
+  that host.
 - **Docs site build (link-checked)**: the user-facing docs site (`docs/`, a Starlight project)
   builds in CI on every push to `main` (`.github/workflows/docs.yml`) and fails on any broken
   internal link (`starlight-links-validator`). Adding or editing a page must keep that build

@@ -142,21 +142,7 @@ namespace NoSQL.GraphDB.Core.SubGraph
         [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public IEnumerable<String> GetAvailableSubGraphPlugins()
         {
-            // Reflection-discovered built-ins UNIONED with the addressed namespace's runtime-registered
-            // subgraph plugins (feature plugin-registration §4.4), so a registered subgraph algorithm is
-            // DISCOVERABLE (surfaced on GET /status), not merely invocable-by-name - matching how the
-            // Path/Analytics discovery lists union the registry.
-            // Built-in names via the shared contract->interface home (consolidation-audit CA-13),
-            // unioned with the registry's runtime subgraph plugins.
-            IEnumerable<String> result = PluginFactory.AvailableBuiltInNames(PluginContract.SubGraph);
-
-            var registry = _fallen8.Plugins;
-            if (registry != null)
-            {
-                result = result.Concat(registry.NamesForContract(PluginContract.SubGraph)).Distinct();
-            }
-
-            return result.ToList();
+            return PluginFactory.AvailablePluginNames(PluginContract.SubGraph, _fallen8.Plugins);
         }
 
         /// <summary>

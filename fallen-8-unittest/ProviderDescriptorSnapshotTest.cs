@@ -60,7 +60,7 @@ namespace NoSQL.GraphDB.Tests
         private const String UpdateVariable = "F8_UPDATE_PROVIDER_DESCRIPTOR_SNAPSHOT";
 
         private const String RegenerateHint =
-            "Regenerate with `pwsh scripts/update-provider-descriptor-snapshot.ps1`, review the " +
+            "Regenerate with `powershell -File scripts/update-provider-descriptor-snapshot.ps1`, review the " +
             "printed diff, and recapture docs/src/assets/images/screen-integrations.png " +
             "(F8_SCREENSHOT=1 npx playwright test e2e/screenshot-integrations.spec.ts) so the published " +
             "image still shows what the runtime serves.";

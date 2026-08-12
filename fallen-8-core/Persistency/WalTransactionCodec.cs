@@ -77,7 +77,10 @@ namespace NoSQL.GraphDB.Core.Persistency
         ///   being logged. A <see cref="CreateSubGraphTransaction" /> is loggable ONLY when its
         ///   committed result carries a recipe (<see cref="Algorithms.SubGraph.SubGraphResult.Recipe" />):
         ///   a delegate-only subgraph has no serializable recipe and is not persisted by a snapshot
-        ///   either, so logging one would produce an entry that could never be replayed.
+        ///   either, so logging one would produce an entry that could never be replayed. The plugin
+        ///   transactions follow the same shape: only a persistable entry
+        ///   (<see cref="PluginEntry.IsPersistable" />) is logged, on the register side and on the
+        ///   matching remove.
         /// </summary>
         internal static bool TryGetEntryType(ATransaction tx, out WalEntryType type)
         {
@@ -112,8 +115,23 @@ namespace NoSQL.GraphDB.Core.Persistency
                 case RegisterStoredQueryTransaction _: type = WalEntryType.RegisterStoredQuery; return true;
                 case RemoveStoredQueryTransaction _: type = WalEntryType.RemoveStoredQuery; return true;
 
-                case RegisterPluginTransaction _: type = WalEntryType.RegisterPlugin; return true;
-                case RemovePluginTransaction _: type = WalEntryType.RemovePlugin; return true;
+                case RegisterPluginTransaction register:
+                    if (register.Entry?.IsPersistable != true)
+                    {
+                        type = default;
+                        return false;
+                    }
+                    type = WalEntryType.RegisterPlugin;
+                    return true;
+
+                case RemovePluginTransaction remove:
+                    if (!remove.RemovedEntryWasPersistable)
+                    {
+                        type = default;
+                        return false;
+                    }
+                    type = WalEntryType.RemovePlugin;
+                    return true;
 
                 case SetEmbeddingsTransaction _: type = WalEntryType.SetEmbeddings; return true;
 

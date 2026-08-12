@@ -192,9 +192,11 @@ namespace NoSQL.GraphDB.Core
 
             if (!WalTransactionCodec.TryGetEntryType(tx, out var type))
             {
-                // The codec covers every standard mutation transaction; the only omissions are the
+                // The codec covers every standard mutation transaction; the omissions are the
                 // Save/Load LIFECYCLE transactions (not data mutations - their durability IS the
-                // snapshot, so they are legitimately durable) and the DelegateTransaction, which
+                // snapshot, so they are legitimately durable), the plugin register/remove of a
+                // non-persistable entry (nothing to persist, so durable=true is the honest answer -
+                // see PluginEntry.IsPersistable) and the DelegateTransaction, which
                 // COMPOSES real graph mutations the codec does not serialize. With the WAL enabled a
                 // DelegateTransaction's mutations are only in memory (snapshot-recoverable, NOT
                 // log-recoverable), so it is not WAL-durable: report false so a caller reading
@@ -678,10 +680,12 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
-        ///   Replaces the plugin registry with the definitions of a loaded snapshot manifest, eagerly
-        ///   recompiling each via <see cref="BuildRehydratedPluginEntry" />. Warns once when definitions
-        ///   exist but no compiler is registered (embedded engine use: entries load as source-only;
-        ///   there is no invocation surface without a hosting layer anyway).
+        ///   Replaces the plugin registry's persisted content with the definitions of a loaded snapshot
+        ///   manifest, eagerly recompiling each via <see cref="BuildRehydratedPluginEntry" />. Warns once
+        ///   when definitions exist but no compiler is registered (embedded engine use: entries load as
+        ///   source-only; there is no invocation surface without a hosting layer anyway). Host-registered
+        ///   types survive the load and win a name collision - see
+        ///   <see cref="PluginRegistry.ReplacePersistedEntries" />.
         /// </summary>
         private void RehydratePlugins(List<PluginDefinition> definitions)
         {
@@ -705,7 +709,7 @@ namespace NoSQL.GraphDB.Core
                 entries.Add(BuildRehydratedPluginEntry(definition));
             }
 
-            Plugins.ReplaceAll(entries);
+            Plugins.ReplacePersistedEntries(entries);
 
             if (entries.Count > 0)
             {
@@ -904,8 +908,9 @@ namespace NoSQL.GraphDB.Core
                 // graph itself, BEFORE any WAL replay applies later Register/Remove entries on top.
                 RehydrateStoredQueries(_persistencyFactory.LoadStoredQueryDefinitions(path));
 
-                // Rehydrate the plugin registry from its manifest (feature plugin-registration), same
-                // wholesale-replace-before-WAL-replay discipline as the stored query library.
+                // Rehydrate the plugin registry from its manifest (feature plugin-registration), before
+                // any WAL replay applies later Register/Remove entries on top. Replaces the PERSISTED
+                // entries only (see PluginRegistry.ReplacePersistedEntries).
                 RehydratePlugins(_persistencyFactory.LoadPluginDefinitions(path));
 
                 // WAL (spec P4/§5). When the WAL is enabled it OWNS the loaded snapshot's id-space

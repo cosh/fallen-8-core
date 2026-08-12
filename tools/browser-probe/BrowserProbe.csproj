@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The browser gate: runs the engine as a browser-wasm app, headless under node.
+
+    DELIBERATELY NOT IN fallen-8-core.sln. Building it needs the wasm-tools workload, and CI's
+    plain `dotnet build` must not start requiring that for everyone; the dedicated `browser`
+    job in .github/workflows/buildAndTest.yml installs the workload and runs this. Because it
+    is outside the solution it is also outside CodeQualityTest's project lists, which is what
+    lets it write to the console - a probe whose whole output is its verdict.
+
+    PublishTrimmed with TrimMode=full is not incidental: publishing is where ILLink reports what
+    the compile-time analyzer cannot see, and a browser host is a trimmed host. So the gate
+    checks two different things at once - that the engine SURVIVES trimming, and that it BEHAVES
+    on a single-threaded runtime that can start no thread.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <WasmMainJSPath>main.mjs</WasmMainJSPath>
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <SuppressTrimAnalysisWarnings>false</SuppressTrimAnalysisWarnings>
+    <!-- No TrimmerRootAssembly: rooting the engine would defeat the point (feature trim-safety). -->
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\fallen-8-core\fallen-8-core.csproj" />
+  </ItemGroup>
+
+</Project>

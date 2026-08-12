@@ -54,6 +54,9 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(typeof(ISubGraphAlgorithm), PluginFactory.ContractInterface(PluginContract.SubGraph));
             Assert.AreEqual(typeof(IGraphAnalyticsAlgorithm), PluginFactory.ContractInterface(PluginContract.Analytics));
             Assert.AreEqual(typeof(IGraphFunction), PluginFactory.ContractInterface(PluginContract.GraphFunction));
+            Assert.AreEqual(typeof(NoSQL.GraphDB.Core.Index.IIndex), PluginFactory.ContractInterface(PluginContract.Index),
+                "without this arm a host cannot register an index type at all, and no host can create an index");
+            Assert.AreEqual(typeof(NoSQL.GraphDB.Core.Service.IService), PluginFactory.ContractInterface(PluginContract.Service));
             Assert.IsNull(PluginFactory.ContractInterface((PluginContract)999), "an unknown contract maps to null");
         }
 

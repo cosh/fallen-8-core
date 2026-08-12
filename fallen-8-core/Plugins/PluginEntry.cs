@@ -88,6 +88,22 @@ namespace NoSQL.GraphDB.Core.Plugins
         }
 
         /// <summary>
+        ///   Whether this registration can be PERSISTED - by the checkpoint's plugin manifest and by
+        ///   the write-ahead log. True exactly when the definition carries source, because source is
+        ///   the only thing either of them stores: an entry registered by the HOST as a CLR type
+        ///   (<c>Fallen8.RegisterPluginType</c>) has none, and the host re-establishes it on every
+        ///   start, so persisting one would produce a manifest or log entry that could never be
+        ///   rehydrated.
+        ///
+        ///   <para>Derived rather than a new <see cref="PluginCompileState"/>: a host entry IS
+        ///   <see cref="PluginCompileState.Compiled"/> (its artifact type exists and is invocable), so
+        ///   a state would conflate "how the artifact came to be" with "is there anything to persist"
+        ///   and force every reader of the state - <c>PluginRegistry.TryActivate</c> and
+        ///   <c>EntriesForContract</c> above all - to treat a second value as compiled-equivalent.</para>
+        /// </summary>
+        public bool IsPersistable => Definition?.SourceCode != null;
+
+        /// <summary>
         ///   Creates an entry. Invariants: a <see cref="PluginCompileState.Compiled"/> entry carries a
         ///   non-null artifact type; the other states carry none.
         /// </summary>

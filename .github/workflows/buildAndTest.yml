@@ -23,6 +23,30 @@ jobs:
     - name: Test
       run: dotnet test --no-build --verbosity normal
 
+  browser:
+    name: browser host (trimmed wasm probe)
+    runs-on: ubuntu-latest
+    # The engine picks its single-threaded arms from HostCapabilities.SupportsBackgroundWork, which is
+    # true on every machine the unit suite runs on - so the browser halves of the transaction writer,
+    # the checkpoint fan-out, the change-feed teardown and the traversal sweep are executed by NO test.
+    # This job is the only thing that runs them. It is a separate job because it needs the wasm-tools
+    # workload, and the plain `dotnet build` above must not start requiring that for everyone.
+    steps:
+    - uses: actions/checkout@v5
+    - name: Setup .NET SDK
+      uses: actions/setup-dotnet@v5
+      with:
+        dotnet-version: '10.0.x'
+    - name: Install the wasm workload
+      run: dotnet workload install wasm-tools
+    - name: Publish the probe trimmed (TrimMode=full, no rooted assembly)
+      # Publishing is where ILLink reports what the compile-time analyzer cannot see, so this step
+      # fails on any trim warning the engine would hand a browser host.
+      run: dotnet publish tools/browser-probe -c Release
+    - name: Run the probe on the wasm runtime
+      # Headless under node, so no browser is needed. The probe's exit code is its verdict.
+      run: node tools/browser-probe/bin/Release/net10.0/browser-wasm/AppBundle/main.mjs
+
   ui:
     name: F8 Studio (typecheck, unit, build)
     runs-on: ubuntu-latest

@@ -39,6 +39,7 @@ using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Persistency;
 using NoSQL.GraphDB.Core.Plugin;
+using NoSQL.GraphDB.Core.Plugins;
 
 namespace NoSQL.GraphDB.App.Services
 {
@@ -241,18 +242,14 @@ namespace NoSQL.GraphDB.App.Services
                 }
             }
 
-            if (PluginFactory.TryGetAvailablePlugins<IIndex>(out var indexPlugins))
-            {
-                kpis.AvailableIndexPlugins = indexPlugins.ToList();
-            }
-            if (PluginFactory.TryGetAvailablePlugins<NoSQL.GraphDB.Core.Algorithms.Path.IShortestPathAlgorithm>(out var pathPlugins))
-            {
-                kpis.AvailablePathPlugins = pathPlugins.ToList();
-            }
-            if (PluginFactory.TryGetAvailablePlugins<NoSQL.GraphDB.Core.Service.IService>(out var servicePlugins))
-            {
-                kpis.AvailableServicePlugins = servicePlugins.ToList();
-            }
+            // Discovery unioned with this namespace's registered types, the same rule GET /status
+            // answers with (PluginFactory.AvailablePluginNames). Reading discovery alone here would
+            // record a save game whose inventory omits every host-registered type - and a host that
+            // registers its types is exactly the host whose discovery finds nothing.
+            kpis.AvailableIndexPlugins = fallen8.IndexFactory.GetAvailableIndexPlugins().ToList();
+            kpis.AvailableServicePlugins = fallen8.ServiceFactory.GetAvailableServicePlugins().ToList();
+            kpis.AvailablePathPlugins =
+                PluginFactory.AvailablePluginNames(PluginContract.Path, fallen8.Plugins).ToList();
 
             if (fallen8.SubGraphFactory != null)
             {

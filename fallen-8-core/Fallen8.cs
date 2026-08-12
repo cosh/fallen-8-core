@@ -653,6 +653,129 @@ namespace NoSQL.GraphDB.Core
         }
 
         /// <summary>
+        ///   Registers a statically-known plugin TYPE in this engine's <see cref="Plugins"/> registry,
+        ///   so resolution BY NAME works in a host where assembly-scanning discovery cannot help: a
+        ///   browser-wasm host has no dll files under <c>AppContext.BaseDirectory</c> at all, and a
+        ///   trimmed host cannot keep a type that exists only as a string. Nothing is compiled and
+        ///   nothing is scanned - <typeparamref name="T" /> travels from the caller's type argument
+        ///   into <see cref="PluginEntry.Artifact" />, which is why the annotation is repeated on
+        ///   <typeparamref name="T" /> here (it does not flow from the annotated property on its own).
+        ///
+        ///   <para>The registered name is the probe instance's <c>PluginName</c>, never a parameter, so
+        ///   the "persisted name equals the type's PluginName" invariant documented on
+        ///   <see cref="PluginDefinition.Name" /> has nothing to diverge from; the contract is derived
+        ///   by matching <typeparamref name="T" /> against <see cref="PluginFactory.ContractInterface" />.
+        ///   A name that fails <see cref="PluginRegistry.IsValidName" />, and a type implementing zero
+        ///   or more than one contract interface, are reported as
+        ///   <see cref="TransactionFailureReason.InvalidInput" />.</para>
+        ///
+        ///   <para>Registration is an ordinary transaction, so the single writer publishes it and the
+        ///   registry's own re-checks apply unchanged (duplicate name -> Conflict, registration ceiling
+        ///   -> QuotaExceeded; host entries count against that ceiling because it bounds registry size).
+        ///   A name that equals a built-in's is ACCEPTED and shadows it, which is the point in a host
+        ///   where the built-in cannot be discovered. The entry is not persistable
+        ///   (<see cref="PluginEntry.IsPersistable" />): the host registers its types on every start, so
+        ///   neither a snapshot nor the write-ahead log carries one, and the commit reports
+        ///   <see cref="TransactionInformation.Durable" /> true because there is nothing to write - the
+        ///   registration does NOT come back by itself after a restart.</para>
+        /// </summary>
+        /// <returns>The information of the enqueued registration transaction.</returns>
+        public TransactionInformation RegisterPluginType<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>()
+            where T : class, IPlugin, new()
+        {
+            String name;
+            String description;
+            T probe = null;
+
+            try
+            {
+                probe = new T();
+                name = probe.PluginName;
+                description = probe.Description;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Cannot register plugin type {Type}: probing an instance for its name failed.",
+                    typeof(T));
+                return RejectedPluginRegistration();
+            }
+            finally
+            {
+                if (probe != null)
+                {
+                    // Best-effort, as in TryInvokeGraphFunction: the probe was never Initialize()d, so an
+                    // implementation whose Dispose tears down initialized state must not fail registration.
+                    try { probe.Dispose(); } catch { /* a plugin's Dispose is best-effort */ }
+                }
+            }
+
+            if (!PluginRegistry.IsValidName(name))
+            {
+                // Pre-checked here for a message that can name the TYPE; the registry re-checks on the
+                // writer thread, so this is diagnostics, not the rule's home.
+                _logger.LogError("Cannot register plugin type {Type}: its PluginName \"{Name}\" is not a valid plugin name.",
+                    typeof(T), name);
+                return RejectedPluginRegistration();
+            }
+
+            var contract = default(PluginContract);
+            var matches = 0;
+            foreach (var candidate in Enum.GetValues<PluginContract>())
+            {
+                var contractInterface = PluginFactory.ContractInterface(candidate);
+                if (contractInterface != null && contractInterface.IsAssignableFrom(typeof(T)))
+                {
+                    contract = candidate;
+                    matches++;
+                }
+            }
+
+            if (matches != 1)
+            {
+                _logger.LogError(
+                    "Cannot register plugin type {Type}: it implements {Count} plugin contract interface(s); exactly one is required.",
+                    typeof(T), matches);
+                return RejectedPluginRegistration();
+            }
+
+            var definition = new PluginDefinition
+            {
+                Name = name,
+                // The three algorithm contracts share one category; the other three map one to one.
+                Category = contract switch
+                {
+                    PluginContract.GraphFunction => PluginCategory.Function,
+                    PluginContract.Index => PluginCategory.Index,
+                    PluginContract.Service => PluginCategory.Service,
+                    _ => PluginCategory.Algorithm
+                },
+                Contract = contract,
+                SourceCode = null,
+                Description = description,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            return EnqueueTransaction(new RegisterPluginTransaction
+            {
+                Entry = new PluginEntry(definition, PluginCompileState.Compiled, typeof(T))
+            });
+        }
+
+        /// <summary>
+        ///   Reports a registration rejected before an entry could be built (an unreadable probe, an
+        ///   invalid <c>PluginName</c>, an ambiguous contract) as an ordinary rolled-back registration:
+        ///   the entry-less transaction fails with
+        ///   <see cref="TransactionFailureReason.InvalidInput" /> on the writer thread, so EVERY outcome
+        ///   of <see cref="RegisterPluginType{T}" /> is one tracked transaction a caller waits on and
+        ///   inspects the same way.
+        /// </summary>
+        private TransactionInformation RejectedPluginRegistration()
+        {
+            return EnqueueTransaction(new RegisterPluginTransaction());
+        }
+
+        /// <summary>
         ///   The trim-safe path overload: the algorithm is named by TYPE, and
         ///   <typeparamref name="T"/> carries the
         ///   <see cref="DynamicallyAccessedMemberTypes.PublicParameterlessConstructor"/> annotation the

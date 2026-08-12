@@ -116,6 +116,39 @@ namespace NoSQL.GraphDB.Tests
                 $"{site}: the trim requirement must carry a message telling the caller what to do instead.");
         }
 
+        private static void AssertNoTrimRequirement(MemberInfo member, string site, string because)
+        {
+            Assert.IsNotNull(member, $"{site}: the member to pin was not found (renamed or removed?).");
+            Assert.IsNull(TrimRequirementOf(member),
+                $"{site} must NOT declare [RequiresUnreferencedCode]: {because} Re-adding one here hands every " +
+                "caller a warning for a capability that has a trim-safe path, which is the decision this test pins.");
+        }
+
+        /// <summary>
+        ///   Asserts that a private one-line pass-through carries the trim suppression it exists for.
+        ///   The seam is what keeps the suppression scoped to a single call, so losing it (inlining the
+        ///   discovery call back into the caller) is exactly the silent widening this pins.
+        /// </summary>
+        private static void AssertSuppressionSeam(Type declaringType, string methodName)
+        {
+            var seam = declaringType.GetMethod(methodName,
+                BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
+
+            Assert.IsNotNull(seam,
+                $"{declaringType.Name}.{methodName} is the suppression seam for plugin discovery; without it the " +
+                "suppression would have to sit on the whole resolving member and would cover more than the one call.");
+
+            var suppression = seam
+                .GetCustomAttributes(typeof(UnconditionalSuppressMessageAttribute), inherit: false)
+                .Cast<UnconditionalSuppressMessageAttribute>()
+                .FirstOrDefault(a => string.Equals(a.CheckId, "IL2026", StringComparison.Ordinal));
+
+            Assert.IsNotNull(suppression,
+                $"{declaringType.Name}.{methodName} must carry [UnconditionalSuppressMessage(\"Trimming\", \"IL2026\")].");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(suppression.Justification),
+                $"{declaringType.Name}.{methodName}: a suppression without a justification is an unexplained silence.");
+        }
+
         private static void AssertSameTrimMessage(MemberInfo engineMember, MemberInfo forwarderMember, string site)
         {
             Assert.IsNotNull(engineMember, $"{site}: could not resolve the engine interface member to compare against.");
@@ -297,6 +330,53 @@ namespace NoSQL.GraphDB.Tests
             var enqueue = typeof(IFallen8Write).GetMethod(nameof(IFallen8Write.EnqueueTransaction));
             Assert.AreEqual(0, enqueue.GetCustomAttributes(typeof(RequiresUnreferencedCodeAttribute), inherit: false).Length,
                 "EnqueueTransaction is the write path for every transaction and must stay trim-safe.");
+        }
+
+        [TestMethod]
+        public void HostTypeRegistration_IsTrimSafe_AndKeepsTheRegisteredTypesConstructor()
+        {
+            // The point of registration (feature host-plugin-registration): a statically-known type
+            // travels from the host's typeof(T) to the Activator, so this member must stay free of a
+            // trim requirement AND carry the annotation that keeps the constructor.
+            var register = GenericMethod(typeof(Fallen8), nameof(Fallen8.RegisterPluginType));
+
+            AssertNoTrimRequirement(register, "Fallen8.RegisterPluginType<T>",
+                "nothing is scanned and no type is resolved from a string - the type argument IS the type.");
+            AssertParameterlessCtorIsKept(register, "Fallen8.RegisterPluginType<T>");
+
+            var typeParameter = register.GetGenericArguments()[0];
+            Assert.IsTrue(
+                typeParameter.GenericParameterAttributes.HasFlag(GenericParameterAttributes.DefaultConstructorConstraint),
+                "T must keep its new() constraint: activation NEEDS a parameterless constructor, and the constraint " +
+                "is what turns a runtime activation failure at the host into a compile error there.");
+        }
+
+        [TestMethod]
+        public void IndexAndServiceResolution_StayFreeOfTrimRequirements_BehindASuppressionSeam()
+        {
+            // The deliberate trim-surface change of feature host-plugin-registration: these four
+            // members resolve a plugin name through the per-namespace registry FIRST - statically-known
+            // types, nothing scanned - and only fall back to discovery behind a one-line suppressed
+            // seam. Pinned so the decision cannot silently flip either way: re-adding the requirement
+            // would warn a browser host about the very capability the registry gives it trim-safely,
+            // and dropping the seam would widen an unexplained suppression over the whole member.
+            var indexFactory = typeof(NoSQL.GraphDB.Core.Index.IndexFactory);
+            var serviceFactory = typeof(NoSQL.GraphDB.Core.Service.ServiceFactory);
+
+            AssertNoTrimRequirement(indexFactory.GetMethod("TryCreateIndex"), "IndexFactory.TryCreateIndex",
+                "an index type reached through host registration needs no scanning, and the discovery fallback " +
+                "degrades to a clean not-found.");
+            AssertNoTrimRequirement(
+                indexFactory.GetMethod("OpenIndex", BindingFlags.NonPublic | BindingFlags.Instance),
+                "IndexFactory.OpenIndex", "checkpoint rehydration resolves through the same registry-first seam.");
+            AssertNoTrimRequirement(serviceFactory.GetMethod("TryAddService"), "ServiceFactory.TryAddService",
+                "services resolve registry-first as well.");
+            AssertNoTrimRequirement(
+                serviceFactory.GetMethod("OpenService", BindingFlags.NonPublic | BindingFlags.Instance),
+                "ServiceFactory.OpenService", "services resolve registry-first as well.");
+
+            AssertSuppressionSeam(indexFactory, "TryFindDiscoveredIndexSuppressed");
+            AssertSuppressionSeam(serviceFactory, "TryFindDiscoveredServiceSuppressed");
         }
 
         [TestMethod]
