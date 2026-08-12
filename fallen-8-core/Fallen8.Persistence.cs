@@ -638,6 +638,14 @@ namespace NoSQL.GraphDB.Core
         ///   diagnostics (visible via list/get, unresolvable until fixed, recoverable by
         ///   delete+re-register), and a missing compiler keeps it as source-only. Loud, never silent loss.
         /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2067",
+            Justification = "The artifact is a type the registered compiler produced IN THIS PROCESS from " +
+                "persisted source, and validated to have a public parameterless constructor - that is the " +
+                "IPluginCompiler contract. A trimmer never sees such a type, so it can neither preserve nor " +
+                "remove its constructor, which is why PluginEntry.Artifact's annotation cannot be satisfied " +
+                "here and equally cannot be violated. Reaching this at all requires a compiler, which needs " +
+                "Roslyn: a trimmed application that registers none keeps its entries source-only and never " +
+                "activates one.")]
         private PluginEntry BuildRehydratedPluginEntry(PluginDefinition definition)
         {
             var compiler = PluginCompiler;
