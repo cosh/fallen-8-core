@@ -10,9 +10,10 @@
 > docs-site pages for the new REST surface were written afterwards (the `durability` block of
 > `GET /status` in `save-games.mdx`, `POST /index/backfill/{indexId}` in `indexes.mdx`, and
 > `POST /graphelements/get` / `PUT /graphelements/properties` / `DELETE /graphelements` in
-> `graph-model.mdx`). One doc gap remains: `observability.mdx` still describes the degraded state as
-> an OTel gauge only and its `GET /status` field list omits the durability block, tracked in
-> [review-findings-2026-08-11](../review-findings-2026-08-11/report.md). Feature branch:
+> `graph-model.mdx`). The last doc gap - `observability.mdx` presenting the degraded state as an
+> OTel gauge only, its `GET /status` field list omitting the durability block - was closed by
+> 86bb7f3; the review record is
+> [review-findings-2026-08-11](../../done/review-findings-2026-08-11/report.md). Feature branch:
 > `feature/platform-integrity-audit` (branch-only workflow, no GitHub issue/PR).
 >
 > **How this feature came to exist.** Designing the *integrations* feature (a first-party

@@ -1,6 +1,8 @@
 # Review findings, 2026-08-11 - everything that reached main in the last two days
 
-> **Status:** Open - pending FIXES only. Five independent principal reviews (browser architecture,
+> **Status:** Closed 2026-08-12 - every defect fixed with tests, every follow-up landed or
+> consciously recorded; the last item (the conformance-suite honesty line) landed as fac91f5.
+> Five independent principal reviews (browser architecture,
 > integrations architecture, engine/durability, cross-feature gate compliance, and one verification
 > run) over the three merges and the audit commits that landed on main between 2026-08-09 and
 > 2026-08-11 (integrations ae7f094, inline-transaction-execution 07e8a58, trim-safety 8a7e727, and
@@ -59,9 +61,10 @@ Still open from this report (all recorded, none a defect in shipped behaviour):
   the VFS is the host's job. The capability question also got one home
   (`HostCapabilities.SupportsBackgroundWork`), replacing the second probe copy added the night
   before, and three claims that "a browser cannot persist" were corrected rather than left to rot.
-- Still open: the conformance-suite doc line about encoded credentials, and the `observability.mdx`
-  half of the docs-site coverage below (its `GET /status` field list still omits the durability
-  block).
+- [x] DONE: both halves closed. The conformance-suite doc line landed in the NoCredentialLeak row
+  of the integrations spec, section 13 (fac91f5, which also corrected that row's stale
+  fixture-credential claim); `observability.mdx` gained the durability block in 86bb7f3 (the gauge
+  row's cross-pointer and the `durability` bullet in its `GET /status` field list).
 - The integrations polish recorded under "Composition and docs debt" below is done. The
   stale-strong-claim question has its decision on
   paper - deliberately NOT pruning claims a complete snapshot stopped asserting, with a revisit
@@ -209,18 +212,18 @@ minimum the spec should say "a run touches only what it may" is best-effort unde
 
 ## Composition and docs debt (from the gate review)
 
-- [ ] **PARTLY DONE (a7a9c11): docs-site coverage for the audit's REST surface** (gate breach: rode
+- [x] **DONE (a7a9c11, completed by 86bb7f3): docs-site coverage for the audit's REST surface** (gate breach: rode
   the integrations branch, so its own Phase 9 ran only after the fact). Landed: the durability block on `GET /status`
   (`save-games.mdx`, "Durability model"), `POST /index/backfill/{indexId}` (`indexes.mdx`,
   "Rebuilding an index you already have"), and `POST /graphelements/get` /
   `PUT /graphelements/properties` / `DELETE /graphelements` (`graph-model.mdx`, the REST CRUD table).
-  Still open: `observability.mdx` is untouched - its `GET /status` field list does not mention the
-  durability block at all, so that page still presents the degraded state as the
-  `fallen8.wal.degraded` OTel gauge alone, and a reader of the observability page never learns the
-  status probe answers the same question without any OTel wiring.
+  The `observability.mdx` half followed in 86bb7f3: the `fallen8.wal.degraded` gauge row now
+  cross-points at the `durability` block on `GET /status`, and the page's `GET /status` field list
+  names the block's fields, so a reader learns the status probe answers the degraded question
+  without any OTel wiring.
 - [x] **DONE (208969b): the Studio durability notice** (the audit spec's own sweep names it: the
   **Studio** row of "Impact on existing features" in
-  [platform-integrity-audit/spec.md](../platform-integrity-audit/spec.md)): `StatusREST` in
+  [platform-integrity-audit/spec.md](../../open/platform-integrity-audit/spec.md)): `StatusREST` in
   `fallen-8-web-ui/src/api/types.ts` had no durability field. The machine consumer (integrations
   delete gate) read it; the human could not.
 - [x] **DONE (208969b): hydration reads a page in one request** (edges still singly - the route omits their endpoints) (`hydrate.ts:31-36, 61-65`: up to 500
@@ -228,9 +231,11 @@ minimum the spec should say "a run touches only what it may" is best-effort unde
   exactly that. One request instead of 20 rounds; directly serves the browser priority.
 - [x] **DONE (208969b): Integrations screenshot** captured, was missing from `studio.md` and `docs/src/assets/images/`
   (recorded follow-up with no owner; the standing rule says recreate).
-- [ ] **Conformance-suite honesty line**: `NoCredentialLeak` watches exact ordinal substrings, so an
-  encoded credential escapes; consistent with the declared threat model, but one doc line should
-  say so.
+- [x] **DONE (fac91f5): Conformance-suite honesty line**: `NoCredentialLeak` watches exact ordinal
+  substrings, so an encoded credential escapes; consistent with the declared threat model, and the
+  NoCredentialLeak row of [the integrations spec](../../done/integrations/spec.md) section 13 now
+  says so. The same commit corrected the row's stale claim that the check also watches a fixture
+  credential map - e397787 had removed that parameter before the row ever landed.
 - [x] DONE (35820c6, plus the integrations spec rows that landed with the hardening): `summaryDirty` is a
   `HashSet<Int32>`; the credential-resolution failure logs its outcome before returning (`JobRunner`,
   the `CredentialUnavailableException` arm, which is the one failure that never reaches the

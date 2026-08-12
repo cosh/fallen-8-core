@@ -194,7 +194,7 @@ the spec with their triggers; W17 belongs to
 - [ ] Phase 8 - P2 (optional)
 - [ ] Phase 9 - gate, merge, move to done. NOTE: the shipped phases rode the integrations merge, so
       this gate never ran for them; the docs-site coverage debt is tracked in
-      `features/open/review-findings-2026-08-11/report.md`. Known defects found in review against
+      `features/done/review-findings-2026-08-11/report.md`. Known defects found in review against
       the shipped code (fulltext AddOrUpdate idempotence, DateTimeOffset egress, `/status` torn
       group during re-replay, bucket removed-element guard) are tracked THERE, not here
 

@@ -1,7 +1,8 @@
 # Review findings, 2026-08-12
 
-Status: Open - two follow-ups remain (see "Still open after this batch"); every reviewed
-finding is fixed. Scope: the 16 unpushed commits `origin/main..main`
+Status: Closed 2026-08-12 - every reviewed finding is fixed and all three follow-ups under
+"Still open after this batch" are landed, the last being the conformance-suite doc line
+(fac91f5). Scope: the 16 unpushed commits `origin/main..main`
 (5b384ac..95b421a): integrations hardening, engine integrity fixes, browser teardown +
 checkpoint fan-out, Studio durability + batch hydration, trim follow-up, canvas aria role,
 and the docs/bookkeeping that rode along. Method: six dimension reviewers over the full
@@ -334,8 +335,9 @@ closed or recorded:
   broader than the truth. The `HostCapabilities` test-seam alternative was NOT taken: it
   would mean production code carrying a mutable global for tests, and a real runtime is
   better evidence than a faked flag.
-- [ ] The conformance-suite doc line about encoded credentials, carried over from the
-  2026-08-11 report. Once it lands, that directory moves to `features/done/` (its N15).
+- [x] DONE (fac91f5): the conformance-suite doc line about encoded credentials, carried over from
+  the 2026-08-11 report - it landed in the NoCredentialLeak row of the integrations spec,
+  section 13, and both report directories moved to `features/done/` (its N15).
 - [x] **DONE (2026-08-12): the flake is identified and fixed - and it was neither of the
   suspects.** A CI re-run of commit `2e77793` (attempt 2 of run 31597712633) failed
   `ChangeFeedEngineTest.InboxOverflow_BecomesAResync_ForRingAndSubscribers` where attempt 1
