@@ -171,6 +171,22 @@ namespace NoSQL.GraphDB.Integrations.Contract
         /// </summary>
         public const String ClaimNotIndexed = "claimNotIndexed";
 
+        /// <summary>
+        ///   A claim an element carried as a PROPERTY that the claim index did not name, re-asserted by this run.
+        ///   It is the fingerprint of an earlier run interrupted between its creates and its index write, and it
+        ///   never healed on its own: the next resolve could not find those elements and duplicated them, while
+        ///   reconciliation - which withdraws by set difference over the index - could not see them either.
+        /// </summary>
+        public const String ClaimReindexed = "claimReindexed";
+
+        /// <summary>
+        ///   Two entities in ONE snapshot asserted the same strong claim, so the snapshot says they are one
+        ///   thing. They converge onto a single element by design; this reports it, because the two entities'
+        ///   properties then overwrite each other and every run issues writes over an unchanged source, whose
+        ///   only other symptom is unexplained churn.
+        /// </summary>
+        public const String CollidingStrongClaim = "collidingStrongClaim";
+
         /// <summary>An index had to be created or repaired from element state before it could be trusted.</summary>
         public const String IdentityIndexRebuilt = "identityIndexRebuilt";
 

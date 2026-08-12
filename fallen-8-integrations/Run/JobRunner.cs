@@ -139,7 +139,15 @@ namespace NoSQL.GraphDB.Integrations.Run
             catch (CredentialUnavailableException ex)
             {
                 stopwatch.Stop();
-                return Complete(report, stopwatch, JobErrorKinds.Credential, ex.Message, descriptor.Id);
+                var unavailable = Complete(report, stopwatch, JobErrorKinds.Credential, ex.Message, descriptor.Id);
+
+                // Logged like every other outcome. This return happens BEFORE the lease exists, so it is the one
+                // failure that never reached the using-block's LogOutcome, and "the run that produced no log line
+                // at all" is the worst shape for the one failure class an operator fixes by looking at the
+                // credential. There is no lease to fingerprint and no value to scrub: the exception is the
+                // resolver's own message about a credential it could not obtain.
+                LogOutcome(unavailable);
+                return unavailable;
             }
 
             using (lease)
@@ -212,7 +220,22 @@ namespace NoSQL.GraphDB.Integrations.Run
                         : null;
 
                     using var target = _targets.Create(normalized.Namespace);
-                    await _applier.ApplyAsync(validated, instanceId, target, report, summary, cancellationToken)
+
+                    // THE POINT OF NO RETURN, and the one place this runtime deliberately stops honouring the
+                    // caller's cancellation. Everything above - the source read, which is the slow part, and the
+                    // validation - is cancellable, and a caller that walks away during it loses nothing. The apply
+                    // phase is different: it is a bounded handful of batched writes, seconds of work, and
+                    // interrupting it midway leaves a half-applied snapshot. That is not a rollback but a
+                    // repairable-yet-invisible state, so the run finishes what it started even if nobody is left
+                    // to read the answer.
+                    //
+                    // The trigger is not theoretical: the job endpoint binds the request-abort token, and the
+                    // apiApp proxy has a finite timeout, so a source that legitimately takes longer than the proxy
+                    // waits used to have its GRAPH WRITES killed between calls. The container shutdown path
+                    // already holds this principle - compose grants a stop grace period precisely so a recreate
+                    // does not kill a run between writes - and this closes the same hole at the front door.
+                    // A run that hangs here is bounded by the target's own per-call HTTP timeouts.
+                    await _applier.ApplyAsync(validated, instanceId, target, report, summary, CancellationToken.None)
                         .ConfigureAwait(false);
 
                     return Complete(report, stopwatch, null, null, descriptor.Id);
