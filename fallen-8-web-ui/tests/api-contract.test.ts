@@ -49,6 +49,8 @@ interface Recorded {
   path: string;
   query: URLSearchParams;
   body: unknown;
+  /** The bytes the server would read. Parsing hides a double-encoded body; this does not. */
+  rawBody: string | undefined;
 }
 
 let recorded: Recorded[] = [];
@@ -66,6 +68,7 @@ beforeEach(() => {
         // Only JSON bodies are parsed; FormData (ingestFile) and Blob (importBulk) pass through
         // as undefined instead of throwing in JSON.parse.
         body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+        rawBody: typeof init?.body === "string" ? init.body : undefined,
       });
       return new Response("null", { status: 200 });
     }),
@@ -305,6 +308,14 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       for (const request of recorded) {
         expect(request.path, "routes must be root-level").not.toMatch(/^\/api\//);
         assertInContract(request);
+        // No endpoint sends a JSON string as its whole body: apiRequest serializes what it is
+        // given, so a caller that pre-serializes ships a double-encoded body the model binder
+        // answers with 400. Reaching a route the snapshot knows is not enough if the payload
+        // arrives as a quoted string.
+        expect(
+          typeof request.body,
+          `${name} sends a double-encoded body: ${String(request.rawBody)}`,
+        ).not.toBe("string");
       }
     }
   });
@@ -346,6 +357,19 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       "System.Int32",
     );
     expect(JSON.stringify(body)).not.toMatch(/FullQualifiedTypeName/);
+  });
+
+  it("the batch element read puts a JSON ARRAY on the wire, not a quoted array", async () => {
+    await endpoints.getGraphElements(instance, [3, 4]);
+
+    const call = recorded[0];
+    expect(call.method).toBe("POST");
+    expect(call.path).toBe("/graphelements/get");
+    // The server binds [FromBody] List<Int32>: "[3,4]" as a JSON string is a 400, and hydration
+    // swallows that into its per-element fallback, so the batch read would silently never run.
+    expect(call.rawBody).toBe("[3,4]");
+    expect(Array.isArray(call.body)).toBe(true);
+    expect(call.body).toEqual([3, 4]);
   });
 
   it("embedding element writes send waitForCompletion (FR-21); bodies are camelCase", async () => {

@@ -285,7 +285,9 @@ export const getGraphElement = (i: InstanceConfig, id: number, signal?: AbortSig
 export const getGraphElements = (i: InstanceConfig, ids: number[], signal?: AbortSignal) =>
   apiRequest<GraphElementBatchREST>(i, "/graphelements/get", {
     method: "POST",
-    body: JSON.stringify(ids),
+    // The raw array: apiRequest serializes the body itself, and the server's [FromBody] List<Int32>
+    // rejects a pre-serialized string with a 400.
+    body: ids,
     signal,
   });
 

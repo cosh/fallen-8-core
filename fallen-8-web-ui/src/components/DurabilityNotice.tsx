@@ -72,8 +72,9 @@ export function DurabilityNotice({ durability }: { durability: DurabilityREST | 
     problems.push({
       title: `The last checkpoint dropped ${durability.lastCheckpointDroppedIndices.toLocaleString()} index(es)`,
       detail:
-        "They are not in the snapshot, so they will be absent after the next load. Rebuilding one " +
-        "from element state is a single call on the Indexes screen.",
+        "They are not in the snapshot, so they will be absent after the next load. One REST call " +
+        "rebuilds an index from element state: POST /index/backfill/{indexId}. The Indexes screen " +
+        "cannot do it yet.",
     });
   }
 

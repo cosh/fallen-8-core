@@ -74,17 +74,22 @@ export function DashboardScreen() {
 
   if (data.vertexCount === 0 && !dismissed) {
     return (
-      <div className="h-full">
-        <FirstRunShow
-          variant="auto"
-          onExplore={() => dismiss(key)}
-          onImport={() => void navigate({ to: "/save-games" })}
-          // Jump to the Sample gallery: the newcomer's path from empty to a curated, populated
-          // graph. The show itself writes nothing; the unittest graph is test-only (see CLAUDE.md).
-          onBrowseSamples={() =>
-            void navigate({ to: "/q/$ns/samples", params: { ns: namespace } })
-          }
-        />
+      <div className="flex h-full flex-col gap-3">
+        {/* An empty graph can be the SYMPTOM - a truncated recovery loses state - so the notice
+            precedes the welcome instead of being skipped by it. */}
+        <DurabilityNotice durability={data.durability} />
+        <div className="min-h-0 flex-1">
+          <FirstRunShow
+            variant="auto"
+            onExplore={() => dismiss(key)}
+            onImport={() => void navigate({ to: "/save-games" })}
+            // Jump to the Sample gallery: the newcomer's path from empty to a curated, populated
+            // graph. The show itself writes nothing; the unittest graph is test-only (see CLAUDE.md).
+            onBrowseSamples={() =>
+              void navigate({ to: "/q/$ns/samples", params: { ns: namespace } })
+            }
+          />
+        </div>
       </div>
     );
   }

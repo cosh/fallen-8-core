@@ -25,6 +25,9 @@
 
 import { expect, test } from "@playwright/test";
 
+import shippedDescriptors from "../../features/done/integrations/provider-descriptors.json" with { type: "json" };
+import type { IntegrationProvider } from "../src/api/types";
+
 /**
  * Docs screenshot capture for the Integrations screen (feature integrations).
  *
@@ -38,132 +41,19 @@ import { expect, test } from "@playwright/test";
  * sidecar, so there is no honest way to make the real descriptor list appear without also starting
  * a second service (and, for the UniFi and Fronius entries, a console and an inverter on the
  * network). What the screen renders, though, is a pure function of the descriptor list the proxy
- * returns, so serving the descriptors of the three SHIPPED integrations - copied from their own
- * descriptor definitions - captures exactly what a user with the sidecar configured sees.
+ * returns, so replaying the pinned snapshot of what GET /integration/providers serves captures what
+ * a user with the sidecar configured sees.
  *
- * The consequence to respect when editing: if a shipped descriptor changes (a setting added, a
- * label reworded), this fixture has to change with it or the screenshot starts telling a story the
- * runtime no longer tells. The screen has real tests against the real contract shape
- * (tests/integrations-screen.test.tsx); this file exists only to photograph it.
+ * Nothing here is hand-copied, which is the point: the snapshot is generated from the shipped
+ * descriptors and ProviderDescriptorSnapshotTest fails when the runtime drifts from it, so a
+ * reworded label cannot leave this capture photographing a form the product does not have. The
+ * screen's own behaviour is tested against the contract shape in tests/integrations-screen.test.tsx;
+ * this file exists only to photograph it.
  */
 
 test.skip(process.env.F8_SCREENSHOT !== "1", "docs screenshot capture (set F8_SCREENSHOT=1)");
 
-const SHIPPED_DESCRIPTORS = [
-  {
-    id: "csv-inventory",
-    displayName: "CSV inventory",
-    description:
-      "Reads a CSV of things you already track - a spreadsheet export, an asset list - from the " +
-      "runtime's files directory.",
-    settings: [
-      {
-        key: "file",
-        label: "File",
-        kind: "Text",
-        required: true,
-        help: "A file name inside the runtime's files directory.",
-        defaultValue: "devices.csv",
-      },
-      {
-        key: "keyColumn",
-        label: "Key column",
-        kind: "Text",
-        required: true,
-        help: "The column whose value identifies a row across runs.",
-      },
-      {
-        key: "keyType",
-        label: "Key type",
-        kind: "Text",
-        required: true,
-        help: "Which identifier the key column holds, for example mac or serial.",
-        defaultValue: "mac",
-      },
-      {
-        key: "label",
-        label: "Label",
-        kind: "Text",
-        required: false,
-        help: "What to call the elements this integration creates.",
-        defaultValue: "device",
-      },
-    ],
-    entityKinds: ["device"],
-    claimTypes: ["mac", "serial", "hostname"],
-    relationTypes: [],
-    requiresCredential: false,
-  },
-  {
-    id: "unifi-network",
-    displayName: "UniFi Network",
-    description:
-      "Reads a UniFi console on your own network: the site, its devices and the clients they see.",
-    settings: [
-      {
-        key: "baseUrl",
-        label: "Console URL",
-        kind: "Url",
-        required: true,
-        help: "The console's address, for example https://192.168.1.1.",
-      },
-      {
-        key: "apiKey",
-        label: "API key",
-        kind: "Credential",
-        required: true,
-        help: "Created in the console under Settings, then Admins, then API keys.",
-      },
-      {
-        key: "site",
-        label: "Site",
-        kind: "Text",
-        required: false,
-        help: "Which site to read; the default site when omitted.",
-        defaultValue: "default",
-      },
-      {
-        key: "trustSelfSigned",
-        label: "Trust the console's own certificate",
-        kind: "Boolean",
-        required: false,
-        help: "A console on your own network usually presents a self-signed certificate.",
-      },
-    ],
-    entityKinds: ["site", "device", "client"],
-    claimTypes: ["mac", "serial", "hostname", "ipv4"],
-    relationTypes: ["site", "connectedTo"],
-    requiresCredential: true,
-  },
-  {
-    id: "fronius-solar",
-    displayName: "Fronius solar",
-    description:
-      "Reads a Fronius inverter's shape and coarse state - what the installation IS, never a time " +
-      "series of readings.",
-    settings: [
-      {
-        key: "baseUrl",
-        label: "Inverter URL",
-        kind: "Url",
-        required: true,
-        help: "The inverter's address on your network.",
-      },
-      {
-        key: "label",
-        label: "Label",
-        kind: "Text",
-        required: false,
-        help: "What to call the elements this integration creates.",
-        defaultValue: "inverter",
-      },
-    ],
-    entityKinds: ["inverter", "logger"],
-    claimTypes: ["serial"],
-    relationTypes: ["loggedBy"],
-    requiresCredential: false,
-  },
-];
+const SHIPPED_DESCRIPTORS = shippedDescriptors as IntegrationProvider[];
 
 test("capture the Integrations screen rendered from the shipped descriptors", async ({ page }) => {
   await page.setViewportSize({ width: 1600, height: 1000 });
@@ -183,8 +73,8 @@ test("capture the Integrations screen rendered from the shipped descriptors", as
   // The catalog drives everything on this screen, so wait for it rather than for a timeout.
   await expect(page.getByTestId("integration-select-unifi-network")).toBeVisible();
 
-  // Open the UniFi entry: it is the one with a credential, a boolean and a defaulted setting, so the
-  // form shows every control kind the descriptor model can ask for.
+  // Open the UniFi entry: it is the shipped integration that asks for a credential, so the form
+  // shows the password control and the help text saying the value is held for the run alone.
   await page.getByTestId("integration-select-unifi-network").click();
   await expect(page.getByTestId("integration-instance-id")).toBeVisible();
   await page.getByTestId("integration-instance-id").fill("office");
