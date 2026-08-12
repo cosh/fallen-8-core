@@ -72,8 +72,15 @@ namespace NoSQL.GraphDB.Core
                 probe.Start();
                 return true;
             }
-            catch (PlatformNotSupportedException)
+            catch (Exception)
             {
+                // ANY refusal answers "no", never faults. This runs in a static initializer, so a single
+                // escaping exception would poison the type with TypeInitializationException for every
+                // later reader - including Dispose and the checkpoint fan-out, which must not throw. A
+                // false "no" costs parallelism; a poisoned type costs teardown and saves. The
+                // single-threaded WebAssembly runtime raises PlatformNotSupportedException, but a host
+                // that refuses a thread for any other reason (a resource limit, a sandbox policy) is
+                // making the same statement.
                 return false;
             }
         }

@@ -152,7 +152,9 @@ namespace NoSQL.GraphDB.Core.Transaction
         /// <see cref="_inlineGate" /> and never retained by <see cref="FlushAndCompleteGroup" />.</summary>
         private readonly List<WorkItem> _inlineGroup;
 
-        /// <summary>Guards <see cref="Dispose" /> so it is idempotent.</summary>
+        /// <summary>Guards <see cref="Dispose" /> so it is idempotent, and carries the inline
+        /// refuse-after-Dispose answer - which is why inline mode both writes and reads it under
+        /// <see cref="_inlineGate" />.</summary>
         private Boolean _disposed;
 
         /// <summary>
@@ -319,6 +321,20 @@ namespace NoSQL.GraphDB.Core.Transaction
         {
             lock (_inlineGate)
             {
+                // Refused after Dispose, for PARITY with the threaded path: there, Add on a completed
+                // BlockingCollection throws InvalidOperationException, so an enqueue racing shutdown fails
+                // loudly. Inline mode would otherwise have executed it against a torn-down engine and
+                // reported success, which is the same bug being silent in the browser and loud on the
+                // server - the worst possible split. Read UNDER the gate that Dispose publishes it under,
+                // so on a threaded host running explicit inline mode a teardown racing an enqueue is
+                // ORDERED against it (either the transaction ran to completion before Dispose could
+                // publish, or it is refused) rather than being narrowly unlikely to interleave.
+                if (_disposed)
+                {
+                    throw new InvalidOperationException(
+                        "The transaction manager has been disposed; no further transactions are accepted.");
+                }
+
                 if (_inlineExecuting)
                 {
                     _inlineDeferred.Enqueue(item);
@@ -846,19 +862,8 @@ namespace NoSQL.GraphDB.Core.Transaction
             if (_transactions == null)
             {
                 // Inline mode: THIS thread is the single writer. The transaction is applied, flushed and
-                // completed before we return, so txInfo is already terminal (see ExecuteInline).
-                //
-                // Refused after Dispose, for PARITY with the threaded path: there, Add on a completed
-                // BlockingCollection throws InvalidOperationException, so an enqueue racing shutdown fails
-                // loudly. Inline mode would otherwise have executed it against a torn-down engine and
-                // reported success, which is the same bug being silent in the browser and loud on the
-                // server - the worst possible split.
-                if (_disposed)
-                {
-                    throw new InvalidOperationException(
-                        "The transaction manager has been disposed; no further transactions are accepted.");
-                }
-
+                // completed before we return, so txInfo is already terminal, and an enqueue that races
+                // Dispose is refused (both in ExecuteInline).
                 ExecuteInline(item);
             }
             else
@@ -941,18 +946,26 @@ namespace NoSQL.GraphDB.Core.Transaction
         /// </summary>
         public void Dispose()
         {
+            if (_transactions == null)
+            {
+                // Inline mode: no consumer thread to stop and no queue to complete, so the whole of
+                // teardown is publishing the refusal - under the gate ExecuteInline reads it under, so a
+                // transaction already running inline on another thread finishes first and the next one is
+                // refused. The lock is reentrant, so a transaction body that disposes its own engine
+                // (already holding the gate) is not a deadlock.
+                lock (_inlineGate)
+                {
+                    _disposed = true;
+                }
+
+                return;
+            }
+
             if (_disposed)
             {
                 return;
             }
             _disposed = true;
-
-            if (_transactions == null)
-            {
-                // Inline mode: no consumer thread to stop, no queue to complete and nothing that could
-                // still be in flight except on the caller's own thread (which is here, disposing).
-                return;
-            }
 
             // Stop accepting new work; the consumer finishes what is queued and then leaves the loop.
             _transactions.CompleteAdding();

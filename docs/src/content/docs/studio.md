@@ -20,7 +20,7 @@ Every screen also carries a **How does this work?** button in the top bar, next 
 | Screen | Scope | Purpose |
 |---|---|---|
 | Connect | Fallen-8 | Register instances, instance configuration (semantic providers + observability), manage namespaces |
-| Dashboard | namespace | Status overview: vertex/edge counts, memory |
+| Dashboard | namespace | Status overview: vertex/edge counts, memory, durability warnings |
 | Samples | namespace | One-click demo-graph gallery with a capability tag filter |
 | Save games | Fallen-8 | Checkpoint registry (load / delete) + administration (save/load/erase, jsonl import/export) |
 | Browser | namespace | Look up an element, inspect properties/embeddings, adjacency, bulk view, mutations |
@@ -66,6 +66,8 @@ The **Configuration** panel is read-only (instance config is set at startup via 
 ![Dashboard screen](../../assets/images/screen-dashboard.png)
 
 A lean status overview for the active namespace: vertex/edge counts and used memory from `GET /status` ([observability.md](/fallen-8-core/observability/)). On an empty namespace it opens with the first-run walkthrough (above) instead of zeroed tiles. Everything that used to crowd the Dashboard now has its own home: the sample gallery is **Samples**, the plugin inventories and registry are **Plugins**, persistence and administration are **Save games**, stored queries are managed per scenario on **Path** and **Subgraph**, and the semantic providers + observability moved to the Connect **Configuration** section.
+
+A **Durability** block appears when the server has something to warn about, and only then: the write-ahead log is degraded (commits are landing in memory only, so a restart loses them), the last recovery was truncated (this graph is a prefix of the committed history, which matters to anything reconciling against it), or the last checkpoint dropped indexes (they will be missing after the next load; one REST call rebuilds an index from element state, see [indexes.md](/fallen-8-core/indexes/#rebuilding-an-index-you-already-have)). Each says what it means and what to do. It sits below the tiles on a populated namespace, and on an empty one it appears **above** the first-run walkthrough rather than being hidden behind it, because a truncated recovery is one of the reasons a namespace you expected to have data is empty. There is deliberately no green "all durable" badge: a badge that is always there stops being read, and these three states are the ones worth interrupting for. A server too old to report the block says nothing rather than claiming health. What the three states mean underneath is in [save-games.md](/fallen-8-core/save-games/).
 
 ## Samples
 

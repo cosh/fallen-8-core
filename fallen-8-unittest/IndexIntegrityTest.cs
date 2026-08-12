@@ -528,12 +528,8 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void AddOrUpdate_RefusesARemovedElement_SoRepairCannotPinATombstone()
         {
-            // RegExIndex and VectorIndex both refuse a removed element, and the RegEx comment says the rule
-            // holds "for every index caller" - the bucket family was the one that did not enforce it. Index
-            // repair reads a snapshot of live elements and adds them on the calling thread, so a removal
-            // committing in between would re-add a tombstone the write-end purge already passed: invisible to
-            // scans, but pinned in both maps, persisted into the next checkpoint, and one logged error per
-            // stale id on the following load.
+            // The bucket family's half of the IIndex.AddOrUpdate contract (never index a removed element).
+            // Pinned per implementation rather than once, because each index enforces it in its own lock.
             var index = NewIndex("claims-after-removal");
             var id = NewVertex();
             var element = Element(id);
@@ -550,6 +546,38 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(index.TryGetValue(out _, "mac:44d2"),
                 "a removed element must never enter an index: the scan would filter it, but the id is pinned " +
                 "in the index and survives into the checkpoint");
+        }
+
+        [TestMethod]
+        public void SingleValueIndex_AddOrUpdate_RefusesARemovedElement_Too()
+        {
+            // SingleValueIndex is repair-eligible for exactly the same reasons the bucket family is
+            // (SupportsPointEqualityLookup == true, so IndexRepair feeds it live elements from the calling
+            // thread), and it kept a single value per key rather than a bucket - so a tombstone arriving
+            // here does not inflate anything, it OVERWRITES the live element the key resolved to.
+            var index = NewIndex("serial", "SingleValueIndex");
+            var live = Element(NewVertex());
+            index.AddOrUpdate("sn:1", live);
+
+            var doomedId = NewVertex();
+            var doomed = Element(doomedId);
+            var removal = _fallen8.EnqueueTransaction(new RemoveGraphElementsTransaction
+            {
+                GraphElementIds = new List<Int32> { doomedId },
+            });
+            removal.WaitUntilFinished();
+            Assert.AreEqual(TransactionState.Finished, removal.TransactionState, "error: " + removal.Error);
+
+            index.AddOrUpdate("sn:1", doomed);
+            index.AddOrUpdate("sn:2", doomed);
+
+            Assert.IsTrue(index.TryGetValue(out var bucket, "sn:1"), "the live key must survive");
+            Assert.AreSame(live, bucket.Single(),
+                "a removed element must never displace the live element a key resolves to");
+            Assert.IsFalse(index.TryGetValue(out _, "sn:2"),
+                "a removed element must never enter an index: the scan filters it, but the id is pinned in " +
+                "the index and survives into the checkpoint");
+            Assert.AreEqual(1, index.CountOfKeys(), "the tombstone must not add a key either");
         }
 
         [TestMethod]

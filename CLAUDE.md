@@ -138,6 +138,14 @@ dotnet run --project fallen-8-core-apiApp
 - **OpenAPI snapshot**: regenerate with `pwsh scripts/update-openapi-snapshot.ps1` whenever
   a controller's routes or XML docs change; review the printed diff - additions are
   expected, removals only where a deliberately edited remark shrank.
+- **Provider-descriptor snapshot**: the three shipped integration descriptors are pinned in
+  `features/done/integrations/provider-descriptors.json` (the JSON the providers route
+  actually returns), and `ProviderDescriptorSnapshotTest` fails the suite when a shipped
+  descriptor drifts from it. Regenerate with
+  `pwsh scripts/update-provider-descriptor-snapshot.ps1`. The snapshot is also what the
+  docs-screenshot capture replays, so **a descriptor change means recapturing
+  `screen-integrations.png`** - that is why the gate exists: the published screenshot once
+  showed settings the runtime deliberately does not offer.
 - **MCP coverage (engine→REST→MCP)**: `McpRestCoverageTest` fails the suite if a REST
   operation in the OpenAPI snapshot is neither bridged by an MCP tool
   (`McpBridgedEndpoints`) nor recorded as a conscious deferral (with a reason) — so a newly

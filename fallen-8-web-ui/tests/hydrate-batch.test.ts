@@ -37,6 +37,8 @@ import type {
  * request per element. The subtlety worth pinning: that route omits adjacency by design, so a
  * vertex it returns is complete while an EDGE is missing its endpoints - and the canvas cannot draw
  * an edge without them. So edges, and only edges, are still read one by one.
+ *
+ * Also pinned here: scan order, attempt-counted progress, and abort handling (see hydrateElements).
  */
 
 const getGraphElementsMock =
@@ -53,7 +55,7 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
   };
 });
 
-const { hydrateElements, isEdge } = await import("../src/lib/hydrate");
+const { HYDRATION_BATCH_SIZE, hydrateElements, isEdge } = await import("../src/lib/hydrate");
 
 const instance = { id: "i/default", name: "i", baseUrl: "http://localhost:8080" } as InstanceConfig;
 
@@ -155,5 +157,117 @@ describe("hydrateElements", () => {
     expect(elements).toEqual([]);
     expect(getGraphElementsMock).not.toHaveBeenCalled();
     expect(getGraphElementMock).not.toHaveBeenCalled();
+  });
+
+  it("does not report a page as capped when it is exactly the cap", async () => {
+    getGraphElementsMock.mockResolvedValue({ elements: [vertex(1), vertex(2)], notFound: [] });
+
+    const { elements, capped } = await hydrateElements(instance, [1, 2], { cap: 2 });
+
+    expect(capped).toBe(false);
+    expect(getGraphElementsMock).toHaveBeenCalledWith(instance, [1, 2], undefined);
+    expect(elements.map((e) => e.id)).toEqual([1, 2]);
+  });
+
+  it("returns a mixed page in the order the caller asked for, not edges last", async () => {
+    getGraphElementsMock.mockResolvedValue({
+      elements: [vertex(1), batchEdge(2), vertex(3)],
+      notFound: [],
+    });
+    getGraphElementMock.mockImplementation((_i, id) => Promise.resolve(fullEdge(id)));
+
+    const { elements } = await hydrateElements(instance, [1, 2, 3]);
+
+    expect(elements.map((e) => e.id)).toEqual([1, 2, 3]);
+  });
+
+  it("counts progress in ATTEMPTS, so a page with a deleted id still reaches its total", async () => {
+    getGraphElementsMock.mockResolvedValue({ elements: [vertex(1), vertex(3)], notFound: [2] });
+    const seen: { done: number; total: number }[] = [];
+
+    await hydrateElements(instance, [1, 2, 3], { onProgress: (p) => seen.push({ ...p }) });
+
+    expect(seen.at(-1)).toEqual({ done: 3, total: 3 });
+    expect(seen.every((p) => p.done <= p.total)).toBe(true);
+  });
+
+  it("survives a rejecting single-edge re-read: the vertices stand and progress completes", async () => {
+    getGraphElementsMock.mockResolvedValue({ elements: [vertex(1), batchEdge(7)], notFound: [] });
+    getGraphElementMock.mockRejectedValue(new Error("500"));
+    const seen: { done: number; total: number }[] = [];
+
+    const { elements } = await hydrateElements(instance, [1, 7], {
+      onProgress: (p) => seen.push({ ...p }),
+    });
+
+    expect(elements.map((e) => e.id)).toEqual([1]);
+    expect(seen.at(-1)).toEqual({ done: 2, total: 2 });
+  });
+
+  it("issues no request at all when the signal is aborted before it starts", async () => {
+    getGraphElementsMock.mockResolvedValue({ elements: [vertex(1)], notFound: [] });
+    const controller = new AbortController();
+    controller.abort();
+
+    const { elements } = await hydrateElements(instance, [1, 2], { signal: controller.signal });
+
+    expect(elements).toEqual([]);
+    expect(getGraphElementsMock).not.toHaveBeenCalled();
+    expect(getGraphElementMock).not.toHaveBeenCalled();
+  });
+
+  it("reads an aborted batch as an abort, never as a server without the batch route", async () => {
+    // The distinction matters: the fallback would fire one doomed request PER ID after the caller
+    // already walked away.
+    const controller = new AbortController();
+    getGraphElementsMock.mockImplementation(() => {
+      controller.abort();
+      return Promise.reject(new DOMException("Aborted", "AbortError"));
+    });
+    getGraphElementMock.mockImplementation((_i, id) => Promise.resolve(fullVertex(id)));
+
+    const { elements } = await hydrateElements(instance, [1, 2, 3], { signal: controller.signal });
+
+    expect(elements).toEqual([]);
+    expect(getGraphElementMock).not.toHaveBeenCalled();
+  });
+
+  it("asks for a repeated id once and returns it once", async () => {
+    // Results are keyed by id, so a duplicate that survived into the request list would come back
+    // as the same element twice - a duplicate React key on the canvas. No caller passes duplicates
+    // today; this pins that a future one cannot break rendering by doing so.
+    getGraphElementsMock.mockResolvedValue({ elements: [vertex(4), vertex(9)], notFound: [] });
+
+    const { elements } = await hydrateElements(instance, [4, 9, 4, 9, 4]);
+
+    expect(getGraphElementsMock).toHaveBeenCalledWith(instance, [4, 9], undefined);
+    expect(elements.map((e) => e.id)).toEqual([4, 9]);
+  });
+
+  it("counts the cap in DISTINCT elements, not in repeats", async () => {
+    getGraphElementsMock.mockResolvedValue({ elements: [vertex(1), vertex(2)], notFound: [] });
+
+    const { elements, capped } = await hydrateElements(instance, [1, 2, 1, 2, 1, 2], { cap: 2 });
+
+    expect(capped).toBe(false);
+    expect(elements.map((e) => e.id)).toEqual([1, 2]);
+  });
+
+  it("stops the single-read rounds at the abort instead of finishing the page", async () => {
+    const edgeIds = Array.from({ length: HYDRATION_BATCH_SIZE + 5 }, (_, i) => i + 1);
+    getGraphElementsMock.mockResolvedValue({
+      elements: edgeIds.map((id) => batchEdge(id)),
+      notFound: [],
+    });
+    const controller = new AbortController();
+    getGraphElementMock.mockImplementation((_i, id) => {
+      if (id === 1) controller.abort();
+      return Promise.resolve(fullEdge(id));
+    });
+
+    await hydrateElements(instance, edgeIds, { signal: controller.signal });
+
+    // The round already in flight completes; the next one is never entered.
+    expect(getGraphElementMock).toHaveBeenCalledTimes(HYDRATION_BATCH_SIZE);
   });
 });

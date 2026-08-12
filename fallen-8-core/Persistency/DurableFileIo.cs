@@ -147,8 +147,8 @@ namespace NoSQL.GraphDB.Core.Persistency
         ///   exception is not deceived about anything. A few tens of milliseconds of backoff is worth not
         ///   failing a checkpoint the engine has otherwise finished writing.</para>
         ///
-        ///   <para>Anything other than those two exception types is a real error and is not retried: a
-        ///   missing temp file or a bad path will fail identically the second time.</para>
+        ///   <para>Anything else is a real error and is not retried: see
+        ///   <see cref="IsTransientRefusal" /> for which faults are excluded and why.</para>
         /// </summary>
         internal static void PublishWithRetry(String temp, String path, ILogger logger = null)
         {
@@ -170,8 +170,7 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                     return;
                 }
-                catch (Exception ex) when (attempt < attempts &&
-                                           (ex is UnauthorizedAccessException || ex is IOException))
+                catch (Exception ex) when (attempt < attempts && IsTransientRefusal(ex))
                 {
                     logger?.LogDebug(ex,
                         "Publishing \"{Path}\" was refused on attempt {Attempt} of {Attempts}; retrying in {Delay} ms.",
@@ -180,6 +179,27 @@ namespace NoSQL.GraphDB.Core.Persistency
                     delayMilliseconds *= 2;
                 }
             }
+        }
+
+        /// <summary>
+        ///   Whether a failed publish is the transient REFUSAL <see cref="PublishWithRetry" /> exists for
+        ///   (a scanner or indexer holding the destination for a moment) rather than a fault that will
+        ///   fail identically on every further attempt.
+        ///
+        ///   <para>Filtered by TYPE, never by message: <see cref="FileNotFoundException" />,
+        ///   <see cref="DirectoryNotFoundException" /> and <see cref="PathTooLongException" /> all DERIVE
+        ///   from <see cref="IOException" />, so admitting every <c>IOException</c> retried exactly the
+        ///   "a missing temp file or a bad path is not retried" cases the retry documents as excluded -
+        ///   burning the whole backoff budget before the real error reached the caller.</para>
+        /// </summary>
+        private static Boolean IsTransientRefusal(Exception ex)
+        {
+            if (ex is FileNotFoundException || ex is DirectoryNotFoundException || ex is PathTooLongException)
+            {
+                return false;
+            }
+
+            return ex is UnauthorizedAccessException || ex is IOException;
         }
     }
 }

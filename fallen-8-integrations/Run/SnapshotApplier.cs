@@ -235,6 +235,15 @@ namespace NoSQL.GraphDB.Integrations.Run
                         // every run - a write over an unchanged source, which the conformance suite rightly fails.
                         // Scoping to strong also matches the failure being healed: only a strong claim resolves,
                         // so only a missing strong entry can make an element unfindable and duplicate it.
+                        //
+                        // TWO SHAPES THIS HEAL THEREFORE DOES NOT REACH, both accepted and both left to an index
+                        // rebuild, which backfills from element state instead of from a lookup. A lost WEAK entry
+                        // drifts until then and costs a missed overlap in somebody's query, nothing more: the
+                        // element stays findable by its strong claims. An element whose EVERY strong entry is
+                        // missing is the bad one and is still out of reach: nothing resolves to it, so this branch
+                        // never runs for it. That is the residual window of a crash between the create call and the
+                        // flush below, and it cannot be closed here - the ids exist only once the create has
+                        // answered, so the first index write is necessarily a second call.
                         if (claim.IsStrong && !IndexNamesElement(lookup, claim.Key, elementId))
                         {
                             indexEntries.Add(new IndexEntry(ClaimSchema.IdentityIndexId, claim.Key, elementId));
@@ -497,20 +506,20 @@ namespace NoSQL.GraphDB.Integrations.Run
                 // edge to claim at all. An UNCLAIMED edge does not count either: that is an orphan left by a
                 // deferred deletion, and the fresh claimed edge plus the next healthy reconciliation is what
                 // heals it.
-                var alreadyWired = 0;
+                var alreadyWired = NoElement;
                 if (lookup.ByKey.TryGetValue(edge.DerivedKey, out var existing))
                 {
                     foreach (var id in existing)
                     {
                         if (lookup.Elements.TryGetValue(id, out var state) && state.IsClaimedBy(instanceId) &&
-                            (alreadyWired == 0 || id < alreadyWired))
+                            (alreadyWired == NoElement || id < alreadyWired))
                         {
                             alreadyWired = id;
                         }
                     }
                 }
 
-                if (alreadyWired != 0)
+                if (alreadyWired != NoElement)
                 {
                     claimedNow.Add(alreadyWired);
                     continue;

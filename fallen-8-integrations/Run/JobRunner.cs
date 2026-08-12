@@ -150,6 +150,15 @@ namespace NoSQL.GraphDB.Integrations.Run
                 return unavailable;
             }
 
+            var cancelled = false;
+
+            // Whether control ever entered the apply phase, which is the only thing that decides what may be said
+            // about what landed: the apply call is handed CancellationToken.None, so an OperationCanceledException
+            // surfacing from inside it is NOT the caller's cancellation but some other one - a client-side timeout
+            // on a graph write, say - that merely coincides with the caller's token being cancelled. Only this
+            // frame knows which side of the call it stands on.
+            var applyStarted = false;
+
             using (lease)
             {
                 try
@@ -235,6 +244,10 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // already holds this principle - compose grants a stop grace period precisely so a recreate
                     // does not kill a run between writes - and this closes the same hole at the front door.
                     // A run that hangs here is bounded by the target's own per-call HTTP timeouts.
+                    //
+                    // Set BEFORE the call, not after it: the flag answers "could a write have happened", and the
+                    // answer becomes yes the moment control enters the applier.
+                    applyStarted = true;
                     await _applier.ApplyAsync(validated, instanceId, target, report, summary, CancellationToken.None)
                         .ConfigureAwait(false);
 
@@ -242,6 +255,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
+                    cancelled = true;
                     throw;
                 }
                 catch (ProviderConfigurationException ex)
@@ -282,7 +296,42 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // redactable. One frame later the runtime no longer knows what the credential was.
                     report.CredentialFingerprint = lease.Fingerprint();
                     Scrub(report);
-                    LogOutcome(report);
+
+                    if (cancelled)
+                    {
+                        // Complete never ran, which is why this cannot go through LogOutcome: the report still
+                        // reads zero of everything, and the success-shaped line would claim a run that finished in
+                        // no time and created nothing. What may be said about DURABILITY-relevant work is the one
+                        // thing that differs between the two sides of the apply call (see applyStarted), and a
+                        // confident false statement about it is worse than no statement.
+                        stopwatch.Stop();
+
+                        if (applyStarted)
+                        {
+                            _logger.LogWarning(
+                                "Integration run {ProviderId} as {InstanceId} was ABANDONED after {Duration} ms " +
+                                "INSIDE the apply phase, so what it had already written stands: {Created} " +
+                                "created, {Matched} matched, {Edges} edges, {Withdrawn} withdrawn, {Deleted} " +
+                                "deleted at that point. Credential fingerprint {Fingerprint}.",
+                                report.ProviderId, report.IntegrationInstanceId, stopwatch.ElapsedMilliseconds,
+                                report.ElementsCreated, report.ElementsMatched, report.EdgesCreated,
+                                report.ClaimsWithdrawn, report.ElementsDeleted,
+                                report.CredentialFingerprint ?? "none");
+                        }
+                        else
+                        {
+                            _logger.LogWarning(
+                                "Integration run {ProviderId} as {InstanceId} was ABANDONED after {Duration} ms: " +
+                                "the caller cancelled before the apply phase, so nothing was written and nothing " +
+                                "was withdrawn. Credential fingerprint {Fingerprint}.",
+                                report.ProviderId, report.IntegrationInstanceId, stopwatch.ElapsedMilliseconds,
+                                report.CredentialFingerprint ?? "none");
+                        }
+                    }
+                    else
+                    {
+                        LogOutcome(report);
+                    }
                 }
             }
         }

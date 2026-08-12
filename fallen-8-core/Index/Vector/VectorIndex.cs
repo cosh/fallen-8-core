@@ -327,9 +327,7 @@ namespace NoSQL.GraphDB.Core.Index.Vector
         /// throwaway array copy.</summary>
         private void AddOrUpdateCore(ReadOnlySpan<Single> vector, AGraphElementModel graphElement)
         {
-            // Close the purge/re-add race: an element tombstoned by a committed removal
-            // must never (re-)enter a slot, or it would be pinned forever (the engine's
-            // write-end purge runs once per removal and will not come back for it).
+            // Never index a removed element (the rule and its reason: IIndex.AddOrUpdate).
             if (graphElement._removed)
             {
                 _logger?.LogWarning(

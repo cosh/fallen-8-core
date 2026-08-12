@@ -102,7 +102,10 @@ namespace NoSQL.GraphDB.App.Helper
         }
 
         /// <inheritdoc/>
-        public bool TryCompile(PluginDefinition definition, out Type artifact, out String error)
+        public bool TryCompile(
+            PluginDefinition definition,
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] out Type artifact,
+            out String error)
         {
             artifact = null;
 

@@ -47,7 +47,11 @@ Still open from this report (all recorded, none a defect in shipped behaviour):
   (declaring it `VertexREST | EdgeREST` was a lie TypeScript caught).
 - [x] DONE (208969b): the Integrations screenshot, with a studio.md section. Its capture spec stubs
   the descriptor list - the one capture here that does - because the runtime is a separate
-  deployable whose port is never published, so it serves the three shipped descriptors.
+  deployable whose port is never published. Corrected on 2026-08-12: the descriptors it served were
+  invented rather than copied (it gave UniFi a site filter the runtime deliberately refuses), so the
+  published image showed a UI the product does not have. The fixture now replays a committed
+  snapshot of the real descriptors, guarded by a drift test, and the image was recaptured. See
+  M1 in [the 2026-08-12 report](../review-findings-2026-08-12/report.md).
 - [x] DONE (fcb89a6): the checkpoint fan-out. Save queued pooled work and blocked the calling
   thread on it; Load used `Parallel.For`. Both now pick their arm from the host's capability, so a
   save and load COMPLETE on a single-threaded host - verified writing into and reading out of the
@@ -55,9 +59,13 @@ Still open from this report (all recorded, none a defect in shipped behaviour):
   the VFS is the host's job. The capability question also got one home
   (`HostCapabilities.SupportsBackgroundWork`), replacing the second probe copy added the night
   before, and three claims that "a browser cannot persist" were corrected rather than left to rot.
-- Still open: the conformance-suite doc line about encoded credentials.
-- The remaining integrations polish listed above, and the stale-strong-claim question, which needs a
-  decision on paper before code.
+- Still open: the conformance-suite doc line about encoded credentials, and the `observability.mdx`
+  half of the docs-site coverage below (its `GET /status` field list still omits the durability
+  block).
+- The integrations polish recorded under "Composition and docs debt" below is done. The
+  stale-strong-claim question has its decision on
+  paper - deliberately NOT pruning claims a complete snapshot stopped asserting, with a revisit
+  trigger, in the integrations spec section 11 - and the code behaviour is unchanged by choice.
 - [features/open/host-plugin-registration/](../host-plugin-registration/): the browser unlock (no
   index can be created in a browser today). Spec and plan are settled; implementation is the next
   session's work.
@@ -201,14 +209,20 @@ minimum the spec should say "a run touches only what it may" is best-effort unde
 
 ## Composition and docs debt (from the gate review)
 
-- [x] **DONE (a7a9c11): docs-site coverage for the audit's REST surface** (gate breach: rode the integrations
-  branch, its own Phase 9 never ran): the durability block on `GET /status`, `POST
-  /index/backfill/{indexId}`, `POST /graphelements/get`, `PUT /graphelements/properties`,
-  `DELETE /graphelements` appear on no docs page; `observability.mdx:61` still describes the
-  degraded state as an OTel gauge only.
-- [x] **DONE (208969b): the Studio durability notice** (the audit spec's own sweep names it,
-  `platform-integrity-audit/spec.md:595`): `StatusREST` in `fallen-8-web-ui/src/api/types.ts` has
-  no durability field. The machine consumer (integrations delete gate) reads it; the human cannot.
+- [ ] **PARTLY DONE (a7a9c11): docs-site coverage for the audit's REST surface** (gate breach: rode
+  the integrations branch, so its own Phase 9 ran only after the fact). Landed: the durability block on `GET /status`
+  (`save-games.mdx`, "Durability model"), `POST /index/backfill/{indexId}` (`indexes.mdx`,
+  "Rebuilding an index you already have"), and `POST /graphelements/get` /
+  `PUT /graphelements/properties` / `DELETE /graphelements` (`graph-model.mdx`, the REST CRUD table).
+  Still open: `observability.mdx` is untouched - its `GET /status` field list does not mention the
+  durability block at all, so that page still presents the degraded state as the
+  `fallen8.wal.degraded` OTel gauge alone, and a reader of the observability page never learns the
+  status probe answers the same question without any OTel wiring.
+- [x] **DONE (208969b): the Studio durability notice** (the audit spec's own sweep names it: the
+  **Studio** row of "Impact on existing features" in
+  [platform-integrity-audit/spec.md](../platform-integrity-audit/spec.md)): `StatusREST` in
+  `fallen-8-web-ui/src/api/types.ts` had no durability field. The machine consumer (integrations
+  delete gate) read it; the human could not.
 - [x] **DONE (208969b): hydration reads a page in one request** (edges still singly - the route omits their endpoints) (`hydrate.ts:31-36, 61-65`: up to 500
   sequential GETs in 25-wide rounds) two commits after `POST /graphelements/get` landed to replace
   exactly that. One request instead of 20 rounds; directly serves the browser priority.
@@ -217,11 +231,18 @@ minimum the spec should say "a run touches only what it may" is best-effort unde
 - [ ] **Conformance-suite honesty line**: `NoCredentialLeak` watches exact ordinal substrings, so an
   encoded credential escapes; consistent with the declared threat model, but one doc line should
   say so.
-- [x] PARTLY DONE (35820c6): `summaryDirty` is now a set; the credential-resolution failure logs its
-  outcome; the in-snapshot strong-key collision is reported as `collidingStrongClaim`. Still open: a changed CSV `label` relabels only new elements (spec should state the
-  mixed-label consequence). Stale strong claims accumulate forever (RMA'd serial captures the new
-  device); at minimum emit the in-snapshot collision diagnostic `PlanEdges` currently swallows
-  (`SnapshotApplier.cs:322-327`).
+- [x] DONE (35820c6, plus the integrations spec rows that landed with the hardening): `summaryDirty` is a
+  `HashSet<Int32>`; the credential-resolution failure logs its outcome before returning (`JobRunner`,
+  the `CredentialUnavailableException` arm, which is the one failure that never reaches the
+  using-block's `LogOutcome`); and `PlanEdges` now reports the in-snapshot strong-key collision as
+  `collidingStrongClaim` naming both entities and the key, instead of swallowing it. The two
+  consequences that stay as BEHAVIOUR are now written down in
+  [features/done/integrations/spec.md](../../done/integrations/spec.md) section 11 rather than left
+  implicit: a changed `label` setting relabels only newly created elements, so a rename leaves mixed
+  labels within one instance; and a stale strong claim is never withdrawn, so a strong identifier
+  recycled inside one instance makes two physical things resolve to one element. Whether a complete
+  snapshot may PRUNE the claims it no longer asserts is deliberately not decided, with a revisit
+  trigger (the first recycled identifier reported in a live graph).
 
 ## Browser blockers beyond the follow-ups (new findings)
 
