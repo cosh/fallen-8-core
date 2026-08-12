@@ -27,6 +27,7 @@ import { useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useInstanceStore } from "../instances/registry";
 import { useStatus } from "../state/status";
+import { DurabilityNotice } from "../components/DurabilityNotice";
 import { ErrorBox } from "../components/ErrorBox";
 import { Stat } from "../components/Stat";
 import { Truncated } from "../components/Truncated";
@@ -107,6 +108,9 @@ export function DashboardScreen() {
         <Stat label="edges" value={data.edgeCount.toLocaleString()} />
         <Stat label="used memory" value={`${(data.usedMemory / 1024 / 1024).toFixed(1)} MiB`} />
       </div>
+
+      {/* Silent while durability is healthy, loud when it is not - see DurabilityNotice. */}
+      <DurabilityNotice durability={data.durability} />
 
       <p className="text-fg-faint text-[12px]">
         Semantic providers (embedding + chat), observability, and the security posture for

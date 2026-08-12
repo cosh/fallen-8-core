@@ -79,6 +79,7 @@ import type {
   RangeIndexScanSpecification,
   ScanSpecification,
   SearchDistanceSpecification,
+  GraphElementBatchREST,
   StatusREST,
   StoredQueryDetailREST,
   StoredQuerySpecification,
@@ -275,6 +276,18 @@ export const getEdge = (i: InstanceConfig, id: number, signal?: AbortSignal) =>
 
 export const getGraphElement = (i: InstanceConfig, id: number, signal?: AbortSignal) =>
   apiRequest<VertexREST | EdgeREST>(i, `/graphelement/${id}`, { signal });
+
+/**
+ * A whole page of elements in ONE request. What comes back is a complete VertexREST for a vertex;
+ * an edge lacks its endpoints, because the route omits adjacency by design - see hydrateElements,
+ * which re-reads those singly.
+ */
+export const getGraphElements = (i: InstanceConfig, ids: number[], signal?: AbortSignal) =>
+  apiRequest<GraphElementBatchREST>(i, "/graphelements/get", {
+    method: "POST",
+    body: JSON.stringify(ids),
+    signal,
+  });
 
 export const getOutEdgeProperties = (i: InstanceConfig, id: number) =>
   apiRequest<string[]>(i, `/vertex/${id}/edges/out`);
