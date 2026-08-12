@@ -148,6 +148,30 @@ export interface StatusREST {
   // degrades the entity network without failing an ingest. Optional so instances predating
   // the field still parse.
   nlp?: NlpStats | null;
+  // Durability and recovery-integrity state (feature platform-integrity-audit W5). Optional so
+  // instances predating the block still parse - and absence is NOT "healthy": the Studio says
+  // "not reported" rather than inventing a clean answer.
+  durability?: DurabilityREST | null;
+}
+
+/**
+ * What the engine knows about its own durability, read as one group so the fields always describe
+ * a single outcome. The reason it is on the cheap status surface at all: a client that reconciles
+ * against the graph and then deletes what nothing asserts any more would otherwise draw that
+ * conclusion from truncated history with no way to know. The integrations runtime does exactly
+ * that and defers deletion on this block; a human watching a dashboard deserves the same signal.
+ */
+export interface DurabilityREST {
+  walEnabled: boolean;
+  /** The log's failure fence has tripped, or an anchored log awaits its paired load: commits are
+   * landing in memory but not durably. */
+  degraded: boolean;
+  recoveryRan: boolean;
+  /** The last replay stopped before the end of the log, so the graph is a PREFIX of history. */
+  lastRecoveryTruncated: boolean;
+  lastRecoveryReplayedEntries: number;
+  /** Indexes the last checkpoint could not write: they will be absent after the next load. */
+  lastCheckpointDroppedIndices: number;
 }
 
 // ---- unstructured ingestion (feature unstructured-ingestion) ----
@@ -315,6 +339,28 @@ export interface EdgeREST extends AGraphElementREST {
   targetVertex: number;
   edgePropertyId?: string | null;
   kind?: "edge";
+}
+
+/**
+ * One element as POST /graphelements/get returns it: identity, stamps, label, properties and kind -
+ * and deliberately NOT adjacency, which is why this is its own type rather than VertexREST | EdgeREST.
+ *
+ * A `vertex` projection IS a complete VertexREST (a vertex carries no adjacency in this API), so
+ * hydration uses it directly. An `edge` projection is NOT a complete EdgeREST: it has no endpoints,
+ * and the canvas cannot draw an edge without them, so hydration re-reads those one by one. Typing
+ * them the same would have hidden exactly that difference.
+ */
+export interface GraphElementProjectionREST extends AGraphElementREST {
+  kind: "vertex" | "edge";
+}
+
+/**
+ * Result of POST /graphelements/get: the elements that exist, plus the ids that do not. notFound is
+ * explicit because "gone" and "has no properties" are different conclusions.
+ */
+export interface GraphElementBatchREST {
+  elements: GraphElementProjectionREST[];
+  notFound: number[];
 }
 
 export interface GraphREST {

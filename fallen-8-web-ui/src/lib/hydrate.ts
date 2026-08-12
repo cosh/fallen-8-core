@@ -23,14 +23,25 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { getGraphElement } from "../api/endpoints";
+import { getGraphElement, getGraphElements } from "../api/endpoints";
 import type { EdgeREST, VertexREST } from "../api/types";
 import type { InstanceConfig } from "../instances/types";
 
 /**
- * Scans return bare id lists (FR-8); this hydrates them into elements via
- * GET /graphelement/{id} in capped, batched rounds with visible progress. Missing ids
- * (deleted between scan and hydration) resolve to null and are skipped, not errors.
+ * Scans return bare id lists (FR-8); this hydrates them into elements. Missing ids (deleted
+ * between scan and hydration) are skipped, not errors.
+ *
+ * ONE batch read does most of the work: POST /graphelements/get answers a whole page of ids in a
+ * single request, and what it returns - id, label, properties, kind - is a COMPLETE VertexREST,
+ * because a vertex carries no adjacency in this API. Five hundred ids used to be twenty rounds of
+ * twenty-five requests.
+ *
+ * Edges are the exception and are still fetched one by one. The batch route omits an edge's
+ * endpoints deliberately (shipping every endpoint of every element would dominate a several-hundred
+ * element payload), and the canvas cannot draw an edge without them, so an id the batch reports as
+ * an edge is re-read through GET /graphelement/{id}. A result that is all vertices - which is what
+ * a scan or an analytics run usually produces - costs one request; one that is all edges costs one
+ * more than before. The rounds below keep the same width and the same visible progress.
  */
 
 export const HYDRATION_BATCH_SIZE = 25;
@@ -58,17 +69,47 @@ export async function hydrateElements(
   const target = ids.slice(0, cap);
   const elements: (VertexREST | EdgeREST)[] = [];
 
-  for (let start = 0; start < target.length; start += HYDRATION_BATCH_SIZE) {
-    const batch = target.slice(start, start + HYDRATION_BATCH_SIZE);
+  if (target.length === 0) {
+    return { elements, capped: ids.length > cap };
+  }
+
+  // One request for the whole page. A failure here is not fatal: fall back to the per-element path
+  // below, so an older server without the batch route still hydrates.
+  const batched = await getGraphElements(instance, target, options.signal).catch(() => null);
+
+  // An id the server reports in notFound simply never appears in elements, so nothing is skipped
+  // explicitly: gone is the absence of a result, exactly as the per-element path treats a failure.
+  const edgeIds: number[] = [];
+  if (batched !== null) {
+    for (const element of batched.elements ?? []) {
+      if (element.kind === "edge") {
+        edgeIds.push(element.id);
+      } else {
+        // A vertex projection IS a complete VertexREST: a vertex carries no adjacency in this
+        // API, so nothing is missing from it (see GraphElementProjectionREST).
+        elements.push(element as VertexREST);
+      }
+    }
+    options.onProgress?.({ done: elements.length, total: target.length });
+  }
+
+  // Edges (or everything, when the batch route was unavailable) one at a time, as before.
+  const singly = batched === null ? target : edgeIds;
+  for (let start = 0; start < singly.length; start += HYDRATION_BATCH_SIZE) {
+    const batch = singly.slice(start, start + HYDRATION_BATCH_SIZE);
     const settled = await Promise.all(
       batch.map((id) => getGraphElement(instance, id, options.signal).catch(() => null)),
     );
     for (const element of settled) {
       if (element !== null) elements.push(element);
     }
-    options.onProgress?.({ done: Math.min(start + batch.length, target.length), total: target.length });
+    options.onProgress?.({
+      done: Math.min(elements.length, target.length),
+      total: target.length,
+    });
     if (options.signal?.aborted) break;
   }
 
+  options.onProgress?.({ done: Math.min(elements.length, target.length), total: target.length });
   return { elements, capped: ids.length > cap };
 }

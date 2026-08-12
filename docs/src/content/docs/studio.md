@@ -89,6 +89,16 @@ Documents in, graph out ([unstructured-ingestion.md](/fallen-8-core/unstructured
 
 **Search chunks** takes the query text, a **mode** (`fused`, or `dense` / `lexical` to isolate one retrieval side), `k`, and a neighbour **window** to expand each hit with, and it names the mode actually used, so a `fused` run that degraded to one side is visible rather than silent. "Send hits to canvas" turns hits into ordinary chunk vertices there, ready to inspect, expand, or use as path seeds; a single row's **Inspect** sends just that chunk. The screen gates on the instance's ingestion capability and states its degraded modes plainly: provider off means text-only ingest, docling sidecar unreachable means txt/md only. A budget line tracks chunk usage against the enforced namespace ceiling.
 
+## Integrations
+
+![Integrations screen: the catalog of available integrations and the run form of the one selected](../../assets/images/screen-integrations.png)
+
+Run an [integration](/fallen-8-core/integrations/) against a system on your own network. The screen is rendered from the runtime's descriptors alone - nothing about any particular integration is coded here - so the **Available integrations** table (what each one reads, and what kinds it writes) and the run form below it appear for a fourth integration the moment the runtime offers one.
+
+The form is the descriptor's own settings, in its own words: required fields marked, defaults pre-filled, and **run now** disabled until the ones it cannot run without are there (it says which). The **integration instance id** is the identity the run asserts as, and the screen spells out what that means, because it is the one field nobody can fix afterwards: a fresh id leaves the previous run's elements claimed by nothing, and reusing another integration's id withdraws and deletes what that one owned. A credential setting is used for the single run and then forgotten - nothing stores it and no report echoes it - so it is typed here each time. Submitting shows the run's report: what it created, matched, withdrew and deleted, plus any diagnostics, which is the honest account of one run rather than a success toast.
+
+The screen is present only when the instance has an integrations runtime behind its proxy; without one it says so instead of offering a form that cannot work.
+
 ## Query
 
 ![Query screen](../../assets/images/screen-query.png)

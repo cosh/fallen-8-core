@@ -138,6 +138,7 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
   getVertex: () => endpoints.getVertex(instance, 1),
   getEdge: () => endpoints.getEdge(instance, 2),
   getGraphElement: () => endpoints.getGraphElement(instance, 3),
+  getGraphElements: () => endpoints.getGraphElements(instance, [3, 4]),
   getOutEdgeProperties: () => endpoints.getOutEdgeProperties(instance, 1),
   getInEdgeProperties: () => endpoints.getInEdgeProperties(instance, 1),
   getOutEdges: () => endpoints.getOutEdges(instance, 1, "knows"),
