@@ -69,6 +69,8 @@ jobs:
       run: npm test
     - name: Production build
       run: npm run build
+    - name: Library build (the embed surface + its scoped-CSS/d.ts tripwire)
+      run: npm run build:lib
 
   e2e:
     name: UX scenarios (Playwright vs live apiApp)
@@ -95,6 +97,13 @@ jobs:
       run: npx playwright install --with-deps chromium
     - name: Run scenarios (builds the SPA into the apiApp and launches it)
       run: npx playwright test
+      env:
+        CI: 'true'
+    - name: Embed smoke (the library artifact consumed by a bare host app)
+      # Needs no database: its webServer chain builds the artifact, installs the host
+      # fixture against it (file: dependency, exports map + peer resolution), and serves
+      # it statically. Lives in this job because it is the one with a browser installed.
+      run: npx playwright test -c playwright.embed.config.ts
       env:
         CI: 'true'
     - name: Upload traces on failure
@@ -128,7 +137,9 @@ jobs:
         done
         echo "--- SPA shell is served"
         curl -sf http://localhost:8080/ | grep -qi "<!doctype html"
-        curl -sf http://localhost:8080/F8White.svg > /dev/null
+        # F8Black.svg: the one logo still in public/ (F8White.svg moved into src/assets so
+        # the embed artifact inlines it; the SPA serves it hashed, not at the root).
+        curl -sf http://localhost:8080/F8Black.svg > /dev/null
         echo "--- engine answers"
         curl -sf -H "Authorization: Bearer ci-key" http://localhost:8080/status | grep -q vertexCount
         echo "--- structured benchmark"

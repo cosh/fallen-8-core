@@ -23,7 +23,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { effectiveNlConfig, type NlAssistConfig } from "./config";
+import { effectiveNlConfig, resolveNlConfig, type NlAssistConfig } from "./config";
+import { getStudioConfig } from "../../app/studioConfig";
 import type { NlPrompt } from "./prompt";
 import { postChat } from "../../api/endpoints";
 import type { InstanceConfig } from "../../instances/types";
@@ -87,13 +88,19 @@ export async function generateChat(
   messages: ChatTurn[],
   signal?: AbortSignal,
 ): Promise<NlChatResult> {
-  if (config.mode === "instance") {
+  // Embed policy first (StudioConfig.nlAssist): the panels are hidden or locked to match,
+  // but the transport is where the policy must actually hold.
+  if (getStudioConfig().nlAssist === "disabled") {
+    throw new Error("NL assist is disabled by the embedding host.");
+  }
+  const resolved = resolveNlConfig(config);
+  if (resolved.mode === "instance") {
     if (!instance) {
       throw new Error("No active instance to route the model call through.");
     }
-    return chatViaInstance(instance, messages, config.temperature, signal);
+    return chatViaInstance(instance, messages, resolved.temperature, signal);
   }
-  return chatWithModel(effectiveNlConfig(config), messages, signal);
+  return chatWithModel(effectiveNlConfig(resolved), messages, signal);
 }
 
 /** Instance-gateway path: browser -> F8 POST /chat -> the server's model backend. */

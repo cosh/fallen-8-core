@@ -110,7 +110,7 @@ describe("dev proxy allowlist", () => {
       "/@vite/client",
       "/src/main.tsx",
       "/src/index.css",
-      "/F8White.svg",
+      "/src/assets/F8White.svg",
       "/samples/index.json",
       "/node_modules/.vite/deps/react.js",
       "/",

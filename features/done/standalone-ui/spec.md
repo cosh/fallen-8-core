@@ -3,7 +3,7 @@
 Status: open (spec/plan only). Owner: TBD. Feature branch: `feature/standalone-ui`
 (branch-only workflow; no GitHub issue/PR unless asked).
 
-Related: [web-ui](../../done/web-ui/), [studio-embeddable](../../open/studio-embeddable/) (shares the
+Related: [web-ui](../../done/web-ui/), [studio-embeddable](../../done/studio-embeddable/) (shares the
 registry config-injection seam this feature introduces; see "The shared seam"),
 [api-security-boundary](../../done/api-security-boundary/) (the CORS allow-list this feature
 sets from the split overlay), [change-feed](../../done/change-feed/) (cross-origin SSE),
@@ -51,7 +51,7 @@ plane's CORS is deny-all by default; (4) no split-topology compose story.
 
 ## The shared seam: registry config-injection
 
-Both this feature and [studio-embeddable](../../open/studio-embeddable/) need the **same seam**: seed the
+Both this feature and [studio-embeddable](../../done/studio-embeddable/) need the **same seam**: seed the
 registry's default ("managed") instance from an **external source** instead of the hardcoded
 `SAME_ORIGIN_INSTANCE` (`src/instances/registry.ts:64-69`). They differ only in the *producer*:
 
@@ -131,7 +131,7 @@ design; the reconciler is the `merge`):
   the UI (extending the existing `length===1` guard on the Connect screen) so the button is not an
   actionable-looking no-op once a personal instance exists. (Both guards now key on
   `isManagedInstance` rather than a literal `id === "local"` test: feature
-  [studio-embeddable](../../open/studio-embeddable/) generalized the single managed default into
+  [studio-embeddable](../../done/studio-embeddable/) generalized the single managed default into
   host-suppliable managed instances, keeping `"local"` reserved. `registry.ts` carries the living
   explanation.)
 - **Legacy blobs upgrade transparently, no `version`/`migrate` needed.** The custom `merge` filters

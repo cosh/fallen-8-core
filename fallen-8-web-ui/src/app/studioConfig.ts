@@ -32,7 +32,7 @@ import type { InstanceConfig } from "../instances/types";
  * active config, the live-mount count, and the `storageKey` prefix every persisted key goes
  * through. Every field is optional and omitting it reproduces the standalone app's behavior.
  * How to mount is documented on ./mount.tsx; the feature's story is in
- * features/open/studio-embeddable/spec.md.
+ * features/done/studio-embeddable/spec.md.
  */
 
 /**
@@ -91,6 +91,16 @@ export interface StudioConfig {
   theme?: Partial<ThemeTokens>;
   /** Reuse the host's QueryClient (default: Studio creates its own, as today). */
   queryClient?: QueryClient;
+  /**
+   * NL-assist policy for an embed. "disabled" removes the NL panels entirely;
+   * "instance-only" locks the model transport to the active instance's POST /chat, so no
+   * browser-direct custom endpoint is reachable and no third-party model key is ever held
+   * inside the embed. Enforced at the transport choke point (resolveNlConfig in
+   * delegate/nl/config.ts, applied by generateChat), not just hidden in the UI: a custom
+   * config persisted by an earlier session cannot re-route an embed. Absent: standalone
+   * behavior (instance mode default, custom mode available).
+   */
+  nlAssist?: "disabled" | "instance-only";
 }
 
 /**

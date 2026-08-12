@@ -2,7 +2,7 @@
 <!--
   MIT License
 
-  index.html
+  index.html (embed smoke fixture)
 
   Copyright (c) 2011-2026 Henning Rauch
 
@@ -30,17 +30,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" type="image/svg+xml" href="/F8Black.svg" />
-    <link rel="icon" type="image/svg+xml" href="/src/assets/F8White.svg" media="(prefers-color-scheme: dark)" />
-    <title>F8 Studio</title>
-    <!-- Runtime config seam (feature standalone-ui): a CLASSIC script, loaded before the deferred
-         app module below, so window.__F8_CONFIG__.apiUrl is set before the instance registry reads
-         it. Empty apiUrl = same-origin (the all-in-one default); the standalone nginx image rewrites
-         this file from F8_API_URL at container start. -->
-    <script src="/config.js"></script>
+    <title>Host portal (embed smoke fixture)</title>
+    <!-- Host styles ride the host bundle (main.jsx imports host.css), the way a real host's
+         would; an inline style block here trips vite's html-inline-proxy in this fixture. -->
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <h1 id="host-heading">Host portal chrome</h1>
+    <p id="host-panel" class="panel">A host element named like a Studio primitive.</p>
+    <button id="host-unmount" type="button">Unmount Studio</button>
+    <div id="studio-region"></div>
+    <h2>Standalone canvas component</h2>
+    <div id="canvas-region"></div>
+    <script type="module" src="/main.jsx"></script>
   </body>
 </html>

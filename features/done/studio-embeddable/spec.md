@@ -1,7 +1,10 @@
 # F8 Studio - embeddable in a host SaaS portal
 
-Status: open. Phases 1-5 (the seams) implemented; phase 6 (library packaging) pending a host
-consumer. Related: [web-ui](../../done/web-ui/),
+Status: done (2026-08-12). All six phases implemented: the seams (phases 1-5) and the library
+packaging (phase 6) - the artifact ships from `npm run build:lib`, a bare host application
+consumes it in CI on every push (exports map, peer resolution, scoped styles, editor, canvas,
+unmount), and the user-facing page is
+<https://cosh.github.io/fallen-8-core/embed-studio/>. Related: [web-ui](../../done/web-ui/),
 [standalone-ui](../../done/standalone-ui/), [graph-namespaces](../../done/graph-namespaces/),
 [nl-assist-ux](../../done/nl-assist-ux/), [api-security-boundary](../../done/api-security-boundary/).
 
@@ -65,7 +68,7 @@ stay identical for the standalone app.
 | 4 | Hard-coded dark theme (fixed hex `@theme` tokens, fixed type stack, forced `html.dark`) | `src/index.css`, `index.html` | Theme tokens (surfaces, semantic accents, **and type**) become CSS custom properties defaulting to today's values; host may override; enables a future light theme | Same dark palette and type by default |
 | 5 | Module singletons + fixed `localStorage` keys (`f8.instances`, `f8.workspace.<id>`, `f8.nl-assist`, `f8.first-run`) with no host injection point | `src/instances/registry.ts`, `src/state/instanceStore.ts`, `src/delegate/nl/config.ts`, `src/firstrun/firstRunStore.ts` | `StudioConfig` context supplying instance(s)/credentials and a storage-key namespace prefix; a host-supplied instance can seed the registry (optionally hidden/read-only). The module-level stores skip their import-time hydration and derive persisted state from storage plus config alone, so a prefixed embed neither inherits bare-key state nor a previous mount's | Default prefix empty, `SAME_ORIGIN_INSTANCE` still seeded |
 | 6 | Same-origin default instance (`baseUrl:""`) assumes the DB origin serves the SPA | `src/instances/registry.ts` (`SAME_ORIGIN_INSTANCE` / `configuredApiUrl`) | Default instance comes from `StudioConfig` (host passes its own base URL + credential); standalone default stays the config.js-seeded managed instance | Same-origin default unchanged |
-| 7 | Browser-side LLM keys called directly from the browser | `src/delegate/nl/config.ts` | `StudioConfig.nlAssist`: `disabled` \| `direct` (today) \| host-supplied transport (proxy through the host backend) | Default `direct` - current behavior |
+| 7 | NL-assist backend choice is browser state a host cannot govern (instance-gateway default, browser-direct custom endpoints with a browser-held key - the mode model feature instance-config introduced) | `src/delegate/nl/config.ts` | `StudioConfig.nlAssist`: `disabled` \| `instance-only`, enforced at the transport choke point (`resolveNlConfig`, applied by `generateChat`), not just hidden in the UI | Absent = both modes with the instance default - current behavior |
 
 A related small item folded in: the delegate-editor modal uses `Dialog.Portal` with no container
 (`src/delegate/DelegateEditor.tsx`), so it escapes to `document.body` - fine standalone, wrong inside a
@@ -92,9 +95,11 @@ interface StudioConfig {
   storageNamespace?: string;           // prefix for localStorage keys (default "")
   theme?: Partial<ThemeTokens>;        // override surfaces, semantic accents, type (defaults: today's)
   queryClient?: QueryClient;           // reuse the host's client (default: Studio's own)
-  // NOT YET IMPLEMENTED - lands with packaging (see plan phase 6); today NL-assist is always
-  // the standalone "direct" behavior:
-  nlAssist?: "disabled" | "direct" | { transport: NlTransport };
+  // "disabled" removes the NL panels; "instance-only" locks model calls to the active
+  // instance's POST /chat (no browser-direct endpoint, no third-party key in the embed).
+  // Enforced at the transport (resolveNlConfig in delegate/nl/config.ts), so persisted
+  // custom-mode state from an earlier session cannot re-route an embed:
+  nlAssist?: "disabled" | "instance-only";
 }
 
 export function mountStudio(el: HTMLElement, config?: StudioConfig): { unmount(): void };
@@ -157,13 +162,14 @@ embed that wants the pin to hold in the UI should pair `lockNamespace` with
 ### Theme tokens
 
 The token surface is complete: background/panel/border/text colors, the semantic accents, and
-the type stack (the `--font-*` custom properties). Today's values stay where Tailwind emits
-them (the `@theme` block, on `:root`); a host's `theme` overrides land as inline custom
-properties on the `.f8-studio` root, which is what the utilities and primitives resolve
-through. Whether a host reskins the embed to its own palette or keeps Studio's identity is the
-host's call; the seam makes both possible with the same mechanism. (Emitting the defaults on
-the scope root instead of `:root` only matters once the library artifact ships, so it rides
-with packaging.)
+the mono type stack (`fontMono`, the single `--font-mono` custom property Studio defines).
+Today's values stay where Tailwind emits them (the `@theme` block, on `:root`) in the
+standalone build; a host's `theme` overrides land as inline custom properties on the
+`.f8-studio` root, which is what the utilities and primitives resolve through. Whether a host
+reskins the embed to its own palette or keeps Studio's identity is the host's call; the seam
+makes both possible with the same mechanism. (The library artifact re-emits every stylesheet
+default under the `.f8-studio` scope root - the packaging build's scoping pass, see the plan -
+so an embed never writes onto the host page's `:root`.)
 
 ### Canvas component export (in scope)
 
@@ -195,20 +201,30 @@ from an instance) without mounting all of Studio.
   provider is the supported host path and keeps the transport layer credential-free. *Revisit
   trigger:* a host whose data plane cannot mint per-user bearer tokens.
 - **No two live embeds on one page.** One mount per realm; a second concurrent mount throws
-  (see the contract above) rather than silently cross-binding the two. Sequential mounts with
+  (see the contract above) rather than silently cross-binding the two. Honest edge: the guard
+  counts committed mounts, so two trees rendered in the same React commit (before either
+  effect runs) can slip past it - it is a loud failure for the realistic sequence, not a
+  semaphore. Sequential mounts with
   different configs are supported and isolated: `storageNamespace` separates what each writes,
   and no mount inherits the previous one's in-memory state. *Revisit trigger:* a host that
   needs two live Studio embeds against different tenants on one page (it would need a realm per
   embed, e.g. an iframe, or the module state reworked into per-mount instances).
-- **No new build artifact until needed.** The vite library-mode build (packaging phase) ships only
-  when a host actually consumes the package; until then the mount API exists but the standalone
-  build is the only artifact produced by CI.
+- **No host-supplied NL transport.** An earlier draft of this spec sketched
+  `nlAssist: { transport }` (the host proxying model calls through its own backend). It was
+  dropped when the contract was re-derived against the mode-based NL config that feature
+  instance-config introduced meanwhile: instance mode already routes every model call through
+  the host-controlled instance under the embed's own credential, so the arm would duplicate a
+  server-side seam for no consumer. *Revisit trigger:* a host whose instances have no chat
+  backend but who runs its own LLM gateway.
 
 ## Impact on existing features
 
-The change set is confined to `fallen-8-web-ui/` plus this feature's own spec and plan
-(`git diff main...HEAD --name-only`), and every seam is inert under the default config, so what
-siblings see is a code-contract change, not a behavior change in the standalone app.
+The seam phases (1-5) were confined to `fallen-8-web-ui/` plus this feature's own spec and plan,
+and every seam is inert under the default config, so what siblings saw was a code-contract
+change, not a behavior change in the standalone app. The packaging phase (6) additionally
+touched the CI workflow, the root README, the docs site and both architecture diagrams - the
+discoverability gates it deliberately carried (see the last two bullets of "Explicitly not
+affected", which flipped to "affected and done" with that phase).
 
 - **[standalone-ui](../../done/standalone-ui/)** - its config.js seam generalizes: `managedInstances()`
   returns the host's `StudioConfig.instances` when there are any and the `configuredApiUrl()`-seeded
@@ -274,12 +290,20 @@ Explicitly **not** affected, verified against the diff:
   only `nl/config.ts`'s persistence plumbing moves.
 - **Samples, stored queries and persisted recipes**: `samples/` is untouched, stored queries live
   server-side, and no persisted client payload shape changes, only the key name an embed writes under.
-- **CI, compose and the deployables**: no workflow, Dockerfile or compose change, because the library
-  artifact is the packaging phase and the standalone SPA build stays the only CI output.
+- **Compose and the deployables**: no Dockerfile or compose change - the artifact is a build
+  output a host bundles, not a deployable this repo runs. CI changed with packaging, by design:
+  the `ui` job builds the artifact (whose last step, `scripts/check-lib-artifact.mjs`, fails on
+  an unscoped selector or a surviving `process.env` read), and the `e2e` job runs the bare-host
+  smoke (`playwright.embed.config.ts` over `e2e-embed/`), so the artifact cannot silently rot.
+  One knock-on: the all-in-one container smoke now curls `/F8Black.svg` instead of
+  `/F8White.svg`, because the shell logo became a module asset (bundler-owned URL, inlined in
+  the artifact) so an embed does not 404 it against the host origin.
 - **Architecture diagrams (root `README.md` and
-  [`architecture.md`](../../../docs/src/content/docs/architecture.md))**: no new channel, deployable or
-  layer ships while packaging is deferred, so both stay current. The docs-site page and the README key
-  features entry for the embed surface land with that phase, when there is something a reader can consume.
+  [`architecture.md`](../../../docs/src/content/docs/architecture.md))**: both gained the
+  embedded-Studio client shape (one `:::client` node, one `HTTP · CORS` edge into REST) when
+  packaging landed, alongside the docs-site page (`embed-studio`, registered in the F8 Studio
+  sidebar group) and the README key-features entry - the discoverability gates fired with the
+  phase that made the surface consumable, exactly as planned.
 
 ## Behavior-preservation contract
 

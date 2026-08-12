@@ -34,8 +34,10 @@ import {
   effectiveNlConfig,
   isLoopbackEndpoint,
   isNlConfigured,
+  resolveNlConfig,
   useNlAssist,
 } from "../../delegate/nl/config";
+import { useStudioConfig } from "../../app/studioConfig";
 import { NlBackendConfig } from "../../delegate/nl/NlBackendConfig";
 import { downloadText, toTrainingJsonl, type Verdict } from "../../delegate/nl/feedback";
 import { NlDraftList, type NlDraftView } from "../../delegate/nl/NlDraftList";
@@ -73,16 +75,7 @@ interface PluginNlAttempt {
   ts: number;
 }
 
-export function PluginNlAssistPanel({
-  category,
-  contract,
-  name,
-  scaffold,
-  currentSource,
-  onDraft,
-  validateDraft,
-  drivingRef,
-}: {
+interface PluginNlAssistPanelProps {
   category: PluginAuthoringCategory;
   contract: AlgorithmContract;
   name: string;
@@ -91,8 +84,29 @@ export function PluginNlAssistPanel({
   onDraft: (source: string) => void;
   validateDraft: (source: string) => Promise<PluginValidationResult | null>;
   drivingRef: React.MutableRefObject<boolean>;
-}) {
-  const { config, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
+}
+
+export function PluginNlAssistPanel(props: PluginNlAssistPanelProps) {
+  // Embed policy (StudioConfig.nlAssist): "disabled" removes the affordance itself; the
+  // transport in generate.ts refuses independently, so this is presentation, not the guard.
+  if (useStudioConfig().nlAssist === "disabled") return null;
+  return <PluginNlAssistPanelInner {...props} />;
+}
+
+function PluginNlAssistPanelInner({
+  category,
+  contract,
+  name,
+  scaffold,
+  currentSource,
+  onDraft,
+  validateDraft,
+  drivingRef,
+}: PluginNlAssistPanelProps) {
+  const { config: storedConfig, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
+  // Render from the policy-resolved config, so an instance-only embed shows instance mode
+  // whatever an earlier session persisted (same resolution the transport applies).
+  const config = resolveNlConfig(storedConfig);
   const instance = useActiveInstance();
   const [intent, setIntent] = useState("");
   const [busy, setBusy] = useState<string | null>(null);

@@ -30,6 +30,7 @@ import {
   usesApiKey,
   type NlAssistConfig,
 } from "./config";
+import { useStudioConfig } from "../../app/studioConfig";
 
 /**
  * The model-backend configuration form (nl-assist spec §4 / nl-assist-ux). Extracted so the
@@ -45,19 +46,30 @@ export function NlBackendConfig({
   config: NlAssistConfig;
   setConfig: (patch: Partial<NlAssistConfig>) => void;
 }) {
+  // Embed policy (StudioConfig.nlAssist): under "instance-only" there is no mode to choose,
+  // so the switch disappears; the callers pass the policy-resolved config, so the custom
+  // fields below are unreachable too. The transport enforces the same policy independently.
+  const lockedToInstance = useStudioConfig().nlAssist === "instance-only";
   return (
     <div className="space-y-2" data-testid="nl-config">
-      <Field helpKey="nlBackend" label="backend" htmlFor="nl-mode">
-        <select
-          id="nl-mode"
-          className="input w-auto"
-          value={config.mode}
-          onChange={(e) => setConfig({ mode: e.target.value as "instance" | "custom" })}
-        >
-          <option value="instance">this Fallen-8 instance</option>
-          <option value="custom">custom endpoint (browser-direct)</option>
-        </select>
-      </Field>
+      {lockedToInstance ? (
+        <p className="text-fg-faint text-[10px]" data-testid="nl-instance-locked">
+          The embedding host routes model calls through the active instance; a browser-direct
+          custom endpoint is not available in this embed.
+        </p>
+      ) : (
+        <Field helpKey="nlBackend" label="backend" htmlFor="nl-mode">
+          <select
+            id="nl-mode"
+            className="input w-auto"
+            value={config.mode}
+            onChange={(e) => setConfig({ mode: e.target.value as "instance" | "custom" })}
+          >
+            <option value="instance">this Fallen-8 instance</option>
+            <option value="custom">custom endpoint (browser-direct)</option>
+          </select>
+        </Field>
+      )}
       {config.mode === "instance" ? (
         <p className="text-fg-faint text-[10px]" data-testid="nl-instance-hint">
           Routed through the active instance: <code>POST /chat</code> proxies to the server's

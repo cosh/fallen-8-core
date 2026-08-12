@@ -1,6 +1,6 @@
 // MIT License
 //
-// index.ts
+// vite.config.js (embed smoke fixture)
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -23,20 +23,24 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-/**
- * The host-facing export surface (feature studio-embeddable). What a host may import is
- * exactly what is re-exported here - the packaging phase turns this module into the library
- * entry point, so anything not on this list is internal. Spec:
- * features/done/studio-embeddable/spec.md.
- */
+import { defineConfig } from "vite";
 
-export { mountStudio, F8Studio } from "../app/mount";
-export type { StudioConfig, ThemeTokens } from "../app/studioConfig";
-export type { InstanceAuth, InstanceConfig } from "../instances/types";
-
-export { F8GraphCanvas, type F8GraphCanvasProps } from "./F8GraphCanvas";
-export type { ElementRef } from "../canvas/GraphCanvas";
-export { DEFAULT_STYLE_CONFIG } from "../canvas/styleConfig";
-export type { StyleConfig } from "../canvas/styleConfig";
-export type { CanvasEdge, CanvasNode } from "../state/instanceStore";
-export type { PathREST } from "../api/types";
+// A deliberately plain consumer: no react plugin (main.jsx uses automatic JSX via esbuild),
+// no aliases, no tailwind - if the artifact needs anything beyond a stock bundler and its
+// peer deps, this build fails, which is the point of the fixture.
+export default defineConfig({
+  resolve: {
+    // The file: dependency is a SYMLINK into the repo, so the artifact's externalized
+    // "react" would resolve to fallen-8-web-ui/node_modules/react while the fixture uses
+    // its own copy - two Reacts, invalid-hook-call (#321). A registry install cannot hit
+    // this (the package ships dist-lib only, no nested node_modules); dedupe compensates
+    // for the symlinked test topology, nothing more.
+    dedupe: ["react", "react-dom"],
+  },
+  esbuild: {
+    jsx: "automatic",
+  },
+  build: {
+    chunkSizeWarningLimit: 8000, // the artifact bundles monaco + sigma by design
+  },
+});

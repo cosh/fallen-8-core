@@ -71,6 +71,9 @@ Each feature has a deep-dive doc — follow the link.
   browser-direct custom model backend).
 - **[Standalone F8 Studio](https://cosh.github.io/fallen-8-core/standalone-ui/)** — deploy the browser UI as its own
   container, decoupled from the data plane and pointed at any Fallen-8 REST endpoint at container start.
+- **[Embed F8 Studio](https://cosh.github.io/fallen-8-core/embed-studio/)**: mount the whole Studio (or just its graph
+  canvas) inside a host application's own shell via a library artifact - one config object carries the
+  instances, credentials (bearer tokens included), namespace pin, theme tokens and storage namespace.
 - **[Benchmark](https://cosh.github.io/fallen-8-core/benchmark/)**: measure raw edge-traversal throughput over the
   loaded graph (generated, a sample, or your own data) in the Studio Benchmark screen.
 - **[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/)** — a Model Context Protocol surface so AI agents call
@@ -99,7 +102,9 @@ the app (`fallen-8-core-apiApp`) is the thin HTTP layer that can serve F8 Studio
 all-in-one image (engine + API + UI) still ships and runs with a bare `docker compose up`, but the
 default `npm run env:up` now runs F8 Studio as its own
 [standalone](https://cosh.github.io/fallen-8-core/standalone-ui/) nginx container talking to the REST API cross-origin, so
-the UI and the data plane deploy apart, alongside a model sidecar. A third deployable, the
+the UI and the data plane deploy apart, alongside a model sidecar. F8 Studio also ships as an
+[embeddable library](https://cosh.github.io/fallen-8-core/embed-studio/) a host portal can mount inside its own shell,
+calling the same REST API. A third deployable, the
 [integrations runtime](https://cosh.github.io/fallen-8-core/integrations/), reads systems on your own network and
 writes what it saw in through the same REST API.
 
@@ -109,6 +114,7 @@ flowchart TB
     agents["AI agents"]:::client
     studio["F8 Studio<br/>browser UI"]:::client
     uistandalone["F8 Studio<br/>standalone (nginx)"]:::client
+    hostembed["F8 Studio embedded<br/>in a host portal (library)"]:::client
     services["Your services / code"]:::client
 
     mcp["MCP server<br/>fallen-8-mcp"]:::mcp
@@ -131,6 +137,7 @@ flowchart TB
     mcp -->|HTTP| rest
     studio -->|HTTP| rest
     uistandalone -->|HTTP · CORS| rest
+    hostembed -->|HTTP · CORS| rest
     services -->|HTTP| rest
     rest -.->|embeddings + chat| sidecar
     rest -.->|document conversion| docling

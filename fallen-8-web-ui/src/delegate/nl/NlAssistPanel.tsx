@@ -30,8 +30,10 @@ import {
   effectiveNlConfig,
   isLoopbackEndpoint,
   isNlConfigured,
+  resolveNlConfig,
   useNlAssist,
 } from "./config";
+import { useStudioConfig } from "../../app/studioConfig";
 import { NlBackendConfig } from "./NlBackendConfig";
 import { downloadText, toTrainingJsonl, type TrainingExample, type Verdict } from "./feedback";
 import { NlDraftList, type NlDraftView } from "./NlDraftList";
@@ -64,20 +66,32 @@ interface NlAttempt {
   ts: number;
 }
 
-export function NlAssistPanel({
-  delegateKind,
-  currentFragment,
-  onDraft,
-  validateDraft,
-  drivingRef,
-}: {
+interface NlAssistPanelProps {
   delegateKind: DelegateKind;
   currentFragment: string;
   onDraft: (code: string) => void;
   validateDraft: (code: string) => Promise<DelegateValidationResult | null>;
   drivingRef: React.MutableRefObject<boolean>;
-}) {
-  const { config, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
+}
+
+export function NlAssistPanel(props: NlAssistPanelProps) {
+  // Embed policy (StudioConfig.nlAssist): "disabled" removes the affordance itself; the
+  // transport in generate.ts refuses independently, so this is presentation, not the guard.
+  if (useStudioConfig().nlAssist === "disabled") return null;
+  return <NlAssistPanelInner {...props} />;
+}
+
+function NlAssistPanelInner({
+  delegateKind,
+  currentFragment,
+  onDraft,
+  validateDraft,
+  drivingRef,
+}: NlAssistPanelProps) {
+  const { config: storedConfig, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
+  // Render from the policy-resolved config, so an instance-only embed shows instance mode
+  // whatever an earlier session persisted (same resolution the transport applies).
+  const config = resolveNlConfig(storedConfig);
   const instance = useActiveInstance();
   const [intent, setIntent] = useState("");
   const [busy, setBusy] = useState<string | null>(null);

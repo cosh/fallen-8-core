@@ -25,7 +25,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { storageKey } from "../../app/studioConfig";
+import { getStudioConfig, storageKey } from "../../app/studioConfig";
 
 /**
  * NL-assist model backend config (nl-assist spec FR-26.4, nl-assist-ux spec §2, feature
@@ -161,6 +161,20 @@ export const useNlAssist = create<NlAssistState>()(
     },
   ),
 );
+
+/**
+ * The embed-policy choke point (StudioConfig.nlAssist, documented on app/studioConfig.ts):
+ * under "instance-only" a persisted custom config is forced back to instance mode with its
+ * key cleared, so the policy holds against whatever localStorage carries. The transport
+ * (generateChat) applies it so a UI site that forgot to cannot leak a browser-direct call;
+ * the panels render from the same resolved config so what is shown is what runs.
+ */
+export function resolveNlConfig(config: NlAssistConfig): NlAssistConfig {
+  if (getStudioConfig().nlAssist === "instance-only" && config.mode !== "instance") {
+    return { ...config, mode: "instance", apiKey: undefined };
+  }
+  return config;
+}
 
 /**
  * The config to actually call a CUSTOM endpoint with. Instance mode does not go through this
