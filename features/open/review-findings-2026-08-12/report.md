@@ -336,3 +336,17 @@ closed or recorded:
   better evidence than a faked flag.
 - [ ] The conformance-suite doc line about encoded credentials, carried over from the
   2026-08-11 report. Once it lands, that directory moves to `features/done/` (its N15).
+- [ ] **An unidentified test flake, observed once and not reproduced.** The post-merge run of
+  the host-plugin-registration work reported `Failed: 1, Passed: 1879`. The suite then passed
+  **nine consecutive times** (1880/0 each), five of those with a trx logger specifically to
+  capture a name, so the failure did not recur and the test that flaked is unknown. It is
+  recorded rather than dismissed because the 2026-08-11 report also observed a one-off flake
+  (its F9, the Windows rename race), which turned out to be a real defect worth fixing.
+  Prime suspect if it returns: `PluginDiscoveryDegradationTest`, the one test class that
+  mutates PROCESS-WIDE state - it writes a file into the real `AppContext.BaseDirectory`,
+  repoints `AppContext.BaseDirectory` at a missing path, and resets the memoized discovery
+  caches. It restores everything in a `finally` and carries `[DoNotParallelize]`, so it is
+  correct as written, but it is the only new global-state mutator in this range.
+  **Lesson applied going forward:** the failing run used `dotnet test -v q`, which prints no
+  failed-test name, which is why this is unidentifiable at all. Run the gate suite with
+  `--logger "trx;LogFileName=..."` so a flake can always be named after the fact.
