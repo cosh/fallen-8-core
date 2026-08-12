@@ -18,11 +18,47 @@
 | Trimmed browser probe (TrimMode=full, no root) | 13/13 PASS, 0 IL warnings |
 | Docs site | builds, all internal links valid |
 
+## Status, 2026-08-12
+
+Every DEFECT in this report (F1 to F10) is fixed on main with tests, across three merges:
+`35820c6` (integrations hardening), `81ce25a` (engine integrity), `a7a9c11` (browser teardown plus
+the audit's missing docs). Full suite 1810 passed, 0 failed; the trimmed browser probe still passes
+13/13 with zero IL warnings; docs build link-clean.
+
+Two findings changed shape while being fixed, and both are worth knowing:
+
+- The self-heal in F2 had to be scoped to STRONG claims. The first version healed any claim whose
+  index entry the lookup did not name, but the lookup batch only asks about strong keys, so for a
+  weak key "not named" is unknown rather than false - and healing on unknown re-asserted every weak
+  claim on every run. The conformance suite caught it as an idempotence failure, which is the suite
+  doing exactly its job.
+- The F3 test had to assert the wire TEXT, not just the value. A DateTimeOffset rendered
+  "08/09/2026 10:00:00 +02:00" parses back to the same instant, so a value-only round-trip passes
+  while the defect is live. Mutation-checked: the test fails without the fix.
+
+Still open from this report (all recorded, none a defect in shipped behaviour):
+
+- The Studio items: surface the durability signal (`StatusREST` has no such field) and replace
+  `hydrate.ts`'s 500 sequential reads with `POST /graphelements/get`. Both are UI work; the second
+  is pure win and needs no visual change.
+- The Integrations screen screenshot, and the conformance-suite doc line about encoded credentials.
+- The checkpoint fan-out on a single-threaded host: `PersistencyFactory.Save` queues pooled work and
+  blocks on it, and Load uses `Parallel.For`, so a browser host cannot checkpoint even into the
+  Emscripten VFS. Deliberately NOT fixed here: browser persistence is out of scope by decision
+  (there is no filesystem), so today it is prevented by deadlock rather than by design. The fix is a
+  sequential arm chosen the same way inline transaction mode is chosen; do it if and when browser
+  persistence becomes a goal.
+- The remaining integrations polish listed above, and the stale-strong-claim question, which needs a
+  decision on paper before code.
+- [features/open/host-plugin-registration/](../host-plugin-registration/): the browser unlock (no
+  index can be created in a browser today). Spec and plan are settled; implementation is the next
+  session's work.
+
 ## Defects, ranked (fix in this order)
 
 ### F1 - HIGH, integrations: element id 0 is real, but the snapshot applier uses 0 as its "no element" sentinel
 
-- [ ] Fixed on main with tests
+- [x] FIXED on main (35820c6), with tests
 
 The engine assigns the first element of a fresh graph id 0 (`Fallen8.cs` `_currentId = 0`;
 `Fallen8.Storage.cs:216,223`). `fallen-8-integrations/Run/SnapshotApplier.cs` zero-initializes
@@ -43,7 +79,7 @@ relation to it).
 
 ### F2 - HIGH, integrations: a run aborted between "create" and "index" leaves claimed-but-unindexed elements; nothing detects or heals it, and the next run silently duplicates
 
-- [ ] Fixed on main with tests
+- [x] FIXED on main (35820c6), with tests
 
 Write order is create, properties, edges, THEN index claims (`SnapshotApplier.cs:243-284`). The job
 endpoint binds the request-abort token into the whole run (`IntegrationEndpoints.cs:78-88`,
@@ -66,7 +102,7 @@ cancel/disconnect, a test pinning apply-phase decoupling, and a Studio-visible m
 
 ### F3 - HIGH, engine (integrations churn): DateTimeOffset egress is not the inverse of ingress
 
-- [ ] Fixed on main with tests
+- [x] FIXED on main (81ce25a), with tests
 
 `FormatPropertyValue` (`fallen-8-core-apiApp/Controllers/Model/AGraphElement.cs:86-101`) has arms
 for `Single[]` and `DateTime` then falls to generic `IFormattable`, so `DateTimeOffset` renders as
@@ -82,7 +118,7 @@ every `AllowedLiteralTypes` member through the ACTUAL egress function.
 
 ### F4 - MEDIUM, engine: `RegExIndex.AddOrUpdate` is not idempotent, and index repair does not refuse it
 
-- [ ] Fixed on main with tests
+- [x] FIXED on main (81ce25a), with tests
 
 `RegExIndex.cs:322-331` appends to its posting list unconditionally (never got the f160d7f guard
 `ABucketIndex.cs:142-146` has), yet `SupportsPointEqualityLookup => true` (`RegExIndex.cs:544`) so
@@ -95,7 +131,7 @@ the next checkpoint. Fix: idempotence guard in `RegExIndex.AddOrUpdate` (or
 
 ### F5 - MEDIUM, engine (integrations reads it): the /status durability block can misreport during a /load-triggered WAL replay
 
-- [ ] Fixed on main with tests
+- [x] FIXED on main (81ce25a), with tests
 
 `Fallen8.Persistence.cs:290-292` resets `_recoveryRan/_lastRecoveryTruncated/
 _lastRecoveryReplayedEntries` at replay ENTRY; `PUT /load` re-runs replay on the writer thread
@@ -107,7 +143,7 @@ through a single volatile reference at replay END (13bb370 already built the DTO
 
 ### F6 - MEDIUM, integrations: instance-id case footgun
 
-- [ ] Fixed on main with tests
+- [x] FIXED on main (35820c6), with tests
 
 Claims are case-sensitive (`ClaimSchema.cs:97`) while the run gate is case-insensitive
 (`RunGate.cs:41`), and the Studio form is free text (`IntegrationsScreen.tsx:455-463`): `Office`
@@ -118,7 +154,7 @@ Studio offer known identities (enumerable from the `f8i-claims` index) with an e
 
 ### F7 - LOW, engine: `ABucketIndex.AddOrUpdate` lacks the removed-element guard
 
-- [ ] Fixed on main with tests
+- [x] FIXED on main (81ce25a), with tests
 
 `RegExIndex` and `VectorIndex` refuse a `_removed` element under the write lock; `ABucketIndex`
 (`:118-179`) does not, so repair racing a removal pins a tombstone into `_idx`/`_reverse`, persists
@@ -127,7 +163,7 @@ RegEx one.
 
 ### F8 - LOW, engine: inline-mode enqueue-after-Dispose diverges by mode; defensive drain releases waiters non-terminal
 
-- [ ] Fixed on main with tests
+- [x] FIXED on main (81ce25a), with tests
 
 `TransactionManager.AddTransaction` (`:841-850`) has no `_disposed` check on the inline branch:
 threaded throws loudly, inline silently executes against the disposed engine. And `ExecuteInline`'s
@@ -137,7 +173,7 @@ defensive `finally` (`:345-350`) completes never-executed deferred items while t
 
 ### F9 - LOW, durability (observed flake): single-shot rename in `WriteAheadLog.WriteHeader` can spuriously roll a Save back on Windows
 
-- [ ] Fixed on main with tests
+- [x] FIXED on main (81ce25a), with tests
 
 `WriteAheadLog.cs:519` is one `File.Move(temp, path, overwrite)` attempt; a transient Windows
 destination-handle race (AV/indexer) throws `UnauthorizedAccessException` and rolls the
@@ -148,7 +184,7 @@ small bounded retry around the rename in `DurableFileIo`/`WriteHeader`.
 
 ### F10 - LOW, integrations: cross-instance delete race
 
-- [ ] Decided (fix or spec sentence)
+- [x] DECIDED (35820c6): recorded in the integrations spec as best-effort under concurrent runs, self-correcting on the next run
 
 Instance A's withdraw-reread-delete (`SnapshotApplier.cs:570-609`) can delete an element instance B
 just reclaimed as an unclaimed orphan (`GraphWrites.cs:478`) between A's re-read and A's remove.
@@ -157,7 +193,7 @@ minimum the spec should say "a run touches only what it may" is best-effort unde
 
 ## Composition and docs debt (from the gate review)
 
-- [ ] **Docs-site coverage for the audit's REST surface** (gate breach: rode the integrations
+- [x] **DONE (a7a9c11): docs-site coverage for the audit's REST surface** (gate breach: rode the integrations
   branch, its own Phase 9 never ran): the durability block on `GET /status`, `POST
   /index/backfill/{indexId}`, `POST /graphelements/get`, `PUT /graphelements/properties`,
   `DELETE /graphelements` appear on no docs page; `observability.mdx:61` still describes the
@@ -173,9 +209,8 @@ minimum the spec should say "a run touches only what it may" is best-effort unde
 - [ ] **Conformance-suite honesty line**: `NoCredentialLeak` watches exact ordinal substrings, so an
   encoded credential escapes; consistent with the declared threat model, but one doc line should
   say so.
-- [ ] Small integrations polish: `summaryDirty` is a List probed with Contains in the entity loop
-  (`SnapshotApplier.cs:226-229`, O(n^2)); credential-resolution failure skips `LogOutcome`
-  (`JobRunner.cs:139-143`); a changed CSV `label` relabels only new elements (spec should state the
+- [x] PARTLY DONE (35820c6): `summaryDirty` is now a set; the credential-resolution failure logs its
+  outcome; the in-snapshot strong-key collision is reported as `collidingStrongClaim`. Still open: a changed CSV `label` relabels only new elements (spec should state the
   mixed-label consequence). Stale strong claims accumulate forever (RMA'd serial captures the new
   device); at minimum emit the in-snapshot collision diagnostic `PlanEdges` currently swallows
   (`SnapshotApplier.cs:322-327`).
@@ -189,7 +224,7 @@ minimum the spec should say "a run touches only what it may" is best-effort unde
   sequential arm (chosen the same way inline transaction mode is) would let a browser host
   checkpoint into the Emscripten VFS and export bytes via JS interop. Without it, "no browser
   persistence" is enforced by deadlock rather than by decision.
-- [ ] **Change-feed `Dispose` blocks the only thread** (`ChangeFeedDispatcher.cs:423`): a browser
+- [x] **FIXED on main (a7a9c11): change-feed `Dispose` no longer blocks the only thread** (`ChangeFeedDispatcher.cs:423`): a browser
   host that enables the feed and disposes the engine hangs. Needs a non-blocking teardown arm.
 
 ## What was verified sound (do not churn)
