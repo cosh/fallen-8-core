@@ -47,7 +47,6 @@ using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.Analytics;
 using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Helper;
-using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Plugin;
 using NoSQL.GraphDB.Core.Plugins;
 using NoSQL.GraphDB.Core.Serializer;
@@ -203,31 +202,21 @@ namespace NoSQL.GraphDB.App.Controllers
             var vertexCount = _fallen8.VertexCount;
             var edgeCount = _fallen8.EdgeCount;
 
-            IEnumerable<String> availableIndices;
-            PluginFactory.TryGetAvailablePlugins<IIndex>(out availableIndices);
-
-            // Built-in Path/Analytics names via the shared contract->interface home
-            // (consolidation-audit CA-13); unioned with the registry's runtime plugins below.
-            // Index and Service are not PluginContract members and stay generic.
-            IEnumerable<String> availablePathAlgos = PluginFactory.AvailableBuiltInNames(PluginContract.Path);
-            IEnumerable<String> availableAnalyticsAlgos = PluginFactory.AvailableBuiltInNames(PluginContract.Analytics);
-
-            IEnumerable<String> availableServices;
-            PluginFactory.TryGetAvailablePlugins<IService>(out availableServices);
-
-            // Union the addressed namespace's runtime-registered algorithm plugins (feature
-            // plugin-registration §4.4): a registered Path/Analytics plugin resolves by name, so it
-            // must also be DISCOVERABLE in the available-plugin lists, not just invocable. Index has no
-            // user-registrable category and functions have their own surface, so only these two lists
-            // union. Capture the registry once (Dispose may null it under a concurrent teardown).
+            // Every "available plugins" list below answers one question - what can this namespace
+            // create or run by NAME? - so every one of them comes from the single union rule
+            // PluginFactory.AvailablePluginNames owns (built-ins + this namespace's registered
+            // plugins), reached directly for the two algorithm contracts and through the owning
+            // factory for index/service/subgraph. Whether a name came from an assembly scan or from a
+            // host registering the TYPE is not the client's business - POST /index, POST /service and
+            // the path/analytics endpoints take either - and in a trimmed or browser host, where a scan
+            // finds nothing, a registered name may be the only one that resolves at all. Capture the
+            // registry once (Dispose may null it under a concurrent teardown); a null registry yields
+            // the built-ins alone rather than throwing.
             var pluginRegistry = _fallen8.Plugins;
-            if (pluginRegistry != null)
-            {
-                availablePathAlgos = availablePathAlgos
-                    .Concat(pluginRegistry.NamesForContract(PluginContract.Path)).Distinct().ToList();
-                availableAnalyticsAlgos = availableAnalyticsAlgos
-                    .Concat(pluginRegistry.NamesForContract(PluginContract.Analytics)).Distinct().ToList();
-            }
+            IEnumerable<String> availableIndices = _fallen8.IndexFactory.GetAvailableIndexPlugins();
+            IEnumerable<String> availableServices = _fallen8.ServiceFactory.GetAvailableServicePlugins();
+            IEnumerable<String> availablePathAlgos = PluginFactory.AvailablePluginNames(PluginContract.Path, pluginRegistry);
+            IEnumerable<String> availableAnalyticsAlgos = PluginFactory.AvailablePluginNames(PluginContract.Analytics, pluginRegistry);
 
             // Read-locked snapshot (id -> index); O(#indices) plus the per-index counts
             // (see IndexDescriptionREST.Values), no graph pass. A bound vector index
@@ -257,8 +246,6 @@ namespace NoSQL.GraphDB.App.Controllers
                 Indices = indices,
                 AvailableIndexPlugins = new List<String>(availableIndices),
                 AvailablePathPlugins = new List<String>(availablePathAlgos),
-                // Subgraph algorithms are now discoverable too (feature: /status discovery parity with
-                // path/analytics/index). The factory accessor unions the built-ins with the registry.
                 AvailableSubGraphPlugins = new List<String>(_fallen8.SubGraphFactory.GetAvailableSubGraphPlugins()),
                 AvailableAnalyticsPlugins = new List<String>(availableAnalyticsAlgos),
                 AvailableServicePlugins = new List<String>(availableServices),

@@ -66,9 +66,9 @@ Still open from this report (all recorded, none a defect in shipped behaviour):
   stale-strong-claim question has its decision on
   paper - deliberately NOT pruning claims a complete snapshot stopped asserting, with a revisit
   trigger, in the integrations spec section 11 - and the code behaviour is unchanged by choice.
-- [features/open/host-plugin-registration/](../host-plugin-registration/): the browser unlock (no
-  index can be created in a browser today). Spec and plan are settled; implementation is the next
-  session's work.
+- [x] DONE (2026-08-12): [features/done/host-plugin-registration/](../../done/host-plugin-registration/),
+  the browser unlock. A host registers its plugin types, so a browser can create indexes and run
+  vector search - verified by the committed trimmed wasm probe (`tools/browser-probe`), not asserted.
 
 ## Defects, ranked (fix in this order)
 
@@ -271,7 +271,7 @@ other.
 ## Follow-up features (specs exist)
 
 - **Host plugin registration** - the browser unlock. Spec:
-  [features/open/host-plugin-registration/](../host-plugin-registration/). Closes the "no index in
+  [features/done/host-plugin-registration/](../../done/host-plugin-registration/). Closes the "no index in
   the browser" blocker and makes name-based resolution work trimmed.
 - **Serializer trim-safe core** - deliberately deferred at reduced scope. The honest arithmetic:
   only 36 of the 114 RequiresUnreferencedCode sites are the codec's, and most are genuine (property

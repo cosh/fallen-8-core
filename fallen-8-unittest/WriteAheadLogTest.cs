@@ -132,70 +132,7 @@ namespace NoSQL.GraphDB.Tests
             return name;
         }
 
-        private static ILoggerFactory CapturingFactory(CapturingLoggerProvider provider)
-        {
-            return LoggerFactory.Create(builder =>
-            {
-                builder.SetMinimumLevel(LogLevel.Trace);
-                builder.AddProvider(provider);
-            });
-        }
 
-        /// <summary>
-        /// A minimal in-memory logger provider that records every emitted entry so a test can assert
-        /// that a specific message (e.g. the non-pairing-log discard warning) was logged.
-        /// </summary>
-        private sealed class CapturingLoggerProvider : ILoggerProvider
-        {
-            private readonly object _gate = new object();
-            private readonly List<(LogLevel Level, string Message)> _entries = new List<(LogLevel, string)>();
-
-            public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
-
-            public void Dispose()
-            {
-            }
-
-            public bool HasWarningContaining(string fragment)
-            {
-                lock (_gate)
-                {
-                    return _entries.Any(e => e.Level == LogLevel.Warning
-                                             && e.Message.IndexOf(fragment, StringComparison.Ordinal) >= 0);
-                }
-            }
-
-            private void Record(LogLevel level, string message)
-            {
-                lock (_gate)
-                {
-                    _entries.Add((level, message));
-                }
-            }
-
-            private sealed class CapturingLogger : ILogger
-            {
-                private readonly CapturingLoggerProvider _owner;
-
-                public CapturingLogger(CapturingLoggerProvider owner) => _owner = owner;
-
-                public IDisposable BeginScope<TState>(TState state) => NullScope.Instance;
-
-                public bool IsEnabled(LogLevel logLevel) => true;
-
-                public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception,
-                    Func<TState, Exception, string> formatter)
-                {
-                    _owner.Record(logLevel, formatter(state, exception));
-                }
-            }
-
-            private sealed class NullScope : IDisposable
-            {
-                public static readonly NullScope Instance = new NullScope();
-                public void Dispose() { }
-            }
-        }
 
         #endregion
 
@@ -636,8 +573,8 @@ namespace NoSQL.GraphDB.Tests
             producer.Dispose();
 
             // Recover with a capturing logger so we can assert the warning fires.
-            var capture = new CapturingLoggerProvider();
-            var recovered = new Fallen8(CapturingFactory(capture), new WriteAheadLogOptions(WalPath));
+            var capture = new TestLogSink();
+            var recovered = new Fallen8(capture.CreateFactory(), new WriteAheadLogOptions(WalPath));
             var (state, error) = Load(recovered, actualOther);
 
             Assert.AreEqual(TransactionState.Finished, state, "Loading a different snapshot should still succeed; instead: " + error);
@@ -646,7 +583,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(0, CountWithName(recovered, "Carol"), "Carol (an A-paired log entry) must NOT be applied onto snapshot B.");
             Assert.AreEqual(1, CountWithName(recovered, "Zed"), "Snapshot B's own content loads.");
 
-            Assert.IsTrue(capture.HasWarningContaining("does not pair"),
+            Assert.IsTrue(capture.Contains(LogLevel.Warning, "does not pair"),
                 "Discarding a non-pairing log that still holds committed entries must be signalled with a warning, never silent.");
             recovered.Dispose();
         }

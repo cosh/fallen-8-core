@@ -175,60 +175,7 @@ namespace NoSQL.GraphDB.Tests
 
         private const string BadSourceBlock = "{\"filter\":{\"vertexFilter\":\"return (v) => v.NoSuchMember == 42;\"}}";
 
-        private static ILoggerFactory CapturingFactory(CapturingLoggerProvider provider)
-        {
-            return LoggerFactory.Create(builder =>
-            {
-                builder.SetMinimumLevel(LogLevel.Trace);
-                builder.AddProvider(provider);
-            });
-        }
 
-        /// <summary>Records emitted log entries so a test can assert a specific error fired.</summary>
-        private sealed class CapturingLoggerProvider : ILoggerProvider
-        {
-            private readonly object _gate = new object();
-            private readonly List<(LogLevel Level, string Message)> _entries = new List<(LogLevel, string)>();
-
-            public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
-
-            public void Dispose() { }
-
-            public IReadOnlyList<(LogLevel Level, string Message)> Entries
-            {
-                get
-                {
-                    lock (_gate)
-                    {
-                        return _entries.ToList();
-                    }
-                }
-            }
-
-            private void Record(LogLevel level, string message)
-            {
-                lock (_gate)
-                {
-                    _entries.Add((level, message));
-                }
-            }
-
-            private sealed class CapturingLogger : ILogger
-            {
-                private readonly CapturingLoggerProvider _owner;
-                public CapturingLogger(CapturingLoggerProvider owner) => _owner = owner;
-                public IDisposable BeginScope<TState>(TState state) => NullScope.Instance;
-                public bool IsEnabled(LogLevel logLevel) => true;
-                public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception,
-                    Func<TState, Exception, string> formatter) => _owner.Record(logLevel, formatter(state, exception));
-            }
-
-            private sealed class NullScope : IDisposable
-            {
-                public static readonly NullScope Instance = new NullScope();
-                public void Dispose() { }
-            }
-        }
 
         #endregion
 
@@ -433,8 +380,8 @@ namespace NoSQL.GraphDB.Tests
 
             File.WriteAllText(actualPath + "_storedqueries", "{ not valid json !!", Encoding.UTF8);
 
-            var capture = new CapturingLoggerProvider();
-            var target = new Fallen8(CapturingFactory(capture))
+            var capture = new TestLogSink();
+            var target = new Fallen8(capture.CreateFactory())
             {
                 StoredQueryCompiler = new StoredQueryCompiler()
             };

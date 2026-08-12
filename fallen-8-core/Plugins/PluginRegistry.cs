@@ -326,11 +326,47 @@ namespace NoSQL.GraphDB.Core.Plugins
         }
 
         /// <summary>
-        ///   Replaces the whole registry content (load-path rehydration). WRITER/LOAD THREAD ONLY.
+        ///   Replaces the PERSISTED registry content with the entries rehydrated from a snapshot
+        ///   manifest (load-path rehydration), keeping every entry that manifest could not have
+        ///   contained: an entry that is not <see cref="PluginEntry.IsPersistable"/> was registered by
+        ///   host code as a CLR type, so no manifest can describe it and a wholesale replacement would
+        ///   silently unregister something the load never claimed to restore. WRITER/LOAD THREAD ONLY.
+        ///
+        ///   <para>What that keeps working is everything AFTER this point, not the load that is running:
+        ///   this load's own index and service rehydration has already happened
+        ///   (<c>PersistencyFactory.Load</c> resolves those plugin names before
+        ///   <c>Fallen8.RehydratePlugins</c> is reached), so it cannot be the reason. The reason is that
+        ///   a host registers its types ONCE, at start, while a load is a data restore that can happen
+        ///   at any time and any number of times: afterwards every create-by-name and invoke-by-name
+        ///   must still resolve, and so must the NEXT load's index rehydration, which would otherwise
+        ///   find the type gone with no way back short of restarting the host.</para>
+        ///
+        ///   <para>On an ordinal name collision the HOST entry wins and the collision is logged as an
+        ///   error: the host's type is what the running process can actually execute, whereas the
+        ///   colliding persisted source needs a compiler a compiler-less host does not have (it would
+        ///   rehydrate <see cref="PluginCompileState.SourceOnly"/> and be uninvocable). Two definitions
+        ///   claiming one name is an operator problem to resolve, hence an error rather than a
+        ///   warning.</para>
+        ///
+        ///   <para>ACCEPTED consequence of host-wins: the discarded definition is not in the registry, so
+        ///   the next checkpoint's manifest omits it and stops carrying its SOURCE forward. Accepted
+        ///   rather than merged (one name, one entry) because the source is not destroyed - the save
+        ///   point that was just loaded still holds it, since a save never overwrites a published save
+        ///   point - and the collision is reported as an error, so the operator can rename one of the
+        ///   two and register it again.</para>
         /// </summary>
-        internal void ReplaceAll(IEnumerable<PluginEntry> entries)
+        internal void ReplacePersistedEntries(IEnumerable<PluginEntry> entries)
         {
             var next = new Dictionary<String, PluginEntry>(StringComparer.Ordinal);
+
+            foreach (var kv in _snapshot)
+            {
+                if (!kv.Value.IsPersistable)
+                {
+                    next[kv.Key] = kv.Value;
+                }
+            }
+
             if (entries != null)
             {
                 foreach (var entry in entries)
@@ -339,9 +375,19 @@ namespace NoSQL.GraphDB.Core.Plugins
                     {
                         continue;
                     }
+
+                    if (next.TryGetValue(entry.Definition.Name, out var kept) && !kept.IsPersistable)
+                    {
+                        _logger.LogError(
+                            "The loaded plugin manifest holds \"{Name}\", which the host already registered as type {Type}; the host registration wins and the persisted definition is discarded.",
+                            entry.Definition.Name, kept.Artifact);
+                        continue;
+                    }
+
                     next[entry.Definition.Name] = entry;
                 }
             }
+
             Volatile.Write(ref _snapshot, next);
         }
 

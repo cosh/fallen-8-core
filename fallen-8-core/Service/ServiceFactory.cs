@@ -26,7 +26,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Error;
 using NoSQL.GraphDB.Core.Helper;
@@ -79,17 +78,23 @@ namespace NoSQL.GraphDB.Core.Service
 
 
         /// <summary>
-        ///   Gets the available service plugins.
+        ///   Gets the available service plugin NAMES: the discovered built-ins unioned with this
+        ///   namespace's registered service types, by the union rule
+        ///   <see cref="PluginFactory.AvailablePluginNames" /> owns - the same surface, from the same
+        ///   home, as <c>IndexFactory.GetAvailableIndexPlugins</c>, because a host registers index and
+        ///   service types through one registry and neither family may be the odd one out.
+        ///
+        ///   <para>Names, not the multi-line descriptions this used to return: a name is what
+        ///   <see cref="TryAddService" /> takes, and a registered plugin can only be UNIONED in as a
+        ///   name (the registry has no description in that shape). Descriptions are still available
+        ///   from <see cref="PluginFactory.TryGetAvailablePluginsWithDescriptions{T}" /> for a caller
+        ///   that wants them.</para>
         /// </summary>
         /// <returns> The available service plugins. </returns>
         [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public IEnumerable<String> GetAvailableServicePlugins()
         {
-            Dictionary<String, string> result;
-
-            PluginFactory.TryGetAvailablePluginsWithDescriptions<IService>(out result);
-
-            return result.Select(_ => _.Value);
+            return PluginFactory.AvailablePluginNames(Plugins.PluginContract.Service, _fallen8?.Plugins);
         }
 
         /// <summary>
@@ -100,13 +105,12 @@ namespace NoSQL.GraphDB.Core.Service
         /// <param name='servicePluginName'> The name of the service plugin. </param>
         /// <param name="serviceName"> The name of the service instance </param>
         /// <param name='parameter'> The parameters of this service. </param>
-        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryAddService(out IService service, string servicePluginName, string serviceName,
                                   IDictionary<string, object> parameter)
         {
             try
             {
-                if (PluginFactory.TryFindPlugin(out service, servicePluginName))
+                if (TryResolveServicePlugin(out service, servicePluginName))
                 {
                     if (WriteResource())
                     {
@@ -130,8 +134,7 @@ namespace NoSQL.GraphDB.Core.Service
                 }
                 else
                 {
-                    _logger.LogError(String.Format("Fallen-8 did not fine the {0} service plugin",
-                        servicePluginName));
+                    PluginFactory.LogPluginNotFound(_logger, "service", servicePluginName);
                 }
             }
             catch (Exception e)
@@ -254,11 +257,10 @@ namespace NoSQL.GraphDB.Core.Service
         /// <param name="reader">Serialization reader</param>
         /// <param name="fallen8">Fallen-8</param>
         /// <param name="startService">Start the service?</param>
-        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         internal void OpenService(string serviceName, string servicePluginName, SerializationReader reader, IFallen8 fallen8, Boolean startService)
         {
             IService service;
-            if (PluginFactory.TryFindPlugin(out service, servicePluginName))
+            if (TryResolveServicePlugin(out service, servicePluginName))
             {
                 if (WriteResource())
                 {
@@ -287,7 +289,35 @@ namespace NoSQL.GraphDB.Core.Service
                 throw new CollisionException();
             }
 
-            _logger.LogError(String.Format("Could not find service plugin with name \"{0}\".", servicePluginName));
+            PluginFactory.LogPluginNotFound(_logger, "service", servicePluginName);
+        }
+
+        /// <summary>
+        ///   Resolves a service plugin by name, registry-first then discovery, for both an add and a
+        ///   checkpoint rehydration. The contract is the one
+        ///   <c>IndexFactory.TryResolveIndexPlugin</c> documents; a service is the same shape of plugin
+        ///   (each service IS an instance).
+        /// </summary>
+        private bool TryResolveServicePlugin(out IService service, string servicePluginName)
+        {
+            var registry = _fallen8?.Plugins;
+            if (registry != null && registry.TryActivate(out service, servicePluginName))
+            {
+                return true;
+            }
+
+            return TryFindDiscoveredServiceSuppressed(out service, servicePluginName);
+        }
+
+        /// <summary>
+        ///   The suppression seam for the discovery half of <see cref="TryResolveServicePlugin" />,
+        ///   justified exactly as <c>IndexFactory.TryFindDiscoveredIndexSuppressed</c> is.
+        /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = "Discovery degrades to a clean not-found; the trim-safe path is host type registration. See the doc comment.")]
+        private static bool TryFindDiscoveredServiceSuppressed(out IService service, string servicePluginName)
+        {
+            return PluginFactory.TryFindPlugin(out service, servicePluginName);
         }
 
         #endregion

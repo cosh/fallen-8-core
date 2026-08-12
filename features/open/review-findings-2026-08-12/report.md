@@ -318,17 +318,21 @@ closed or recorded:
 
 ## Still open after this batch
 
-- [ ] **N10's compensating control is not committed.** This report accepted that the
-  single-threaded arms guarded by `SupportsBackgroundWork` cannot be executed by any test
-  on a threaded host, on the grounds that "the trimmed browser probe run is the
-  compensating control - keep it in the release ritual". That probe is not in the
-  repository: it was a throwaway harness in a past session's scratchpad, so the control
-  cannot actually be run by anyone today, and the WASM-critical arms this batch touched
-  (`RunSaver` inline, `ForEachIndex`/`ForEach` inline, the `OutEdgeSweep` sequential arm,
-  the change-feed dispose skip) are executed by nothing. Two honest ways forward, both
-  deliberately NOT taken unilaterally here because each changes production code or adds a
-  tool: commit the probe as a real harness, or give `HostCapabilities` a test seam so the
-  inline arms can be driven directly. **This is the most valuable follow-up in the list**
-  given that running in the browser is a stated priority.
+- [x] **DONE (2026-08-12): N10's compensating control is now committed and enforced.** This
+  report accepted that the single-threaded arms guarded by `SupportsBackgroundWork` cannot
+  be executed by any test on a threaded host, on the grounds that "the trimmed browser
+  probe run is the compensating control - keep it in the release ritual". That probe was
+  not in the repository: it was a throwaway in a past session's scratchpad, so the control
+  could not actually be run by anyone, and the WASM-critical arms were executed by nothing.
+  It is now `tools/browser-probe`, a trimmed browser-wasm app run headless under node whose
+  exit code is its verdict, wired into CI as the `browser` job and recorded in CLAUDE.md's
+  quality gates. It is deliberately outside `fallen-8-core.sln` so a plain `dotnet build`
+  never needs the wasm workload. Of its seven checks, one is a negative control - index
+  creation must FAIL before registration - so the probe cannot pass by accidentally running
+  on a threaded host. It earned its keep immediately, catching at publish time what no test
+  saw: `CA1416` on `Thread.Start`, and `IL2026` proving four trim annotations had become
+  broader than the truth. The `HostCapabilities` test-seam alternative was NOT taken: it
+  would mean production code carrying a mutable global for tests, and a real runtime is
+  better evidence than a faked flag.
 - [ ] The conformance-suite doc line about encoded credentials, carried over from the
   2026-08-11 report. Once it lands, that directory moves to `features/done/` (its N15).

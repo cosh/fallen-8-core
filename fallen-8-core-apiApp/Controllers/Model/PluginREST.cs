@@ -40,11 +40,15 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         [JsonPropertyName("name")]
         public String Name { get; set; }
 
-        /// <summary>The category ("Algorithm" / "Function").</summary>
+        /// <summary>
+        ///   The category ("Algorithm" / "Function" / "Index" / "Service"). Only the first two can be
+        ///   registered over REST; an "Index" or "Service" entry exists when the process hosting the
+        ///   engine registered the type itself, and is listed here like any other.
+        /// </summary>
         [JsonPropertyName("category")]
         public String Category { get; set; }
 
-        /// <summary>The contract ("Path" / "SubGraph" / "Analytics" / "GraphFunction").</summary>
+        /// <summary>The contract ("Path" / "SubGraph" / "Analytics" / "GraphFunction" / "Index" / "Service").</summary>
         [JsonPropertyName("contract")]
         public String Contract { get; set; }
 
@@ -82,7 +86,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// </summary>
     public sealed class PluginDetailREST : PluginSummaryREST
     {
-        /// <summary>The stored whole-type C# source.</summary>
+        /// <summary>The stored whole-type C# source; null for an entry that has none, which is what a
+        /// host-registered type (an "Index"/"Service" category) always is - a client must not assume
+        /// every listed plugin can be read back as source.</summary>
         [JsonPropertyName("sourceCode")]
         public String SourceCode { get; set; }
 

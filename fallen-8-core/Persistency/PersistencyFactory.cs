@@ -718,7 +718,9 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <see cref="SaveStoredQueries"/>: written atomically (temp + fsync + rename) BEFORE the
         /// header commit-point rename, and a write failure FAILS the whole save (nothing committed, the
         /// WAL left unreset so its RegisterPlugin entries survive for the next replay). Source only,
-        /// never compiled bytes.
+        /// never compiled bytes - so an entry with no source (a host-registered TYPE, see
+        /// <see cref="Plugins.PluginEntry.IsPersistable"/>) is skipped, and a graph holding only those
+        /// takes the zero-definition branch below.
         /// </summary>
         private void SavePlugins(IFallen8 fallen8, string path)
         {
@@ -730,7 +732,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             var definitions = new List<PluginDefinition>();
             foreach (var entry in fallen8.Plugins.GetAll())
             {
-                if (entry?.Definition != null)
+                if (entry != null && entry.IsPersistable)
                 {
                     definitions.Add(entry.Definition);
                 }
@@ -1069,7 +1071,18 @@ namespace NoSQL.GraphDB.Core.Persistency
             return result;
         }
 
-        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
+        /// <summary>
+        ///   Rehydrates the checkpoint's indices, one sidecar at a time.
+        ///
+        ///   <para>Deliberately NOT marked <c>[RequiresUnreferencedCode]</c> - and the same holds for
+        ///   <see cref="LoadAnIndex" />, <see cref="LoadServices" /> and <see cref="LoadAService" />:
+        ///   since feature host-plugin-registration these paths resolve a plugin name through the
+        ///   per-namespace registry first, and their discovery fallback is suppressed inside
+        ///   <c>IndexFactory</c>/<c>ServiceFactory</c>' one-line seams, so nothing reached from here
+        ///   declares a discovery requirement to carry. The enclosing <see cref="Load" /> still declares
+        ///   the SerializationReader's payload-type requirement, which is a different reason and
+        ///   unaffected.</para>
+        /// </summary>
         private void LoadIndices(Fallen8 fallen8, IndexFactory indexFactory, List<String> indexStreams)
         {
             //load the indices
@@ -1088,7 +1101,6 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
-        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         private void LoadServices(Fallen8 fallen8, ServiceFactory newServiceFactory, List<string> serviceStreams, Boolean startServices)
         {
             //load the services
@@ -1107,7 +1119,6 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
-        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         private void LoadAService(string serviceLocaion, Fallen8 fallen8, ServiceFactory serviceFactory, Boolean startService)
         {
             //if there is no savepoint file... do nothing
@@ -1130,7 +1141,6 @@ namespace NoSQL.GraphDB.Core.Persistency
             }
         }
 
-        [RequiresUnreferencedCode(Plugin.PluginFactory.DiscoveryIsNotTrimSafe)]
         private void LoadAnIndex(string indexLocaion, Fallen8 fallen8, IndexFactory indexFactory)
         {
             //if there is no savepoint file... do nothing

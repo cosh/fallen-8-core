@@ -215,12 +215,61 @@ Emscripten virtual filesystem and reading the graph back). Getting those bytes o
 filesystem and into somewhere durable (IndexedDB, a download, your own API) is the host's job, not the
 engine's.
 
-One limit does remain. Plugin lookup **by name**
-(`TryCalculateShortestPath(out paths, "BLS", definition)`) discovers plugins by enumerating assemblies in
-the application's base directory, which is empty in a browser. The typed overload
-`TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, definition)` resolves without
-discovery and works there. The same gap means `IndexFactory.TryCreateIndex`, whose only way in is a plugin
-name, cannot create an index in a browser at all, so no index scans and no vector search yet.
+One thing the host has to do for itself. Plugin lookup **by name** finds its type by enumerating the
+assemblies in the application's base directory, and a browser has none there, so every name is a clean
+miss - which used to mean no index and no vector search in a browser at all. Register the types you need
+and the names resolve again: see
+[Registering plugin types when discovery cannot help](#registering-plugin-types-when-discovery-cannot-help)
+below.
+
+## Registering plugin types when discovery cannot help
+
+Indexes, algorithms, graph functions and services are all plugins, and the engine normally finds one by
+its `PluginName` while enumerating the `*.dll` files under `AppContext.BaseDirectory`. Two hosts get
+nothing out of that. A **browser-wasm** host has no dll files there at all, because the assemblies are
+packaged as WebCIL inside the app bundle. A **trimmed** host may no longer contain a type that exists
+only as a string. Both fail the same clean way: the name is not found.
+
+`RegisterPluginType<T>` closes that. The host hands the engine the types it wants reachable by name, and
+resolution consults this engine's registry before it tries discovery:
+
+```csharp
+using NoSQL.GraphDB.Core.Index;
+using NoSQL.GraphDB.Core.Index.Vector;
+
+var fallen8 = new Fallen8(loggerFactory);
+
+fallen8.RegisterPluginType<DictionaryIndex>();
+fallen8.RegisterPluginType<VectorIndex>();
+
+// The plugin name now resolves out of the registry, with nothing scanned.
+fallen8.IndexFactory.TryCreateIndex(out var vectors, "embeddings", "VectorIndex",
+    new Dictionary<string, object> { { "dimension", 3 } });
+```
+
+`T` is a **type argument**, not a string, so it travels straight to the `Activator` call: nothing is
+scanned, nothing is compiled, and the member carries no trim warning. What the contract requires:
+
+| Rule                              | Detail                                                                                                                                                       |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Exactly one contract              | `T` implements one of `IShortestPathAlgorithm`, `ISubGraphAlgorithm`, `IGraphAnalyticsAlgorithm`, `IGraphFunction`, `IIndex`, `IService`. Zero or two: `InvalidInput` |
+| A public parameterless constructor | Required by the `new()` constraint, so a type the engine could not activate is a compile error at your call site                                              |
+| The name comes from the instance   | Registration probes one instance for its `PluginName` and `Description`. There is no name parameter, so nothing can disagree with the type                     |
+| It is a transaction                | Returns `TransactionInformation`; an invalid name is `InvalidInput`, a duplicate `Conflict`, the registration ceiling `QuotaExceeded`                          |
+| Registry first                     | A registered type shadows a same-named discovered one, which is the point in a host where the built-in cannot be discovered                                    |
+| Per engine                         | The registry belongs to one `Fallen8` instance, like stored queries. A host with several graphs registers per instance                                        |
+
+**A host registration is never persisted, deliberately.** There is no source to store, so neither a
+checkpoint nor the write-ahead log carries one, and the commit reports `Durable` true because there is
+nothing to write. The consequence is a rule for the host: **register your types on every start, and do it
+before a `LoadTransaction`**, because a load rehydrates each saved index by its plugin name. Registrations
+already in place survive a load rather than being replaced by it, so the order is register, then load.
+
+These claims are gated rather than asserted. The repository carries a trimmed browser-wasm probe,
+[`tools/browser-probe`](https://github.com/cosh/fallen-8-core/tree/main/tools/browser-probe), which runs
+headless under node in CI and fails the build if a thread can start on that runtime, if index creation
+succeeds without a registration or fails with one, if the vector search misses, if a checkpoint round trip
+loses a host-registered index or its content, or if a load wipes a registration.
 
 ## Durability and options
 
@@ -251,16 +300,20 @@ What survives trimming, and what the compiler will warn you about:
 
 | Trim-safe                                                                 | Warns at your call site (`IL2026`)                                  |
 | ------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| Constructing the engine, all transactions, all reads and scans             | Anything that names a plugin by **string**                          |
-| `TryCalculateShortestPath<T>` - the algorithm as a type argument           | `TryCalculateShortestPath(out paths, "BLS", …)` and `TryRunAnalytics` |
-| `SubGraphFactory.TryCreateSubGraph<T>`                                     | `CreateSubGraphTransaction` (its algorithm is a plugin name)         |
-| Indexes and vector search you have already created                         | `IndexFactory.TryCreateIndex(…, "VectorIndex")`, service creation    |
-| The change feed                                                            | `SaveTransaction` / `LoadTransaction`, and `DelegateJson`            |
+| Constructing an in-memory engine, the mutation transactions, every read and scan | Naming a **path or analytics** algorithm by string: `TryCalculateShortestPath(out paths, "BLS", …)`, `TryRunAnalytics` |
+| `TryCalculateShortestPath<T>` - the algorithm as a type argument           | `CreateSubGraphTransaction` (its algorithm is a plugin name)         |
+| `SubGraphFactory.TryCreateSubGraph<T>`                                     | Asking what discovery can see: `GetAvailableIndexPlugins`, `GetAvailableSubGraphPlugins`, `GetAvailableServicePlugins` |
+| `RegisterPluginType<T>`, and creating an index or a service by name once its type is registered | `SaveTransaction` / `LoadTransaction`, and `DelegateJson` |
+| Indexes and vector search you have already created, and the change feed    | `new Fallen8(path, loggerFactory)` and the write-ahead-log constructor overload |
 
 The rule behind the table: a type the engine reflectively constructs from a **type argument** can be
 kept by the trimmer, so those paths are annotated and safe. A type that exists only as a **string** -
 resolved by scanning assemblies, or read out of a checkpoint - cannot be, so those members declare
-`[RequiresUnreferencedCode]` and tell you at build time rather than failing at runtime. If you trim and
+`[RequiresUnreferencedCode]` and tell you at build time rather than failing at runtime. Index and service
+creation are named by string yet do not warn, because they resolve
+[a registered type](#registering-plugin-types-when-discovery-cannot-help) first, which involves no
+reflection over strings at all; their discovery fallback sits behind one narrow suppression rather than a
+warning handed to every caller. If you trim and
 call one anyway, the two halves of that column fail differently. A lookup by **name** degrades quietly:
 discovery finds nothing, so the call returns `false`. A **checkpoint or delegate** path fails loudly,
 because a payload-named type that no longer resolves is corrupt data rather than a miss: the checkpoint
@@ -269,8 +322,12 @@ the exception on `TransactionInformation.Error`; `DelegateJson` deserialization 
 index whose metric type cannot be resolved raises `InvalidDataException`, which the load logs and skips
 so the rest of the checkpoint still arrives.
 
-For a browser build most of that column is moot anyway, for the two reasons given under
-"Single-threaded hosts" above.
+A browser build sharpens the column. There, discovery finds no assemblies at all, so every lookup that
+resolves a name by scanning is a guaranteed miss whether you trim or not, and the answer is to register the
+types instead. The checkpoint entry is the one that stays: `SaveTransaction` and `LoadTransaction` still
+carry the requirement, because a checkpoint stores property values it resolves reflectively on load, so a
+browser host that saves and loads suppresses `IL2026` at its own call site - which is exactly what the
+committed probe does.
 
 ## The public surface is versioned
 

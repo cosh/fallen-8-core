@@ -20672,7 +20672,7 @@
               "null",
               "string"
             ],
-            "description": "The stored whole-type C# source."
+            "description": "The stored whole-type C# source; null for an entry that has none, which is what a\r\n    host-registered type (an \"Index\"/\"Service\" category) always is - a client must not assume\r\n    every listed plugin can be read back as source."
           },
           "compileDiagnostics": {
             "type": [
@@ -20693,14 +20693,14 @@
               "null",
               "string"
             ],
-            "description": "The category (\"Algorithm\" / \"Function\")."
+            "description": "The category (\"Algorithm\" / \"Function\" / \"Index\" / \"Service\"). Only the first two can be\r\nregistered over REST; an \"Index\" or \"Service\" entry exists when the process hosting the\r\nengine registered the type itself, and is listed here like any other."
           },
           "contract": {
             "type": [
               "null",
               "string"
             ],
-            "description": "The contract (\"Path\" / \"SubGraph\" / \"Analytics\" / \"GraphFunction\")."
+            "description": "The contract (\"Path\" / \"SubGraph\" / \"Analytics\" / \"GraphFunction\" / \"Index\" / \"Service\")."
           },
           "description": {
             "type": [
@@ -20788,14 +20788,14 @@
               "null",
               "string"
             ],
-            "description": "The category (\"Algorithm\" / \"Function\")."
+            "description": "The category (\"Algorithm\" / \"Function\" / \"Index\" / \"Service\"). Only the first two can be\r\nregistered over REST; an \"Index\" or \"Service\" entry exists when the process hosting the\r\nengine registered the type itself, and is listed here like any other."
           },
           "contract": {
             "type": [
               "null",
               "string"
             ],
-            "description": "The contract (\"Path\" / \"SubGraph\" / \"Analytics\" / \"GraphFunction\")."
+            "description": "The contract (\"Path\" / \"SubGraph\" / \"Analytics\" / \"GraphFunction\" / \"Index\" / \"Service\")."
           },
           "description": {
             "type": [

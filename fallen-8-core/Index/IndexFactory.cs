@@ -72,17 +72,15 @@ namespace NoSQL.GraphDB.Core.Index
         #region IFallen8IndexFactory implementation
 
         /// <summary>
-        ///   Gets the available index plugins.
+        ///   Gets the available index plugin names: the discovered built-ins unioned with this
+        ///   namespace's registered index types, by the union rule
+        ///   <see cref="PluginFactory.AvailablePluginNames" /> owns.
         /// </summary>
         /// <returns> The available index plugins. </returns>
         [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public IEnumerable<String> GetAvailableIndexPlugins()
         {
-            IEnumerable<String> result;
-
-            PluginFactory.TryGetAvailablePlugins<IIndex>(out result);
-
-            return result;
+            return PluginFactory.AvailablePluginNames(Plugins.PluginContract.Index, _fallen8?.Plugins);
         }
 
         /// <summary>
@@ -93,11 +91,10 @@ namespace NoSQL.GraphDB.Core.Index
         /// <param name='indexName'> Index name. </param>
         /// <param name='indexTypeName'> Index type. Default is DictionaryIndex </param>
         /// <param name='parameter'> Parameter for the index. Default is Null </param>
-        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         public bool TryCreateIndex(out IIndex index, string indexName, string indexTypeName = "DictionaryIndex",
                                    IDictionary<string, object> parameter = null)
         {
-            if (PluginFactory.TryFindPlugin(out index, indexTypeName))
+            if (TryResolveIndexPlugin(out index, indexTypeName))
             {
                 try
                 {
@@ -149,6 +146,11 @@ namespace NoSQL.GraphDB.Core.Index
                     return false;
                 }
             }
+            else
+            {
+                PluginFactory.LogPluginNotFound(_logger, "index", indexTypeName);
+            }
+
             index = null;
             return false;
         }
@@ -311,11 +313,10 @@ namespace NoSQL.GraphDB.Core.Index
         /// <param name="indexPluginName"> The index plugin name </param>
         /// <param name="reader"> Serialization reader </param>
         /// <param name="fallen8"> Fallen-8 </param>
-        [RequiresUnreferencedCode(PluginFactory.DiscoveryIsNotTrimSafe)]
         internal void OpenIndex(string indexName, string indexPluginName, SerializationReader reader)
         {
             IIndex index;
-            if (PluginFactory.TryFindPlugin(out index, indexPluginName))
+            if (TryResolveIndexPlugin(out index, indexPluginName))
             {
                 index.Load(reader, _fallen8);
 
@@ -336,7 +337,45 @@ namespace NoSQL.GraphDB.Core.Index
                 throw new CollisionException();
             }
 
-            _logger.LogError("Could not find index plugin with name \"{IndexPluginName}\".", indexPluginName);
+            PluginFactory.LogPluginNotFound(_logger, "index", indexPluginName);
+        }
+
+        /// <summary>
+        ///   Resolves an index plugin by name for BOTH ways an index comes into existence - a create and
+        ///   a checkpoint rehydration - so a host-registered index type survives a save/load round trip.
+        ///   This namespace's <see cref="Fallen8.Plugins" /> registry is consulted first and assembly
+        ///   discovery second, the precedence <c>Fallen8.ResolveCachedPlugin</c> documents for every
+        ///   other plugin family. There is no instance cache: an index IS the instance handed back, so a
+        ///   fresh one per call is required here rather than merely safe.
+        /// </summary>
+        private bool TryResolveIndexPlugin(out IIndex index, string indexPluginName)
+        {
+            // Captured once: Dispose nulls the engine's Plugins while a request thread may still be
+            // creating an index.
+            var registry = _fallen8?.Plugins;
+            if (registry != null && registry.TryActivate(out index, indexPluginName))
+            {
+                return true;
+            }
+
+            return TryFindDiscoveredIndexSuppressed(out index, indexPluginName);
+        }
+
+        /// <summary>
+        ///   The suppression seam for the discovery half of <see cref="TryResolveIndexPlugin" />: a
+        ///   one-line pass-through so the suppression covers exactly this call (the
+        ///   <c>Fallen8.ReplaySubGraphCreateSuppressed</c> pattern). Suppressed rather than propagated
+        ///   because discovery degrades to a clean not-found - see the <see cref="PluginFactory" /> type
+        ///   remarks for that contract - and the supported way to reach an index type in a trimmed or
+        ///   browser host is <c>Fallen8.RegisterPluginType</c>, which resolves through the registry
+        ///   above with no reflection over strings at all. Index creation would otherwise hand every
+        ///   caller a trim warning for a capability the registry path provides trim-safely.
+        /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2026",
+            Justification = "Discovery degrades to a clean not-found; the trim-safe path is host type registration. See the doc comment.")]
+        private static bool TryFindDiscoveredIndexSuppressed(out IIndex index, string indexPluginName)
+        {
+            return PluginFactory.TryFindPlugin(out index, indexPluginName);
         }
 
         #endregion

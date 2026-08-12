@@ -50,6 +50,23 @@ namespace NoSQL.GraphDB.Core.Plugins
         ///   procedure authored in source, invoked by name with a parameter bag, returning a view of
         ///   existing vertices/edges. There are no built-in graph functions.
         /// </summary>
-        Function
+        Function,
+
+        /// <summary>
+        ///   An index plugin (an <c>IIndex</c>), created by name through <c>IndexFactory</c>. Unlike the
+        ///   two categories above it has no source form and no registration ENDPOINT: the way into the
+        ///   registry is a host registering the TYPE (<c>Fallen8.RegisterPluginType</c>, see
+        ///   <see cref="PluginContract.Index"/>), which produces an entry carrying no source.
+        ///
+        ///   <para>Whether such an entry is persisted is not decided by this category: it is decided
+        ///   entry by entry by <see cref="PluginEntry.IsPersistable"/> - the one home for that rule -
+        ///   which asks for source and finds none. Nothing here forbids an Index-category entry that
+        ///   HAS source; were one ever registered, it would be persisted like any other.</para>
+        /// </summary>
+        Index,
+
+        /// <summary>A service plugin (an <c>IService</c>), added by name through <c>ServiceFactory</c>;
+        /// reached the same way as <see cref="Index"/>, by host type registration.</summary>
+        Service
     }
 }

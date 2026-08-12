@@ -161,58 +161,7 @@ namespace NoSQL.GraphDB.Tests
             return (info.TransactionState, info.Error);
         }
 
-        private static ILoggerFactory CapturingFactory(CapturingLoggerProvider provider)
-        {
-            return LoggerFactory.Create(builder =>
-            {
-                builder.SetMinimumLevel(LogLevel.Trace);
-                builder.AddProvider(provider);
-            });
-        }
 
-        /// <summary>Records emitted log entries so a test can assert a specific warning fired.</summary>
-        private sealed class CapturingLoggerProvider : ILoggerProvider
-        {
-            private readonly object _gate = new object();
-            private readonly List<(LogLevel Level, string Message)> _entries = new List<(LogLevel, string)>();
-
-            public ILogger CreateLogger(string categoryName) => new CapturingLogger(this);
-
-            public void Dispose() { }
-
-            public bool HasWarningContaining(string fragment)
-            {
-                lock (_gate)
-                {
-                    return _entries.Any(e => e.Level == LogLevel.Warning
-                                             && e.Message.IndexOf(fragment, StringComparison.Ordinal) >= 0);
-                }
-            }
-
-            private void Record(LogLevel level, string message)
-            {
-                lock (_gate)
-                {
-                    _entries.Add((level, message));
-                }
-            }
-
-            private sealed class CapturingLogger : ILogger
-            {
-                private readonly CapturingLoggerProvider _owner;
-                public CapturingLogger(CapturingLoggerProvider owner) => _owner = owner;
-                public IDisposable BeginScope<TState>(TState state) => NullScope.Instance;
-                public bool IsEnabled(LogLevel logLevel) => true;
-                public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception,
-                    Func<TState, Exception, string> formatter) => _owner.Record(logLevel, formatter(state, exception));
-            }
-
-            private sealed class NullScope : IDisposable
-            {
-                public static readonly NullScope Instance = new NullScope();
-                public void Dispose() { }
-            }
-        }
 
         /// <summary>A misbehaving custom compiler that THROWS from TryCompile (violates the Try contract).</summary>
         private sealed class ThrowingRecipeCompiler : ISubGraphRecipeCompiler
@@ -443,14 +392,14 @@ namespace NoSQL.GraphDB.Tests
             source.EnqueueTransaction(after).WaitUntilFinished();
             source.Dispose();
 
-            var capture = new CapturingLoggerProvider();
-            var recovered = new Fallen8(CapturingFactory(capture), new WriteAheadLogOptions(WalPath)); // NO compiler
+            var capture = new TestLogSink();
+            var recovered = new Fallen8(capture.CreateFactory(), new WriteAheadLogOptions(WalPath)); // NO compiler
 
             Assert.AreEqual(4, recovered.VertexCount,
                 "The vertex logged AFTER the skipped subgraph entry still recovers - replay did not halt.");
             Assert.IsFalse(recovered.SubGraphFactory.TryGetSubGraph(out _, "people"),
                 "Without a compiler the subgraph entry is skipped, not applied.");
-            Assert.IsTrue(capture.HasWarningContaining("no recipe compiler is registered"),
+            Assert.IsTrue(capture.Contains(LogLevel.Warning, "no recipe compiler is registered"),
                 "Skipping a subgraph entry for lack of a compiler must be signalled with a warning.");
             recovered.Dispose();
         }
