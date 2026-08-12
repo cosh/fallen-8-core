@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Transaction;
 using NoSQL.GraphDB.App.Controllers.Model;
@@ -141,32 +142,71 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(wire, parsed.ToString("O", CultureInfo.InvariantCulture));
         }
 
+        /// <summary>
+        ///   One value and its EXPECTED WIRE TEXT per allow-listed literal type. The text is spelled out
+        ///   rather than computed, because a canonical form computed from the value is the same guess the
+        ///   production code makes: the DateTimeOffset defect survived a round-trip assertion precisely
+        ///   because the wrong text parsed back to the right value.
+        /// </summary>
+        private static readonly Dictionary<Type, (Object Value, String Wire)> _expectedEgress = new()
+        {
+            [typeof(String)] = ("text", "text"),
+            [typeof(Boolean)] = (true, "True"),
+            [typeof(Byte)] = ((Byte)7, "7"),
+            [typeof(SByte)] = ((SByte)(-8), "-8"),
+            [typeof(Int16)] = ((Int16)(-300), "-300"),
+            [typeof(UInt16)] = ((UInt16)300, "300"),
+            [typeof(Int32)] = (42, "42"),
+            [typeof(UInt32)] = (42u, "42"),
+            [typeof(Int64)] = (-9007199254740993L, "-9007199254740993"),
+            [typeof(UInt64)] = (UInt64.MaxValue, "18446744073709551615"),
+            [typeof(Single)] = (0.8f, "0.8"),
+            [typeof(Double)] = (0.8d, "0.8"),
+            [typeof(Decimal)] = (1.25m, "1.25"),
+            [typeof(Char)] = ('x', "x"),
+            [typeof(TimeSpan)] = (TimeSpan.FromMinutes(90), "01:30:00"),
+            [typeof(DateTime)] = (new DateTime(2026, 8, 9, 10, 0, 0, DateTimeKind.Unspecified),
+                                  "2026-08-09T10:00:00.0000000"),
+            [typeof(DateTimeOffset)] = (new DateTimeOffset(2026, 8, 9, 10, 0, 0, TimeSpan.FromHours(2)),
+                                        "2026-08-09T10:00:00.0000000+02:00"),
+            [typeof(Guid)] = (Guid.Parse("2f1c4b6a-9d33-4f7e-9a11-6b2c8d5e4f30"),
+                              "2f1c4b6a-9d33-4f7e-9a11-6b2c8d5e4f30"),
+        };
+
+        [TestMethod]
+        public void EveryAllowedLiteralType_HasAnExpectedEgressText()
+        {
+            // Exhaustive BY CONSTRUCTION: the case list is the allow-list itself, so a 19th accepted type
+            // fails here until someone states what it must look like on the wire. The previous version
+            // hand-listed ten of the eighteen and its name over-claimed the rest.
+            var uncovered = AllowedLiteralTypes.AllowedNames
+                .Select(AllowedLiteralTypes.Resolve)
+                .Where(type => !_expectedEgress.ContainsKey(type))
+                .Select(type => type.FullName)
+                .ToList();
+
+            Assert.AreEqual(0, uncovered.Count,
+                "Every allow-listed literal type needs a value and its expected wire text in this test; " +
+                "missing: " + String.Join(", ", uncovered));
+        }
+
         [TestMethod]
         public void EveryAllowedLiteral_RoundTripsThroughTheREALEgressFunction()
         {
-            // The test above (and every sibling) asserts against a HAND-WRITTEN ToString("O"), which is why
-            // they all passed while the real egress rendered a DateTimeOffset as "08/09/2026 10:00:00 +02:00"
-            // - a form ingress does not parse. So this one goes through the actual wire projection: build a
-            // real element carrying one value per allow-listed type, project it exactly as the REST layer
-            // does, and feed each rendered string back through ingress. Egress that is not the inverse of
-            // ingress makes a client that diffs stored-against-intended by text write on every poll, which
-            // is invisible in the graph because an equal-value write is a no-op.
+            // The sibling tests assert against a HAND-WRITTEN ToString("O"), which is why they all passed
+            // while the real egress rendered a DateTimeOffset as "08/09/2026 10:00:00 +02:00" - a form
+            // ingress does not parse. So this one goes through the actual wire projection: build a real
+            // element carrying one value per allow-listed type, project it exactly as the REST layer does,
+            // and check both the rendered TEXT and what that text ingests back to. Why the text matters is
+            // stated once, at the egress home (AGraphElement.FormatPropertyValue).
             var loggerFactory = TestLoggerFactory.Create();
             using var fallen8 = new Fallen8(loggerFactory);
 
-            var values = new Dictionary<String, Object>
+            var values = new Dictionary<String, Object>();
+            foreach (var expected in _expectedEgress)
             {
-                { "p.string", "text" },
-                { "p.int", 42 },
-                { "p.long", 42L },
-                { "p.double", 0.8d },
-                { "p.float", 0.8f },
-                { "p.decimal", 1.25m },
-                { "p.bool", true },
-                { "p.datetime", new DateTime(2026, 8, 9, 10, 0, 0, DateTimeKind.Unspecified) },
-                { "p.datetimeoffset", new DateTimeOffset(2026, 8, 9, 10, 0, 0, TimeSpan.FromHours(2)) },
-                { "p.guid", Guid.Parse("2f1c4b6a-9d33-4f7e-9a11-6b2c8d5e4f30") },
-            };
+                values["p." + expected.Key.Name] = expected.Value.Value;
+            }
 
             var tx = new CreateVerticesTransaction();
             tx.AddVertex(1u, "literals", values);
@@ -174,37 +214,20 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(fallen8.TryGetVertex(out var vertex, tx.GetCreatedVertices()[0].Id));
 
             var projected = new Vertex(vertex);
+            Assert.AreEqual(_expectedEgress.Count, projected.Properties.Count,
+                "every stored literal must be projected");
 
             foreach (var property in projected.Properties)
             {
-                var declared = Type.GetType(property.FullQualifiedTypeName);
-                Assert.IsNotNull(declared, property.PropertyId + " must declare a resolvable type");
+                var declared = AllowedLiteralTypes.Resolve(property.FullQualifiedTypeName);
+                var expected = _expectedEgress[declared];
 
-                var reingested = AllowedLiteralTypes.ConvertInvariant(property.PropertyValue, declared);
+                Assert.AreEqual(expected.Wire, property.PropertyValue,
+                    property.PropertyId + ": egress must emit exactly this text");
 
-                Assert.AreEqual(values[property.PropertyId], reingested,
+                Assert.AreEqual(expected.Value, AllowedLiteralTypes.ConvertInvariant(property.PropertyValue, declared),
                     property.PropertyId + ": the wire form \"" + property.PropertyValue + "\" must ingest back " +
                     "to the value it was rendered from");
-
-                // And the TEXT, which is the half that actually broke. Value equality is not enough: a
-                // DateTimeOffset rendered "08/09/2026 10:00:00 +02:00" parses back to the same instant, so a
-                // value-only assertion passes while the defect is live. What a client compares is the STRING
-                // it would render against the string it read, so a date must come off the wire in the same
-                // round-trippable ISO form every other egress path uses ("O" in JsonlGraphFormat, and what
-                // the integrations runtime renders). The two date types are the only ones whose canonical
-                // form is not simply ToString(invariant), which is why only they are spelled out here.
-                var canonical = values[property.PropertyId] switch
-                {
-                    DateTime d => d.ToString("O", CultureInfo.InvariantCulture),
-                    DateTimeOffset o => o.ToString("O", CultureInfo.InvariantCulture),
-                    IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
-                    var other => other.ToString(),
-                };
-
-                Assert.AreEqual(canonical, property.PropertyValue,
-                    property.PropertyId + ": egress must emit the canonical round-trippable form, or a client " +
-                    "that decides 'has anything changed?' by comparing text sees a difference that is not " +
-                    "there and writes on every poll of an unchanged source");
             }
         }
 

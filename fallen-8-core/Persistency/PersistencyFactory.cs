@@ -32,6 +32,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -345,9 +346,10 @@ namespace NoSQL.GraphDB.Core.Persistency
             // therefore preserved (the file writing is NOT moved off the worker; see the P3 deferral
             // note in features/done/persistence-hardening/plan.md).
             //
-            // On a host that cannot start a thread, the fan-out runs INLINE instead - see RunSaver. The
-            // pattern below is unchanged either way, which is the point: the .Result reads further down
-            // are correct in both cases because an inline saver's task is already completed.
+            // On a host that cannot run work off the calling thread the fan-out runs INLINE instead - see
+            // RunSaver, which also explains why an inline saver's failure arrives as a faulted task
+            // rather than as a throw from this loop. The pattern below is unchanged either way, which is
+            // the point: every .Result read further down sees the same two outcomes on both hosts.
 
             #region graph elements
 
@@ -508,7 +510,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 throw;
             }
 
-            File.Move(tempMain, path, true); // atomic commit point (the recipe + stored-query + plugin manifests are already durable)
+            Publish(tempMain, path); // atomic commit point (the recipe + stored-query + plugin manifests are already durable)
 
             return path;
         }
@@ -552,6 +554,15 @@ namespace NoSQL.GraphDB.Core.Persistency
             DurableFileIo.WriteAllBytesDurably(path, bytes, FileOptions.SequentialScan);
         }
 
+        /// <summary>See <see cref="DurableFileIo.PublishWithRetry"/>. Every temp-to-final rename in a
+        /// checkpoint - the header commit point, the three manifests and each sidecar - is exposed to the
+        /// same scanner/indexer rename refusal the WAL's publish is, so one refused rename must not roll
+        /// back an otherwise-complete save.</summary>
+        private void Publish(string temp, string finalPath)
+        {
+            DurableFileIo.PublishWithRetry(temp, finalPath, _logger);
+        }
+
         /// <summary>
         /// Persists every persistable subgraph recipe into ONE versioned manifest next to the save
         /// point (finding C6), written atomically (temp + fsync + rename). This replaces the former
@@ -588,7 +599,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             {
                 var json = JsonSerializer.Serialize(manifest, CoreJsonContext.Default.SubGraphRecipeManifest);
                 WriteAllBytesDurably(temp, Encoding.UTF8.GetBytes(json));
-                File.Move(temp, manifestPath, true);
+                Publish(temp, manifestPath);
             }
             catch (Exception ex)
             {
@@ -646,7 +657,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             {
                 var json = JsonSerializer.Serialize(manifest, CoreJsonContext.Default.StoredQueryManifest);
                 WriteAllBytesDurably(temp, Encoding.UTF8.GetBytes(json));
-                File.Move(temp, manifestPath, true);
+                Publish(temp, manifestPath);
             }
             catch (Exception ex)
             {
@@ -745,7 +756,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             {
                 var json = JsonSerializer.Serialize(manifest, CoreJsonContext.Default.PluginManifest);
                 WriteAllBytesDurably(temp, Encoding.UTF8.GetBytes(json));
-                File.Move(temp, manifestPath, true);
+                Publish(temp, manifestPath);
             }
             catch (Exception ex)
             {
@@ -955,7 +966,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             {
                 // temp + fsync + atomic rename - the existing durability sequence, unchanged.
                 WriteAllBytesDurably(temp, image);
-                File.Move(temp, finalFileName, true);
+                Publish(temp, finalFileName);
                 return new SidecarManifestEntry(Path.GetFileName(finalFileName), image.Length, crc);
             }
             catch
@@ -1143,22 +1154,34 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
-        ///   Queues one sidecar-writing job the way this host can run it: on the thread pool where a
-        ///   thread can be started, INLINE on the calling thread where none can.
+        ///   Queues one sidecar-writing job the way this host can run it: on the thread pool where work
+        ///   can run off the calling thread, INLINE on the calling thread where it cannot. Why the
+        ///   question is asked, and asked once: see <see cref="HostCapabilities" />, its one home.
         ///
-        ///   <para>The inline arm exists because the caller blocks on these tasks' results. On a
-        ///   single-threaded WebAssembly runtime, pool work queued from a thread that then blocks can
-        ///   never run - the queue is drained by the one thread the caller is holding - so the save did
-        ///   not merely lose its parallelism, it could not complete at all. Returning an
-        ///   already-completed task keeps every caller and every <c>.Result</c> below identical, so
-        ///   there is one save algorithm rather than two. Order is unchanged: partitions write to
-        ///   distinct sidecar files and are collected in index order either way.</para>
+        ///   <para>The inline arm must NOT let the job's failure escape from here. The caller fans every
+        ///   saver out first and reads the results afterwards, so a synchronous throw at fan-out time
+        ///   abandons the loop: the remaining partitions never run (a different set of files is left
+        ///   behind than on a threaded host) and the fault reaches the caller RAW rather than as the
+        ///   <see cref="AggregateException" /> a <c>Task.Result</c> raises. Capturing it into a faulted
+        ///   task is what keeps ONE save algorithm across hosts - same fan-out, same collection point,
+        ///   same exception shape, same residue. Order is unchanged either way: partitions write to
+        ///   distinct sidecar files and are collected in index order.</para>
         /// </summary>
         private static Task<T> RunSaver<T>(Func<T> saver)
         {
-            return HostCapabilities.SupportsBackgroundWork
-                ? Task.Run(saver)
-                : Task.FromResult(saver());
+            if (HostCapabilities.SupportsBackgroundWork)
+            {
+                return Task.Run(saver);
+            }
+
+            try
+            {
+                return Task.FromResult(saver());
+            }
+            catch (Exception ex)
+            {
+                return Task.FromException<T>(ex);
+            }
         }
 
         /// <summary>
@@ -1270,16 +1293,59 @@ namespace NoSQL.GraphDB.Core.Persistency
             {
                 LoadGraphElementsCore(graphElements, graphElementStreams);
             }
-            catch (AggregateException aggregate)
+            catch (Exception ex)
             {
-                // The parallel bunch load surfaces failures as an AggregateException (finding C5). Flatten
-                // it to a single, clear "the savegame is corrupt" error rather than letting the opaque
-                // aggregate propagate; the worker's transaction guard (C3/B6) then rolls the load back.
-                var flat = aggregate.Flatten();
-                var inner = flat.InnerException ?? flat;
+                var inner = PrimaryFault(ex);
+
+                // A RESOURCE verdict is not a DATA verdict. This message decides what an operator does
+                // next, and "the savegame is corrupt" sends them to restore a backup - which is the wrong
+                // move, and cannot work, when the file is fine and the machine is simply too small for a
+                // legitimately large bunch. Out of memory is therefore re-thrown as itself, stack intact.
+                if (inner is OutOfMemoryException)
+                {
+                    ExceptionDispatchInfo.Capture(inner).Throw();
+                }
+
+                // Everything else is refused as the documented corruption verdict, whatever SHAPE it
+                // arrived in (finding C5) - a shape whitelist would let an unforeseen reader failure
+                // escape raw. The inner exception's TYPE is named in the message because this site cannot
+                // tell an engine fault from corruption: a NullReferenceException here can equally be a
+                // corrupt element id resolving to an empty slot or a missing null check of ours, and an
+                // operator (or a bug report) needs to see which shape it was rather than only the verdict.
+                // The worker's transaction guard (C3/B6) then rolls the load back.
                 throw new InvalidDataException(
-                    "The savegame is corrupt: a graph-element bunch could not be loaded. " + inner.Message, inner);
+                    "The savegame is corrupt: a graph-element bunch could not be loaded (" +
+                    inner.GetType().Name + ": " + inner.Message + ").", inner);
             }
+        }
+
+        /// <summary>
+        ///   The one fault a load-core failure is really about. The parallel arms wrap it in an
+        ///   <see cref="AggregateException" /> and the sequential arms throw it bare (see
+        ///   <see cref="ForEachIndex" />), so unwrapping an aggregate WHEN there is one - rather than
+        ///   catching only that type - is what keeps both hosts on one contract.
+        ///
+        ///   <para>Within an aggregate an <see cref="OutOfMemoryException" /> outranks the rest: several
+        ///   bunches can fault at once, and the one that says the machine ran out of memory must not be
+        ///   hidden behind whichever fault happened to be recorded first.</para>
+        /// </summary>
+        private static Exception PrimaryFault(Exception ex)
+        {
+            if (ex is not AggregateException aggregate)
+            {
+                return ex;
+            }
+
+            var flattened = aggregate.Flatten();
+            foreach (var candidate in flattened.InnerExceptions)
+            {
+                if (candidate is OutOfMemoryException)
+                {
+                    return candidate;
+                }
+            }
+
+            return flattened.InnerException ?? flattened;
         }
 
         [RequiresUnreferencedCode(Serializer.SerializationReader.PayloadTypesAreNotTrimSafe)]
@@ -1295,12 +1361,11 @@ namespace NoSQL.GraphDB.Core.Persistency
             var edgeTodo = new ConcurrentDictionary<Int32, ConcurrentQueue<EdgeOnVertexToDo>>();
             var result = new List<EdgeSneakPeak>[graphElementStreams.Count];
 
-            // Create the major part of the graph elements. In PARALLEL where the host has threads,
-            // SEQUENTIALLY where it does not: Parallel.For on a single-threaded WebAssembly runtime
-            // has no worker to borrow and no way to yield the one thread it is already on, so a load
-            // could not complete there at all. Bunches write to disjoint slots of the same array and
-            // the edge fix-up is collected per bunch, so the result does not depend on the order or the
-            // degree of parallelism - which is what makes running them one at a time a free choice.
+            // Create the major part of the graph elements. In PARALLEL where the host can run work off
+            // the calling thread, SEQUENTIALLY where it cannot (see HostCapabilities, the one home for
+            // that question). Running them one at a time is a free choice because bunches write to
+            // disjoint slots of the same array and the edge fix-up is collected per bunch, so the result
+            // depends on neither the order nor the degree of parallelism.
             ForEachIndex(graphElementStreams.Count, i =>
             {
                 result[i] = LoadAGraphElementBunch(graphElementStreams[i], graphElements, edgeTodo);

@@ -90,6 +90,19 @@ namespace NoSQL.GraphDB.Core.Index
 
         /// <summary>
         ///   Tries to add or update.
+        ///
+        ///   <para>NEVER INDEX A REMOVED ELEMENT: an implementation must ignore a call whose element is
+        ///   already tombstoned by a committed removal. This is a contract rather than an optimisation
+        ///   because the reason lives in the engine, not in any one index: the write-end purge that
+        ///   strips a removed element from every index runs ONCE per removal and never comes back for
+        ///   it, so an entry added after the purge pins the element's body, persists into the next
+        ///   checkpoint (whose load then logs an error per stale id), and after an id-reusing Trim can
+        ///   surface as a hit on an element the caller never asked about. The window is not theoretical:
+        ///   index repair reads a snapshot of live elements and adds them on the CALLING thread, so a
+        ///   removal can commit between that snapshot and this call.</para>
+        ///
+        ///   <para>An implementation that takes a write lock must check inside it, which is what orders
+        ///   the check against a concurrent removal taking the same lock.</para>
         /// </summary>
         /// <param name='key'> Key. </param>
         /// <param name='graphElement'> Graph element. </param>

@@ -116,6 +116,14 @@ namespace NoSQL.GraphDB.Core.Index
 
             if (WriteResource())
             {
+                // Never index a removed element (the rule and its reason: IIndex.AddOrUpdate).
+                if (graphElement != null && graphElement._removed)
+                {
+                    FinishWriteResource();
+
+                    return;
+                }
+
                 _idx[key] = graphElement;
 
                 FinishWriteResource();

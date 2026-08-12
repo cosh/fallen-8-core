@@ -33,7 +33,8 @@ using NoSQL.GraphDB.Core.Model;
 namespace NoSQL.GraphDB.Core.Algorithms.Traversal
 {
     /// <summary>
-    ///   Follows every outgoing edge of a vertex set, in parallel, and returns how many it followed.
+    ///   Follows every outgoing edge of a vertex set, in parallel where the host has threads, and
+    ///   returns how many it followed.
     ///   This is the raw traversal-throughput primitive: the fastest honest full sweep of the
     ///   adjacency, doing the pointer-following work a real traversal does and nothing else.
     ///
@@ -106,63 +107,87 @@ namespace NoSQL.GraphDB.Core.Algorithms.Traversal
             var edgeCount = 0L;
             var targetSink = 0L;
 
-            Parallel.ForEach(
-                Partitioner.Create(0, vertices.Count, range),
-                () => new Accumulator(),
-                (bounds, _, accumulator) =>
-                {
-                    var edges = accumulator.Edges;
-                    var sink = accumulator.Sink;
-
-                    for (var i = bounds.Item1; i < bounds.Item2; i++)
+            // In PARALLEL where the host can run work off the calling thread, as ONE sequential range
+            // where it cannot. Why that question is asked once per process, and never as a compile-time
+            // or operating-system switch: see HostCapabilities, its single home.
+            //
+            // Both arms must return the same number: the ranges are disjoint and cover [0, Count), and
+            // their counts and sinks are summed, so the answer never depends on which arm ran.
+            if (HostCapabilities.SupportsBackgroundWork)
+            {
+                Parallel.ForEach(
+                    Partitioner.Create(0, vertices.Count, range),
+                    () => new Accumulator(),
+                    (bounds, _, accumulator) =>
                     {
-                        // The raw adjacency is immutable after publication, so a snapshot read needs no
-                        // lock; null means the vertex has no outgoing edges at all.
-                        var adjacency = vertices[i].GetRawOutEdges();
-                        if (adjacency == null)
-                        {
-                            continue;
-                        }
-
-                        // Struct enumerator over every group: no key list, no wrapper, no allocation.
-                        foreach (var group in adjacency)
-                        {
-                            var segment = group.Value;
-                            var array = segment.Array;
-                            var count = segment.Count;
-                            var offset = segment.Offset;
-
-                            // Read the backing array directly rather than through the ArraySegment
-                            // indexer: the segment is count-bounded, so this is the same elements with
-                            // one less bounds-check layer. Bounds and offset are hoisted, so the inner
-                            // loop carries no field loads at all.
-                            for (var j = 0; j < count; j++)
-                            {
-                                var target = array[offset + j].TargetVertex;
-                                if (target != null)
-                                {
-                                    sink += target.Id;
-                                }
-
-                                edges++;
-                            }
-                        }
-                    }
-
-                    accumulator.Edges = edges;
-                    accumulator.Sink = sink;
-                    return accumulator;
-                },
-                accumulator =>
-                {
-                    Interlocked.Add(ref edgeCount, accumulator.Edges);
-                    Interlocked.Add(ref targetSink, accumulator.Sink);
-                });
+                        accumulator.Edges += SweepRange(vertices, bounds.Item1, bounds.Item2, ref accumulator.Sink);
+                        return accumulator;
+                    },
+                    accumulator =>
+                    {
+                        Interlocked.Add(ref edgeCount, accumulator.Edges);
+                        Interlocked.Add(ref targetSink, accumulator.Sink);
+                    });
+            }
+            else
+            {
+                edgeCount = SweepRange(vertices, 0, vertices.Count, ref targetSink);
+            }
 
             // Publish once, after the sweep, so the dereferences cannot be elided but the hot loop
             // never touches shared state.
             Volatile.Write(ref _sink, targetSink);
             return edgeCount;
+        }
+
+        /// <summary>
+        ///   Follows every out-edge of <c>vertices[from..to)</c>, adding the dereferenced target ids to
+        ///   <paramref name="sinkAccumulator" /> and returning the edge count. The hot loops run on
+        ///   LOCALS and write back once, which is what keeps the per-range state out of the inner loop.
+        /// </summary>
+        private static Int64 SweepRange(IReadOnlyList<VertexModel> vertices, Int32 from, Int32 to,
+                                        ref Int64 sinkAccumulator)
+        {
+            var edges = 0L;
+            var sink = 0L;
+
+            for (var i = from; i < to; i++)
+            {
+                // The raw adjacency is immutable after publication, so a snapshot read needs no
+                // lock; null means the vertex has no outgoing edges at all.
+                var adjacency = vertices[i].GetRawOutEdges();
+                if (adjacency == null)
+                {
+                    continue;
+                }
+
+                // Struct enumerator over every group: no key list, no wrapper, no allocation.
+                foreach (var group in adjacency)
+                {
+                    var segment = group.Value;
+                    var array = segment.Array;
+                    var count = segment.Count;
+                    var offset = segment.Offset;
+
+                    // Read the backing array directly rather than through the ArraySegment
+                    // indexer: the segment is count-bounded, so this is the same elements with
+                    // one less bounds-check layer. Bounds and offset are hoisted, so the inner
+                    // loop carries no field loads at all.
+                    for (var j = 0; j < count; j++)
+                    {
+                        var target = array[offset + j].TargetVertex;
+                        if (target != null)
+                        {
+                            sink += target.Id;
+                        }
+
+                        edges++;
+                    }
+                }
+            }
+
+            sinkAccumulator += sink;
+            return edges;
         }
 
         /// <summary>

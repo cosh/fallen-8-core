@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NoSQL.GraphDB.Core.Plugins
 {
@@ -49,10 +50,18 @@ namespace NoSQL.GraphDB.Core.Plugins
         /// </summary>
         /// <param name="definition">The definition to compile.</param>
         /// <param name="artifact">
-        ///   The compiled plugin type (implementing the contract's interface), or null on failure.
+        ///   The compiled plugin type (implementing the contract's interface), or null on failure. The
+        ///   annotation is the trim requirement, and it belongs on the contract rather than at the one
+        ///   consumer: whoever activates a plugin needs its public parameterless constructor, so a
+        ///   compiler that returns a statically-known type gets a build-time warning if trimming could
+        ///   remove that constructor. The shipped Roslyn compiler produces types no trimmer can see,
+        ///   which is why it satisfies this by construction rather than by preservation.
         /// </param>
         /// <param name="error">A human-readable error (compiler/contract diagnostics) on failure; otherwise null.</param>
         /// <returns><c>true</c> if an artifact type was produced; otherwise <c>false</c>.</returns>
-        bool TryCompile(PluginDefinition definition, out Type artifact, out String error);
+        bool TryCompile(
+            PluginDefinition definition,
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] out Type artifact,
+            out String error);
     }
 }
