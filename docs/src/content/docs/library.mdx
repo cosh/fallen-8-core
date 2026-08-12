@@ -207,12 +207,20 @@ anywhere.
 | Concurrent callers                            | Serialized, so the single-writer invariant holds even if the host has threads |
 | Group commit                                  | Given up — the only thing the queue was buying                            |
 
-Two limits are worth knowing before you build on this. Snapshots (`SaveTransaction`/`LoadTransaction`) and
-the write-ahead log need a filesystem, which a browser does not have. And plugin lookup **by name** —
+**Checkpoints work here too.** A save fans its sidecar writes out across the thread pool and then waits
+for them, and a load reads its partitions in parallel — neither of which a single-threaded host can do,
+because the one thread is the one waiting. Both now run inline instead, chosen by the same runtime probe,
+so `SaveTransaction` and `LoadTransaction` complete on a browser host as well (verified writing into the
+Emscripten virtual filesystem and reading the graph back). Getting those bytes out of the virtual
+filesystem and into somewhere durable — IndexedDB, a download, your own API — is the host's job, not the
+engine's.
+
+One limit does remain: plugin lookup **by name** —
 `TryCalculateShortestPath(out paths, "BLS", definition)` — discovers plugins by enumerating assemblies in
-the application's base directory, which is empty in a browser; the typed overload
+the application's base directory, which is empty in a browser. The typed overload
 `TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, definition)` resolves without
-discovery and works there.
+discovery and works there. The same gap means `IndexFactory.TryCreateIndex`, whose only way in is a plugin
+name, cannot create an index in a browser at all — so no index scans and no vector search yet.
 
 ## Durability and options
 

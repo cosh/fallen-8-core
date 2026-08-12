@@ -185,29 +185,6 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
         }
 
         /// <summary>
-        ///   Whether this host can block one thread waiting for work that runs on another. False on a
-        ///   single-threaded WebAssembly runtime, where the dispatch loop's continuations and the caller
-        ///   share the one thread, so a blocking wait can only ever time out. Probed the same way the
-        ///   transaction manager probes its writer thread - by asking the operation that fails, not by
-        ///   naming an operating system - and computed once per process because the answer cannot change.
-        /// </summary>
-        private static readonly Boolean SupportsBlockingWait = ProbeBlockingWaitSupport();
-
-        private static Boolean ProbeBlockingWaitSupport()
-        {
-            try
-            {
-                var probe = new System.Threading.Thread(() => { }) { IsBackground = true };
-                probe.Start();
-                return true;
-            }
-            catch (PlatformNotSupportedException)
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
         ///   Test seam: holds the dispatch gate so the dispatcher stalls mid-stream (after it
         ///   reads a descriptor, before it processes it), letting a test fill the bounded inbox
         ///   deterministically. Dispose releases the gate. Test-only; never used in production.
@@ -452,8 +429,8 @@ namespace NoSQL.GraphDB.Core.ChangeFeed
             // stopped BEFORE the subscriptions below are completed; the loop's own reads are already
             // written to tolerate a completed subscription (a full or completed inbox is a resync, never a
             // fault), and the inbox is closed either way, so the loop ends as soon as the event loop next
-            // runs it.
-            if (SupportsBlockingWait)
+            // runs it. (The capability itself is asked once, in HostCapabilities.)
+            if (HostCapabilities.SupportsBackgroundWork)
             {
                 try
                 {

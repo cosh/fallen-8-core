@@ -374,8 +374,7 @@ namespace NoSQL.GraphDB.Core
                         // best-effort branch: a subgraph entry whose algorithm cannot be resolved is
                         // warned and SKIPPED, recovery continues with the next entry (the documented D4
                         // skip-and-continue rule for subgraph entries), and a subgraph is rebuildable
-                        // derived state. Opening a log needs a filesystem, so a browser build never
-                        // reaches this at all.
+                        // derived state.
                         ReplaySubGraphCreateSuppressed(payload);
                     }
                     else if (type == Persistency.WalEntryType.RegisterStoredQuery)
@@ -409,7 +408,7 @@ namespace NoSQL.GraphDB.Core
         ///   that wraps the WAL constructor can declare the same requirement with the same words.
         /// </summary>
         public const String WriteAheadLogNeedsReflectionForRichValues =
-            "A write-ahead log frame stores property values through a reflective codec, and a trimmed application has reflection-based JSON disabled: a property value that the codec does not encode directly (anything beyond primitives, string, DateTime, Guid and arrays of those) then commits in memory but is NOT written to the log, so it is lost on restart - Durable is reported false. Store directly-encoded values, or do not trim, or use snapshots instead of the log.";
+            "A write-ahead log frame stores property values through a reflective codec, and a trimmed application has reflection-based JSON disabled: a property value that the codec does not encode directly (anything beyond primitives, string, DateTime, Guid and arrays of those) then commits in memory but is NOT written to the log, so it is lost on restart - Durable is reported false. Store directly-encoded values, or do not trim, or use snapshots instead of the log. This is a trimming requirement, not a platform one: the log itself works wherever the host gives it a filesystem.";
 
         /// <summary>
         ///   The suppression seam for <see cref="ReplaySubGraphCreate" />: a one-line pass-through whose

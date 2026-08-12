@@ -42,7 +42,7 @@ namespace NoSQL.GraphDB.Core.Transaction
         /// checkpoint stores property values plus index and service plugin NAMES, and load resolves
         /// all of them reflectively.</summary>
         internal const String RequiresReflectiveCheckpoint =
-            "A checkpoint stores property values and index/service plugin names that are resolved reflectively on load, which a trimmer cannot preserve. It also needs a filesystem, so a browser build cannot use it at all.";
+            "A checkpoint stores property values and index/service plugin names that are resolved reflectively on load, which a trimmer cannot preserve. The rest of a checkpoint round trip does work on a single-threaded host (its fan-out runs inline there), so this is a trimming requirement rather than a platform one.";
 
         public String Path
         {
