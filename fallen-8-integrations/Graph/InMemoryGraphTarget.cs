@@ -50,7 +50,13 @@ namespace NoSQL.GraphDB.Integrations.Graph
         private readonly Dictionary<String, Dictionary<String, SortedSet<Int32>>> _indices =
             new Dictionary<String, Dictionary<String, SortedSet<Int32>>>(StringComparer.Ordinal);
 
-        private Int32 _nextId = 1;
+        // ZERO, like the engine, and that is the whole point: the platform hands element id 0 to the first
+        // element of a fresh graph (every namespace is its own graph, so this is the first run of any
+        // integration), and this fake used to start at 1. That one-off difference hid a real defect for the
+        // entire life of the feature - the applier read id 0 as "this entity has no element" and dropped every
+        // relation to it - because no test could ever produce the id that triggered it. A fake that cannot
+        // produce the platform's first id is not the same seam.
+        private Int32 _nextId = 0;
         private TargetDurability _durability = TargetDurability.Healthy;
 
         // A fixture graph can embed by default, so the interesting case (it cannot) has to be asked for. The
@@ -103,6 +109,26 @@ namespace NoSQL.GraphDB.Integrations.Graph
         public void DropIndex(String indexId)
         {
             _indices.Remove(indexId);
+        }
+
+        /// <summary>
+        ///   Removes ONE index entry, leaving the element and its properties alone: the state a run interrupted
+        ///   (or partially declined) between its creates and its index write leaves behind, where an element
+        ///   carries a claim as a property that the index does not name. It has to be constructible, because it is
+        ///   the one state the runtime cannot heal from the outside - unfindable by the next resolve, and
+        ///   invisible to a reconciliation that withdraws by set difference over that same index - so the heal
+        ///   for it needs a fixture. A test-only control, exactly like <see cref="DropIndex" />.
+        /// </summary>
+        public void RemoveIndexEntry(String indexId, String key, Int32 elementId)
+        {
+            if (_indices.TryGetValue(indexId, out var index) && index.TryGetValue(key, out var ids))
+            {
+                ids.Remove(elementId);
+                if (ids.Count == 0)
+                {
+                    index.Remove(key);
+                }
+            }
         }
 
         /// <summary>

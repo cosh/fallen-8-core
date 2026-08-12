@@ -168,7 +168,18 @@ namespace NoSQL.GraphDB.Integrations.Run
                 credentials[pair.Key] = pair.Value ?? String.Empty;
             }
 
-            normalized = new NormalizedJob(ProviderId, IntegrationInstanceId, Namespace, settings, credentials,
+            // The instance id is FOLDED TO LOWERCASE, and this is the one normalisation that protects data
+            // rather than lookups. Every claim key is composed with the instance id and compared ordinally, so
+            // "Office" and "office" are two identities; but the run gate that serialises runs of one identity is
+            // case-INSENSITIVE, so the two never even collide there. The result of typing the other case once is
+            // a silently forked identity: the new one claims nothing, so it duplicates every element, and the old
+            // one is never reconciled again, so everything it claimed is orphaned. Folding here makes the two
+            // spellings the same identity everywhere - keys, gate and reconciliation - which is what a reader
+            // assumes when they retype a name. Done at the boundary, once, so no later comparison has to
+            // remember. (v1: there are no legacy graphs carrying a mixed-case identity to preserve.)
+            var instanceId = IntegrationInstanceId?.ToLowerInvariant();
+
+            normalized = new NormalizedJob(ProviderId, instanceId, Namespace, settings, credentials,
                 EmbedSummaries, EmbeddingName);
             failure = null;
             return true;

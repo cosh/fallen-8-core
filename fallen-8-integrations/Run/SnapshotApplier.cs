@@ -66,6 +66,16 @@ namespace NoSQL.GraphDB.Integrations.Run
     /// </summary>
     public sealed class SnapshotApplier
     {
+        /// <summary>
+        ///   "This entity has no element yet", and deliberately NOT 0: the engine hands element id 0 to the
+        ///   FIRST element of a fresh graph, and every namespace is its own graph, so 0 is a perfectly ordinary
+        ///   id that the first run of any integration produces. A zero-initialised map could not tell the two
+        ///   apart, and read every reference to element 0 as "endpoint with no element": on a fresh namespace
+        ///   the UniFi provider emits the site first, so the site became element 0 and EVERY device's site edge
+        ///   was dropped - permanently, because the match path re-assigned 0 to it on every later run too.
+        /// </summary>
+        private const Int32 NoElement = -1;
+
         private readonly IdentityResolver _resolver;
 
         public SnapshotApplier(IdentityResolver resolver)
@@ -142,6 +152,7 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             var claimedNow = new HashSet<Int32>();
             var elementIdByEntity = new Int32[snapshot.Entities.Length];
+            Array.Fill(elementIdByEntity, NoElement);
             var propertyWrites = new List<PropertyWrite>();
             var indexEntries = new List<IndexEntry>();
             var creates = new List<VertexWrite>();
@@ -149,8 +160,14 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             // Which entities' own data changed this run. A summary is a pure function of an entity's kind and
             // properties, so an entity that produced no property write cannot have a different summary - which is
-            // what keeps the embedding pass from making every run a write.
-            var summaryDirty = new List<Int32>();
+            // what keeps the embedding pass from making every run a write. A SET, because a busy snapshot marks
+            // the same entity from several places and a list would make that a linear scan per property.
+            var summaryDirty = new HashSet<Int32>();
+
+            // Index entries this run RE-asserted because the element carried the claim as a property while the
+            // index did not name it: the fingerprint of a previous run that was interrupted between its creates
+            // and its index write. Counted so the heal is visible in the report instead of silent.
+            var reindexed = 0;
 
             var claimProperty = ClaimSchema.ClaimProperty(instanceId);
 
@@ -205,6 +222,25 @@ namespace NoSQL.GraphDB.Integrations.Run
                 {
                     if (existingKeys.Contains(claim.Key))
                     {
+                        // The element already SAYS it carries this claim. Whether the INDEX says so is a
+                        // different question, and the one that matters: a run interrupted between its creates
+                        // and its index write leaves the property without the entry, and that state used to be
+                        // permanent, because this branch just moved on. The lookup already answered which ids the
+                        // index named for this key, so re-asserting a missing entry costs no extra read, and
+                        // AddOrUpdate is idempotent per (key, element), so re-asserting a present one is free.
+                        //
+                        // STRONG claims only, and not as a shortcut: the lookup batch asked about the strong keys
+                        // (that is what resolution needs), so for a weak key "the index did not name it" is
+                        // unknown rather than false, and healing on unknown would re-assert every weak claim on
+                        // every run - a write over an unchanged source, which the conformance suite rightly fails.
+                        // Scoping to strong also matches the failure being healed: only a strong claim resolves,
+                        // so only a missing strong entry can make an element unfindable and duplicate it.
+                        if (claim.IsStrong && !IndexNamesElement(lookup, claim.Key, elementId))
+                        {
+                            indexEntries.Add(new IndexEntry(ClaimSchema.IdentityIndexId, claim.Key, elementId));
+                            reindexed++;
+                        }
+
                         continue;
                     }
 
@@ -222,11 +258,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                         property.DiffersFrom(stored))
                     {
                         propertyWrites.Add(PropertyWrite.Set(elementId, property));
-
-                        if (!summaryDirty.Contains(i))
-                        {
-                            summaryDirty.Add(i);
-                        }
+                        summaryDirty.Add(i);
                     }
                 }
 
@@ -261,6 +293,17 @@ namespace NoSQL.GraphDB.Integrations.Run
                 }
             }
 
+            // INDEX THE ENTITY CLAIMS HERE, before the property writes and the edges, and not once at the end.
+            // An element that carries its claims as PROPERTIES but is absent from the claim index is the one
+            // state this runtime cannot heal by itself: the next run's resolve cannot find it, so it creates a
+            // duplicate, and reconciliation never withdraws the original because the claims index never named
+            // it. Every write after this point is another chance to be interrupted, so the findability write
+            // goes first and the window shrinks to one call gap. Order within the run is otherwise unchanged,
+            // and indexing before the claim PROPERTY lands is the safe way round: an element the index names
+            // but that carries no claim is an orphan, which the next run reclaims (it is in scope) - the
+            // reverse is what does not heal.
+            await FlushIndexEntriesAsync(target, report, indexEntries, cancellationToken).ConfigureAwait(false);
+
             if (propertyWrites.Count > 0)
             {
                 await target.ApplyPropertyWritesAsync(propertyWrites, cancellationToken).ConfigureAwait(false);
@@ -269,24 +312,23 @@ namespace NoSQL.GraphDB.Integrations.Run
             await WireEdgesAsync(plan, instanceId, target, report, lookup, elementIdByEntity, claimedNow,
                 indexEntries, cancellationToken).ConfigureAwait(false);
 
-            if (indexEntries.Count > 0)
-            {
-                var outcome = await target.IndexClaimsAsync(indexEntries, cancellationToken).ConfigureAwait(false);
-                foreach (var declined in outcome.Declined)
-                {
-                    report.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.ClaimNotIndexed,
-                        String.Format(
-                            "The target declined to index claim '{0}' for element {1}. An element findable by " +
-                            "none of its claims is duplicated on the next resolve, so re-run the repair.",
-                            declined.Key, declined.ElementId),
-                        declined.Key));
-                }
-            }
+            // The edges' own claims; the list was cleared above, so this indexes exactly what wiring added.
+            await FlushIndexEntriesAsync(target, report, indexEntries, cancellationToken).ConfigureAwait(false);
 
             if (summary != null)
             {
                 await EmbedSummariesAsync(snapshot, summary, target, report, elementIdByEntity, summaryDirty,
                     cancellationToken).ConfigureAwait(false);
+            }
+
+            if (reindexed > 0)
+            {
+                report.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.ClaimReindexed,
+                    String.Format(CultureInfo.InvariantCulture,
+                        "{0} claim(s) were carried as element properties but were not named by the claim index, " +
+                        "and were re-asserted. That is what a run interrupted between its creates and its index " +
+                        "write leaves behind; unhealed, the next run would not find those elements and would " +
+                        "duplicate them.", reindexed)));
             }
 
             if (snapshot.Completeness == SnapshotCompleteness.Complete)
@@ -296,6 +338,55 @@ namespace NoSQL.GraphDB.Integrations.Run
             }
 
             report.IssuedMutations = target.IssuedMutationCount > mutationsBefore;
+        }
+
+        /// <summary>
+        ///   Whether the claim index named <paramref name="elementId"/> for <paramref name="claimKey"/>. The
+        ///   answer comes from the lookup batch this run already did, so asking costs nothing.
+        /// </summary>
+        private static Boolean IndexNamesElement(ClaimLookup lookup, String claimKey, Int32 elementId)
+        {
+            if (!lookup.ByKey.TryGetValue(claimKey, out var named))
+            {
+                return false;
+            }
+
+            for (var i = 0; i < named.Count; i++)
+            {
+                if (named[i] == elementId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        ///   Writes the pending index entries and CLEARS the list, so the caller can flush more than once in one
+        ///   run without double-indexing. A declined entry is reported per entry, because an element findable by
+        ///   none of its claims is the state that duplicates on the next resolve.
+        /// </summary>
+        private static async Task FlushIndexEntriesAsync(IGraphTarget target, JobReport report,
+            List<IndexEntry> indexEntries, CancellationToken cancellationToken)
+        {
+            if (indexEntries.Count == 0)
+            {
+                return;
+            }
+
+            var outcome = await target.IndexClaimsAsync(indexEntries, cancellationToken).ConfigureAwait(false);
+            indexEntries.Clear();
+
+            foreach (var declined in outcome.Declined)
+            {
+                report.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.ClaimNotIndexed,
+                    String.Format(
+                        "The target declined to index claim '{0}' for element {1}. An element findable by " +
+                        "none of its claims is duplicated on the next resolve, so re-run the repair.",
+                        declined.Key, declined.ElementId),
+                    declined.Key));
+            }
         }
 
         /// <summary>
@@ -323,7 +414,24 @@ namespace NoSQL.GraphDB.Integrations.Run
                     if (!entityByClaimKey.ContainsKey(claim.Key))
                     {
                         entityByClaimKey.Add(claim.Key, i);
+                        continue;
                     }
+
+                    // Reported rather than swallowed. Converging is the right BEHAVIOUR - two entities claiming
+                    // one strong identifier are one thing as far as identity is concerned - but silence makes it
+                    // undiagnosable: the two entities' properties then overwrite each other on one element, every
+                    // run issues writes over an unchanged source, and the only visible symptom is churn. A
+                    // recycled strong identifier (an RMA'd serial, a swapped MAC) is exactly how this arrives in
+                    // a real source, and the author needs to be told which key collided.
+                    report.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.CollidingStrongClaim,
+                        String.Format(CultureInfo.InvariantCulture,
+                            "Entities '{0}' and '{1}' both assert the strong claim '{2}', so this snapshot says " +
+                            "they are one thing. They converge onto one element, whose properties each entity " +
+                            "then overwrites, making every run a write. Fix the source or stop asserting that " +
+                            "key as strong.",
+                            snapshot.Entities[entityByClaimKey[claim.Key]].PrimaryKey,
+                            snapshot.Entities[i].PrimaryKey, claim.Key),
+                        snapshot.Entities[i].PrimaryKey));
                 }
             }
 
@@ -410,10 +518,11 @@ namespace NoSQL.GraphDB.Integrations.Run
 
                 var sourceId = elementIdByEntity[edge.SourceEntity];
                 var targetId = elementIdByEntity[edge.TargetEntity];
-                if (sourceId == 0 || targetId == 0)
+                if (sourceId == NoElement || targetId == NoElement)
                 {
-                    // Unreachable while every entity is created or matched, and reported rather than assumed:
-                    // an endpoint with no element would otherwise become a dangling edge.
+                    // Unreachable while every entity is created or matched - and now actually unreachable,
+                    // because the sentinel is NoElement rather than 0 (see the field). Reported rather than
+                    // assumed: an endpoint with no element would otherwise become a dangling edge.
                     report.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.DroppedRelation,
                         String.Format("Relation '{0}' has an endpoint with no element.", edge.EdgeType),
                         edge.DerivedKey));
@@ -457,14 +566,14 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   rather than a precondition for it.</para>
         /// </summary>
         private static async Task EmbedSummariesAsync(ValidatedSnapshot snapshot, SummaryRequest summary,
-            IGraphTarget target, JobReport report, Int32[] elementIdByEntity, List<Int32> summaryDirty,
+            IGraphTarget target, JobReport report, Int32[] elementIdByEntity, IReadOnlyCollection<Int32> summaryDirty,
             CancellationToken cancellationToken)
         {
             var writes = new List<SummaryWrite>();
             foreach (var entityIndex in summaryDirty)
             {
                 var elementId = elementIdByEntity[entityIndex];
-                if (elementId == 0)
+                if (elementId == NoElement)
                 {
                     continue;
                 }
@@ -531,6 +640,30 @@ namespace NoSQL.GraphDB.Integrations.Run
                     "The claim index was missing, so this run withdrew nothing and repaired the index instead. " +
                     "The next run reconciles."));
                 return;
+            }
+
+            // The scan ran AFTER this run's index writes, so anything this run claims that the scan did not name
+            // is a missing CLAIMS-index entry - the other half of the interrupted-run fingerprint, and the half
+            // the identity-index heal above cannot see. Left alone it is what makes an orphan permanent:
+            // reconciliation withdraws by set difference over exactly this scan, so an element it never names is
+            // never withdrawn and never deleted, while remaining invisible to every future resolve.
+            var named = new HashSet<Int32>(claimedBefore);
+            var reassert = new List<IndexEntry>();
+            foreach (var id in claimedNow)
+            {
+                if (!named.Contains(id))
+                {
+                    reassert.Add(new IndexEntry(ClaimSchema.ClaimsIndexId, instanceId, id));
+                }
+            }
+
+            if (reassert.Count > 0)
+            {
+                await FlushIndexEntriesAsync(target, report, reassert, cancellationToken).ConfigureAwait(false);
+                report.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.ClaimReindexed,
+                    String.Format(CultureInfo.InvariantCulture,
+                        "{0} element(s) this run claims were not named by the claim index and were re-asserted " +
+                        "into it. Until they are, reconciliation cannot see them at all.", reassert.Count)));
             }
 
             var withdrawSet = new List<Int32>();

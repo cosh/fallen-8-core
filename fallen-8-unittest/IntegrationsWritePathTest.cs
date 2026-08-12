@@ -610,6 +610,119 @@ namespace NoSQL.GraphDB.Tests
             return clone;
         }
 
+        // ---- element id 0 is a real id -------------------------------------------------------------
+
+        [TestMethod]
+        public async Task ARelationWhoseEndpointIsTheGRAPHS_FIRST_Element_IsStillWired()
+        {
+            // THE regression this pins: the engine gives the first element of a fresh graph id 0, every
+            // namespace is its own graph, and the applier used a zero-initialised map with 0 as its "no
+            // element" sentinel. So the first element of any new namespace read as "endpoint with no
+            // element" and every relation to it was dropped - for good, because the match path re-assigned
+            // 0 to it on every later run too. The UniFi provider emits the site FIRST, which made it every
+            // device's site edge on the flagship first run.
+            var graph = new InMemoryGraphTarget();
+
+            var report = await ApplyAsync(graph, TwoDevicesWithAnUplink());
+
+            Assert.AreEqual(2, report.ElementsCreated);
+            Assert.AreEqual(1, report.EdgesCreated,
+                "the uplink's target is the first entity, which becomes element 0 on a fresh graph: " +
+                Describe(report));
+            Assert.IsFalse(report.Diagnostics.Any(d => d.Code == DiagnosticCodes.DroppedRelation),
+                "element 0 is an ordinary element id, not the absence of one: " + Describe(report));
+        }
+
+        [TestMethod]
+        public async Task TheFirstElementOfAFreshGraph_TakesIdZero()
+        {
+            // Pins the FAKE against the platform, which is the other half of why the defect above shipped
+            // unseen: this fake used to hand out 1 first, so no test could produce the id that broke.
+            var graph = new InMemoryGraphTarget();
+
+            await ApplyAsync(graph, Document(Device("44:D2:44:AA:BB:CC")));
+
+            Assert.IsTrue(graph.TouchedElements.Contains(0),
+                "the in-memory target must number elements like the engine does, from 0, or it hides exactly " +
+                "the class of defect it exists to catch");
+        }
+
+        // ---- an interrupted run must heal ----------------------------------------------------------
+
+        [TestMethod]
+        public async Task ClaimsAreIndexedBeforeThePropertyWritesAndTheEdges()
+        {
+            // Findability first. Every write after the claim index is another chance for the run to be
+            // interrupted, and an element carrying its claims as properties with no index entry is the one
+            // state this runtime cannot heal from the outside: unfindable by the next resolve (which
+            // duplicates it) and invisible to reconciliation (which withdraws by set difference over that
+            // index).
+            var graph = new InMemoryGraphTarget();
+
+            await ApplyAsync(graph, TwoDevicesWithAnUplink());
+
+            var firstIndex = graph.MutationCalls.ToList().FindIndex(c => c.StartsWith("indexClaims", StringComparison.Ordinal));
+            var firstEdge = graph.MutationCalls.ToList().FindIndex(c => c.StartsWith("createEdges", StringComparison.Ordinal));
+
+            Assert.IsTrue(firstIndex >= 0, "the run must index its claims: " + String.Join(", ", graph.MutationCalls));
+            Assert.IsTrue(firstEdge > firstIndex,
+                "the entity claims are indexed before the edges are wired: " + String.Join(", ", graph.MutationCalls));
+        }
+
+        [TestMethod]
+        public async Task AClaimCarriedAsAPropertyButNotIndexed_IsReAssertedRatherThanDuplicated()
+        {
+            // The fingerprint of a run interrupted (or partially declined) between its creates and its index
+            // write: the element says it carries both claims, the index only knows one of them. Resolution
+            // still matches on the known one, and THAT is the moment to notice and repair the other - the
+            // lookup already answered which ids the index named, so it costs no extra read.
+            var graph = new InMemoryGraphTarget();
+            await graph.EnsureIndicesAsync(CancellationToken.None);
+
+            var id = Seed(graph, "device", new[] { "mac:44d244aabbcc", "serial:SN-1" }, Instance);
+
+            // The element keeps BOTH claims as properties; the index forgets one of them.
+            graph.RemoveIndexEntry(ClaimSchema.IdentityIndexId, "serial:SN-1", id);
+
+            var entity = Device("44:D2:44:AA:BB:CC");
+            entity.Claims.Add(new IdentityClaimDto { Type = "serial", Value = "SN-1" });
+
+            var report = await ApplyAsync(graph, Document(entity));
+
+            Assert.AreEqual(0, report.ElementsCreated,
+                "the element is found by the claim the index does know, so it is matched, never duplicated: " +
+                Describe(report));
+            Assert.AreEqual(1, report.ElementsMatched);
+            Assert.IsTrue(report.Diagnostics.Any(d => d.Code == DiagnosticCodes.ClaimReindexed),
+                "the heal is reported, because a silent repair leaves nobody knowing the state existed: " +
+                Describe(report));
+
+            var found = await graph.ResolveClaimKeysAsync(new[] { "serial:SN-1" }, Instance, CancellationToken.None);
+            Assert.IsTrue(found.ByKey.TryGetValue("serial:SN-1", out var named) && named.Contains(id),
+                "after the heal the index names the element for the claim it already carried");
+        }
+
+        [TestMethod]
+        public async Task AnUnchangedSourceStillIssuesNoWrites_WithTheHealInPlace()
+        {
+            // The heal must not become churn. Only STRONG claims are checked, because the lookup batch asks
+            // about strong keys only: for a weak key "the index did not name it" is unknown rather than
+            // false, and healing on unknown would re-assert every weak claim on every run.
+            var graph = new InMemoryGraphTarget();
+            var weakly = Device("44:D2:44:AA:BB:CC");
+            weakly.Claims.Add(new IdentityClaimDto { Type = "ipv4", Value = "10.0.0.9" });
+
+            await ApplyAsync(graph, Document(CloneOf(weakly)));
+            var callsAfterFirst = graph.MutationCalls.Count;
+
+            var second = await ApplyAsync(graph, Document(CloneOf(weakly)));
+
+            Assert.AreEqual(callsAfterFirst, graph.MutationCalls.Count,
+                "the second run over an unchanged source writes nothing at all: " +
+                String.Join(", ", graph.MutationCalls));
+            Assert.IsFalse(second.IssuedMutations);
+        }
+
         private static SnapshotDocument TwoDevicesWithAnUplink()
         {
             var left = Device("44:D2:44:AA:BB:CC");
