@@ -505,6 +505,54 @@ namespace NoSQL.GraphDB.Tests
         #endregion
 
         [TestMethod]
+        public void FulltextIndex_AddOrUpdate_IsIdempotentToo()
+        {
+            // The FULLTEXT index was left out of the idempotence fix while reporting
+            // SupportsPointEqualityLookup == true, so index repair accepted it and its own "idempotent, safe
+            // to run on every start" contract was false here: every POST /index/backfill duplicated every
+            // posting, and the inflated buckets went into the next checkpoint, where a fulltext scan returns
+            // them all. Same guard as the bucket family, pinned on the one index that did not have it.
+            var index = NewIndex("notes", "RegExIndex");
+            var element = Element(NewVertex());
+
+            index.AddOrUpdate("the hall printer", element);
+            index.AddOrUpdate("the hall printer", element);
+            index.AddOrUpdate("the hall printer", element);
+
+            Assert.IsTrue(index.TryGetValue(out var bucket, "the hall printer"));
+            Assert.AreEqual(1, bucket.Count,
+                "re-adding one (key, element) pair must not grow the posting list, or repair inflates every " +
+                "bucket it touches and the next checkpoint persists the inflation");
+        }
+
+        [TestMethod]
+        public void AddOrUpdate_RefusesARemovedElement_SoRepairCannotPinATombstone()
+        {
+            // RegExIndex and VectorIndex both refuse a removed element, and the RegEx comment says the rule
+            // holds "for every index caller" - the bucket family was the one that did not enforce it. Index
+            // repair reads a snapshot of live elements and adds them on the calling thread, so a removal
+            // committing in between would re-add a tombstone the write-end purge already passed: invisible to
+            // scans, but pinned in both maps, persisted into the next checkpoint, and one logged error per
+            // stale id on the following load.
+            var index = NewIndex("claims-after-removal");
+            var id = NewVertex();
+            var element = Element(id);
+
+            var removal = _fallen8.EnqueueTransaction(new RemoveGraphElementsTransaction
+            {
+                GraphElementIds = new List<Int32> { id },
+            });
+            removal.WaitUntilFinished();
+            Assert.AreEqual(TransactionState.Finished, removal.TransactionState, "error: " + removal.Error);
+
+            index.AddOrUpdate("mac:44d2", element);
+
+            Assert.IsFalse(index.TryGetValue(out _, "mac:44d2"),
+                "a removed element must never enter an index: the scan would filter it, but the id is pinned " +
+                "in the index and survives into the checkpoint");
+        }
+
+        [TestMethod]
         public void RangeIndex_AddOrUpdate_IsIdempotentToo()
         {
             // RangeIndex shares ABucketIndex, so it inherits the guard; pinned so a future split of the

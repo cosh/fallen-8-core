@@ -341,10 +341,15 @@ namespace NoSQL.GraphDB.Core.Transaction
 
                     // Belt-and-suspenders, mirroring the ConsumeLoop catch: the two steps of
                     // RunAsGroupOfOne are each fully contained, so the drain above cannot fault. If an
-                    // unforeseen fault does escape, complete whatever is still queued so no waiter hangs.
+                    // unforeseen fault does escape, complete whatever is still queued so no waiter hangs -
+                    // in a TERMINAL state, because a released waiter that reads Enqueued forever is a
+                    // worse answer than one that reads RolledBack. The threaded fallback completes only
+                    // items that already executed, so this is where the two paths would otherwise differ.
                     while (_inlineDeferred.Count > 0)
                     {
                         var pending = _inlineDeferred.Dequeue();
+                        var abandoned = SetTransactionState(pending.Tx, TransactionState.RolledBack);
+                        abandoned.FailureReason = TransactionFailureReason.InternalError;
                         FinishSpanSafely(pending);
                         pending.Completion.TrySetResult();
                     }
@@ -842,6 +847,18 @@ namespace NoSQL.GraphDB.Core.Transaction
             {
                 // Inline mode: THIS thread is the single writer. The transaction is applied, flushed and
                 // completed before we return, so txInfo is already terminal (see ExecuteInline).
+                //
+                // Refused after Dispose, for PARITY with the threaded path: there, Add on a completed
+                // BlockingCollection throws InvalidOperationException, so an enqueue racing shutdown fails
+                // loudly. Inline mode would otherwise have executed it against a torn-down engine and
+                // reported success, which is the same bug being silent in the browser and loud on the
+                // server - the worst possible split.
+                if (_disposed)
+                {
+                    throw new InvalidOperationException(
+                        "The transaction manager has been disposed; no further transactions are accepted.");
+                }
+
                 ExecuteInline(item);
             }
             else

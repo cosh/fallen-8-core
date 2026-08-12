@@ -215,6 +215,22 @@ namespace NoSQL.GraphDB.Tests
         #region the enqueued transaction is already complete
 
         [TestMethod]
+        public void InlineMode_EnqueueAfterDispose_FailsLoudly_LikeTheThreadedPath()
+        {
+            // PARITY, and the reason it matters: on the threaded path an enqueue after Dispose throws
+            // (Add on a completed BlockingCollection), so an enqueue racing shutdown is loud. Inline mode
+            // used to execute it against a torn-down engine and report success, which is the same bug being
+            // silent in the browser and loud on the server - the worst possible split, because the browser is
+            // where nobody is watching a log.
+            var fallen8 = NewInlineEngine();
+            CreateVertex(fallen8, "before-dispose");
+            fallen8.Dispose();
+
+            Assert.ThrowsException<InvalidOperationException>(() => CreateVertex(fallen8, "after-dispose"),
+                "a disposed engine must refuse work in both modes");
+        }
+
+        [TestMethod]
         public void InlineMode_EnqueueTransaction_ReturnsAnAlreadyCompletedTransaction()
         {
             using var fallen8 = NewInlineEngine();
