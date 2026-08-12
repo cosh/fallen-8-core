@@ -166,22 +166,68 @@ namespace NoSQL.GraphDB.Tests
             return temp;
         }
 
+        /// <summary>
+        ///   Refuses any publish to one destination path until <see cref="Release" /> runs, by standing a
+        ///   non-empty DIRECTORY where the file belongs.
+        ///
+        ///   <para>WHY A DIRECTORY and not the destination held open with
+        ///   <see cref="FileShare.None" />, which is what these tests did first: that is a Windows-only
+        ///   refusal. POSIX renames happily over an open file, so on Linux nothing was ever refused, no
+        ///   retry happened, and every assertion about a refusal failed - passing locally on Windows while
+        ///   proving nothing on the platform CI actually runs. Renaming a file onto a non-empty directory
+        ///   is refused by both, and it is refused for a reason the retry filter treats as transient, so
+        ///   the tests exercise the same code path on either host.</para>
+        ///
+        ///   <para><see cref="IsIntact" /> is how a test asserts the failed publish did not clobber the
+        ///   destination: the marker inside is the stand-in for "the previous file is still there".</para>
+        /// </summary>
+        private sealed class RenameBlock : IDisposable
+        {
+            private readonly String _path;
+            private readonly String _marker;
+
+            internal RenameBlock(String destination)
+            {
+                _path = destination;
+                if (File.Exists(_path))
+                {
+                    File.Delete(_path);
+                }
+
+                Directory.CreateDirectory(_path);
+                _marker = Path.Combine(_path, "occupied");
+                File.WriteAllText(_marker, "occupied");
+            }
+
+            /// <summary>Whether the obstruction is still exactly as it was, so nothing overwrote it.</summary>
+            internal Boolean IsIntact => Directory.Exists(_path) && File.Exists(_marker);
+
+            internal void Release()
+            {
+                if (Directory.Exists(_path))
+                {
+                    Directory.Delete(_path, true);
+                }
+            }
+
+            public void Dispose() => Release();
+        }
+
         #endregion
 
         [TestMethod]
         public void PublishWithRetry_RetriesARefusedRename_AndThenPublishes()
         {
             var target = Path.Combine(_dir, "manifest.json");
-            File.WriteAllText(target, "old");
             var temp = WriteTemp("new");
 
-            var held = new FileStream(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-            var watcher = new RetryWatcher(held.Dispose);
+            var block = new RenameBlock(target);
+            var watcher = new RetryWatcher(block.Release);
 
             Publish(temp, target, watcher);
 
             Assert.AreEqual(1, watcher.Retries,
-                "the held destination must refuse attempt one, so exactly one retry is expected");
+                "the obstructed destination must refuse attempt one, so exactly one retry is expected");
             Assert.AreEqual("new", File.ReadAllText(target),
                 "the retried publish must leave the NEW content at the destination");
             Assert.IsFalse(File.Exists(temp), "a published temp file must be gone");
@@ -215,12 +261,11 @@ namespace NoSQL.GraphDB.Tests
         public void PublishWithRetry_GivesUpAfterTheAttemptCap()
         {
             var target = Path.Combine(_dir, "manifest.json");
-            File.WriteAllText(target, "old");
             var temp = WriteTemp("new");
             var watcher = new RetryWatcher();
 
             Exception thrown = null;
-            using (new FileStream(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (var block = new RenameBlock(target))
             {
                 try
                 {
@@ -230,26 +275,26 @@ namespace NoSQL.GraphDB.Tests
                 {
                     thrown = ex;
                 }
-            }
 
-            Assert.IsNotNull(thrown, "a destination that stays held must eventually surface the real error");
-            Assert.IsTrue(thrown is IOException || thrown is UnauthorizedAccessException,
-                "the refusal itself must reach the caller, not a substitute: " + thrown);
-            Assert.AreEqual(4, watcher.Retries,
-                "the retry is BOUNDED at five attempts, so exactly four of them are retries");
-            Assert.AreEqual("old", File.ReadAllText(target),
-                "a publish that never succeeded must leave the previous file untouched");
+                Assert.IsNotNull(thrown,
+                    "a destination that stays obstructed must eventually surface the real error");
+                Assert.IsTrue(thrown is IOException || thrown is UnauthorizedAccessException,
+                    "the refusal itself must reach the caller, not a substitute: " + thrown);
+                Assert.AreEqual(4, watcher.Retries,
+                    "the retry is BOUNDED at five attempts, so exactly four of them are retries");
+                Assert.IsTrue(block.IsIntact,
+                    "a publish that never succeeded must leave what was at the destination untouched");
+            }
         }
 
         [TestMethod]
         public void ReplaceAllTextDurably_RemovesItsTempFile_WhenThePublishNeverSucceeds()
         {
             var target = Path.Combine(_dir, "registry.json");
-            File.WriteAllText(target, "old");
             var watcher = new RetryWatcher();
 
             Exception thrown = null;
-            using (new FileStream(target, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            using (var block = new RenameBlock(target))
             {
                 try
                 {
@@ -261,12 +306,12 @@ namespace NoSQL.GraphDB.Tests
                 }
 
                 Assert.IsNotNull(thrown, "the caller must learn that the pointer file was NOT replaced");
-                Assert.AreEqual(1, Directory.GetFiles(_dir).Length,
+                // The obstruction is a directory, so a surviving temp is the only FILE that could be here.
+                Assert.AreEqual(0, Directory.GetFiles(_dir).Length,
                     "a failed attempt must not litter the directory with a temp file: " +
                     String.Join(", ", Directory.GetFiles(_dir)));
+                Assert.IsTrue(block.IsIntact, "the previous destination must still be there");
             }
-
-            Assert.AreEqual("old", File.ReadAllText(target), "the old pointer must still be readable");
         }
 
         [TestMethod]
@@ -286,11 +331,11 @@ namespace NoSQL.GraphDB.Tests
         public void ACheckpointSurvivesARefusedSidecarRename()
         {
             // The checkpoint's OWN temp-to-final renames must take the same retry the WAL's do. The
-            // refusal is injected into a REAL save by holding the sidecar that a second save republishes;
-            // the sidecar NAME comes from the first save rather than from arithmetic here, so what is held
-            // is whatever the engine itself named.
-            FileStream held = null;
-            var watcher = new RetryWatcher(() => held?.Dispose());
+            // refusal is injected into a REAL save by obstructing the sidecar that a second save
+            // republishes; the sidecar NAME comes from the first save rather than from arithmetic here, so
+            // what is obstructed is whatever the engine itself named.
+            RenameBlock block = null;
+            var watcher = new RetryWatcher(() => block?.Release());
 
             try
             {
@@ -310,16 +355,16 @@ namespace NoSQL.GraphDB.Tests
                 // Removing the header makes the next save reuse the same base path, and therefore
                 // republish over the sidecar left behind here.
                 File.Delete(path);
-                held = new FileStream(sidecar[0], FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+                block = new RenameBlock(sidecar[0]);
 
                 Assert.AreEqual(TransactionState.Finished, Save(fallen8, path),
                     "a refused sidecar rename must not roll back a save whose bytes are already durable");
                 Assert.IsTrue(watcher.Retries >= 1,
-                    "the held sidecar must actually have refused a rename, or this test proves nothing");
+                    "the obstructed sidecar must actually have refused a rename, or this test proves nothing");
             }
             finally
             {
-                held?.Dispose();
+                block?.Dispose();
             }
         }
 
