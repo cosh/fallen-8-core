@@ -66,6 +66,7 @@ where the value is parsed via a closed primitive allow-list (string, the integer
 | Remove one element from an index | `DELETE /index/{indexId}/{graphElementId}` | *(none)* | `true`/`false` |
 | Remove a key | `DELETE /index/{indexId}/propertyValue` | `PropertySpecification` (the key) | `true`/`false` |
 | Delete an index | `DELETE /index/{indexId}` | *(none)* | `true`/`false` |
+| Rebuild an index from element state | `POST /index/backfill/{indexId}` | `IndexBackfillSpecification` (the property key, or a key **prefix**) | count of entries written |
 | List indexes | `GET /status` | *(none)* | inventory (id, type, capabilities, key/value counts) |
 
 A miss on these routes is **not** a `404`: except for the vector add, every row answers `200`
@@ -75,6 +76,20 @@ check the boolean. A `400` means the body was missing or malformed. `PUT /index/
 is the exception and uses real codes: `404` for an unknown index or element, `400` for a
 non-vector index, a wrong dimension, a non-finite or zero-norm-under-Cosine vector, or a bound
 index that refuses explicit adds.
+
+### Rebuilding an index you already have
+
+An index is derived state: everything in it can be recomputed from the elements' own properties. So
+when one goes missing or comes back empty - a checkpoint that could not write it (watch
+`lastCheckpointDroppedIndices` on [`GET /status`](/fallen-8-core/save-games/)), a truncated recovery,
+or an index created after the elements were already there - `POST /index/backfill/{indexId}` walks the
+live elements and writes an entry for every one carrying the named property. Give it a single property
+key, or a **prefix** to catch a family of keys written with an ordinal suffix.
+
+It is safe to run on every start: adding the same (key, element) pair twice does nothing, so a
+backfill over an index that is already complete writes nothing new. It refuses an index whose lookups
+are not exact-key (a spatial index) and a vector index bound to an embedding, because for those the
+entry cannot be derived from a single property value.
 
 Listing and per-index counts are part of the status surface ([observability.md](/fallen-8-core/observability/)).
 Index definitions are immutable: there is no update; delete and recreate. Populating a
