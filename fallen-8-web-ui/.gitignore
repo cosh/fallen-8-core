@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-lib/
+e2e-embed/host/dist/
 test-results/
 playwright-report/
 *.tsbuildinfo

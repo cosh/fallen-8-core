@@ -128,7 +128,7 @@ current code.
   - `index.mdx` CardGrid parity card; `running.mdx` topology + `F8_API_URL` env table (the one home for
     the topologies table); `studio.md` Connect prose (the one home for managed-vs-personal).
   - `debugging.md` "Ports at a glance" (`:122`) split UI row + one-line CORS note.
-- Add the cross-link into `features/open/studio-embeddable/spec.md` coupling #6 (reuse this seam) and
+- Add the cross-link into `features/done/studio-embeddable/spec.md` coupling #6 (reuse this seam) and
   correct its stale `registry.ts:26` citation to `:64-69`.
 - **Verify:** `npm --prefix docs ci && npm --prefix docs run build` passes (link-checked); recapture
   `screen-connect.png` if Phase 2 changed the chrome; the two-origin e2e and the CI image smoke-test

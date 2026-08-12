@@ -5,7 +5,7 @@ after the two-architect design review below; deferred items remain trigger-gated
 "Non-goals"). Related: [engine-performance](../engine-performance/), [subgraph](../subgraph/),
 [web-ui](../web-ui/), [index-lifecycle](../index-lifecycle/),
 [api-error-envelope](../../open/api-error-envelope/),
-[studio-embeddable](../../open/studio-embeddable/).
+[studio-embeddable](../../done/studio-embeddable/).
 
 Revised 2026-07-22 after two independent architecture reviews (engine side; contracts/UI side)
 verified every claim below against the code. Findings that changed the approach are marked
@@ -115,7 +115,7 @@ instance members, OpenAPI tags derive from the controller name, and the proposed
   `useState` hooks spanning six scan families — decomposing it requires designing a scan-runner
   hook contract, not a file move. Same for `SubgraphScreen`'s inline pattern builder. Both
   happen after the studio-embeddable shell seams land.
-- **Constraints stated now** so extractions don't fight [studio-embeddable](../../open/studio-embeddable/):
+- **Constraints stated now** so extractions don't fight [studio-embeddable](../../done/studio-embeddable/):
   extracted units receive instance/store state via `useInstanceStore()` or props — never module
   singletons — and introduce **no new direct `localStorage` reads**.
 - **[review]** The original "existing screen tests are the guard" was false for the largest
@@ -156,7 +156,7 @@ acceptable outcome.*
 - **[api-error-envelope](../../open/api-error-envelope/)** — its inventory counts 53 error sites in
   `GraphController` by location; the split stales that table. Sequenced **after** this
   feature's target 2; regenerate the inventory then. (Noted in that spec.)
-- **[studio-embeddable](../../open/studio-embeddable/)** — the original "alongside" sequencing would
+- **[studio-embeddable](../../done/studio-embeddable/)** - the original "alongside" sequencing would
   have churned the same files concurrently. New order: mechanical screen extractions (here) →
   embeddable shell seams → QueryScreen designed decomposition (here). The two hook constraints
   in target 3 keep extractions embeddable-compatible.

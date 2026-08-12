@@ -10,8 +10,9 @@ lands when a host consumer exists. No engine or API changes are required.
   provider tree (QueryClient + RouterProvider) here.
 - Reduce `src/main.tsx` to `mountStudio(document.getElementById("root")!)` - the standalone entry with
   no config.
-- Add `StudioConfigProvider` (React context) + `useStudioConfig()`; give it a `defaultStudioConfig`
-  that equals today's behavior.
+- Add `StudioConfigContext` (React context) + `useStudioConfig()`; the empty default config
+  equals today's behavior. (This plan originally named these `StudioConfigProvider` /
+  `defaultStudioConfig`; the names above are the code's.)
 - **Verify:** existing tests green; add a test that `mountStudio(el)` renders the shell and seeds
   `SAME_ORIGIN_INSTANCE` exactly as `main.tsx` did.
 
@@ -83,24 +84,74 @@ lands when a host consumer exists. No engine or API changes are required.
 - **Verify:** a test renders `F8GraphCanvas` with literal node/edge data outside the app shell and
   asserts selection callbacks fire; existing canvas tests green.
 
-## Phase 6 - Packaging (only when a host consumes it)
+## Phase 6 - Packaging (landed 2026-08-12)
 
-- Add a vite **library-mode** build target exposing `mountStudio` / `F8Studio` / `F8GraphCanvas`
-  (the `src/embed/index.ts` surface), React as a peer dep, alongside the existing SPA build. CI
-  keeps building the standalone SPA; the lib build is opt-in.
-- Ship a scoped preflight with the library artifact (the standalone build keeps Tailwind's
-  global preflight; see Phase 4).
-- Add the `nlAssist` StudioConfig field and its transport wiring so the host can proxy or
-  disable LLM calls.
-- **The discoverability and architecture gates fire with this phase, not before.** Packaging is the
-  point at which there is something a reader can consume, so it carries: a docs-site page under
-  `docs/src/content/docs/` registered in the astro sidebar, a one-line entry in the root README
-  "Key features" list linking its published page, and a pass over both architecture diagrams (root
-  README + `docs/src/content/docs/architecture.md`) to add the "Studio embedded in a host portal"
-  client shape. Until then there is deliberately no page and no README entry (see the sweep in the
-  spec).
-- **Verify:** standalone `build:apiapp` output unchanged; a smoke test mounts the library build into a
-  bare host page; docs site builds with no broken internal link.
+What shipped, including where reality overruled the plan's guesses:
+
+- **The build target** is `npm run build:lib`: `vite build -c vite.lib.config.ts` (library mode
+  over the `src/embed/index.ts` surface, ESM, `dist-lib/`), then `tsc -p tsconfig.lib.json`
+  (declarations into `dist-lib/types` - after vite, which empties the outDir; deliberately not
+  incremental, because a build-info file claiming "up to date" would skip the emit into the
+  freshly wiped outDir), then `scripts/check-lib-artifact.mjs`, whose exit code is the
+  artifact's verdict: entry and declarations exist, no `process.env.NODE_ENV` read survives, no
+  worker chunk was emitted, and every stylesheet selector both carries `.f8-studio` AND is
+  matchable (a page-level anchor rewritten into descendant position - `.f8-studio :root` - is a
+  rule that silently vanished from embeds; the check parses with postcss, per selector, and
+  shares its scope constants with the scoping pass through `scripts/lib-scope.mjs`).
+  package.json gained the exports map (`types` condition first, `./styles.css` - the host
+  imports the stylesheet explicitly - and `./package.json`), `main`/`types` fallbacks for
+  resolvers that predate `exports`, `files: ["dist-lib"]`, and react/react-dom moved to
+  peerDependencies (kept in devDependencies for the repo's own builds; the lib config derives
+  its externals from the peerDependencies keys, subpaths included, so the two cannot drift).
+- **Four lib-only settings** the plan did not foresee, each load-bearing: `process.env.NODE_ENV`
+  is defined away (vite deliberately preserves it in lib mode and bundled deps read it, so a
+  host without the define throws); EVERY `?worker` import is aliased to `?worker&inline` -
+  keyed on the suffix, not one specifier, so a second worker added later inherits the rule
+  (lib mode cannot emit a separately served worker asset, and the artifact check fails on an
+  emitted worker chunk); `VITE_F8_SAMPLES_BASE` is defined to the repository's raw GitHub
+  mirror (a host origin serves no `/samples`); `publicDir` is off (favicon and config.js are
+  standalone-page concerns).
+- **The scoped preflight became a whole-stylesheet scoping pass**: a local postcss plugin in the
+  lib config rewrites every selector under `.f8-studio`, using postcss's own quote-aware
+  selector split. Page-level anchors (`:root`/`:host`/`html`/`body`/`#root`, bare or as
+  compounds like `html.dark`) re-anchor on the OUTERMOST scope root only
+  (`.f8-studio:not(.f8-studio .f8-studio)`), so a nested root - an `F8GraphCanvas` inside the
+  Studio tree - inherits an ancestor's inline theme overrides instead of re-declaring stock
+  defaults on itself; `*` and bare pseudo-elements become the root plus its descendants;
+  keyframe steps stay untouched; and a page-level ANCESTOR form with descendants (`html body`)
+  FAILS THE BUILD rather than silently dying as an unmatchable selector. One mechanism ships
+  the scoped preflight AND relocates the `@theme` token defaults off the host's `:root` - the
+  two lib-only CSS problems phase 4 parked here - and the standalone build never sees it.
+- **The emitted declarations were a trap the plan missed**: the TanStack `Register` augmentation
+  moved from `routes.tsx` into `src/types/router-register.d.ts` (a declaration INPUT, consumed
+  in-repo but never re-emitted), because riding the d.ts chain into the artifact would hijack
+  the router types of any host that registers its own TanStack router.
+- **The shell logo moved from `public/` to `src/assets/`** and is imported as a module, so the
+  embed does not 404 `/F8White.svg` against the host origin (the artifact inlines it; the SPA
+  hashes it; index.html's dark favicon references the same file). Knock-on: the all-in-one
+  container smoke curls `/F8Black.svg` now.
+- **`nlAssist` landed as `"disabled" | "instance-only"`**, not the host-transport arm the spec
+  once sketched (see the spec's non-goals for the re-derivation). Enforced in `generateChat`
+  via `resolveNlConfig` - a persisted custom config cannot re-route an embed - and both NL
+  panels plus `NlBackendConfig` render from the same resolution. Pinned by
+  `tests/embed-nl-assist.test.tsx` (10 tests: transport, panels, defaults).
+- **The smoke is a real consumer, not a static page**: `e2e-embed/host` is a tiny app depending
+  on the package via `file:` (so the exports map, the `types` condition and peer resolution are
+  what actually resolve), built with a stock vite and driven by `playwright.embed.config.ts`.
+  Its one accommodation is `resolve.dedupe` for react: the `file:` symlink would otherwise
+  resolve two React copies (invalid-hook-call #321), a topology a registry install cannot
+  produce because the package ships `dist-lib` only. The spec asserts: mount, load-time canvas
+  (sigma), scoped styles in BOTH directions (host body/`.panel` untouched, theme token on the
+  scope root), the inlined logo, the monaco editor opening and closing, zero page errors and
+  zero unexpected console errors, and an unmount that leaves the host region empty.
+- **CI runs both** (the plan's "lib build is opt-in" stance was reversed when a host consumer
+  materialized - an artifact nothing compiles rots silently): the `ui` job runs `build:lib`,
+  the `e2e` job runs the embed smoke (it is the job with a browser installed).
+- **The discoverability and architecture gates fired with this phase, as designed**: docs page
+  `embed-studio` registered in the astro sidebar's F8 Studio group, the README key-features
+  line, and the embedded-Studio client shape in both architecture diagrams.
+- **Verify (done):** the full vitest suite green with the standalone default untouched; the
+  embed smoke green end to end; docs build link-clean.
 
 ## Test strategy
 

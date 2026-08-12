@@ -23,7 +23,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { effectiveNlConfig, type NlAssistConfig } from "./config";
+import { effectiveNlConfig, resolveNlConfig, type NlAssistConfig } from "./config";
+import { getStudioConfig } from "../../app/studioConfig";
 import type { NlPrompt } from "./prompt";
 import { postChat } from "../../api/endpoints";
 import type { InstanceConfig } from "../../instances/types";
@@ -87,13 +88,19 @@ export async function generateChat(
   messages: ChatTurn[],
   signal?: AbortSignal,
 ): Promise<NlChatResult> {
-  if (config.mode === "instance") {
+  // Embed policy first (StudioConfig.nlAssist): the panels are hidden or locked to match,
+  // but the transport is where the policy must actually hold.
+  if (getStudioConfig().nlAssist === "disabled") {
+    throw new Error("NL assist is disabled by the embedding host.");
+  }
+  const resolved = resolveNlConfig(config);
+  if (resolved.mode === "instance") {
     if (!instance) {
       throw new Error("No active instance to route the model call through.");
     }
-    return chatViaInstance(instance, messages, config.temperature, signal);
+    return chatViaInstance(instance, messages, resolved.temperature, signal);
   }
-  return chatWithModel(effectiveNlConfig(config), messages, signal);
+  return chatWithModel(effectiveNlConfig(resolved), messages, signal);
 }
 
 /** Instance-gateway path: browser -> F8 POST /chat -> the server's model backend. */
@@ -132,6 +139,11 @@ export async function chatWithModel(
   messages: ChatTurn[],
   signal?: AbortSignal,
 ): Promise<NlChatResult> {
+  // Structural, not just at generateChat: under EITHER embed policy no browser-direct
+  // model call may leave the page, whoever the caller is.
+  if (getStudioConfig().nlAssist) {
+    throw new Error("Browser-direct model calls are not available in this embed.");
+  }
   const base = config.endpoint.replace(/\/+$/, "");
 
   if (config.apiKind === "ollama") {
@@ -222,6 +234,10 @@ export async function probeEndpoint(
   config: NlAssistConfig,
   signal?: AbortSignal,
 ): Promise<boolean> {
+  // The probe is a second browser-direct transport (it even carries the apiKey); the same
+  // embed policy that gates chatWithModel gates it, so no future affordance can leak a
+  // custom-endpoint call out of a policied embed.
+  if (getStudioConfig().nlAssist) return false;
   const base = config.endpoint.replace(/\/+$/, "");
   const url =
     config.apiKind === "ollama"

@@ -58,7 +58,7 @@ vi.mock("../src/delegate/monacoSetup", () => ({
 }));
 
 import { mountStudio } from "../src/app/mount";
-import { setStudioConfig, type StudioConfig } from "../src/app/studioConfig";
+import { registerStudioMount, setStudioConfig, type StudioConfig } from "../src/app/studioConfig";
 import { applyStudioConfigToRegistry, SAME_ORIGIN_INSTANCE, useRegistry } from "../src/instances/registry";
 import { useFirstRun } from "../src/firstrun/firstRunStore";
 import { useNlAssist } from "../src/delegate/nl/config";
@@ -243,6 +243,40 @@ describe("two simultaneous mounts", () => {
     expect(() => mount({ instances: [{ ...HOST_INSTANCE, id: "other" }] })).toThrow(
       /already mounted/,
     );
+  });
+
+  it("registerStudioMount itself refuses a second live registration (the same-config-object shape)", () => {
+    // The render-phase guard is identity-based (it must tolerate StrictMode re-rendering
+    // the same config), so a host reusing one module-level config object would slip past
+    // it; this count-based guard is what catches that shape.
+    const release = registerStudioMount();
+    try {
+      expect(() => registerStudioMount()).toThrow(/already mounted/);
+    } finally {
+      release();
+    }
+  });
+
+  it("a second mount sharing ONE config object crashes at mount instead of silently rebinding the first", async () => {
+    const shared: StudioConfig = { instances: [HOST_INSTANCE] };
+    const first = mount(shared);
+    await waitFor(() => {
+      expect(first.querySelector('[data-testid="f8-studio-root"]')).not.toBeNull();
+    });
+
+    // The guard fires in the second tree's mount effect; React 19's act rethrows effect
+    // errors wrapped in an AggregateError, whose own String() hides the message.
+    let messages: string[] = [];
+    try {
+      mount(shared);
+    } catch (thrown) {
+      const errors = thrown instanceof AggregateError ? thrown.errors : [thrown];
+      messages = errors.map((e) => (e instanceof Error ? e.message : String(e)));
+    }
+
+    expect(messages.some((message) => /already mounted/.test(message))).toBe(true);
+    // The crashed tree was unmounted by React; the FIRST mount keeps running untouched.
+    expect(first.querySelector('[data-testid="f8-studio-root"]')).not.toBeNull();
   });
 
   it("allow a sequential remount once the first is unmounted", async () => {

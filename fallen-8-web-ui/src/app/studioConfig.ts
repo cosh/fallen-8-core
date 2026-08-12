@@ -32,7 +32,7 @@ import type { InstanceConfig } from "../instances/types";
  * active config, the live-mount count, and the `storageKey` prefix every persisted key goes
  * through. Every field is optional and omitting it reproduces the standalone app's behavior.
  * How to mount is documented on ./mount.tsx; the feature's story is in
- * features/open/studio-embeddable/spec.md.
+ * features/done/studio-embeddable/spec.md.
  */
 
 /**
@@ -91,6 +91,19 @@ export interface StudioConfig {
   theme?: Partial<ThemeTokens>;
   /** Reuse the host's QueryClient (default: Studio creates its own, as today). */
   queryClient?: QueryClient;
+  /**
+   * NL-assist policy for an embed. "disabled" removes the NL panels entirely;
+   * "instance-only" locks the model transport to the active instance's POST /chat. Both
+   * hold structurally, not just in the UI: the browser-direct transports (chatWithModel and
+   * the reachability probe) refuse under any policy, and the NL store is policy-resolved at
+   * rehydrate (the persist merge in delegate/nl/config.ts), so an instance-only embed
+   * neither holds nor re-persists a custom-mode config or its third-party key. Consequence
+   * when an embed shares an UNPREFIXED storage with a standalone Studio on the same origin:
+   * a settings write from inside the embed persists the policy-clean shape, dropping any
+   * stored custom key rather than carrying it. Absent: standalone behavior (instance mode
+   * default, custom mode available).
+   */
+  nlAssist?: "disabled" | "instance-only";
 }
 
 /**
@@ -123,8 +136,21 @@ export function setStudioConfig(config: StudioConfig): void {
   current = config;
 }
 
-/** Registers a mounted tree; the returned callback releases it on unmount. */
+/**
+ * Registers a mounted tree; the returned callback releases it on unmount. Throws on a
+ * second LIVE registration: setStudioConfig's guard is identity-based (it must tolerate
+ * StrictMode re-rendering the same config object), so two mounts sharing one config object
+ * would slip past it - this count-based guard catches that shape too, in the second tree's
+ * mount effect. StrictMode's mount/cleanup/mount cycle is sequential and never trips it.
+ */
 export function registerStudioMount(): () => void {
+  if (liveMounts > 0) {
+    throw new Error(
+      "F8 Studio is already mounted. Two simultaneous Studio embeds are not supported " +
+        "(they share one instance registry and one set of persisted keys); unmount the " +
+        "first, or run the second in its own realm (iframe/worker).",
+    );
+  }
   liveMounts += 1;
   let released = false;
   return () => {
@@ -132,6 +158,18 @@ export function registerStudioMount(): () => void {
     released = true;
     liveMounts -= 1;
   };
+}
+
+/**
+ * Returns the module-level config to the standalone default once no mount is live, so a
+ * dead embed's policy and storage prefix cannot outlive it (an in-flight store write after
+ * teardown would otherwise still go through the old tenant's storageKey prefix). Called
+ * from mountStudio's unmount handle - the imperative path is the one that can know teardown
+ * is real; a React host's effect cleanup cannot distinguish StrictMode's rehearsal from a
+ * genuine unmount, so <F8Studio> keeps the config until the next mount replaces it.
+ */
+export function resetStudioConfig(): void {
+  if (liveMounts === 0) current = {};
 }
 
 /**

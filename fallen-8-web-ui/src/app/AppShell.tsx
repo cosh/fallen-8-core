@@ -48,6 +48,10 @@ import { DOCS_BASE } from "../lib/sectionHelp";
 import { NAV, navCapability, type NavItem } from "./nav";
 import { capabilityOf, useIntegrationProviders } from "../state/integrations";
 import { useStudioConfig } from "./studioConfig";
+// A module import, not the absolute /F8White.svg URL: an embedded Studio runs on the HOST's
+// origin, where a root-absolute path 404s. The bundler owns the URL (hashed in the SPA build,
+// inlined in the library artifact); index.html references the same file for the dark favicon.
+import f8Logo from "../assets/F8White.svg";
 
 /**
  * Connection state of the ACTIVE instance, shared by the health chip and the nav gate.
@@ -233,7 +237,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="flex h-full">
       <nav className="border-line bg-panel flex w-16 shrink-0 flex-col items-center gap-1 border-r py-3">
         <img
-          src="/F8White.svg"
+          src={f8Logo}
           alt="F8 Studio"
           title="F8 Studio"
           className="mb-3 w-12"

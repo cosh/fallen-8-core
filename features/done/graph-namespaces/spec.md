@@ -5,7 +5,7 @@ Status: implemented (2026-07-23; historical design record — the living doc is
 [multi-instance-host](../multi-instance-host/) (decided 2026-07-23). Related:
 [save-games](../save-games/), [hosted-durability-lifecycle](../hosted-durability-lifecycle/),
 [crash-durability-hardening](../crash-durability-hardening/), [web-ui](../web-ui/),
-[api-error-envelope](../../open/api-error-envelope/), [studio-embeddable](../../open/studio-embeddable/).
+[api-error-envelope](../../done/api-error-envelope/), [studio-embeddable](../../done/studio-embeddable/).
 Design reference: the approved namespaces mock (top-bar switcher + Connect-screen CRUD panel,
 screenshots in the feature discussion; the mock's `.dc.html` is not checked in).
 
@@ -146,7 +146,7 @@ figure** — engines share one GC heap, so a per-namespace byte count would be f
 memory column is dropped for honesty (the Fallen-8-level number stays on `/status`).
 
 All error responses are RFC 7807 problem+json via `ProblemResults` from day one — new endpoints do
-not add plain-string sites for [api-error-envelope](../../open/api-error-envelope/) to migrate later.
+not add plain-string sites for [api-error-envelope](../../done/api-error-envelope/) to migrate later.
 Mutating CRUD (`PUT`/`PATCH`/`DELETE`) and the save/load/tabula-rasa family stay gated like the
 other admin writes (authenticated when an API key is configured); reads follow the open-reads
 posture.
@@ -279,8 +279,8 @@ All Studio work lives in `fallen-8-web-ui/` (in-repo).
 | [bulk-import-export](../bulk-import-export/), [sample-graphs](../sample-graphs/) | Routes twinned; Studio imports/samples land in the active namespace; "creating" row driven by import job state. |
 | [change-feed](../change-feed/) | Dispatcher already per-engine; `/changefeed` twinned; `MaxSubscribers` applies per namespace (document). |
 | [observability](../observability/) | Meter collision fix: namespace-id tag on `Fallen8Metrics` (§7). |
-| [api-error-envelope](../../open/api-error-envelope/) (open) | New endpoints are problem+json from day one; its 134-site inventory is unaffected. |
-| [studio-embeddable](../../open/studio-embeddable/) (open) | Orthogonal (`storageNamespace` prefixes localStorage keys); its spec carries a one-line "may pin a namespace" future-work note. |
+| [api-error-envelope](../../done/api-error-envelope/) (done) | New endpoints are problem+json from day one; its 134-site inventory is unaffected. |
+| [studio-embeddable](../../done/studio-embeddable/) (done) | Orthogonal (`storageNamespace` prefixes localStorage keys); its spec carries a one-line "may pin a namespace" future-work note. |
 | [agent-host](../../open/agent-host/), [mcp-server](../../open/mcp-server/) (open) | Both consume the REST contract; their specs get a one-line note that tools/agents address `/ns/{ns}/…`. |
 
 ## 10. Acceptance scenarios

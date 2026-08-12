@@ -1,6 +1,6 @@
 // MIT License
 //
-// index.ts
+// router-register.d.ts
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -23,20 +23,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-/**
- * The host-facing export surface (feature studio-embeddable). What a host may import is
- * exactly what is re-exported here - the packaging phase turns this module into the library
- * entry point, so anything not on this list is internal. Spec:
- * features/done/studio-embeddable/spec.md.
- */
+// Registers the standalone router's route tree with TanStack Router's global type registry,
+// so in-repo `Link`/`useNavigate` calls typecheck against the real routes. Deliberately a
+// .d.ts INPUT: the library build (tsconfig.lib.json, emitDeclarationOnly) never re-emits it,
+// so the artifact cannot leak this global augmentation into a host application that registers
+// its own router. See the note at the bottom of src/app/routes.tsx.
 
-export { mountStudio, F8Studio } from "../app/mount";
-export type { StudioConfig, ThemeTokens } from "../app/studioConfig";
-export type { InstanceAuth, InstanceConfig } from "../instances/types";
+import type { router } from "../app/routes";
 
-export { F8GraphCanvas, type F8GraphCanvasProps } from "./F8GraphCanvas";
-export type { ElementRef } from "../canvas/GraphCanvas";
-export { DEFAULT_STYLE_CONFIG } from "../canvas/styleConfig";
-export type { StyleConfig } from "../canvas/styleConfig";
-export type { CanvasEdge, CanvasNode } from "../state/instanceStore";
-export type { PathREST } from "../api/types";
+declare module "@tanstack/react-router" {
+  interface Register {
+    router: typeof router;
+  }
+}

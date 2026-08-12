@@ -8,7 +8,7 @@ namespace-addressed routes — keyed by **name** instead of GUID and without the
 grant-store design below is kept as a historical reference only; if per-caller authorization is ever
 needed it will be re-specced from scratch on top of namespaces (revisit trigger: an untrusted caller
 or tenant appears). Original relations: [api-security-boundary](../api-security-boundary/),
-[hosted-durability-lifecycle](../hosted-durability-lifecycle/), [studio-embeddable](../../open/studio-embeddable/),
+[hosted-durability-lifecycle](../hosted-durability-lifecycle/), [studio-embeddable](../../done/studio-embeddable/),
 [agent-host](../../open/agent-host/), [mcp-server](../mcp-server/).
 
 ## Vision
@@ -289,7 +289,7 @@ flowchart LR
 - **Single-instance mode stays the default deployment**: with multi-tenancy off, the host runs exactly
   one instance and requires no prefix (a "default instance" the middleware supplies when the prefix is
   absent), so the current self-hosted server and its URLs keep working byte-for-byte.
-- [studio-embeddable](../../open/studio-embeddable/) already models the client side: its `InstanceConfig`
+- [studio-embeddable](../../done/studio-embeddable/) already models the client side: its `InstanceConfig`
   carries a per-instance base URL + auth. In SaaS mode a Studio embed points at
   `https://host/i/{guid}` with the tenant's token — the UI is already instance-shaped.
 

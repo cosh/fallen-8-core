@@ -69,6 +69,8 @@ jobs:
       run: npm test
     - name: Production build
       run: npm run build
+    - name: Library build (the embed surface + its scoped-CSS/d.ts tripwire)
+      run: npm run build:lib
 
   e2e:
     name: UX scenarios (Playwright vs live apiApp)
@@ -104,6 +106,43 @@ jobs:
         name: playwright-results
         path: fallen-8-web-ui/test-results
 
+  embed-smoke:
+    name: embed artifact (bare host consumer)
+    runs-on: ubuntu-latest
+    # Independent of backend/e2e on purpose: this suite needs node and a browser, nothing
+    # else - its webServer chain builds the library artifact, installs the host fixture
+    # against it (file: dependency, so the exports map and peer resolution are what
+    # actually resolve), builds the fixture with a stock vite and serves it statically.
+    # Running it in the e2e job would put it behind the dotnet build AND the whole SPA
+    # suite for no reason.
+    defaults:
+      run:
+        working-directory: fallen-8-web-ui
+    steps:
+    - uses: actions/checkout@v5
+    - name: Setup Node
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: |
+          fallen-8-web-ui/package-lock.json
+          fallen-8-web-ui/e2e-embed/host/package-lock.json
+    - name: Install dependencies
+      run: npm ci --no-fund --no-audit
+    - name: Install Playwright browser
+      run: npx playwright install --with-deps chromium
+    - name: Embed smoke (builds the artifact, installs and builds the host fixture, drives it)
+      run: npx playwright test -c playwright.embed.config.ts
+      env:
+        CI: 'true'
+    - name: Upload traces on failure
+      if: failure()
+      uses: actions/upload-artifact@v6
+      with:
+        name: embed-smoke-results
+        path: fallen-8-web-ui/test-results
+
   docker:
     name: all-in-one container (build + smoke test)
     runs-on: ubuntu-latest
@@ -128,7 +167,9 @@ jobs:
         done
         echo "--- SPA shell is served"
         curl -sf http://localhost:8080/ | grep -qi "<!doctype html"
-        curl -sf http://localhost:8080/F8White.svg > /dev/null
+        # F8Black.svg: the one logo still in public/ (F8White.svg moved into src/assets so
+        # the embed artifact inlines it; the SPA serves it hashed, not at the root).
+        curl -sf http://localhost:8080/F8Black.svg > /dev/null
         echo "--- engine answers"
         curl -sf -H "Authorization: Bearer ci-key" http://localhost:8080/status | grep -q vertexCount
         echo "--- structured benchmark"

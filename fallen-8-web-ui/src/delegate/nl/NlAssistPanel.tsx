@@ -31,6 +31,7 @@ import {
   isLoopbackEndpoint,
   isNlConfigured,
   useNlAssist,
+  withNlAssistPolicyGate,
 } from "./config";
 import { NlBackendConfig } from "./NlBackendConfig";
 import { downloadText, toTrainingJsonl, type TrainingExample, type Verdict } from "./feedback";
@@ -64,19 +65,25 @@ interface NlAttempt {
   ts: number;
 }
 
-export function NlAssistPanel({
-  delegateKind,
-  currentFragment,
-  onDraft,
-  validateDraft,
-  drivingRef,
-}: {
+interface NlAssistPanelProps {
   delegateKind: DelegateKind;
   currentFragment: string;
   onDraft: (code: string) => void;
   validateDraft: (code: string) => Promise<DelegateValidationResult | null>;
   drivingRef: React.MutableRefObject<boolean>;
-}) {
+}
+
+export const NlAssistPanel = withNlAssistPolicyGate(NlAssistPanelInner);
+
+function NlAssistPanelInner({
+  delegateKind,
+  currentFragment,
+  onDraft,
+  validateDraft,
+  drivingRef,
+}: NlAssistPanelProps) {
+  // The store is already policy-resolved: the persist merge in ./config.ts applies
+  // resolveNlConfig at rehydrate, so an instance-only embed never holds a custom config.
   const { config, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
   const instance = useActiveInstance();
   const [intent, setIntent] = useState("");

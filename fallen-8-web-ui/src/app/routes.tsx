@@ -261,8 +261,7 @@ export function createStudioRouter(
 /** The standalone router: root basepath, browser history - exactly the pre-seam behavior. */
 export const router = createStudioRouter();
 
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: typeof router;
-  }
-}
+// The TanStack `Register` augmentation lives in src/types/router-register.d.ts, NOT here: an
+// augmentation in a .ts source would ride the emitted declarations into the library artifact
+// and hijack the router types of a host that registers its own TanStack router. A .d.ts input
+// is consumed by every in-repo typecheck but never re-emitted by the lib build.

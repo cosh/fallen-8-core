@@ -32,6 +32,7 @@ import {
   PortalContainerContext,
   StudioConfigContext,
   registerStudioMount,
+  resetStudioConfig,
   themeStyle,
   type StudioConfig,
 } from "./studioConfig";
@@ -126,5 +127,13 @@ export function mountStudio(
       <F8Studio config={config} />
     </StrictMode>,
   );
-  return { unmount: () => root.unmount() };
+  return {
+    unmount: () => {
+      // root.unmount() runs cleanups synchronously; once no mount is live, the module
+      // config returns to the standalone default so the dead embed's policy and storage
+      // prefix cannot leak into whatever runs next (see resetStudioConfig).
+      root.unmount();
+      resetStudioConfig();
+    },
+  };
 }

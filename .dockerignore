@@ -32,6 +32,7 @@ features
 fallen-8-unittest
 fallen-8-core-apiApp/wwwroot
 **/dist
+**/dist-lib
 **/test-results
 **/playwright-report
 **/*.tsbuildinfo

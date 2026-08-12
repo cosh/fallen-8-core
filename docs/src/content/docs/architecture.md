@@ -18,6 +18,7 @@ flowchart TB
     agents["AI agents"]:::client
     studio["F8 Studio<br/>(React SPA, browser)"]:::client
     uistandalone["F8 Studio standalone<br/>nginx · config.js → apiUrl"]:::client
+    hostembed["F8 Studio embedded<br/>host portal shell · mountStudio(config)"]:::client
     svc["Your services / code"]:::client
 
     mcp["MCP server · fallen-8-mcp<br/>separate deployable · bridges MCP → REST"]:::mcp
@@ -66,6 +67,7 @@ flowchart TB
     mcp -->|HTTP| rest
     studio -->|HTTP| rest
     uistandalone -->|HTTP · CORS| rest
+    hostembed -->|HTTP · CORS| rest
     svc -->|HTTP| rest
     studio -.->|"custom model endpoint (optional, browser-direct)"| sidecar
     wwwroot -.- studio
@@ -211,6 +213,11 @@ endpoint it ships with is a *managed default*
 instance re-synced from `config.js` on every load, while user-added instances persist separately;
 cross-origin calls need the data plane's `AllowedCorsOrigins` to include the UI's origin. See
 [Standalone F8 Studio](/fallen-8-core/standalone-ui/).
+
+The third way Studio reaches a graph is as a **library a host portal mounts inside its own
+shell**: one `mountStudio(element, config)` call carries the instances and credentials, and the
+embed talks to the REST API cross-origin exactly like the standalone container does. The
+contract, the artifact and its boundaries live in [Embed F8 Studio](/fallen-8-core/embed-studio/).
 
 ## Observability
 

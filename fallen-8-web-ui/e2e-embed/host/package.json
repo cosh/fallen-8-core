@@ -1,0 +1,20 @@
+{
+  "name": "f8-embed-host-fixture",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A minimal host application consuming the F8 Studio library artifact the way a real host portal would: through the package's exports map and peer dependencies.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "preview": "vite preview --port 5199 --strictPort"
+  },
+  "dependencies": {
+    "fallen-8-web-ui": "file:../..",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "vite": "^7.0.0"
+  }
+}
