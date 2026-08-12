@@ -18,7 +18,7 @@
 | Trimmed browser probe (TrimMode=full, no root) | 13/13 PASS, 0 IL warnings |
 | Docs site | builds, all internal links valid |
 
-## Status, 2026-08-12
+## Status, 2026-08-12 (updated after the follow-up session)
 
 Every DEFECT in this report (F1 to F10) is fixed on main with tests, across three merges:
 `35820c6` (integrations hardening), `81ce25a` (engine integrity), `a7a9c11` (browser teardown plus
@@ -38,16 +38,24 @@ Two findings changed shape while being fixed, and both are worth knowing:
 
 Still open from this report (all recorded, none a defect in shipped behaviour):
 
-- The Studio items: surface the durability signal (`StatusREST` has no such field) and replace
-  `hydrate.ts`'s 500 sequential reads with `POST /graphelements/get`. Both are UI work; the second
-  is pure win and needs no visual change.
-- The Integrations screen screenshot, and the conformance-suite doc line about encoded credentials.
-- The checkpoint fan-out on a single-threaded host: `PersistencyFactory.Save` queues pooled work and
-  blocks on it, and Load uses `Parallel.For`, so a browser host cannot checkpoint even into the
-  Emscripten VFS. Deliberately NOT fixed here: browser persistence is out of scope by decision
-  (there is no filesystem), so today it is prevented by deadlock rather than by design. The fix is a
-  sequential arm chosen the same way inline transaction mode is chosen; do it if and when browser
-  persistence becomes a goal.
+- [x] DONE (208969b): the Studio durability notice (silent while healthy, loud in the three states
+  worth interrupting for, and silent rather than green when an older server does not report the
+  block) and the batch hydration. The batch swap was NOT the straight substitution it looked like:
+  `POST /graphelements/get` omits adjacency by design, so a vertex it returns is complete while an
+  EDGE lacks its endpoints and the canvas cannot draw it - edges are still read singly, and the
+  client type is now its own `GraphElementProjectionREST` so that distinction cannot be overlooked
+  (declaring it `VertexREST | EdgeREST` was a lie TypeScript caught).
+- [x] DONE (208969b): the Integrations screenshot, with a studio.md section. Its capture spec stubs
+  the descriptor list - the one capture here that does - because the runtime is a separate
+  deployable whose port is never published, so it serves the three shipped descriptors.
+- [x] DONE (fcb89a6): the checkpoint fan-out. Save queued pooled work and blocked the calling
+  thread on it; Load used `Parallel.For`. Both now pick their arm from the host's capability, so a
+  save and load COMPLETE on a single-threaded host - verified writing into and reading out of the
+  Emscripten VFS. Browser persistence stops being prevented by a deadlock; getting the bytes out of
+  the VFS is the host's job. The capability question also got one home
+  (`HostCapabilities.SupportsBackgroundWork`), replacing the second probe copy added the night
+  before, and three claims that "a browser cannot persist" were corrected rather than left to rot.
+- Still open: the conformance-suite doc line about encoded credentials.
 - The remaining integrations polish listed above, and the stale-strong-claim question, which needs a
   decision on paper before code.
 - [features/open/host-plugin-registration/](../host-plugin-registration/): the browser unlock (no
@@ -198,13 +206,13 @@ minimum the spec should say "a run touches only what it may" is best-effort unde
   /index/backfill/{indexId}`, `POST /graphelements/get`, `PUT /graphelements/properties`,
   `DELETE /graphelements` appear on no docs page; `observability.mdx:61` still describes the
   degraded state as an OTel gauge only.
-- [ ] **Studio never surfaces the durability signal** (the audit spec's own sweep names it,
+- [x] **DONE (208969b): the Studio durability notice** (the audit spec's own sweep names it,
   `platform-integrity-audit/spec.md:595`): `StatusREST` in `fallen-8-web-ui/src/api/types.ts` has
   no durability field. The machine consumer (integrations delete gate) reads it; the human cannot.
-- [ ] **Studio `hydrate.ts` hand-rolls the batch read** (`hydrate.ts:31-36, 61-65`: up to 500
+- [x] **DONE (208969b): hydration reads a page in one request** (edges still singly - the route omits their endpoints) (`hydrate.ts:31-36, 61-65`: up to 500
   sequential GETs in 25-wide rounds) two commits after `POST /graphelements/get` landed to replace
   exactly that. One request instead of 20 rounds; directly serves the browser priority.
-- [ ] **Integrations screen screenshot** missing from `studio.md` and `docs/src/assets/images/`
+- [x] **DONE (208969b): Integrations screenshot** captured, was missing from `studio.md` and `docs/src/assets/images/`
   (recorded follow-up with no owner; the standing rule says recreate).
 - [ ] **Conformance-suite honesty line**: `NoCredentialLeak` watches exact ordinal substrings, so an
   encoded credential escapes; consistent with the declared threat model, but one doc line should
@@ -217,7 +225,7 @@ minimum the spec should say "a run touches only what it may" is best-effort unde
 
 ## Browser blockers beyond the follow-ups (new findings)
 
-- [ ] **Checkpoint fan-out cannot run on a single-threaded host** - independent of the filesystem
+- [x] **DONE (fcb89a6): checkpoint fan-out now completes on a single-threaded host** - independent of the filesystem
   question. `PersistencyFactory.Save` queues pooled work (`Task.Run` at `:364, :384, :400`) then
   blocks on `.Result` (`:414, :423`); Load uses `Parallel.For` (`:1240, :1246`). On wasm the blocked
   main thread never yields, so this deadlocks (contained into a rollback, but unusable). A
