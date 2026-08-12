@@ -758,40 +758,61 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void InboxOverflow_BecomesAResync_ForRingAndSubscribers()
         {
-            // Deterministic inbox overflow via the engine's INTERNAL test seams (reached by
-            // reflection - the engine declares no InternalsVisibleTo): a 1-slot inbox and a
-            // paused dispatcher. While paused, the second descriptor fills the inbox and the
-            // third is DROPPED by the writer (lost-events flag); on resume the dispatcher must
-            // turn that into a resync(overflow) for the ring and every subscriber.
+            // Inbox overflow via the engine's INTERNAL test seams (reached by reflection - the
+            // engine declares no InternalsVisibleTo): a 1-slot inbox and a paused dispatcher.
+            //
+            // THE PAUSE DOES NOT FREEZE THE INBOX, and the first version of this test flaked on
+            // exactly that: PauseDispatchForTest holds the gate INSIDE ProcessDescriptor, but the
+            // loop's TryRead needs no gate - so a paused dispatcher may still REMOVE one
+            // descriptor and block holding it in hand, leaving the slot free again (the seam's
+            // own doc says it stalls "after it reads a descriptor"). Publishing two descriptors
+            // therefore drops one only when the test wins a scheduling race against the pool
+            // continuation; on a busy runner it lost, nothing was dropped, and no resync was
+            // owed. Publishing CAPACITY + 2 makes the drop certain on either side of the race:
+            // at most one descriptor can be in the dispatcher's hand and one in the slot, so of
+            // three published while paused, at least one is refused by TryWrite.
             using var feed = CreateFeedWithInboxCapacity(1);
 
             Assert.IsTrue(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription));
             using (subscription)
             {
-                // Let the dispatcher deliver one descriptor first, then pause it and saturate
-                // the inbox.
+                // Let the dispatcher deliver one descriptor first, so the pause can catch it
+                // mid-stream rather than at startup.
                 PublishTestDescriptor(feed);
                 Assert.IsTrue(SpinWait.SpinUntil(() => feed.LastSeq >= 1, 5000));
 
                 using (PauseDispatch(feed))
                 {
-                    PublishTestDescriptor(feed); // parks in the 1-slot inbox
-                    PublishTestDescriptor(feed); // inbox full -> dropped, lost-events flag set
+                    PublishTestDescriptor(feed); // in the slot, or already in the dispatcher's hand
+                    PublishTestDescriptor(feed); // fills the slot at the latest
+                    PublishTestDescriptor(feed); // refused: lost-events flag set
                 }
 
-                var first = Read(subscription);
-                Assert.AreEqual(ChangeEventKind.VertexCreated, first.Kind);
+                // How many descriptors were delivered before the drop depends on which side of
+                // the race ran, so read UP TO the resync instead of asserting positions: every
+                // event before it is a delivery, and the resync itself must arrive promptly.
+                ChangeEvent resync = null;
+                for (var i = 0; i < 4 && resync == null; i++)
+                {
+                    var evt = Read(subscription);
+                    if (evt.Kind == ChangeEventKind.Resync)
+                    {
+                        resync = evt;
+                    }
+                    else
+                    {
+                        Assert.AreEqual(ChangeEventKind.VertexCreated, evt.Kind,
+                            "everything before the resync is an ordinary delivery");
+                    }
+                }
 
-                var second = Read(subscription);
-                Assert.AreEqual(ChangeEventKind.VertexCreated, second.Kind);
-
-                var resync = Read(subscription);
-                Assert.AreEqual(ChangeEventKind.Resync, resync.Kind,
+                Assert.IsNotNull(resync,
                     "a writer-side inbox drop must surface as a resync - continuity loss is never silent");
                 Assert.AreEqual("overflow", resync.ResyncReason);
 
-                // The resync entered the ring like any other event: a catch-up replay reproduces it.
-                Assert.IsTrue(feed.TrySubscribe(ChangeFeedFilter.MatchAll, feed.Epoch, 2, out var replayer));
+                // The resync entered the ring like any other event: a catch-up replay from just
+                // before it reproduces it, whatever its sequence number turned out to be.
+                Assert.IsTrue(feed.TrySubscribe(ChangeFeedFilter.MatchAll, feed.Epoch, resync.Seq - 1, out var replayer));
                 using (replayer)
                 {
                     var replayed = Read(replayer);
