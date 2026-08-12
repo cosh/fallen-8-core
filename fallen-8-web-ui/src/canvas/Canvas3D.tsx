@@ -270,10 +270,14 @@ export function Canvas3D({
 
   return (
     <div className="relative h-full w-full overflow-hidden">
+      {/* role="img" for the same reason as the 2D canvas - see Canvas2D for the whole story. Here it
+          is a three.js WebGL scene rather than sigma's layers, which changes nothing about it: a bare
+          div takes no accessible name, and there is no accessible structure inside to expose. */}
       <div
         ref={containerRef}
         data-testid="graph-canvas"
         className="bg-ink h-full w-full"
+        role="img"
         aria-label="graph canvas"
       />
       <div ref={eclipseRef} className="eclipse-highlight" style={{ display: "none" }} aria-hidden />
