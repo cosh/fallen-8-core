@@ -336,17 +336,25 @@ closed or recorded:
   better evidence than a faked flag.
 - [ ] The conformance-suite doc line about encoded credentials, carried over from the
   2026-08-11 report. Once it lands, that directory moves to `features/done/` (its N15).
-- [ ] **An unidentified test flake, observed once and not reproduced.** The post-merge run of
-  the host-plugin-registration work reported `Failed: 1, Passed: 1879`. The suite then passed
-  **nine consecutive times** (1880/0 each), five of those with a trx logger specifically to
-  capture a name, so the failure did not recur and the test that flaked is unknown. It is
-  recorded rather than dismissed because the 2026-08-11 report also observed a one-off flake
-  (its F9, the Windows rename race), which turned out to be a real defect worth fixing.
-  Prime suspect if it returns: `PluginDiscoveryDegradationTest`, the one test class that
-  mutates PROCESS-WIDE state - it writes a file into the real `AppContext.BaseDirectory`,
-  repoints `AppContext.BaseDirectory` at a missing path, and resets the memoized discovery
-  caches. It restores everything in a `finally` and carries `[DoNotParallelize]`, so it is
-  correct as written, but it is the only new global-state mutator in this range.
-  **Lesson applied going forward:** the failing run used `dotnet test -v q`, which prints no
-  failed-test name, which is why this is unidentifiable at all. Run the gate suite with
+- [x] **DONE (2026-08-12): the flake is identified and fixed - and it was neither of the
+  suspects.** A CI re-run of commit `2e77793` (attempt 2 of run 31597712633) failed
+  `ChangeFeedEngineTest.InboxOverflow_BecomesAResync_ForRingAndSubscribers` where attempt 1
+  of the SAME commit had passed - same code, different outcome, which is the definition of
+  a flake and the identification the nine green re-runs could not give. The race was in the
+  TEST, not the product: `PauseDispatchForTest` holds the gate INSIDE `ProcessDescriptor`,
+  but the dispatch loop's `TryRead` needs no gate, so a paused dispatcher can still REMOVE
+  the one parked descriptor and block holding it in hand, leaving the 1-slot inbox free
+  again (the seam's own doc says it stalls "after it reads a descriptor"). The test
+  published two descriptors and assumed the second must be dropped; that was only true when
+  the test won a scheduling race against the pool continuation, and on a busy runner it
+  lost - nothing was dropped, so the product correctly owed no resync while the test
+  demanded one. Fixed by publishing CAPACITY + 2 while paused (at most one descriptor can
+  be in the dispatcher's hand and one in the slot, so of three, at least one is refused on
+  either side of the race) and reading UP TO the resync instead of asserting positions,
+  with the ring-replay pin computed from the resync's actual sequence. Mutation-checked
+  (an unrecorded drop times out the bounded read) and ran 20/20 green. The earlier local
+  `Failed: 1, Passed: 1879` was in all likelihood this same test, though the `-v q` run
+  that produced it kept no name, so that attribution stays a strong inference rather than
+  a fact - which is exactly why the trx-logger lesson below stands.
+  **Lesson applied going forward:** run the gate suite with
   `--logger "trx;LogFileName=..."` so a flake can always be named after the fact.
