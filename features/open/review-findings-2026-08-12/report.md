@@ -1,6 +1,7 @@
 # Review findings, 2026-08-12
 
-Status: Open - pending fixes only. Scope: the 16 unpushed commits `origin/main..main`
+Status: Open - two follow-ups remain (see "Still open after this batch"); every reviewed
+finding is fixed. Scope: the 16 unpushed commits `origin/main..main`
 (5b384ac..95b421a): integrations hardening, engine integrity fixes, browser teardown +
 checkpoint fan-out, Studio durability + batch hydration, trim follow-up, canvas aria role,
 and the docs/bookkeeping that rode along. Method: six dimension reviewers over the full
@@ -11,19 +12,43 @@ by hand. One claim was refuted in verification (a supposed MIT-header corruption
 
 ## Verdict
 
-**The gate does not pass for push.** One blocker, one hard-rule violation, and three
-majors first. Everything else is recorded here so nothing needs re-finding.
+**The gate did not pass for push as reviewed.** One blocker, one hard-rule violation, and
+three majors first. Everything else is recorded here so nothing needs re-finding.
 
-Central gates at HEAD, all green: full .NET suite 1810 passed / 0 failed / 30 skipped;
-Studio suite 807/807; docs build with link check clean (36 pages); no em/en dashes in
-added lines outside the one file flagged below (byte-exact UTF-8 sweep); OpenAPI snapshot
-correctly untouched (the one apiApp change alters a value rendering, not routes or XML
-docs); MCP one-way propagation holds (new REST operations bridged or consciously
-deferred).
+**Resolved on 2026-08-12** on `feature/review-fixes-2026-08-12`. Every item below is ticked
+or carries a recorded reason. Two rounds were needed: the fixes went in, then an
+adversarial pass over THE FIXES raised 16 further problems (a false log statement, a
+comment asserting a measurement nobody made, a thread-unsafe test logger, a
+"this is THE home" label installed on one of three competing homes), which round two
+closed. Those are listed under "Second round" so the second pass is as auditable as the
+first.
+
+Gates after the fixes: full .NET suite **1831 passed** / 0 failed / 30 skipped (from 1810,
+so +21 tests); Studio **823/823** with `tsc -b` clean (from 807); a no-incremental rebuild
+at **0 errors and 28 warnings, all pre-existing IL2026** in the apiApp where
+`WarningsNotAsErrors` puts them deliberately, and **zero** from the engine, the
+integrations runtime or the test project; docs build with link check clean (36 pages);
+**zero em or en dashes in any line this branch adds** (byte-exact UTF-8 sweep, the
+remaining counts in four files are pre-existing and byte-identical to `main`); no BOM or
+encoding drift in any changed file (checked in both directions against `main`); OpenAPI
+snapshot correctly untouched.
+
+Two verifications were done by hand rather than by test, because no test could give them:
+
+- **B1 against a real server.** The old double-stringified body answers
+  `HTTP 400 - "The JSON value could not be converted to
+  System.Collections.Generic.List`1[System.Int32]"`; the fixed body answers `HTTP 200`
+  with the batch payload. That is the defect and its fix observed against the actual
+  ASP.NET Core model binder, which is the one thing the mocked suite structurally cannot
+  check.
+- **M1 by looking at the image.** The recaptured screenshot shows "CSV device list",
+  "UniFi Network" with exactly its two real settings and no site filter, and "Fronius
+  Solar API (local)" with the real base-URL guidance instead of the invented
+  `https://192.168.1.1`. The finding existed because nobody had looked.
 
 ## Blocker
 
-- [ ] **B1. The batch read never runs: `getGraphElements` double-stringifies the body.**
+- [x] **B1. The batch read never runs: `getGraphElements` double-stringifies the body.**
   `fallen-8-web-ui/src/api/endpoints.ts:288` passes `body: JSON.stringify(ids)` into
   `apiRequest`, which itself does `init.body = JSON.stringify(options.body)`
   (`client.ts:211`), so the wire body is the JSON *string* `"[3,4]"`, not the array.
@@ -38,13 +63,13 @@ deferred).
 
 ## Hard-rule violation
 
-- [ ] **H1. Em dashes in added lines.** `docs/src/content/docs/library.mdx`: four added
+- [x] **H1. Em dashes in added lines.** `docs/src/content/docs/library.mdx`: four added
   lines carry six em dashes. The standing rule is plain hyphens in every added line.
   Replace them; the byte-exact sweep found no other file affected.
 
 ## Major
 
-- [ ] **M1. The committed Integrations screenshot shows a UI the product refuses to
+- [x] **M1. The committed Integrations screenshot shows a UI the product refuses to
   have.** `fallen-8-web-ui/e2e/screenshot-integrations.spec.ts:52` claims its
   `SHIPPED_DESCRIPTORS` are "copied from their own descriptor definitions"; none of the
   three matches the shipped provider. Worst: the fixture gives UniFi a `site` setting
@@ -59,7 +84,7 @@ deferred).
   descriptors, recapture the screenshot, and leave a pointer at each descriptor that the
   fixture copies it (a drift gate - see N12 - is the durable answer).
 
-- [ ] **M2. The durability signal's last hop is unpinned.** Deleting
+- [x] **M2. The durability signal's last hop is unpinned.** Deleting
   `<DurabilityNotice durability={data.durability} />` from
   `fallen-8-web-ui/src/screens/DashboardScreen.tsx:113` keeps the whole suite green -
   reintroducing exactly the failure the feature names ("nothing showed it to the person
@@ -67,7 +92,7 @@ deferred).
   dashboard-level test that renders the screen with a degraded `/status` payload and
   finds the notice.
 
-- [ ] **M3. The reconcile-half of the interrupted-run heal has no test.** Deleting the
+- [x] **M3. The reconcile-half of the interrupted-run heal has no test.** Deleting the
   `ReconcileAsync` block that re-asserts claimed-now ids missing from the claims-index
   scan (`fallen-8-integrations/Run/SnapshotApplier.cs:645-667`) passes every test,
   silently re-shipping the permanent-orphan state the commit message says it heals. The
@@ -79,24 +104,24 @@ deferred).
 
 Engine:
 
-- [ ] **m1.** `PersistencyFactory.cs:1273` - the inline load arms of
+- [x] **m1.** `PersistencyFactory.cs:1273` - the inline load arms of
   `ForEachIndex`/`ForEach` throw raw exceptions, bypassing the `AggregateException`
   normalization that converts bunch-load failures into the documented "The savegame is
   corrupt" `InvalidDataException`; a single-threaded host gets a different contract for
   the same corrupt file.
-- [ ] **m2.** `Fallen8.Persistence.cs:400` - an exception escaping the replay loop
+- [x] **m2.** `Fallen8.Persistence.cs:400` - an exception escaping the replay loop
   itself (I/O fault mid-`ReadEntries`, or `Trim`/`TabulaRasa` markers throwing) reaches
   the `finally` with `truncated:false`, so `/status` reports a clean, complete recovery
   for a replay that stopped mid-log.
-- [ ] **m3.** `DurableFileIo.cs:173` - the retry filter admits every `IOException`,
+- [x] **m3.** `DurableFileIo.cs:173` - the retry filter admits every `IOException`,
   which includes `FileNotFoundException`/`DirectoryNotFoundException`/
   `PathTooLongException`, so the documented "a missing temp file or a bad path is not
   retried" is false; those burn ~75 ms of futile retries before the real error surfaces.
-- [ ] **m4.** `PersistencyFactory.cs:511` (and 591, 649, 748, 958) - the checkpoint's
+- [x] **m4.** `PersistencyFactory.cs:511` (and 591, 649, 748, 958) - the checkpoint's
   own five temp-to-final publishes still use raw `File.Move`, exposed to the same
   scanner/AV rename race the retry was built for; one refused rename still rolls back an
   otherwise-complete save.
-- [ ] **m5.** `Index/SingleValueIndex.cs:119` - repair-eligible
+- [x] **m5.** `Index/SingleValueIndex.cs:119` - repair-eligible
   (`SupportsPointEqualityLookup => true`, passes `IndexRepair.TryRepairFromProperty`'s
   gate) but lacks the removed-element guard added to `ABucketIndex`; the tombstone-pinning
   race fixed for the bucket family is still live here, and the new `ABucketIndex.cs:142`
@@ -104,99 +129,99 @@ Engine:
 
 Integrations:
 
-- [ ] **m6.** `SnapshotApplier.cs:296` - a crash between a create call and the flush
+- [x] **m6.** `SnapshotApplier.cs:296` - a crash between a create call and the flush
   that lands that element's first strong index entry leaves an element the resolve can
   never find: the next run duplicates it permanently and reconciliation can never
   withdraw the original. The `ClaimReindexed` doc overstates the heal; either shrink the
   claim or order the first flush before the create acknowledgment.
-- [ ] **m7.** `JobRunner.cs:238` - reverting `CancellationToken.None` back to the
+- [x] **m7.** `JobRunner.cs:238` - reverting `CancellationToken.None` back to the
   caller's token (the half-applied-snapshot defect this fixes) fails no test; the new
   credential-failure `LogOutcome` at line 149 is also unasserted.
-- [ ] **m8.** `IntegrationJob.cs:180` - removing `.ToLowerInvariant()` keeps the suite
+- [x] **m8.** `IntegrationJob.cs:180` - removing `.ToLowerInvariant()` keeps the suite
   green although the comment calls it "the one normalisation that protects data"; add a
   mixed-case-retype test.
 
 Studio:
 
-- [ ] **m9.** `hydrate.ts:107` - progress now counts successes instead of attempts, so
+- [x] **m9.** `hydrate.ts:107` - progress now counts successes instead of attempts, so
   any not-found id leaves "hydrating N/M" permanently short of M.
-- [ ] **m10.** `hydrate-batch.test.ts` - no test passes an `AbortSignal` (the blanket
+- [x] **m10.** `hydrate-batch.test.ts` - no test passes an `AbortSignal` (the blanket
   `.catch` converts an abort into up to a full batch of post-abort fallback requests),
   none exercises a rejecting single-edge re-read, none the `ids.length === cap` boundary.
 
 Tests:
 
-- [ ] **m11.** `DurableFileIo.PublishWithRetry` has zero tests despite being internal
+- [x] **m11.** `DurableFileIo.PublishWithRetry` has zero tests despite being internal
   and deterministically testable; reverting the WAL call sites to bare `File.Move` fails
   nothing.
-- [ ] **m12.** `LiteralRoundTripTest.cs:145` - `EveryAllowedLiteral...` covers 10 of the
+- [x] **m12.** `LiteralRoundTripTest.cs:145` - `EveryAllowedLiteral...` covers 10 of the
   18 allow-listed types (missing `byte`, `sbyte`, `short`, `ushort`, `uint`, `ulong`,
   `char`, `TimeSpan`); the name over-claims and `TimeSpan` - the nearest structural
   relative of the DateTimeOffset defect - is unpinned. Enumerate
   `AllowedLiteralTypes` so an added 19th type fails the test by construction.
-- [ ] **m13.** `IntegrationsWritePathTest.cs:653` - the ordering test pins
+- [x] **m13.** `IntegrationsWritePathTest.cs:653` - the ordering test pins
   index-before-edges only; its fixture never triggers a property write, so the "before
   the property writes" half of its own name is unasserted.
 
 Docs and bookkeeping:
 
-- [ ] **m14.** `features/open/platform-integrity-audit/spec.md:9` - the status line
+- [x] **m14.** `features/open/platform-integrity-audit/spec.md:9` - the status line
   says the docs-site pages "never happened"; commit a7a9c11 in this very push added them.
-- [ ] **m15.** `features/open/review-findings-2026-08-11/report.md:221` - the "PARTLY
+- [x] **m15.** `features/open/review-findings-2026-08-11/report.md:221` - the "PARTLY
   DONE" item's still-open list predates cc3b5ca and contradicts itself about the
   PlanEdges collision diagnostic.
-- [ ] **m16.** Same report, line 204 - the docs-debt tick's scope includes
+- [x] **m16.** Same report, line 204 - the docs-debt tick's scope includes
   `observability.mdx:61` (degraded state described as an OTel gauge only), which is
   untouched at HEAD; the tick overstates.
-- [ ] **m17.** `docs/src/content/docs/studio.md` - the Dashboard section says nothing
+- [x] **m17.** `docs/src/content/docs/studio.md` - the Dashboard section says nothing
   about the new durability notice; the UI-change-updates-docs rule requires it.
-- [ ] **m18.** `AGraphElement.cs:97` - the eight-line DateTimeOffset comment re-tells
+- [x] **m18.** `AGraphElement.cs:97` - the eight-line DateTimeOffset comment re-tells
   the full churn story that `LiteralRoundTripTest.cs` also narrates; one home, one-line
   pointer at the other.
 
 ## Notes (recorded; fix or consciously accept)
 
-- [ ] **N1.** `SnapshotApplier.cs:500` - `WireEdgesAsync` still uses `0` as its
+- [x] **N1.** `SnapshotApplier.cs:500` - `WireEdgesAsync` still uses `0` as its
   "no already-wired edge" sentinel ten lines above the `NoElement` fix; unreachable
   today (verified), but the next refactor inherits a trap.
-- [ ] **N2.** `HostCapabilities.cs:71` - the probe catches only
+- [x] **N2.** `HostCapabilities.cs:71` - the probe catches only
   `PlatformNotSupportedException`; any other throw at first touch poisons the type with
   `TypeInitializationException` on paths (dispose, checkpoint) that must not throw.
-- [ ] **N3.** `Algorithms/Traversal/OutEdgeSweep.cs:109` - the last ungated
+- [x] **N3.** `Algorithms/Traversal/OutEdgeSweep.cs:109` - the last ungated
   `Parallel.ForEach` in the engine, by this change set's own premise a single-threaded
   host cannot complete it. **Check whether it genuinely deadlocks on WASM** (the calling
   thread participates in `Parallel.ForEach`, so it may complete degenerately); if it
   does deadlock, this is a browser blocker hiding in a note.
-- [ ] **N4.** `TransactionManager.cs:856` - the inline refuse-after-Dispose guard reads
+- [x] **N4.** `TransactionManager.cs:856` - the inline refuse-after-Dispose guard reads
   non-volatile `_disposed` outside any lock; on a threaded host running explicit Inline
   mode the race is narrowed, not closed.
-- [ ] **N5.** `IPluginCompiler.cs:56` - `out Type artifact` carries no
+- [x] **N5.** `IPluginCompiler.cs:56` - `out Type artifact` carries no
   `DynamicallyAccessedMembers`, so a host-supplied compiler returning a statically-known
   type gets zero trim warnings at either end; the requirement lives nowhere.
-- [ ] **N6.** `SnapshotApplier.cs:238` - a weak identity-index entry lost while the
+- [x] **N6.** `SnapshotApplier.cs:238` - a weak identity-index entry lost while the
   property survives now drifts unrepaired until an index rebuild (deliberate scoping;
   record the acceptance).
-- [ ] **N7.** `JobRunner.cs:243` - a cancelled run's `finally` logs the success-shaped
+- [x] **N7.** `JobRunner.cs:243` - a cancelled run's `finally` logs the success-shaped
   "finished in 0 ms: 0 created" line because `Complete` never ran.
-- [ ] **N8.** `hydrate.ts:97` - mixed vertex/edge pages now render edges grouped last
+- [x] **N8.** `hydrate.ts:97` - mixed vertex/edge pages now render edges grouped last
   instead of scan order (behaviour change; probably fine, decide once).
-- [ ] **N9.** `DashboardScreen.tsx:75` - an empty graph shows `FirstRunShow` before the
+- [x] **N9.** `DashboardScreen.tsx:75` - an empty graph shows `FirstRunShow` before the
   durability notice, so a truncated recovery that lost everything greets the user with
   "get started" instead of the warning that state exists to surface.
-- [ ] **N10.** The single-threaded arms guarded by `SupportsBackgroundWork` are
+- [x] **N10.** The single-threaded arms guarded by `SupportsBackgroundWork` are
   unexecutable by any test on a threaded host (structural; the browser probe run is the
   compensating control - keep it in the release ritual).
-- [ ] **N11.** `TransactionManager.cs:351` - the deferred-drain terminal-state fix
+- [x] **N11.** `TransactionManager.cs:351` - the deferred-drain terminal-state fix
   (`RolledBack` + `InternalError`) is reachable only via an unforeseen fault and no test
   reaches it.
-- [ ] **N12.** The screenshot fixture hand-copies descriptors with no drift gate; a
+- [x] **N12.** The screenshot fixture hand-copies descriptors with no drift gate; a
   reworded provider label makes the docs image silently stale (pairs with M1).
-- [ ] **N13.** `docs/src/content/docs/indexes.mdx:69` - the backfill row says "count of
+- [x] **N13.** `docs/src/content/docs/indexes.mdx:69` - the backfill row says "count of
   entries written" where the endpoint returns an outcome object, and the
   `"replace": true` exact-rebuild mode is undocumented.
-- [ ] **N14.** `features/open/host-plugin-registration/spec.md:44` - bare file:line
+- [x] **N14.** `features/open/host-plugin-registration/spec.md:44` - bare file:line
   anchors drifted within this very push; anchor to a commit or a symbol.
-- [ ] **N15.** `features/open/review-findings-2026-08-11/` - every F-item and follow-up
+- [x] **N15.** `features/open/review-findings-2026-08-11/` - every F-item and follow-up
   is ticked; once the conformance-suite doc line lands, move the directory to
   `features/done/` per "open holds pending work only".
 
@@ -215,3 +240,95 @@ sites are the only two label-on-div sites and the tests query by role; the IL206
 suppression is method-scoped with sound reasoning; library.mdx's browser claims,
 save-games.mdx's durability block, and the rest-api.mdx route inventory are true at
 HEAD; all ten F-ticks of the 2026-08-11 report are real fixes with tests.
+
+## Outcomes that differ from what the finding prescribed
+
+A tick above means the finding is closed, not that it was closed the way the finding
+guessed. These are the ones where the answer turned out to be different, and why.
+
+- **N3 was not a note, it was a browser blocker.** The finding asked whether
+  `OutEdgeSweep`'s ungated `Parallel.ForEach` genuinely cannot complete on a
+  single-threaded host, or degenerately completes. It is now gated through
+  `HostCapabilities` like the checkpoint fan-out. The *reason* recorded at the site had to
+  be rewritten in the second round: the first attempt asserted a mechanism that is false
+  for the default scheduler (the root replica runs inline on the calling thread) and cited
+  a measurement no harness in this repo can produce. The gate is right; the comment now
+  points at the one home for the capability question instead of inventing a third story.
+- **N5 could not be landed by one owner.** The `DynamicallyAccessedMembers` annotation on
+  `IPluginCompiler.TryCompile`'s `out Type` and on the apiApp implementation must land
+  together - the interface alone fails the build with IL2092. With the annotation flowing,
+  the `IL2067` suppression on `BuildRehydratedPluginEntry` became redundant and was
+  deleted, verified by a no-incremental rebuild in which no IL2067 reappears. The trim
+  requirement now lives in the type system rather than behind a suppression.
+- **m6 (the create-to-index crash window) was not closed, and the claim shrank instead.**
+  An `IndexEntry` needs the element id, which only exists after the create call answers,
+  so the first strong-claim index write is necessarily a second round trip and the window
+  cannot be closed from the applier. The documentation no longer overstates the heal: the
+  residual window is stated where the heal is described. Closing it for real needs the
+  write side to accept a create-with-claims in one call, which is a feature, not a fix.
+- **N6 (weak-claim drift) is a recorded acceptance, not a fix.** Extending the heal to
+  weak claims would re-fire every run, because the lookup batch only asks about strong
+  keys, so "not named" is unknown rather than false - that was a real idempotence bug
+  fixed earlier and must not come back. The acceptance and its reason now sit at the code.
+- **P1's home moved to the interface.** The removed-element rule had three competing
+  narrations pointing at each other in a circle. The honest home is
+  `IIndex.AddOrUpdate` - the contract every implementation shares - not whichever concrete
+  index narrated it best, so the rule and its engine-level reason live there and
+  `ABucketIndex`, `RegExIndex`, `VectorIndex` and `SingleValueIndex` each carry one line.
+  A fourth narration in `IndexIntegrityTest` was reduced too.
+- **P13 was a latent duplicate-key bug, now fixed.** The order fix collected results into
+  a map keyed by id, so a repeated id would return the same element twice. Hydration now
+  dedupes its input, which also stops it asking the server for the same id twice; the cap
+  counts distinct elements. Two tests, both mutation-checked.
+
+## Second round: problems found in the fixes themselves
+
+Verifying the fixes was worth as much as the original review. Sixteen problems, all
+closed or recorded:
+
+- **The worst was a confident falsehood.** A new log line asserted "the caller cancelled
+  before the apply phase, so nothing was written and nothing was withdrawn" on a path
+  where that is untrue: `EmbedSummariesAsync` caught only `HttpRequestException`, so an
+  HttpClient timeout on the embedding write escaped as a `TaskCanceledException` after
+  elements had been created, properties written and claims possibly withdrawn. Fixed at
+  the seam (both sends now go through one helper that turns a timeout into the domain
+  failure it is) AND at the runner (an `applyStarted` flag makes the sentence structurally
+  true rather than dependent on target behaviour). Both halves pinned, both
+  mutation-checked. A vague line replaced by a false one is worse than the vague line.
+- A test logger shared with every engine component incremented a plain `Int32` and
+  appended to a plain `List` while a checkpoint's sidecar fan-out logged from pooled
+  tasks. Now `Interlocked` and a `ConcurrentQueue`, pinned by a test driving eight threads
+  that fails on the old shape with `Expected:<40000>. Actual:<22049>`.
+- `RunSaver`'s inline arm let a saver's failure escape at fan-out time, abandoning the
+  remaining partitions and leaving their temp files behind - the same
+  single-threaded-host-gets-a-different-contract shape that m1 fixed for the load path.
+- The widened load-core catch relabelled every failure as "the savegame is corrupt",
+  including an `OutOfMemoryException` on a legitimately large bunch. A resource verdict is
+  now separated from a data verdict, since "restore a backup" cannot help a machine that
+  is merely too small.
+- `DurabilityNotice` told operators that rebuilding a dropped index is "a single call on
+  the Indexes screen". That screen has no such action. It now names the REST call and says
+  so plainly - the in-app text and the published page had drifted apart.
+- The `studio.md` durability paragraph said "below the tiles", which is wrong on an empty
+  namespace, where the notice deliberately renders ABOVE the first-run walkthrough because
+  a truncated recovery is one reason a namespace is unexpectedly empty.
+- One verifier note was checked and **rejected**: it asked for long lines to be wrapped in
+  the plugin-registration spec, but nine of the eleven are markdown table rows that cannot
+  wrap without breaking the table. Only the two genuine prose lines were rewrapped.
+
+## Still open after this batch
+
+- [ ] **N10's compensating control is not committed.** This report accepted that the
+  single-threaded arms guarded by `SupportsBackgroundWork` cannot be executed by any test
+  on a threaded host, on the grounds that "the trimmed browser probe run is the
+  compensating control - keep it in the release ritual". That probe is not in the
+  repository: it was a throwaway harness in a past session's scratchpad, so the control
+  cannot actually be run by anyone today, and the WASM-critical arms this batch touched
+  (`RunSaver` inline, `ForEachIndex`/`ForEach` inline, the `OutEdgeSweep` sequential arm,
+  the change-feed dispose skip) are executed by nothing. Two honest ways forward, both
+  deliberately NOT taken unilaterally here because each changes production code or adds a
+  tool: commit the probe as a real harness, or give `HostCapabilities` a test seam so the
+  inline arms can be driven directly. **This is the most valuable follow-up in the list**
+  given that running in the browser is a stated priority.
+- [ ] The conformance-suite doc line about encoded credentials, carried over from the
+  2026-08-11 report. Once it lands, that directory moves to `features/done/` (its N15).

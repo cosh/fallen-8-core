@@ -178,7 +178,7 @@ transaction when that matters.
 
 By default the engine owns a dedicated writer thread: enqueuing hands the transaction over, and the
 writer drains whatever is ready into one commit group with one fsync. Some hosts cannot start a thread at
-all — a single-threaded WebAssembly runtime in the browser is the usual case, where `Thread.Start` throws
+all. A single-threaded WebAssembly runtime in the browser is the usual case, where `Thread.Start` throws
 `PlatformNotSupportedException`. There, the engine applies each transaction **inline on the calling
 thread** instead:
 
@@ -201,26 +201,26 @@ anywhere.
 | In inline mode                                | Behaviour                                                                |
 | --------------------------------------------- | ------------------------------------------------------------------------ |
 | `EnqueueTransaction`                          | Applies, flushes and completes the transaction before returning           |
-| `WaitUntilFinished()`, `await Completion`      | Return immediately — there is nothing left to wait for                    |
+| `WaitUntilFinished()`, `await Completion`      | Return immediately; there is nothing left to wait for                     |
 | Ordering, rollback, `GetTransactionState`      | Unchanged; the same execution path runs                                   |
 | Write-ahead log, change feed                  | Both work; each transaction is its own commit group, so one fsync each     |
 | Concurrent callers                            | Serialized, so the single-writer invariant holds even if the host has threads |
-| Group commit                                  | Given up — the only thing the queue was buying                            |
+| Group commit                                  | Given up; it was the only thing the queue was buying                      |
 
 **Checkpoints work here too.** A save fans its sidecar writes out across the thread pool and then waits
-for them, and a load reads its partitions in parallel — neither of which a single-threaded host can do,
+for them, and a load reads its partitions in parallel, neither of which a single-threaded host can do,
 because the one thread is the one waiting. Both now run inline instead, chosen by the same runtime probe,
 so `SaveTransaction` and `LoadTransaction` complete on a browser host as well (verified writing into the
 Emscripten virtual filesystem and reading the graph back). Getting those bytes out of the virtual
-filesystem and into somewhere durable — IndexedDB, a download, your own API — is the host's job, not the
+filesystem and into somewhere durable (IndexedDB, a download, your own API) is the host's job, not the
 engine's.
 
-One limit does remain: plugin lookup **by name** —
-`TryCalculateShortestPath(out paths, "BLS", definition)` — discovers plugins by enumerating assemblies in
+One limit does remain. Plugin lookup **by name**
+(`TryCalculateShortestPath(out paths, "BLS", definition)`) discovers plugins by enumerating assemblies in
 the application's base directory, which is empty in a browser. The typed overload
 `TryCalculateShortestPath<BidirectionalLevelSynchronousSSSP>(out paths, definition)` resolves without
 discovery and works there. The same gap means `IndexFactory.TryCreateIndex`, whose only way in is a plugin
-name, cannot create an index in a browser at all — so no index scans and no vector search yet.
+name, cannot create an index in a browser at all, so no index scans and no vector search yet.
 
 ## Durability and options
 

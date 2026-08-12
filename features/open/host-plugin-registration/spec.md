@@ -6,6 +6,10 @@
 > This is the follow-up recorded in [features/done/trim-safety/spec.md](../../done/trim-safety/spec.md)
 > ("Known gap"), designed in a principal architecture review on 2026-08-11 and written down here so
 > implementation can start from a settled contract.
+>
+> Code references below name the FILE and the SYMBOL, never a line number: the engine files this
+> spec points into keep moving, and a drifted line number reads as a verified citation while
+> pointing at unrelated code.
 
 ## Why
 
@@ -14,15 +18,17 @@ Name-based plugin resolution goes through `PluginFactory`, which discovers candi
 
 - **A browser-wasm host has no dll files there at all** (WebCIL packaging), so every name resolves
   to a clean false - regardless of trimming. Since `IndexFactory.TryCreateIndex` is the ONLY way to
-  create an index and resolves ONLY through `PluginFactory.TryFindPlugin` (`IndexFactory.cs:100`),
-  a browser host today cannot create any index: no DictionaryIndex, no RangeIndex, no VectorIndex,
+  create an index and resolves ONLY through `PluginFactory.TryFindPlugin`
+  (`Index/IndexFactory.cs`, `TryCreateIndex`), a browser host today cannot create any index: no
+  DictionaryIndex, no RangeIndex, no VectorIndex,
   and therefore no vector search. This is the single largest remaining browser blocker.
 - **A trimmed host** cannot keep a type that exists only as a string in scanned assemblies; the
   string-named APIs now warn (`[RequiresUnreferencedCode]`, feature trim-safety) and degrade to
   false at runtime.
 
 The engine already has the right seam: `Fallen8.Plugins` (`PluginRegistry`, per namespace) is
-consulted BEFORE `PluginFactory` in `Fallen8.ResolveCachedPlugin` (`Fallen8.cs:559-588`) - but today
+consulted BEFORE the built-in cache and `PluginFactory` in `Fallen8.ResolveCachedPlugin`
+(`Fallen8.cs`) - but today
 it holds only runtime-COMPILED plugins (Roslyn, apiApp-only), and index/service creation never
 consults it. This feature lets the HOST register plugin TYPES, compile-free: a statically-known
 type flows from the host's `typeof(MyAlgo)` to the `Activator` call with no scanning and no
@@ -60,7 +66,8 @@ public TransactionInformation RegisterPluginType<
 - **Name from the instance, never explicit.** Registration activates ONE probe instance of `T`,
   reads `PluginName` and `Description`, and validates with `PluginRegistry.IsValidName`. The
   existing invariant "the persisted name must equal the compiled type's PluginName"
-  (`PluginDefinition.cs:44-48`) stays unbreakable because there is no name parameter to diverge.
+  (the doc contract on `PluginDefinition.Name`) stays unbreakable because there is no name parameter
+  to diverge.
 - **Contract derived, not passed.** Resolve `typeof(T)` against `PluginFactory.ContractInterface`
   (the single CA-13 contract-to-interface home): the contract whose interface `T` implements. Zero
   or more than one match: reject as `InvalidInput`.
@@ -85,7 +92,8 @@ consumed at exactly the two choke points where persistence happens:
 
 1. **WAL**: `WalTransactionCodec.TryGetEntryType` returns `false` for a `RegisterPluginTransaction`
    whose entry is not persistable. Exact in-repo precedent: a recipe-less
-   `CreateSubGraphTransaction` is already classified not-loggable (`WalTransactionCodec.cs:99-106`).
+   `CreateSubGraphTransaction` is already classified not-loggable (the
+   `CreateSubGraphTransaction` arm of `WalTransactionCodec.TryGetEntryType`).
    The commit then reports `Durable = true`, which is honest: there is nothing to persist - host
    code re-establishes the registration on every start. The REMOVE side needs one flag:
    `RemovePluginTransaction` carries only a name, so its `TryExecute` records whether the removed
@@ -97,7 +105,8 @@ consumed at exactly the two choke points where persistence happens:
 
 ### 3. The Load hole (found in review; MUST be closed by this feature)
 
-`RehydratePlugins` ends in `Plugins.ReplaceAll(manifest entries)` (`Fallen8.Persistence.cs:696`),
+`RehydratePlugins` ends in `Plugins.ReplaceAll(manifest entries)` (`Fallen8.Persistence.cs`,
+`RehydratePlugins`),
 which would wipe every host registration on any Load - including a Load whose index rehydration
 needs those very types. Rule: the rehydration MERGES, preserving non-persistable entries; on an
 ordinal name collision the host entry wins and an error is logged. Host-wins rationale: the host's
@@ -110,8 +119,9 @@ Verified in review: path/analytics/subgraph already resolve registry-first; inde
 NOT and cannot - `PluginContract` has no Index/Service member.
 
 - **Index: mandatory.** Add `PluginContract.Index` with `ContractInterface` returning
-  `typeof(IIndex)`. Route `IndexFactory.TryCreateIndex` (`IndexFactory.cs:100`) AND checkpoint
-  rehydration `OpenIndex` (`IndexFactory.cs:318`) registry-first (fresh instance per call, which is
+  `typeof(IIndex)`. Route `IndexFactory.TryCreateIndex` AND checkpoint rehydration
+  `IndexFactory.OpenIndex` (both resolve through `PluginFactory.TryFindPlugin` today)
+  registry-first (fresh instance per call, which is
   what an index needs - each index IS an instance), falling back to `PluginFactory`. Registry-first
   precedence matches `ResolveCachedPlugin` and must be pinned. Routing `OpenIndex` is what makes a
   host-registered index type survive a checkpoint round trip - the half of the hole typed overloads
@@ -171,12 +181,12 @@ need this feature (it has Roslyn).
 | MCP | No new REST operation, nothing to bridge. If `PluginContract.Index`/`Service` change any discovery-backed inventory response shape, re-check the snapshot |
 | WAL / checkpoint | Two choke-point changes (`TryGetEntryType`, `SavePlugins`) plus the `RehydratePlugins` merge rule. No format change; existing logs replay unchanged |
 | Trim safety | The reason this design exists; the `TryCreateIndex` RUC decision is the one deliberate trim-surface change and is pinned |
-| Browser | Closes the "no index in the browser" blocker; with it, vector search works in wasm. The checkpoint fan-out blocker (parallel Save/Load deadlocks a single-threaded host) is SEPARATE and recorded in [review-findings-2026-08-11](../review-findings-2026-08-11/report.md) |
+| Browser | Closes the "no index in the browser" blocker; with it, vector search works in wasm. The checkpoint fan-out blocker recorded alongside it is already closed (save and load pick a sequential arm from `HostCapabilities.SupportsBackgroundWork`), so index creation is what a browser host is still missing |
 | Studio / NL-assist | None - no REST change, no delegate surface |
 | Docs | `library.mdx` gains the registration story (replacing the "typed overload is the only trim-safe way" framing with "register your plugins, then names work"); README library bullet gets a clause |
 
 ## Out of scope
 
 REST exposure of type registration; a `Func<IPlugin>` factory overload; process-wide registration;
-persistence of host entries; the browser checkpoint story (sequential save arm - separate finding);
-Roslyn anywhere.
+persistence of host entries; the browser checkpoint story (its sequential save/load arm already
+shipped, gated by `HostCapabilities.SupportsBackgroundWork`); Roslyn anywhere.

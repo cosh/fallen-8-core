@@ -58,7 +58,7 @@ Invoke-RestMethod -Uri http://localhost:8080/metrics
 | `fallen8.transaction.group.size` | Histogram | Group-commit batch size at flush. |
 | `fallen8.transaction.nondurable` | Counter | Committed in memory but the WAL frame did not reach disk (degraded log). |
 | `fallen8.wal.flush.duration` / `.flush.failures` | Histogram / Counter | The group fsync and its failures. |
-| `fallen8.wal.degraded` | Gauge (0/1) | 1 while the WAL failure fence has tripped or an anchored log awaits its paired load. |
+| `fallen8.wal.degraded` | Gauge (0/1) | 1 while the WAL failure fence has tripped or an anchored log awaits its paired load. Also on `GET /status` as `durability.degraded`, with no OTel wiring needed. |
 | `fallen8.wal.size` | Gauge | Current write-ahead log file length. |
 | `fallen8.checkpoint.save.duration` / `.load.duration` | Histogram | Checkpoint save / load duration (load includes WAL replay). |
 | `fallen8.checkpoint.save.bytes` / `.load.bytes` | Histogram | Bytes written / read per checkpoint. |
@@ -155,6 +155,7 @@ The cheap discovery probe: config and O(1) count reads plus, only when the inges
 - `apiKeyRequired` (server config) and `authenticated` (this request): a client is authorized iff `!apiKeyRequired || authenticated` (see [security](/fallen-8-core/security/)).
 - `embedding`: the embedding provider state; reading it never triggers the lazy model load. `chat` is the chat gateway's state. Both: see [semantic traversal](/fallen-8-core/semantic-traversal/).
 - `ingestion` and `nlp`: the document-ingestion and entity-enrichment capability state (flags, accepted formats, sidecar reachability, enforced limits), the block Studio gates its upload UI on. Field by field in [unstructured ingestion](/fallen-8-core/unstructured-ingestion/).
+- `durability`: `walEnabled`, `degraded`, `recoveryRan`, `lastRecoveryTruncated`, `lastRecoveryReplayedEntries`, `lastCheckpointDroppedIndices`. This is the same degraded state as the `fallen8.wal.degraded` gauge above, plus the two facts no gauge carries (a truncated replay and a checkpoint that dropped indexes) - and it needs no OTel wiring, so an anonymous probe can ask "is what I just wrote actually durable" with nothing configured. What each field means: [save games](/fallen-8-core/save-games/).
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
