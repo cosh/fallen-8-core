@@ -125,7 +125,7 @@ is recorded on the library docs page as a browser limitation.
 | Observability                         | Queue-depth gauge stays readable and reports 0 inline (no queue); spans/metrics unchanged   |
 | Write-ahead log, change feed          | Work inline (group of one); no code change to either                                       |
 | Subgraphs                             | A derived subgraph engine resolves its own mode via `Automatic`, so it is inline exactly where threads are unavailable |
-| Persistence / save games              | Unchanged in-process; a browser has no filesystem, which is out of scope here               |
+| Persistence / save games              | Unchanged in-process. The claim that a browser cannot persist was retired on 2026-08-12: the checkpoint fan-out now runs inline where no thread can be started, so a save and load complete on a single-threaded host (verified into the Emscripten virtual filesystem). What a browser host still has to solve is getting those bytes out of the VFS, which is its own business |
 | Docs site, README, architecture       | `library.mdx` gains a section; the README library entry gains a clause. No new channel or deployable, so both architecture diagrams stay correct |
 
 ## Out of scope

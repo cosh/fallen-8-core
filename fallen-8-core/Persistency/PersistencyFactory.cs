@@ -168,6 +168,7 @@ namespace NoSQL.GraphDB.Core.Persistency
             fallen8.SetId(currentGuId);
             currentId = idSpaceSize;
 
+
             #region graph elements
 
             // Build the dense, id-ordered element array and publish it into the segmented master
@@ -343,6 +344,10 @@ namespace NoSQL.GraphDB.Core.Persistency
             // the transaction returns. Single-writer and the blocking-but-correct save semantics are
             // therefore preserved (the file writing is NOT moved off the worker; see the P3 deferral
             // note in features/done/persistence-hardening/plan.md).
+            //
+            // On a host that cannot start a thread, the fan-out runs INLINE instead - see RunSaver. The
+            // pattern below is unchanged either way, which is the point: the .Result reads further down
+            // are correct in both cases because an inline saver's task is already completed.
 
             #region graph elements
 
@@ -361,7 +366,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 for (var i = 0; i < graphElementPartitions.Count; i++)
                 {
                     var partition = graphElementPartitions[i];
-                    graphElementSaver[i] = Task.Run(() => SaveBunch(partition, graphElements, path));
+                    graphElementSaver[i] = RunSaver(() => SaveBunch(partition, graphElements, path));
                 }
             }
             else
@@ -381,7 +386,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 var indexName = aIndex.Key;
                 var index = aIndex.Value;
 
-                indexSaver[counter] = Task.Run(() => SaveIndex(indexName, index, path));
+                indexSaver[counter] = RunSaver(() => SaveIndex(indexName, index, path));
                 counter++;
             }
 
@@ -397,7 +402,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 var serviceName = aService.Key;
                 var service = aService.Value;
 
-                serviceSaver[counter] = Task.Run(() => SaveService(serviceName, service, path));
+                serviceSaver[counter] = RunSaver(() => SaveService(serviceName, service, path));
                 counter++;
             }
 
@@ -1138,6 +1143,60 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
+        ///   Queues one sidecar-writing job the way this host can run it: on the thread pool where a
+        ///   thread can be started, INLINE on the calling thread where none can.
+        ///
+        ///   <para>The inline arm exists because the caller blocks on these tasks' results. On a
+        ///   single-threaded WebAssembly runtime, pool work queued from a thread that then blocks can
+        ///   never run - the queue is drained by the one thread the caller is holding - so the save did
+        ///   not merely lose its parallelism, it could not complete at all. Returning an
+        ///   already-completed task keeps every caller and every <c>.Result</c> below identical, so
+        ///   there is one save algorithm rather than two. Order is unchanged: partitions write to
+        ///   distinct sidecar files and are collected in index order either way.</para>
+        /// </summary>
+        private static Task<T> RunSaver<T>(Func<T> saver)
+        {
+            return HostCapabilities.SupportsBackgroundWork
+                ? Task.Run(saver)
+                : Task.FromResult(saver());
+        }
+
+        /// <summary>
+        ///   Runs <paramref name="body" /> for every index in <c>[0, count)</c>, in parallel where the host
+        ///   has threads and sequentially where it does not. The load counterpart of
+        ///   <see cref="RunSaver{T}" />; see the call site for why the outcome does not depend on which arm
+        ///   runs.
+        /// </summary>
+        private static void ForEachIndex(Int32 count, Action<Int32> body)
+        {
+            if (HostCapabilities.SupportsBackgroundWork)
+            {
+                Parallel.For(0, count, body);
+                return;
+            }
+
+            for (var i = 0; i < count; i++)
+            {
+                body(i);
+            }
+        }
+
+        /// <summary>Same rule as <see cref="ForEachIndex" />, over a sequence.</summary>
+        private static void ForEach<T>(IEnumerable<T> source, Action<T> body)
+        {
+            if (HostCapabilities.SupportsBackgroundWork)
+            {
+                Parallel.ForEach(source, body);
+                return;
+            }
+
+            foreach (var item in source)
+            {
+                body(item);
+            }
+        }
+
+        /// <summary>
         ///   Saves the graph element bunch.
         /// </summary>
         /// <returns> The path to the graph element bunch </returns>
@@ -1236,14 +1295,19 @@ namespace NoSQL.GraphDB.Core.Persistency
             var edgeTodo = new ConcurrentDictionary<Int32, ConcurrentQueue<EdgeOnVertexToDo>>();
             var result = new List<EdgeSneakPeak>[graphElementStreams.Count];
 
-            //create the major part of the graph elements
-            Parallel.For(0, graphElementStreams.Count, i =>
+            // Create the major part of the graph elements. In PARALLEL where the host has threads,
+            // SEQUENTIALLY where it does not: Parallel.For on a single-threaded WebAssembly runtime
+            // has no worker to borrow and no way to yield the one thread it is already on, so a load
+            // could not complete there at all. Bunches write to disjoint slots of the same array and
+            // the edge fix-up is collected per bunch, so the result does not depend on the order or the
+            // degree of parallelism - which is what makes running them one at a time a free choice.
+            ForEachIndex(graphElementStreams.Count, i =>
             {
                 result[i] = LoadAGraphElementBunch(graphElementStreams[i], graphElements, edgeTodo);
             });
 
-            //Create the edges
-            Parallel.ForEach(result, aEdgeSneakPeakList =>
+            //Create the edges (same capability rule as the bunch load above)
+            ForEach(result, aEdgeSneakPeakList =>
             {
                 // A bunch whose file was absent yields a null list; never dereference it (finding C5).
                 if (aEdgeSneakPeakList == null)
