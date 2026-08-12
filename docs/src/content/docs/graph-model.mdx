@@ -105,10 +105,13 @@ answers under `/ns/{name}/...`; see [Namespaces](/fallen-8-core/namespaces/).
 | `PUT /edges` | Create many edges in ONE atomic transaction. Body: an array of `EdgeSpecification`. Waited: `200` with the assigned ids; a single missing endpoint rolls the whole batch back and answers `404`. |
 | `GET /vertex/{id}` · `GET /edge/{id}` | Read one element (`200`, or `204` when absent). |
 | `GET /graphelement/{id}` | Read a vertex or edge by id. |
+| `POST /graphelements/get` | Read MANY elements by id in one call. Body: an array of ids. Duplicates collapse, ids that do not exist come back in a separate `notFound` list rather than as an error, and the page is capped. One request instead of one per element, which is what a client holding a few hundred resolved ids needs. |
 | `GET /graph?maxElements=1000` | A bounded page of vertices and edges (clamped to 100000 each). |
 | `PUT /graphelement/{id}/{propertyId}` | Add or update one property. Body: `PropertySpecification`. |
 | `DELETE /graphelement/{id}/{propertyId}` | Remove one property. |
+| `PUT /graphelements/properties` | Set and remove properties across MANY elements in ONE atomic transaction, with **replace** semantics. Either every change applies or none does; a missing element rolls the whole batch back. This is the route to use when a client is reconciling a set of elements against a source, instead of one call per property. |
 | `DELETE /graphelement/{id}` | Remove a vertex or edge. Removing a vertex **cascades** to every incident edge. |
+| `DELETE /graphelements` | Remove many elements in one atomic transaction. Body: an array of ids. Each vertex removal cascades to its incident edges as above. |
 | `HEAD /tabularasa` | Erase all data in the addressed namespace (it stays registered, empty). Every index **definition** goes with it, not just its entries ([Indexes](/fallen-8-core/indexes/)). |
 | `HEAD /tabularasa/all` | Fallen-8-level factory reset: drops every non-`default` namespace and erases `default`. Irreversible, and rate-limited (`429`). |
 | `HEAD /trim` | Enqueue a memory trim (releases unused memory). Changes no data. |

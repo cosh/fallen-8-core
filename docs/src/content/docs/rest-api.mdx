@@ -90,8 +90,8 @@ Every endpoint group and the page that documents it. Routes shown bare; each als
 
 | Group | Routes | Doc |
 |---|---|---|
-| Vertices, edges, elements & property scans | `PUT /vertex`, `PUT /vertices` (batch), `GET /vertex/{id}`, `/vertex/{id}/edges/…`, `PUT /edge`, `PUT /edges` (batch), `GET /edge/{id}`, `/edge/{id}/{source,target}`, `GET/DELETE /graphelement/{id}`, `PUT/DELETE /graphelement/{id}/{propertyId}`, `GET /graph`, `GET /vertex/count`, `/edge/count`, `POST /scan/graph/property/{id}`, `POST /scan/graph/properties` | [graph-model.md](/fallen-8-core/graph-model/) |
-| Indexes & index scans | `POST /index`, `PUT/DELETE /index/{id}`, `DELETE /index/{id}/propertyValue`, `DELETE /index/{id}/{elementId}`, `POST /scan/index/{all,range,fulltext,spatial}` | [indexes.md](/fallen-8-core/indexes/) |
+| Vertices, edges, elements & property scans | `PUT /vertex`, `PUT /vertices` (batch), `GET /vertex/{id}`, `/vertex/{id}/edges/…`, `PUT /edge`, `PUT /edges` (batch), `GET /edge/{id}`, `/edge/{id}/{source,target}`, `GET/DELETE /graphelement/{id}`, `PUT/DELETE /graphelement/{id}/{propertyId}`, `POST /graphelements/get` (batch read), `PUT /graphelements/properties` (atomic multi-element property replace), `DELETE /graphelements`, `GET /graph`, `GET /vertex/count`, `/edge/count`, `POST /scan/graph/property/{id}`, `POST /scan/graph/properties` | [graph-model.md](/fallen-8-core/graph-model/) |
+| Indexes & index scans | `POST /index`, `PUT/DELETE /index/{id}`, `DELETE /index/{id}/propertyValue`, `DELETE /index/{id}/{elementId}`, `POST /index/backfill/{id}` (rebuild from element state), `POST /scan/index/{all,range,fulltext,spatial}` | [indexes.md](/fallen-8-core/indexes/) |
 | Vector search | `PUT /index/vector/{id}`, `POST /scan/index/vector` | [vector-search.md](/fallen-8-core/vector-search/) |
 | Path finding | `POST /path/{from}/to/{to}` | [path-finding.md](/fallen-8-core/path-finding/) |
 | Subgraphs | `PUT/GET /subgraph`, `GET/DELETE /subgraph/{name}`, `GET /subgraph/{name}/graph`, `POST /subgraph/{name}/recalculate` | [subgraphs.md](/fallen-8-core/subgraphs/) |

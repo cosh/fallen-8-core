@@ -80,6 +80,31 @@ Base URL `http://localhost:8080`. `PUT /save` and `PUT /load` target the address
 
 **A save never overwrites an existing checkpoint.** If the target path is already on disk, the engine writes a versioned sibling instead: `<path>#<stamp>`, where the stamp is a monotonically increasing UTC timestamp. So repeated saves to the default location pile up as `Temp.f8s`, then `Temp.f8s#…`, then another `Temp.f8s#…`. Two consequences: read the returned entry's `location` as the authoritative path (it is not necessarily the path you asked for), and prune old snapshots yourself with `DELETE /savegames/{id}?deleteFiles=true`, which deletes exactly that entry's own primary file and sidecars and never a sibling version's.
 
+### Is it safe to act on what you just read?
+
+`GET /status` carries a **durability block** for the addressed namespace, so a client can tell the
+difference between "the graph is complete" and "the graph is what survived":
+
+| Field | Means |
+|---|---|
+| `walEnabled` | a write-ahead log is open for this namespace |
+| `degraded` | the log's failure fence has tripped, or an anchored log is waiting for its paired load: commits are landing in memory but not durably |
+| `recoveryRan` | a log replay has happened in this engine's lifetime |
+| `lastRecoveryTruncated` | that replay stopped before the end of the log, so the graph is a **prefix** of the committed history |
+| `lastRecoveryReplayedEntries` | how many transactions it replayed |
+| `lastCheckpointDroppedIndices` | how many indexes the last checkpoint could not write, so they will be absent after the next load |
+
+The block is read as a group, so its fields always describe one outcome rather than a half-finished
+replay. Why it exists: a client that reconciles against the graph and then **deletes what nothing
+asserts any more** would otherwise draw that conclusion from truncated history with no way to know.
+The [integrations runtime](/fallen-8-core/integrations/) does exactly that, and defers its deletions
+unless this block says writes are reaching disk, the last recovery was not truncated, and the last
+checkpoint dropped no indexes.
+
+`lastCheckpointDroppedIndices` above zero is the other case worth acting on: a derived index you own
+is gone after the next load, and [rebuilding it](/fallen-8-core/indexes/) from element state is one
+call.
+
 ### Registry and restore
 
 | Route | Effect | Responses |
