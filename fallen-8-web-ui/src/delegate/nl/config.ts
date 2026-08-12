@@ -23,9 +23,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import { createElement, type ComponentType } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { getStudioConfig, storageKey } from "../../app/studioConfig";
+import { getStudioConfig, storageKey, useStudioConfig } from "../../app/studioConfig";
 
 /**
  * NL-assist model backend config (nl-assist spec FR-26.4, nl-assist-ux spec §2, feature
@@ -151,29 +152,52 @@ export const useNlAssist = create<NlAssistState>()(
       // mount that switched storageNamespace) would otherwise keep the previous mount's
       // config - the browser-held LLM apiKey included - and persist it into the new tenant's
       // universe on the next write. migrateNlState defaults every field, so an absent or
-      // partial blob lands on DEFAULT_NL_CONFIG.
-      merge: (persisted, current) => ({
-        ...current,
-        ...migrateNlState(persisted),
-        leaveNoticeAccepted:
-          (persisted as Partial<NlAssistState> | undefined)?.leaveNoticeAccepted ?? false,
-      }),
+      // partial blob lands on DEFAULT_NL_CONFIG. The embed policy is applied HERE, at the
+      // same altitude the registry applies its embed policies: under "instance-only" the
+      // store never holds a custom-mode config or a third-party key, so a settings write
+      // from inside the embed re-persists the policy-clean shape (and, when the embed
+      // shares an unprefixed storage with the standalone app, drops the stored key rather
+      // than carrying it).
+      merge: (persisted, current) => {
+        const migrated = migrateNlState(persisted);
+        return {
+          ...current,
+          ...migrated,
+          config: resolveNlConfig(migrated.config ?? DEFAULT_NL_CONFIG),
+          leaveNoticeAccepted:
+            (persisted as Partial<NlAssistState> | undefined)?.leaveNoticeAccepted ?? false,
+        };
+      },
     },
   ),
 );
 
 /**
- * The embed-policy choke point (StudioConfig.nlAssist, documented on app/studioConfig.ts):
- * under "instance-only" a persisted custom config is forced back to instance mode with its
- * key cleared, so the policy holds against whatever localStorage carries. The transport
- * (generateChat) applies it so a UI site that forgot to cannot leak a browser-direct call;
- * the panels render from the same resolved config so what is shown is what runs.
+ * The embed-policy resolution (StudioConfig.nlAssist, documented on app/studioConfig.ts):
+ * under "instance-only" a custom config is forced back to instance mode with its key
+ * cleared. Applied at THREE altitudes so the policy holds structurally: the persist merge
+ * above (the store never holds a violating config), the transport (generateChat, plus the
+ * browser-direct functions refusing outright), and as a belt inside NlBackendConfig's
+ * locked rendering.
  */
 export function resolveNlConfig(config: NlAssistConfig): NlAssistConfig {
   if (getStudioConfig().nlAssist === "instance-only" && config.mode !== "instance") {
     return { ...config, mode: "instance", apiKey: undefined };
   }
   return config;
+}
+
+/**
+ * The one panel gate (StudioConfig.nlAssist === "disabled"): both NL panels wrap their
+ * inner component with this, so the affordance disappears identically everywhere and the
+ * early return cannot trip the rules of hooks inside the inner component. Presentation
+ * only - the transport refuses independently.
+ */
+export function withNlAssistPolicyGate<P extends object>(Inner: ComponentType<P>) {
+  return function GatedNlAssistPanel(props: P) {
+    if (useStudioConfig().nlAssist === "disabled") return null;
+    return createElement(Inner, props);
+  };
 }
 
 /**

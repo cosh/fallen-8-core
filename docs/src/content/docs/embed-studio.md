@@ -25,7 +25,8 @@ It produces `dist-lib/`: one ES module (the export surface of
 one stylesheet, and TypeScript declarations, wired through the package's `exports` map. The
 package declares `react` and `react-dom` (19+) as peer dependencies: your application brings
 its own React and bundles the artifact like any dependency (a bundler is required; the module
-is not served raw). Consume it as a `file:`/workspace dependency or from a private registry.
+is not served raw). Consume it as a `file:`/workspace dependency or as a packed tarball
+(`npm pack` after `build:lib`); the package is deliberately not published to a registry.
 
 Two imports, one call:
 
@@ -67,12 +68,16 @@ Every field is optional; omitting all of them is exactly the standalone app.
 | `history` | `"memory"` keeps Studio's navigation out of the host's address bar | `"browser"` |
 | `storageNamespace` | Prefix for every `localStorage` key, so embeds and the standalone app never share state | `""` |
 | `theme` | Token overrides (surfaces, accents, the mono font stack); anything omitted keeps Studio's dark defaults | Studio's palette |
-| `queryClient` | Reuse the host's TanStack QueryClient. Only safe when host and Studio resolve the same `@tanstack/react-query` copy; otherwise let Studio create its own | Studio's own |
-| `nlAssist` | `"disabled"` removes the NL-assist panels; `"instance-only"` locks model calls to the instance's `POST /chat` (no browser-direct endpoint, no third-party key in the embed). Both are enforced at the transport, not just hidden | standalone behavior |
+| `queryClient` | Reuse the host's TanStack QueryClient. Source-level embedding only: the packaged artifact bundles its own `@tanstack/react-query` copy, so a host client from another copy only half-works (focus/online managers diverge) - leave it unset when consuming the artifact | Studio's own |
+| `nlAssist` | `"disabled"` removes the NL-assist panels; `"instance-only"` locks model calls to the instance's `POST /chat`. Enforced structurally: the browser-direct transports refuse under any policy, and the NL store is policy-resolved at rehydrate, so an instance-only embed neither holds nor re-persists a custom endpoint config or its third-party key | standalone behavior |
 
-**One live mount per page.** A second simultaneous `mountStudio` throws: two embeds would
-share one instance registry and one set of persisted keys. Unmount first, then mount with a
-new config; each mount starts from storage plus config alone.
+**One live mount per page.** A second simultaneous mount fails loudly (the second tree's
+mount errors rather than silently rebinding the first to its config): two embeds would share
+one instance registry and one set of persisted keys. Reconfiguring means unmount, then mount
+with the new config - each mount starts from storage plus config alone. The config is read
+once per mount, so swapping the `config` prop of a live `<F8Studio>` in place does nothing,
+and remounting it with a different config inside the same React commit is unsupported;
+unmount, let React commit the removal, then mount.
 
 ### Bearer tokens
 

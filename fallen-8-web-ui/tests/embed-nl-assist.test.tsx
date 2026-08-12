@@ -38,7 +38,7 @@ import {
   useNlAssist,
   type NlAssistConfig,
 } from "../src/delegate/nl/config";
-import { generateChat } from "../src/delegate/nl/generate";
+import { chatWithModel, generateChat, probeEndpoint } from "../src/delegate/nl/generate";
 import { NlAssistPanel } from "../src/delegate/nl/NlAssistPanel";
 import { NlBackendConfig } from "../src/delegate/nl/NlBackendConfig";
 import { PluginNlAssistPanel } from "../src/plugin/nl/PluginNlAssistPanel";
@@ -119,6 +119,60 @@ describe("generateChat under the embed policy", () => {
     expect(result.content).toBe("direct");
     expect(postChat).not.toHaveBeenCalled();
   });
+
+  it("chatWithModel refuses under any policy, whoever the caller is (structural, not just generateChat)", async () => {
+    setStudioConfig({ nlAssist: "instance-only" });
+    await expect(
+      chatWithModel(CUSTOM_CONFIG, [{ role: "user", content: "hi" }]),
+    ).rejects.toThrow(/not available in this embed/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("the reachability probe is policy-gated too (it carries the apiKey as a header)", async () => {
+    setStudioConfig({ nlAssist: "instance-only" });
+    await expect(probeEndpoint(CUSTOM_CONFIG)).resolves.toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("the persisted store under the embed policy (the merge is where it holds)", () => {
+  it("rehydrating a persisted custom blob under instance-only yields a clean store, and a settings write re-persists the clean shape", async () => {
+    setStudioConfig({ nlAssist: "instance-only" });
+    localStorage.setItem(
+      "f8.nl-assist",
+      JSON.stringify({ state: { config: CUSTOM_CONFIG, leaveNoticeAccepted: true }, version: 2 }),
+    );
+
+    await useNlAssist.persist.rehydrate();
+
+    const { config } = useNlAssist.getState();
+    expect(config.mode).toBe("instance");
+    expect(config.apiKey).toBeUndefined();
+
+    // The write-back drops the key instead of carrying it into the embed's storage.
+    useNlAssist.getState().setConfig({ temperature: 0.5 });
+    const persisted = JSON.parse(localStorage.getItem("f8.nl-assist")!) as {
+      state: { config: NlAssistConfig };
+    };
+    expect(persisted.state.config.mode).toBe("instance");
+    expect(persisted.state.config.apiKey).toBeUndefined();
+    localStorage.removeItem("f8.nl-assist");
+  });
+
+  it("rehydrating the same blob with no policy keeps the custom config (standalone behavior)", async () => {
+    setStudioConfig({});
+    localStorage.setItem(
+      "f8.nl-assist",
+      JSON.stringify({ state: { config: CUSTOM_CONFIG, leaveNoticeAccepted: true }, version: 2 }),
+    );
+
+    await useNlAssist.persist.rehydrate();
+
+    const { config } = useNlAssist.getState();
+    expect(config.mode).toBe("custom");
+    expect(config.apiKey).toBe("browser-held-key");
+    localStorage.removeItem("f8.nl-assist");
+  });
 });
 
 describe("the NL affordances under the embed policy", () => {
@@ -165,6 +219,19 @@ describe("the NL affordances under the embed policy", () => {
     );
     expect(screen.getByTestId("nl-instance-locked")).toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("NlBackendConfig never shows custom fields under instance-only, even handed a raw custom config", () => {
+    // The mode it renders is derived inside the component, not trusted from the caller: a
+    // future call site passing the unresolved store config still cannot show endpoint/key
+    // fields inside a locked embed.
+    render(
+      <StudioConfigContext.Provider value={{ nlAssist: "instance-only" }}>
+        <NlBackendConfig config={CUSTOM_CONFIG} setConfig={() => {}} />
+      </StudioConfigContext.Provider>,
+    );
+    expect(screen.getByTestId("nl-instance-locked")).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("http://localhost:11434")).not.toBeInTheDocument();
   });
 
   it("NlBackendConfig still offers both modes without a policy", () => {

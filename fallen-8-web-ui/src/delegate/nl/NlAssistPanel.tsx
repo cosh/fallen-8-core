@@ -30,10 +30,9 @@ import {
   effectiveNlConfig,
   isLoopbackEndpoint,
   isNlConfigured,
-  resolveNlConfig,
   useNlAssist,
+  withNlAssistPolicyGate,
 } from "./config";
-import { useStudioConfig } from "../../app/studioConfig";
 import { NlBackendConfig } from "./NlBackendConfig";
 import { downloadText, toTrainingJsonl, type TrainingExample, type Verdict } from "./feedback";
 import { NlDraftList, type NlDraftView } from "./NlDraftList";
@@ -74,12 +73,7 @@ interface NlAssistPanelProps {
   drivingRef: React.MutableRefObject<boolean>;
 }
 
-export function NlAssistPanel(props: NlAssistPanelProps) {
-  // Embed policy (StudioConfig.nlAssist): "disabled" removes the affordance itself; the
-  // transport in generate.ts refuses independently, so this is presentation, not the guard.
-  if (useStudioConfig().nlAssist === "disabled") return null;
-  return <NlAssistPanelInner {...props} />;
-}
+export const NlAssistPanel = withNlAssistPolicyGate(NlAssistPanelInner);
 
 function NlAssistPanelInner({
   delegateKind,
@@ -88,10 +82,9 @@ function NlAssistPanelInner({
   validateDraft,
   drivingRef,
 }: NlAssistPanelProps) {
-  const { config: storedConfig, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
-  // Render from the policy-resolved config, so an instance-only embed shows instance mode
-  // whatever an earlier session persisted (same resolution the transport applies).
-  const config = resolveNlConfig(storedConfig);
+  // The store is already policy-resolved: the persist merge in ./config.ts applies
+  // resolveNlConfig at rehydrate, so an instance-only embed never holds a custom config.
+  const { config, leaveNoticeAccepted, setConfig, acceptLeaveNotice } = useNlAssist();
   const instance = useActiveInstance();
   const [intent, setIntent] = useState("");
   const [busy, setBusy] = useState<string | null>(null);

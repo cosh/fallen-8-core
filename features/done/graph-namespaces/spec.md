@@ -279,7 +279,7 @@ All Studio work lives in `fallen-8-web-ui/` (in-repo).
 | [bulk-import-export](../bulk-import-export/), [sample-graphs](../sample-graphs/) | Routes twinned; Studio imports/samples land in the active namespace; "creating" row driven by import job state. |
 | [change-feed](../change-feed/) | Dispatcher already per-engine; `/changefeed` twinned; `MaxSubscribers` applies per namespace (document). |
 | [observability](../observability/) | Meter collision fix: namespace-id tag on `Fallen8Metrics` (§7). |
-| [api-error-envelope](../../done/api-error-envelope/) (open) | New endpoints are problem+json from day one; its 134-site inventory is unaffected. |
+| [api-error-envelope](../../done/api-error-envelope/) (done) | New endpoints are problem+json from day one; its 134-site inventory is unaffected. |
 | [studio-embeddable](../../done/studio-embeddable/) (done) | Orthogonal (`storageNamespace` prefixes localStorage keys); its spec carries a one-line "may pin a namespace" future-work note. |
 | [agent-host](../../open/agent-host/), [mcp-server](../../open/mcp-server/) (open) | Both consume the REST contract; their specs get a one-line note that tools/agents address `/ns/{ns}/…`. |
 

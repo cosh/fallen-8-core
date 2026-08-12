@@ -47,9 +47,11 @@ export function NlBackendConfig({
   setConfig: (patch: Partial<NlAssistConfig>) => void;
 }) {
   // Embed policy (StudioConfig.nlAssist): under "instance-only" there is no mode to choose,
-  // so the switch disappears; the callers pass the policy-resolved config, so the custom
-  // fields below are unreachable too. The transport enforces the same policy independently.
+  // so the switch disappears. The mode rendered below is derived HERE, not trusted from the
+  // caller, so a future call site handing this form a raw custom config still cannot show
+  // endpoint/key fields inside a locked embed. The transport enforces independently.
   const lockedToInstance = useStudioConfig().nlAssist === "instance-only";
+  const mode = lockedToInstance ? "instance" : config.mode;
   return (
     <div className="space-y-2" data-testid="nl-config">
       {lockedToInstance ? (
@@ -70,7 +72,7 @@ export function NlBackendConfig({
           </select>
         </Field>
       )}
-      {config.mode === "instance" ? (
+      {mode === "instance" ? (
         <p className="text-fg-faint text-[10px]" data-testid="nl-instance-hint">
           Routed through the active instance: <code>POST /chat</code> proxies to the server's
           model backend (default <code>{DEFAULT_NL_MODEL}</code>, chosen on the server via

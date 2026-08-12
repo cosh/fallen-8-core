@@ -90,24 +90,38 @@ What shipped, including where reality overruled the plan's guesses:
 
 - **The build target** is `npm run build:lib`: `vite build -c vite.lib.config.ts` (library mode
   over the `src/embed/index.ts` surface, ESM, `dist-lib/`), then `tsc -p tsconfig.lib.json`
-  (declarations into `dist-lib/types` - after vite, which empties the outDir), then
-  `scripts/check-lib-artifact.mjs`, whose exit code is the artifact's verdict: entry and
-  declarations exist, no `process.env.NODE_ENV` read survives, and every stylesheet selector
-  carries `.f8-studio`. package.json gained the exports map (`types` condition first, plus
-  `./styles.css` - the host imports the stylesheet explicitly), `files: ["dist-lib"]`, and
-  react/react-dom moved to peerDependencies (kept in devDependencies for the repo's own builds).
+  (declarations into `dist-lib/types` - after vite, which empties the outDir; deliberately not
+  incremental, because a build-info file claiming "up to date" would skip the emit into the
+  freshly wiped outDir), then `scripts/check-lib-artifact.mjs`, whose exit code is the
+  artifact's verdict: entry and declarations exist, no `process.env.NODE_ENV` read survives, no
+  worker chunk was emitted, and every stylesheet selector both carries `.f8-studio` AND is
+  matchable (a page-level anchor rewritten into descendant position - `.f8-studio :root` - is a
+  rule that silently vanished from embeds; the check parses with postcss, per selector, and
+  shares its scope constants with the scoping pass through `scripts/lib-scope.mjs`).
+  package.json gained the exports map (`types` condition first, `./styles.css` - the host
+  imports the stylesheet explicitly - and `./package.json`), `main`/`types` fallbacks for
+  resolvers that predate `exports`, `files: ["dist-lib"]`, and react/react-dom moved to
+  peerDependencies (kept in devDependencies for the repo's own builds; the lib config derives
+  its externals from the peerDependencies keys, subpaths included, so the two cannot drift).
 - **Four lib-only settings** the plan did not foresee, each load-bearing: `process.env.NODE_ENV`
   is defined away (vite deliberately preserves it in lib mode and bundled deps read it, so a
-  host without the define throws); the monaco editor worker is aliased to `?worker&inline`
-  (lib mode cannot emit a separately served worker asset); `VITE_F8_SAMPLES_BASE` is defined to
-  the repository's raw GitHub mirror (a host origin serves no `/samples`); `publicDir` is off
-  (favicon and config.js are standalone-page concerns).
+  host without the define throws); EVERY `?worker` import is aliased to `?worker&inline` -
+  keyed on the suffix, not one specifier, so a second worker added later inherits the rule
+  (lib mode cannot emit a separately served worker asset, and the artifact check fails on an
+  emitted worker chunk); `VITE_F8_SAMPLES_BASE` is defined to the repository's raw GitHub
+  mirror (a host origin serves no `/samples`); `publicDir` is off (favicon and config.js are
+  standalone-page concerns).
 - **The scoped preflight became a whole-stylesheet scoping pass**: a local postcss plugin in the
-  lib config rewrites every selector under `.f8-studio` (`:root`/`:host`/`html`/`body`/`#root`
-  become the scope root; `*` and bare pseudo-elements become the root plus its descendants;
-  keyframe steps stay untouched). One mechanism ships the scoped preflight AND relocates the
-  `@theme` token defaults off the host's `:root` - the two lib-only CSS problems phase 4 parked
-  here - and the standalone build never sees it.
+  lib config rewrites every selector under `.f8-studio`, using postcss's own quote-aware
+  selector split. Page-level anchors (`:root`/`:host`/`html`/`body`/`#root`, bare or as
+  compounds like `html.dark`) re-anchor on the OUTERMOST scope root only
+  (`.f8-studio:not(.f8-studio .f8-studio)`), so a nested root - an `F8GraphCanvas` inside the
+  Studio tree - inherits an ancestor's inline theme overrides instead of re-declaring stock
+  defaults on itself; `*` and bare pseudo-elements become the root plus its descendants;
+  keyframe steps stay untouched; and a page-level ANCESTOR form with descendants (`html body`)
+  FAILS THE BUILD rather than silently dying as an unmatchable selector. One mechanism ships
+  the scoped preflight AND relocates the `@theme` token defaults off the host's `:root` - the
+  two lib-only CSS problems phase 4 parked here - and the standalone build never sees it.
 - **The emitted declarations were a trap the plan missed**: the TanStack `Register` augmentation
   moved from `routes.tsx` into `src/types/router-register.d.ts` (a declaration INPUT, consumed
   in-repo but never re-emitted), because riding the d.ts chain into the artifact would hijack

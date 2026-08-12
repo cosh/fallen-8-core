@@ -94,11 +94,14 @@ interface StudioConfig {
   history?: "browser" | "memory";      // "memory" keeps Studio out of the host's address bar (default "browser")
   storageNamespace?: string;           // prefix for localStorage keys (default "")
   theme?: Partial<ThemeTokens>;        // override surfaces, semantic accents, type (defaults: today's)
-  queryClient?: QueryClient;           // reuse the host's client (default: Studio's own)
+  queryClient?: QueryClient;           // reuse the host's client (default: Studio's own;
+                                       // source-level embeds only - the artifact bundles
+                                       // its own react-query copy)
   // "disabled" removes the NL panels; "instance-only" locks model calls to the active
-  // instance's POST /chat (no browser-direct endpoint, no third-party key in the embed).
-  // Enforced at the transport (resolveNlConfig in delegate/nl/config.ts), so persisted
-  // custom-mode state from an earlier session cannot re-route an embed:
+  // instance's POST /chat. Structural: the browser-direct transports refuse under any
+  // policy, and the NL store is policy-resolved at rehydrate (the persist merge in
+  // delegate/nl/config.ts), so an instance-only embed neither holds nor re-persists a
+  // custom-mode config or its third-party key:
   nlAssist?: "disabled" | "instance-only";
 }
 
@@ -200,11 +203,16 @@ from an instance) without mounting all of Studio.
   (`credentials: "include"` on every fetch and SSE call) is deliberately out: the bearer
   provider is the supported host path and keeps the transport layer credential-free. *Revisit
   trigger:* a host whose data plane cannot mint per-user bearer tokens.
-- **No two live embeds on one page.** One mount per realm; a second concurrent mount throws
-  (see the contract above) rather than silently cross-binding the two. Honest edge: the guard
-  counts committed mounts, so two trees rendered in the same React commit (before either
-  effect runs) can slip past it - it is a loud failure for the realistic sequence, not a
-  semaphore. Sequential mounts with
+- **No two live embeds on one page.** One mount per realm; a second concurrent mount fails
+  loudly rather than silently cross-binding the two, through two complementary guards: the
+  identity-based check in `setStudioConfig` (render-phase, tolerates StrictMode re-rendering
+  the same config object) and the count-based check in `registerStudioMount`, which throws in
+  the second tree's mount effect and therefore also catches two mounts SHARING one config
+  object or landing in one commit. The second failure surfaces in React's effect phase, not
+  at the `mountStudio` call site. Reconfiguring is unmount-then-mount: the config is read
+  once per mount, so swapping `<F8Studio config>` in place does nothing, and a keyed
+  same-commit remount is unsupported. *Revisit trigger for in-place reconfiguration:* a
+  React host that needs live tenant switching without an unmount frame. Sequential mounts with
   different configs are supported and isolated: `storageNamespace` separates what each writes,
   and no mount inherits the previous one's in-memory state. *Revisit trigger:* a host that
   needs two live Studio embeds against different tenants on one page (it would need a realm per

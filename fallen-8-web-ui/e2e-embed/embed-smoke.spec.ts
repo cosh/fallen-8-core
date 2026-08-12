@@ -30,8 +30,14 @@
 // the host page nor missing inside the embed, and a clean unmount.
 
 import { expect, test, type Page } from "@playwright/test";
+import type { StatusREST } from "../src/api/types";
 
-/** A truthful minimal /status so the shell reads "connected" without a live database. */
+/**
+ * A truthful minimal /status so the shell reads "connected" without a live database.
+ * `satisfies` ties the stub to the real wire type (the import is type-only, so playwright's
+ * transpile keeps working); note e2e directories sit outside the tsc programs, so the
+ * annotation is IDE-enforced, not CI-enforced - the pre-existing e2e/ convention.
+ */
 const STATUS_STUB = {
   vertexCount: 0,
   edgeCount: 0,
@@ -41,7 +47,7 @@ const STATUS_STUB = {
   availableAnalyticsPlugins: [],
   availableServicePlugins: [],
   apiKeyRequired: false,
-};
+} satisfies Partial<StatusREST>;
 
 /**
  * JS exceptions always fail the smoke; console errors fail unless they are the resource-load
@@ -80,12 +86,12 @@ test("the artifact mounts, scopes its styles, runs monaco and sigma, and unmount
 
   // 3. Scoped styles: the host body keeps its own background (Studio's dark ink must not
   //    leak out), and the host's generic ".panel" keeps the host's dashed border while the
-  //    embed styles its own subtree.
-  await expect
-    .poll(async () =>
-      page.evaluate(() => getComputedStyle(document.body).backgroundColor),
-    )
-    .toBe("rgb(255, 255, 255)");
+  //    embed styles its own subtree. Plain assertions: step 2 already awaited the loaded
+  //    page, so the values are settled, and a real leak should fail fast, not after a poll
+  //    timeout.
+  expect(
+    await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+  ).toBe("rgb(255, 255, 255)");
   expect(
     await page.evaluate(() => getComputedStyle(document.querySelector("#host-panel")!).borderTopStyle),
   ).toBe("dashed");
@@ -105,12 +111,23 @@ test("the artifact mounts, scopes its styles, runs monaco and sigma, and unmount
 
   // 6. Monaco boots from the artifact: the Path screen's vertex-filter slot opens the
   //    delegate editor, whose worker is inlined by the lib build (vite cannot emit a
-  //    separately served worker asset there). A broken worker surfaces as a console error,
-  //    which step 7 fails on. Closed again so the modal does not block the unmount click.
+  //    separately served worker asset there). The WORKER itself is asserted - editor DOM
+  //    alone proves nothing about the worker, and a failed worker-script fetch would hide
+  //    inside the resource-noise filter above. Typing gives the lazy worker a reason to
+  //    start. Closed again so the modal does not block the unmount click.
   await page.getByTestId("nav-path").click();
   await page.getByTestId("toggle-advanced").click();
   await page.getByTestId("slot-filter-vertexfilter").click();
   await expect(page.locator(".monaco-editor").first()).toBeVisible({ timeout: 15_000 });
+  await page.locator(".monaco-editor").first().click();
+  await page.keyboard.type("return (v) => true;", { delay: 10 });
+  await expect
+    .poll(() => page.workers().length, { timeout: 15_000 })
+    .toBeGreaterThan(0);
+  expect(
+    page.workers().every((w) => w.url().startsWith("blob:")),
+    `inlined workers must be blob: URLs, got: ${page.workers().map((w) => w.url()).join(", ")}`,
+  ).toBe(true);
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.locator(".monaco-editor")).toHaveCount(0);
 

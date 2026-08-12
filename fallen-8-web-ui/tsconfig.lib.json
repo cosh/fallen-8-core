@@ -1,18 +1,22 @@
 {
+  // MIT License - Copyright (c) 2011-2026 Henning Rauch (see any sibling source file for
+  // the full license text; JSONC cannot carry the block without bloating every read).
+  //
   // Declaration emission for the library artifact (feature studio-embeddable, phase 6).
-  // The base config typechecks app + tests with noEmit; this one emits ONLY .d.ts for src/,
-  // so the exports map's "types" condition can point at dist-lib/types/embed/index.d.ts.
-  // Test-only ambient types are dropped: tests are excluded from this program.
+  // The base config typechecks app + tests with noEmit; this one emits ONLY .d.ts for src/
+  // (include is src-only, which is what keeps tests and e2e out of the program), so the
+  // exports map's "types" condition can point at dist-lib/types/embed/index.d.ts. No
+  // declarationMap: the maps would point at ../../src/**, which files:["dist-lib"] never
+  // ships. No incremental: vite empties dist-lib right before this runs, so a build-info
+  // file claiming "up to date" would skip the emit the tripwire then fails on.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": false,
     "emitDeclarationOnly": true,
     "declaration": true,
-    "declarationMap": true,
     "rootDir": "src",
     "outDir": "dist-lib/types",
     "types": ["vite/client"]
   },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "dist-lib", "e2e"]
+  "include": ["src"]
 }

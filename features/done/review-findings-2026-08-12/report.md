@@ -168,7 +168,7 @@ Docs and bookkeeping:
 
 - [x] **m14.** `features/open/platform-integrity-audit/spec.md:9` - the status line
   says the docs-site pages "never happened"; commit a7a9c11 in this very push added them.
-- [x] **m15.** `features/open/review-findings-2026-08-11/report.md:221` - the "PARTLY
+- [x] **m15.** `features/done/review-findings-2026-08-11/report.md:221` (in `features/open/` at review time) - the "PARTLY
   DONE" item's still-open list predates cc3b5ca and contradicts itself about the
   PlanEdges collision diagnostic.
 - [x] **m16.** Same report, line 204 - the docs-debt tick's scope includes
@@ -222,7 +222,7 @@ Docs and bookkeeping:
   `"replace": true` exact-rebuild mode is undocumented.
 - [x] **N14.** `features/open/host-plugin-registration/spec.md:44` - bare file:line
   anchors drifted within this very push; anchor to a commit or a symbol.
-- [x] **N15.** `features/open/review-findings-2026-08-11/` - every F-item and follow-up
+- [x] **N15.** `features/done/review-findings-2026-08-11/` (in `features/open/` at review time) - every F-item and follow-up
   is ticked; once the conformance-suite doc line lands, move the directory to
   `features/done/` per "open holds pending work only".
 

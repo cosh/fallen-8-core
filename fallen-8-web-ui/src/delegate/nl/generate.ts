@@ -139,6 +139,11 @@ export async function chatWithModel(
   messages: ChatTurn[],
   signal?: AbortSignal,
 ): Promise<NlChatResult> {
+  // Structural, not just at generateChat: under EITHER embed policy no browser-direct
+  // model call may leave the page, whoever the caller is.
+  if (getStudioConfig().nlAssist) {
+    throw new Error("Browser-direct model calls are not available in this embed.");
+  }
   const base = config.endpoint.replace(/\/+$/, "");
 
   if (config.apiKind === "ollama") {
@@ -229,6 +234,10 @@ export async function probeEndpoint(
   config: NlAssistConfig,
   signal?: AbortSignal,
 ): Promise<boolean> {
+  // The probe is a second browser-direct transport (it even carries the apiKey); the same
+  // embed policy that gates chatWithModel gates it, so no future affordance can leak a
+  // custom-endpoint call out of a policied embed.
+  if (getStudioConfig().nlAssist) return false;
   const base = config.endpoint.replace(/\/+$/, "");
   const url =
     config.apiKind === "ollama"

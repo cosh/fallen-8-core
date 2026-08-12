@@ -1,7 +1,9 @@
 # F8 Studio: standalone deployable (decoupled from the data plane)
 
-Status: open (spec/plan only). Owner: TBD. Feature branch: `feature/standalone-ui`
-(branch-only workflow; no GitHub issue/PR unless asked).
+Status: done - shipped and in the default compose topology (`npm run env:up` runs Studio as
+its own nginx container; docs: `docs/src/content/docs/standalone-ui.mdx`, CI: the
+`docker-ui` job). This status line lagged the implementation and was corrected 2026-08-12.
+Feature branch was `feature/standalone-ui` (branch-only workflow; no GitHub issue/PR).
 
 Related: [web-ui](../../done/web-ui/), [studio-embeddable](../../done/studio-embeddable/) (shares the
 registry config-injection seam this feature introduces; see "The shared seam"),

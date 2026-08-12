@@ -28,9 +28,14 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Plugin as PostcssPlugin } from "postcss";
+import type { AtRule, Plugin as PostcssPlugin } from "postcss";
+import { OUTERMOST_SCOPE, PAGE_LEVEL_ANCHOR, SCOPE } from "./scripts/lib-scope.mjs";
+import pkg from "./package.json";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
+
+/** What is external is exactly what package.json declares as peers - one authority. */
+const peers = Object.keys(pkg.peerDependencies ?? {});
 
 /**
  * The library artifact (feature studio-embeddable, phase 6): the src/embed/index.ts surface
@@ -41,63 +46,59 @@ const rootDir = dirname(fileURLToPath(import.meta.url));
  * (vite.config.ts) is untouched by everything in this file.
  */
 
-const SCOPE = ".f8-studio";
-
-/** Split a selector list on top-level commas only (commas inside :is()/:where() stay put). */
-function splitSelectors(selector: string): string[] {
-  const parts: string[] = [];
-  let depth = 0;
-  let current = "";
-  for (const ch of selector) {
-    if (ch === "(") depth += 1;
-    else if (ch === ")") depth -= 1;
-    if (ch === "," && depth === 0) {
-      parts.push(current);
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-  parts.push(current);
-  return parts.map((p) => p.trim()).filter((p) => p !== "");
-}
-
 /**
  * Rewrite one compound selector under the Studio scope root. The standalone stylesheet
  * deliberately styles the page (`:root` theme tokens, `html`/`body` chrome, Tailwind's
  * preflight on `*`); an artifact loaded into a host page may style ONLY its own subtree, so
  * every selector either targets the scope root or descends from it. Selectors already
  * carrying the scope (the primitives, the scope root itself) pass through unchanged, which
- * also preserves their specificity relative to the standalone build.
+ * also preserves their specificity relative to the standalone build. Page-level selectors
+ * re-anchor on the OUTERMOST scope root only, so a nested root (F8GraphCanvas inside the
+ * Studio tree) inherits an ancestor's inline theme overrides instead of re-declaring stock
+ * defaults on itself. A page-level form this pass does not recognize FAILS THE BUILD: the
+ * fallthrough would produce `.f8-studio :root ...`, a descendant selector that can never
+ * match, and the rule would silently vanish from embeds only.
  */
 function scopeSelector(part: string): string[] {
   if (part.includes(SCOPE)) return [part];
-  if ([":root", ":host", "html", "body", "#root"].includes(part)) return [SCOPE];
   if (part === "*") return [SCOPE, `${SCOPE} *`];
   // Bare pseudo-elements (preflight's `::before`, `::backdrop`, ...) apply to the root's own
   // pseudo and to every descendant's.
   if (part.startsWith("::")) return [`${SCOPE}${part}`, `${SCOPE} ${part}`];
-  // A compound anchored on html/body (e.g. `html:focus-within`) re-anchors on the root.
-  const anchored = part.match(/^(html|body)(?![\w-])(.*)$/);
-  if (anchored) return [`${SCOPE}${anchored[2]}`];
+  const anchored = part.match(PAGE_LEVEL_ANCHOR);
+  if (anchored) {
+    const rest = anchored[2];
+    // `html`/`body`/`:root`/... alone, or a compound (`html.dark`, `:root[data-theme]`):
+    // re-anchor on the outermost scope root.
+    if (rest === "") return [OUTERMOST_SCOPE];
+    if (!/^[\s>+~]/.test(rest)) return [`${OUTERMOST_SCOPE}${rest}`];
+    // A page-level ANCESTOR with descendants (`html body`, `#root > .x`) has no faithful
+    // in-scope rewrite; the fallthrough would be a selector that never matches, and the
+    // rule would silently vanish from embeds only - so the build fails instead.
+    throw new Error(
+      `f8-scope-library-css: page-level ancestor selector "${part}" has no in-scope ` +
+        "rewrite - restructure the rule, or extend scopeSelector (scripts/lib-scope.mjs " +
+        "owns the recognized forms).",
+    );
+  }
   return [`${SCOPE} ${part}`];
 }
 
 /**
  * Postcss pass over the fully expanded stylesheet (the tailwind plugin runs `enforce: "pre"`,
  * so by this stage preflight, theme tokens and utilities are plain rules). Keyframe steps
- * (`from`/`to`/percentages) are not element selectors and stay untouched.
+ * (`from`/`to`/percentages) are not element selectors and stay untouched; a step's parent is
+ * always the @keyframes at-rule itself. `rule.selectors` is postcss's own quote- and
+ * paren-aware selector-list split, so `[title="a, b"]` survives.
  */
 function scopeLibraryCss(): PostcssPlugin {
   return {
     postcssPlugin: "f8-scope-library-css",
     OnceExit(root) {
       root.walkRules((rule) => {
-        for (let up = rule.parent; up && up.type !== "root"; up = up.parent) {
-          if (up.type === "atrule" && /keyframes$/i.test((up as { name: string }).name)) return;
-        }
-        const scoped = splitSelectors(rule.selector).flatMap(scopeSelector);
-        rule.selector = [...new Set(scoped)].join(", ");
+        const parent = rule.parent;
+        if (parent?.type === "atrule" && /keyframes$/i.test((parent as AtRule).name)) return;
+        rule.selectors = [...new Set(rule.selectors.flatMap(scopeSelector))];
       });
     },
   };
@@ -109,13 +110,12 @@ export default defineConfig({
   publicDir: false,
   resolve: {
     alias: [
-      // Lib mode cannot emit the worker as a separate served asset the way the SPA build
-      // does, so the one monaco worker is inlined (a blob URL at runtime). SPA build
-      // unaffected; the embed smoke test opens the editor to prove this keeps working.
-      {
-        find: /^monaco-editor\/esm\/vs\/editor\/editor\.worker\?worker$/,
-        replacement: "monaco-editor/esm/vs/editor/editor.worker?worker&inline",
-      },
+      // Lib mode cannot emit a worker as a separately served asset the way the SPA build
+      // does, so EVERY `?worker` import is inlined (a blob URL at runtime) - keyed on the
+      // suffix, not one specifier, so a second worker added later inherits the rule. SPA
+      // build unaffected; the embed smoke opens the editor and asserts a live blob worker,
+      // and the artifact check fails on any emitted worker chunk.
+      { find: /\?worker$/, replacement: "?worker&inline" },
     ],
   },
   define: {
@@ -142,13 +142,10 @@ export default defineConfig({
     },
     outDir: "dist-lib",
     rollupOptions: {
-      external: [
-        "react",
-        "react-dom",
-        "react-dom/client",
-        "react/jsx-runtime",
-        "react/jsx-dev-runtime",
-      ],
+      // Peers and their subpaths (react-dom/client, react/jsx-runtime, ...): a hand-kept
+      // list once missed a subpath, which bundles a second React copy and throws hook
+      // errors only in hosts.
+      external: (id) => peers.some((p) => id === p || id.startsWith(`${p}/`)),
     },
     chunkSizeWarningLimit: 4500, // monaco + sigma are intentionally bundled (self-contained)
   },
