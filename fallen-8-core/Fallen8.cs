@@ -116,24 +116,58 @@ namespace NoSQL.GraphDB.Core
         ///   The recovery and checkpoint fields are set by the paths that produce them; the degraded
         ///   flag is the same value the OpenTelemetry gauge reads, so the two can never disagree.
         /// </summary>
-        public override DurabilityState Durability => new DurabilityState
+        public override DurabilityState Durability
         {
-            WalEnabled = _wal != null,
-            Degraded = WalDegradedForMetrics,
-            RecoveryRan = _recoveryRan,
-            LastRecoveryTruncated = _lastRecoveryTruncated,
-            LastRecoveryReplayedEntries = _lastRecoveryReplayedEntries,
-            LastCheckpointDroppedIndices = _lastCheckpointDroppedIndices,
-        };
+            get
+            {
+                // Captured ONCE, so the three recovery facts are read as the group they are.
+                var recovery = _recovery;
+                return new DurabilityState
+                {
+                    WalEnabled = _wal != null,
+                    Degraded = WalDegradedForMetrics,
+                    RecoveryRan = recovery.Ran,
+                    LastRecoveryTruncated = recovery.Truncated,
+                    LastRecoveryReplayedEntries = recovery.ReplayedEntries,
+                    LastCheckpointDroppedIndices = _lastCheckpointDroppedIndices,
+                };
+            }
+        }
 
-        /// <summary>Whether a WAL recovery has run in this engine's lifetime (W5).</summary>
-        private volatile Boolean _recoveryRan;
+        /// <summary>
+        ///   The last recovery's outcome as ONE immutable value, published through a single reference when
+        ///   the replay has FINISHED (feature platform-integrity-audit W5, corrected).
+        ///
+        ///   <para>It used to be three volatile fields, reset at replay ENTRY and filled in as the replay
+        ///   proceeded. Boot-time replay is safe that way because nothing serves yet - but <c>Load</c>
+        ///   re-runs the replay on the writer thread while <c>GET /status</c> keeps answering, so a client
+        ///   polling durability mid-replay read "recovery ran, untruncated, 0 replayed" before that outcome
+        ///   existed, and the PREVIOUS recovery's truncation evidence had already been wiped. The one reader
+        ///   of this block is a client deciding whether it is safe to DELETE what nothing asserts any more
+        ///   (the integrations runtime does exactly that), and for it a false "clean" is the worst possible
+        ///   answer. Publishing the whole group at the end means a reader sees either the previous outcome
+        ///   or the new one, never a half-built one.</para>
+        /// </summary>
+        private sealed class RecoveryOutcome
+        {
+            internal static readonly RecoveryOutcome NeverRan = new RecoveryOutcome(false, false, 0);
 
-        /// <summary>Whether the last recovery stopped before the end of the log (W5).</summary>
-        private volatile Boolean _lastRecoveryTruncated;
+            internal RecoveryOutcome(Boolean ran, Boolean truncated, Int32 replayedEntries)
+            {
+                Ran = ran;
+                Truncated = truncated;
+                ReplayedEntries = replayedEntries;
+            }
 
-        /// <summary>How many entries the last recovery replayed (W5).</summary>
-        private volatile Int32 _lastRecoveryReplayedEntries;
+            internal Boolean Ran { get; }
+
+            internal Boolean Truncated { get; }
+
+            internal Int32 ReplayedEntries { get; }
+        }
+
+        /// <summary>The last recovery outcome (W5). Replaced wholesale, never mutated in place.</summary>
+        private volatile RecoveryOutcome _recovery = RecoveryOutcome.NeverRan;
 
         /// <summary>How many indices the last checkpoint dropped from its manifest (W5).</summary>
         private volatile Int32 _lastCheckpointDroppedIndices;

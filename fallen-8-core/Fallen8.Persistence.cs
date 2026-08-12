@@ -287,13 +287,13 @@ namespace NoSQL.GraphDB.Core
             // is a PREFIX of the committed history. That used to be visible only as one log line, which
             // means a client reconciling against the result - and deciding to DELETE what nothing
             // asserts any more - could draw a conclusion from truncated history with no way to know.
-            _recoveryRan = true;
-            _lastRecoveryTruncated = false;
-            _lastRecoveryReplayedEntries = 0;
+            // Accumulated in LOCALS and published as ONE value in the finally below, so a concurrent
+            // GET /status never reads a half-built outcome (see Fallen8.RecoveryOutcome).
+            var replayed = 0;
+            var truncated = false;
 
             try
             {
-                var replayed = 0;
                 foreach (var payload in _wal.ReadEntries())
                 {
                     Persistency.WalEntryType type;
@@ -308,7 +308,7 @@ namespace NoSQL.GraphDB.Core
                         // format problem; stop replay at the last good entry rather than risk
                         // misapplying it.
                         _logger.LogError(ex, "A write-ahead-log entry could not be decoded; recovery stops at the last good entry ({Count} replayed).", replayed);
-                        _lastRecoveryTruncated = true;
+                        truncated = true;
                         break;
                     }
 
@@ -339,7 +339,7 @@ namespace NoSQL.GraphDB.Core
                             }
 
                             _logger.LogError(ex, "Re-executing a logged {Type} transaction during recovery threw; recovery STOPS at the last good entry ({Count} replayed).", type, replayed);
-                            _lastRecoveryTruncated = true;
+                            truncated = true;
                             break;
                         }
 
@@ -352,7 +352,7 @@ namespace NoSQL.GraphDB.Core
                             else
                             {
                                 _logger.LogError("Re-executing a logged {Type} transaction during recovery returned false; recovery STOPS at the last good entry ({Count} replayed).", type, replayed);
-                                _lastRecoveryTruncated = true;
+                                truncated = true;
                                 break;
                             }
                         }
@@ -390,12 +390,15 @@ namespace NoSQL.GraphDB.Core
                     replayed++;
                 }
 
-                _lastRecoveryReplayedEntries = replayed;
                 _logger.LogInformation("Recovered {Count} transaction(s) from the write-ahead log.", replayed);
                 return replayed;
             }
             finally
             {
+                // Published HERE, not at entry, so whatever a reader sees is a COMPLETE outcome. In the
+                // finally rather than after the return, so an unexpected throw still publishes what the
+                // replay actually managed instead of leaving the previous run's numbers on display.
+                _recovery = new RecoveryOutcome(true, truncated, replayed);
                 _walSuspended = false;
             }
         }

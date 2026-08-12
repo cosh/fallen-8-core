@@ -26,6 +26,7 @@
 using System;
 using System.IO;
 using System.Text;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Core.Helper;
 
@@ -124,20 +125,60 @@ namespace NoSQL.GraphDB.Core.Persistency
             try
             {
                 WriteAllBytesDurably(temp, new UTF8Encoding(false).GetBytes(text ?? String.Empty), FileOptions.None);
-
-                if (File.Exists(path))
-                {
-                    File.Replace(temp, path, null);
-                }
-                else
-                {
-                    File.Move(temp, path);
-                }
+                PublishWithRetry(temp, path, logger);
             }
             catch
             {
                 TryDeleteFile(temp, logger);
                 throw;
+            }
+        }
+
+        /// <summary>
+        ///   Publishes a finished temp file over its target atomically, retrying a few times with a short
+        ///   backoff before giving up.
+        ///
+        ///   <para>THE reason for the retry, which is not durability but Windows: another process holding the
+        ///   destination for a moment - a virus scanner or the search indexer opening a file it just saw
+        ///   appear - makes the rename fail with <see cref="UnauthorizedAccessException" /> or a sharing
+        ///   <see cref="IOException" />. That surfaced as a save-game transaction rolling back at random (it
+        ///   flaked a full-suite run), and the operation is safe to repeat: the temp file is complete and
+        ///   fsynced, the target is either the old file or the new one, and a caller who never sees the
+        ///   exception is not deceived about anything. A few tens of milliseconds of backoff is worth not
+        ///   failing a checkpoint the engine has otherwise finished writing.</para>
+        ///
+        ///   <para>Anything other than those two exception types is a real error and is not retried: a
+        ///   missing temp file or a bad path will fail identically the second time.</para>
+        /// </summary>
+        internal static void PublishWithRetry(String temp, String path, ILogger logger = null)
+        {
+            const Int32 attempts = 5;
+            var delayMilliseconds = 5;
+
+            for (var attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        File.Replace(temp, path, null);
+                    }
+                    else
+                    {
+                        File.Move(temp, path);
+                    }
+
+                    return;
+                }
+                catch (Exception ex) when (attempt < attempts &&
+                                           (ex is UnauthorizedAccessException || ex is IOException))
+                {
+                    logger?.LogDebug(ex,
+                        "Publishing \"{Path}\" was refused on attempt {Attempt} of {Attempts}; retrying in {Delay} ms.",
+                        path, attempt, attempts, delayMilliseconds);
+                    Thread.Sleep(delayMilliseconds);
+                    delayMilliseconds *= 2;
+                }
             }
         }
     }

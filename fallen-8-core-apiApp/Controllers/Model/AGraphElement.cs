@@ -93,6 +93,16 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                     return "[" + String.Join(",", vector.Select(v => v.ToString("R", CultureInfo.InvariantCulture))) + "]";
                 case DateTime dateTime:
                     return dateTime.ToString("O", CultureInfo.InvariantCulture);
+                case DateTimeOffset dateTimeOffset:
+                    // "O" like DateTime, and NOT the generic IFormattable arm below, which renders
+                    // "08/09/2026 10:00:00 +02:00" - a form the ingress parser does not accept. Ingress parses "O"
+                    // (AllowedLiteralTypes.ConvertInvariant) and the bulk egress writes "O" (JsonlGraphFormat), so
+                    // without this arm a DateTimeOffset was the one allow-listed type whose egress was not the
+                    // inverse of its ingress. The integrations runtime diffs stored-against-intended by ordinal
+                    // TEXT, so it saw a difference on every poll and wrote on every run - exactly the churn the
+                    // batch-read work existed to remove, and invisible in the graph because the engine treats an
+                    // equal-value write as a no-op.
+                    return dateTimeOffset.ToString("O", CultureInfo.InvariantCulture);
                 case IFormattable formattable:
                     return formattable.ToString(null, CultureInfo.InvariantCulture);
                 default:

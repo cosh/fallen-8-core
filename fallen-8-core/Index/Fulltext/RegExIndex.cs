@@ -322,6 +322,24 @@ namespace NoSQL.GraphDB.Core.Index.Fulltext
                     ImmutableList<AGraphElementModel> values;
                     if (_idx.TryGetValue(key, out values))
                     {
+                        // IDEMPOTENT per (key, element), like ABucketIndex (feature
+                        // platform-integrity-audit W3). This index was left out of that fix, while
+                        // SupportsPointEqualityLookup reports true - so index REPAIR accepts it and its
+                        // "idempotent, safe to run on every start" contract was false here: every
+                        // POST /index/backfill duplicated every posting, and the inflated buckets went
+                        // into the next checkpoint, where a fulltext scan returns them all.
+                        //
+                        // Checked against the bucket rather than through a reverse map like
+                        // ABucketIndex's: this index keys by the WHOLE property value, so a bucket holds
+                        // the elements sharing one identical string, which is a handful in practice
+                        // (it is not a token index). A reverse map would be O(1) but has to be
+                        // maintained in RemoveValue/TryRemoveKey/Wipe and rebuilt on load; that is the
+                        // change to make if a profile ever shows this scan, not before.
+                        if (values.Contains(graphElement))
+                        {
+                            return;
+                        }
+
                         _idx[key] = values.Add(graphElement);
                     }
                     else

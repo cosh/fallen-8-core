@@ -24,7 +24,11 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Transaction;
+using NoSQL.GraphDB.App.Controllers.Model;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Helper;
 
@@ -135,6 +139,73 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(TimeSpan.FromHours(2), parsed.Offset);
             Assert.AreEqual(wire, parsed.ToString("O", CultureInfo.InvariantCulture));
+        }
+
+        [TestMethod]
+        public void EveryAllowedLiteral_RoundTripsThroughTheREALEgressFunction()
+        {
+            // The test above (and every sibling) asserts against a HAND-WRITTEN ToString("O"), which is why
+            // they all passed while the real egress rendered a DateTimeOffset as "08/09/2026 10:00:00 +02:00"
+            // - a form ingress does not parse. So this one goes through the actual wire projection: build a
+            // real element carrying one value per allow-listed type, project it exactly as the REST layer
+            // does, and feed each rendered string back through ingress. Egress that is not the inverse of
+            // ingress makes a client that diffs stored-against-intended by text write on every poll, which
+            // is invisible in the graph because an equal-value write is a no-op.
+            var loggerFactory = TestLoggerFactory.Create();
+            using var fallen8 = new Fallen8(loggerFactory);
+
+            var values = new Dictionary<String, Object>
+            {
+                { "p.string", "text" },
+                { "p.int", 42 },
+                { "p.long", 42L },
+                { "p.double", 0.8d },
+                { "p.float", 0.8f },
+                { "p.decimal", 1.25m },
+                { "p.bool", true },
+                { "p.datetime", new DateTime(2026, 8, 9, 10, 0, 0, DateTimeKind.Unspecified) },
+                { "p.datetimeoffset", new DateTimeOffset(2026, 8, 9, 10, 0, 0, TimeSpan.FromHours(2)) },
+                { "p.guid", Guid.Parse("2f1c4b6a-9d33-4f7e-9a11-6b2c8d5e4f30") },
+            };
+
+            var tx = new CreateVerticesTransaction();
+            tx.AddVertex(1u, "literals", values);
+            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+            Assert.IsTrue(fallen8.TryGetVertex(out var vertex, tx.GetCreatedVertices()[0].Id));
+
+            var projected = new Vertex(vertex);
+
+            foreach (var property in projected.Properties)
+            {
+                var declared = Type.GetType(property.FullQualifiedTypeName);
+                Assert.IsNotNull(declared, property.PropertyId + " must declare a resolvable type");
+
+                var reingested = AllowedLiteralTypes.ConvertInvariant(property.PropertyValue, declared);
+
+                Assert.AreEqual(values[property.PropertyId], reingested,
+                    property.PropertyId + ": the wire form \"" + property.PropertyValue + "\" must ingest back " +
+                    "to the value it was rendered from");
+
+                // And the TEXT, which is the half that actually broke. Value equality is not enough: a
+                // DateTimeOffset rendered "08/09/2026 10:00:00 +02:00" parses back to the same instant, so a
+                // value-only assertion passes while the defect is live. What a client compares is the STRING
+                // it would render against the string it read, so a date must come off the wire in the same
+                // round-trippable ISO form every other egress path uses ("O" in JsonlGraphFormat, and what
+                // the integrations runtime renders). The two date types are the only ones whose canonical
+                // form is not simply ToString(invariant), which is why only they are spelled out here.
+                var canonical = values[property.PropertyId] switch
+                {
+                    DateTime d => d.ToString("O", CultureInfo.InvariantCulture),
+                    DateTimeOffset o => o.ToString("O", CultureInfo.InvariantCulture),
+                    IFormattable f => f.ToString(null, CultureInfo.InvariantCulture),
+                    var other => other.ToString(),
+                };
+
+                Assert.AreEqual(canonical, property.PropertyValue,
+                    property.PropertyId + ": egress must emit the canonical round-trippable form, or a client " +
+                    "that decides 'has anything changed?' by comparing text sees a difference that is not " +
+                    "there and writes on every poll of an unchanged source");
+            }
         }
 
         [TestMethod]

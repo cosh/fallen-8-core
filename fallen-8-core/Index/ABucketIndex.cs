@@ -139,6 +139,19 @@ namespace NoSQL.GraphDB.Core.Index
                     // forward map here and rebuilt from the buckets on load, so it is authoritative.
                     // (A bucket that already carries duplicates from a pre-fix checkpoint keeps them
                     // until it is rebuilt; this guard prevents new ones rather than repairing old.)
+                    // Never index a removed element, mirroring RegExIndex and VectorIndex, whose comment
+                    // says the rule holds "for every index caller" - this index was the one that did not
+                    // enforce it. Index repair reads a snapshot of live elements and adds them on the
+                    // CALLING thread, so a removal committing between that snapshot and this call would
+                    // re-add a tombstone the write-end purge already passed: nothing surfaces (scans
+                    // filter removed elements) but the id is pinned in both maps, persists into the next
+                    // checkpoint, and the following load logs an error per stale id. Inside the write
+                    // lock, so it is ordered against a concurrent RemoveValue, which takes the same lock.
+                    if (graphElement != null && graphElement._removed)
+                    {
+                        return;
+                    }
+
                     var keysForElementPresent = _reverse.TryGetValue(graphElement, out var keysForElement);
                     if (keysForElementPresent && keysForElement.Contains(key))
                     {

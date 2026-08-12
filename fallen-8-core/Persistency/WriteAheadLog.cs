@@ -516,7 +516,10 @@ namespace NoSQL.GraphDB.Core.Persistency
                     try
                     {
                         WriteAllBytesDurably(temp, headerBytes);
-                        File.Move(temp, _path, true);
+
+                        // Through the shared retry: this exact rename lost a race with a Windows file handle
+                        // and rolled a Save transaction back (see DurableFileIo.PublishWithRetry).
+                        DurableFileIo.PublishWithRetry(temp, _path, _logger);
                     }
                     catch
                     {
