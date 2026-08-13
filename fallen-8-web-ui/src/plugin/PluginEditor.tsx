@@ -28,6 +28,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Editor from "@monaco-editor/react";
 import { setupMonaco } from "../delegate/monacoSetup";
+import { F8_EDITOR_OPTIONS } from "../delegate/editorOptions";
 import { registerAlgorithmPlugin, registerFunctionPlugin, validatePlugin } from "../api/endpoints";
 import { ApiError } from "../api/client";
 import type {
@@ -316,15 +317,7 @@ export function PluginEditor({
                 theme="vs-dark"
                 value={source}
                 onChange={(value) => setSource(value ?? "")}
-                options={{
-                  minimap: { enabled: false },
-                  fontSize: 13,
-                  fontFamily: "JetBrains Mono, monospace",
-                  lineNumbers: "on",
-                  scrollBeyondLastLine: false,
-                  automaticLayout: true,
-                  fixedOverflowWidgets: true,
-                }}
+                options={F8_EDITOR_OPTIONS}
               />
             </div>
             {/* Whole-type NL-assist (feature plugin-registration §6): drafts a complete plugin

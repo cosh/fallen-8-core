@@ -28,6 +28,12 @@
 // vitest suite mocks away and no unit can see: the monaco worker surviving lib-mode
 // bundling, sigma rendering from the artifact, the scoped stylesheet neither leaking into
 // the host page nor missing inside the embed, and a clean unmount.
+//
+// TWO tests, and the split is load-bearing rather than cosmetic. Everything that needs a
+// monaco editor lives in the first, which never asserts JS-error cleanliness after disposing
+// it; the unmount test runs on a page that never created an editor, so it can assert errors
+// strictly across teardown. That arrangement, not a message filter, is what makes this suite
+// deterministic: a third party's dispose path is never inside an error assertion's window.
 
 import { expect, test, type Page } from "@playwright/test";
 import type { StatusREST } from "../src/api/types";
@@ -53,18 +59,21 @@ const STATUS_STUB = {
  * JS exceptions always fail the smoke; console errors fail unless they are the resource-load
  * noise of the endpoints this fixture deliberately leaves unserved (/ns rides the tested
  * pre-namespace degradation path; screens fetch and render their error states).
+ *
+ * No message filter, on purpose: nothing here is allowed to be "expected". The one error that
+ * once needed one is gone at the source - monaco 0.52 leaked a `CancellationError`
+ * ("Canceled") as an unhandled rejection when the editor was disposed within 50 ms of a cursor
+ * move, and `occurrencesHighlight: "off"` (src/delegate/editorOptions.ts) stops that promise
+ * from ever being created. Belt as well as braces: no test below asserts error cleanliness on
+ * the far side of a monaco disposal, because monaco's teardown is not ours to guarantee.
  */
 function watchForErrors(page: Page): () => string[] {
   const errors: string[] = [];
+  // The stack, not just the message: the one CI flake this suite ever had (run 31668695976)
+  // was diagnosable only after a local reproduction, because the log recorded a bare
+  // "Canceled" and named no frame.
   page.on("pageerror", (error) => {
-    // Monaco's CancellationError is literally `Error("Canceled")`: disposing the editor
-    // (the spec's Cancel click) while an async round-trip is still in flight makes monaco
-    // throw it - expected teardown behavior of the third-party editor, not an artifact
-    // defect. Timing-dependent, so it surfaced as a CI-only flake (run 31668695976 failed
-    // on the exact code two earlier runs passed). Filtered by the exact message, nothing
-    // broader: a real crash whose message merely CONTAINS "Canceled" still fails.
-    if (error.message === "Canceled") return;
-    errors.push(`pageerror: ${error.message}`);
+    errors.push(`pageerror: ${error.message}\n${error.stack ?? "(no stack)"}`);
   });
   page.on("console", (message) => {
     if (message.type() === "error" && !/Failed to load resource/.test(message.text())) {
@@ -74,9 +83,7 @@ function watchForErrors(page: Page): () => string[] {
   return () => errors;
 }
 
-test("the artifact mounts, scopes its styles, runs monaco and sigma, and unmounts clean", async ({
-  page,
-}) => {
+test("the artifact mounts, scopes its styles, and runs monaco and sigma", async ({ page }) => {
   const errorsSoFar = watchForErrors(page);
   await page.route("**/status", (route) => route.fulfill({ json: STATUS_STUB }));
 
@@ -122,8 +129,11 @@ test("the artifact mounts, scopes its styles, runs monaco and sigma, and unmount
   //    delegate editor, whose worker is inlined by the lib build (vite cannot emit a
   //    separately served worker asset there). The WORKER itself is asserted - editor DOM
   //    alone proves nothing about the worker, and a failed worker-script fetch would hide
-  //    inside the resource-noise filter above. Typing gives the lazy worker a reason to
-  //    start. Closed again so the modal does not block the unmount click.
+  //    inside the resource-noise filter above. A DELTA, not a count: the canvas already runs
+  //    a graphology-layout worker at load, so a bare "more than zero" would pass with
+  //    monaco's worker missing entirely. Typing is what a real user does and gets the lazy
+  //    worker started soonest.
+  const workersBeforeEditor = page.workers().length;
   await page.getByTestId("nav-path").click();
   await page.getByTestId("toggle-advanced").click();
   await page.getByTestId("slot-filter-vertexfilter").click();
@@ -132,19 +142,56 @@ test("the artifact mounts, scopes its styles, runs monaco and sigma, and unmount
   await page.keyboard.type("return (v) => true;", { delay: 10 });
   await expect
     .poll(() => page.workers().length, { timeout: 15_000 })
-    .toBeGreaterThan(0);
+    .toBeGreaterThan(workersBeforeEditor);
   expect(
     page.workers().every((w) => w.url().startsWith("blob:")),
     `inlined workers must be blob: URLs, got: ${page.workers().map((w) => w.url()).join(", ")}`,
   ).toBe(true);
-  await page.getByRole("button", { name: "Cancel" }).click();
-  await expect(page.locator(".monaco-editor")).toHaveCount(0);
 
-  // 7. No JS exception and no unexpected console error anywhere above.
+  // 7. No JS exception and no unexpected console error anywhere above. This runs BEFORE the
+  //    editor is closed, on purpose: closing it disposes a THIRD-PARTY editor, and whether
+  //    monaco's teardown is quiet is monaco's business, not this artifact's (0.52 leaked a
+  //    cancellation as an unhandled rejection - microsoft/monaco-editor#4702 - which
+  //    editorOptions.ts defuses at the source, but a version bump could reintroduce
+  //    something like it). Asserting here makes cleanliness an ordering FACT in this file
+  //    rather than a bet on a third party's dispose path.
   expect(errorsSoFar()).toEqual([]);
 
-  // 8. Unmount leaves the host region empty (no orphaned portals, no leftover DOM).
+  // 8. Cancel removes the editor from the DOM. Last, and DOM-only: nothing about JS errors is
+  //    asserted after this line. Unmount cleanliness is its own test below, on a page where
+  //    no monaco editor was ever created, so that it CAN assert errors strictly.
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(page.locator(".monaco-editor")).toHaveCount(0);
+});
+
+/**
+ * Teardown, on a page that never opened the delegate editor. That is the whole point: no
+ * monaco editor exists to dispose, so this is the one place the smoke can assert BOTH the DOM
+ * outcome and JS-error cleanliness across an unmount without racing a third party. What it
+ * protects: a react unmount crash, a sigma/WebGL kill() throw, a change-feed EventSource close
+ * throw. This suite is the only one in the repo that watches page errors at all (e2e/ installs
+ * no listener), so this assertion is the only thing that can turn such a defect into a red
+ * build.
+ */
+test("the artifact unmounts clean, leaving the host region empty", async ({ page }) => {
+  const errorsSoFar = watchForErrors(page);
+  await page.route("**/status", (route) => route.fulfill({ json: STATUS_STUB }));
+
+  await page.goto("/");
+
+  // Both embeds live before tearing down, so the unmount disposes a real sigma renderer and a
+  // live query client rather than an empty shell.
+  const studioRoot = page.getByTestId("f8-studio-root");
+  await expect(studioRoot).toBeVisible();
+  await expect(page.locator("#canvas-region canvas").first()).toBeAttached();
+
   await page.locator("#host-unmount").click();
   await expect(studioRoot).toHaveCount(0);
   expect(await page.locator("#studio-region").innerHTML()).toBe("");
+
+  // One frame, so a rejection raised during teardown has reached the browser's task queue and
+  // been reported to CDP before this assertion reads the list (mutation-checked: a throwing
+  // unmount cleanup fails HERE, not at an earlier DOM step).
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(null))));
+  expect(errorsSoFar()).toEqual([]);
 });
