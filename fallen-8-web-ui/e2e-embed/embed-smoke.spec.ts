@@ -56,7 +56,16 @@ const STATUS_STUB = {
  */
 function watchForErrors(page: Page): () => string[] {
   const errors: string[] = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => {
+    // Monaco's CancellationError is literally `Error("Canceled")`: disposing the editor
+    // (the spec's Cancel click) while an async round-trip is still in flight makes monaco
+    // throw it - expected teardown behavior of the third-party editor, not an artifact
+    // defect. Timing-dependent, so it surfaced as a CI-only flake (run 31668695976 failed
+    // on the exact code two earlier runs passed). Filtered by the exact message, nothing
+    // broader: a real crash whose message merely CONTAINS "Canceled" still fails.
+    if (error.message === "Canceled") return;
+    errors.push(`pageerror: ${error.message}`);
+  });
   page.on("console", (message) => {
     if (message.type() === "error" && !/Failed to load resource/.test(message.text())) {
       errors.push(`console: ${message.text()}`);
