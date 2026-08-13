@@ -28,6 +28,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { setupMonaco } from "./monacoSetup";
+import { F8_EDITOR_OPTIONS } from "./editorOptions";
 import { diagnosticsToMarkers } from "./markers";
 import { KIND_INFO } from "./kinds";
 import { registerDelegateProviders } from "./providers";
@@ -200,15 +201,7 @@ export function DelegateEditor({
                   value={fragment}
                   onChange={(value) => setFragment(value ?? "")}
                   onMount={handleMount}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    fontFamily: "JetBrains Mono, monospace",
-                    lineNumbers: "on",
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    fixedOverflowWidgets: true,
-                  }}
+                  options={F8_EDITOR_OPTIONS}
                 />
               </div>
 
