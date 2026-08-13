@@ -89,6 +89,7 @@ export default defineConfig({
 						{ label: 'F8 Studio', slug: 'studio' },
 						{ label: 'Standalone deployment', slug: 'standalone-ui' },
 						{ label: 'Embed in a host app', slug: 'embed-studio' },
+						{ label: 'Embed scenarios', slug: 'embed-scenarios' },
 						{ label: 'Benchmark', slug: 'benchmark' },
 					],
 				},

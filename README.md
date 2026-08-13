@@ -74,6 +74,9 @@ Each feature has a deep-dive doc — follow the link.
 - **[Embed F8 Studio](https://cosh.github.io/fallen-8-core/embed-studio/)**: mount the whole Studio (or just its graph
   canvas) inside a host application's own shell via a library artifact - one config object carries the
   instances, credentials (bearer tokens included), namespace pin, theme tokens and storage namespace.
+- **[Embed scenarios](https://cosh.github.io/fallen-8-core/embed-scenarios/)**: the staged path for building Fallen-8
+  into your own product - a WASM graph running entirely in the page, the canvas component rendering it, and
+  the full embedded Studio against a hosted instance, with the boundary between them stated plainly.
 - **[Benchmark](https://cosh.github.io/fallen-8-core/benchmark/)**: measure raw edge-traversal throughput over the
   loaded graph (generated, a sample, or your own data) in the Studio Benchmark screen.
 - **[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/)** — a Model Context Protocol surface so AI agents call

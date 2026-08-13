@@ -9,7 +9,9 @@ it, with a runtime `config.js` pointing it at the right instance. The second is 
 your application (a host portal, an internal tool, an admin console) renders Studio **inside
 its own shell** - its routing, its auth, its chrome - through a library artifact and one
 config object. Everything here is opt-in: every `StudioConfig` field has a default that
-reproduces the standalone app exactly.
+reproduces the standalone app exactly. (This page is the embed CONTRACT; the staged journey -
+an in-browser WASM engine, the canvas over it, then the full Studio - is walked end to end in
+[Embed scenarios](/fallen-8-core/embed-scenarios/).)
 
 ## The artifact
 

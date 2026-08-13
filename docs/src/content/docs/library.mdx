@@ -207,6 +207,10 @@ anywhere.
 | Concurrent callers                            | Serialized, so the single-writer invariant holds even if the host has threads |
 | Group commit                                  | Given up; it was the only thing the queue was buying                      |
 
+To put a face on an in-browser graph, Studio's canvas component renders it straight from your
+interop layer; the walk-through from a WASM engine to the canvas to the full embedded Studio is
+[Embed scenarios](/fallen-8-core/embed-scenarios/).
+
 **Checkpoints work here too.** A save fans its sidecar writes out across the thread pool and then waits
 for them, and a load reads its partitions in parallel, neither of which a single-threaded host can do,
 because the one thread is the one waiting. Both now run inline instead, chosen by the same runtime probe,
