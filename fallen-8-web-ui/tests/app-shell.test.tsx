@@ -256,6 +256,26 @@ describe("nav gating on connection state", () => {
   });
 });
 
+/**
+ * Top-bar column split. The namespace side carries three things that grow - the switcher with its
+ * live counts (a graph can hold millions of vertices and edges), the endpoint prefix, and the
+ * right-pinned status chips - while the instance side only ever shows a short registry name. An
+ * even split starved it: measured at a 1440px viewport, the namespace group had 326px and both the
+ * counts and the endpoint truncated; three quarters gives it 661px and neither does. jsdom computes
+ * no layout, so the declaration that decides it is what gets pinned here.
+ */
+describe("top bar column split", () => {
+  it("gives the namespace side three quarters of the bar, not half", () => {
+    statusMock.mockResolvedValue(STATUS);
+    renderShell();
+
+    const header = document.querySelector("header");
+    expect(header).not.toBeNull();
+    expect(header!.className).toContain("grid-cols-[1fr_3fr]");
+    expect(header!.className).not.toContain("grid-cols-2");
+  });
+});
+
 describe("deep-link guard", () => {
   it("replaces gated screens when the credential is rejected", async () => {
     statusMock.mockResolvedValue({ ...STATUS, apiKeyRequired: true, authenticated: false });

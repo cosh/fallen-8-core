@@ -121,13 +121,19 @@ export function NamespaceSwitcher({
         : null;
 
   return (
-    <div ref={containerRef} className="relative">
+    <div ref={containerRef} className="relative min-w-44 flex-auto">
+      {/* The trigger FILLS the room its container gives it (flex-1 + w-full) instead of hugging its
+          text: in the top bar it is the one growing element between the fixed namespace label and
+          the right-pinned status chips, so whatever the bar reserves for the namespace side is
+          occupied by the name and the counts rather than left as dead space. It also means the
+          counts never run out of room at their worst ("12,345,678 v · 98,765,432 e"), and under
+          real pressure the name truncates before them (Truncated is the only min-w-0 child). */}
       <button
         type="button"
         data-testid="namespace-switcher"
         aria-haspopup="listbox"
         aria-expanded={open}
-        className="input flex w-auto max-w-[20rem] min-w-44 cursor-pointer items-center gap-2 text-left"
+        className="input flex w-full cursor-pointer items-center gap-2 text-left"
         onClick={() => (open ? close() : setOpen(true))}
       >
         {/* The trigger's dot is the residency signal on EVERY screen: an active namespace the

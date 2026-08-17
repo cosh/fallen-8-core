@@ -311,10 +311,16 @@ export function AppShell({ children }: { children: ReactNode }) {
       </nav>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Two equal halves: the instance group fills the LEFT half, the namespace group +
-            endpoint left-align from the midpoint in the RIGHT half, and the status chips stay
-            pinned to the far-right corner. */}
-        <header className="border-line bg-panel grid h-11 shrink-0 grid-cols-2 items-center gap-3 border-b px-3">
+        {/* One quarter / three quarters, not halves: the instance group only ever shows a short
+            registry name, while the RIGHT column carries the namespace switcher WITH its live
+            counts (a graph can hold millions of vertices and edges), the endpoint prefix, and the
+            status chips pinned to the far-right corner. Splitting evenly starved that side - the
+            counts squeezed the namespace name to a few characters and the endpoint truncated
+            mid-URL - so the second column takes its extra room from the first.
+            The switcher is the only element in that column that GROWS (flex-auto), which is what
+            keeps the extra room from showing up as a blank stretch: it resolves before the chips'
+            auto margin, so the room lands in the namespace box and the chips stay flush right. */}
+        <header className="border-line bg-panel grid h-11 shrink-0 grid-cols-[1fr_3fr] items-center gap-3 border-b px-3">
           <div className="flex min-w-0 items-center gap-3">
             <label
               htmlFor="instance-switcher"
@@ -331,7 +337,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 {active?.name ?? ""}
               </span>
             ) : (
-              /* flex-1 makes the select fill the rest of the left half (.input is w-full, which
+              /* flex-1 makes the select fill the rest of the first column (.input is w-full, which
                  flex-1's basis overrides for the flex main size). */
               <select
                 id="instance-switcher"

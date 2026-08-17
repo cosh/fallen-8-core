@@ -304,6 +304,22 @@ describe("namespace switcher dropdown", () => {
     expect(screen.getByTestId("namespace-dropdown-footer")).toHaveTextContent(/2 \/ 10[., ]000/);
   });
 
+  it("fills the room its container gives it rather than hugging its text", () => {
+    renderSwitcher();
+
+    // jsdom computes no layout, so the width DECLARATION is what can be pinned. This is the
+    // trigger's half of the top bar's split (see app-shell.test.tsx): the bar reserves three
+    // quarters for the namespace side, and the switcher is the one element there that grows, so
+    // the reserved room ends up inside the namespace box instead of as a blank stretch in front of
+    // the right-pinned chips. A content-hugging trigger (w-auto) is what left that gap.
+    const trigger = screen.getByTestId("namespace-switcher");
+    expect(trigger.className).toContain("w-full");
+    expect(trigger.className).not.toContain("w-auto");
+    expect(trigger.parentElement!.className).toContain("flex-auto");
+    // Still floored, so a namespace with no counts yet does not collapse to its glyphs.
+    expect(trigger.parentElement!.className).toContain("min-w-44");
+  });
+
   it("filters rows and switches on click", async () => {
     const user = userEvent.setup();
     renderSwitcher();
