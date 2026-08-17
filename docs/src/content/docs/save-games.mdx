@@ -13,7 +13,7 @@ flowchart LR
     WAL -.->|"PUT /save or<br/>clean shutdown"| CP["checkpoint<br/>(save-game files)"]
     CP -->|records KPIs + file facts| REG[("registry<br/>savegames.json")]
     CP -->|resets WAL to this snapshot| WAL
-    REG ==>|"boot: newest entry per namespace"| LOAD["load checkpoint,<br/>then replay WAL tail"]
+    REG ==>|"boot: newest entry per loaded namespace"| LOAD["load checkpoint,<br/>then replay WAL tail"]
 ```
 
 ## Durability model
@@ -40,16 +40,17 @@ Between checkpoints the WAL records the same data mutations plus id-space marker
 
 ## Startup
 
-The registry (never the files on disk) decides what boots. Each namespace is resolved by its immutable id (a rename keeps its history; a drop + recreate does not inherit the old one's saves):
+Two decisions, in this order: the [namespace catalog](/fallen-8-core/namespaces/#startup-load) decides **which namespaces** this boot loads at all, and then, for each of those, the registry (never the files on disk) decides **what loads into it**. Each namespace is resolved by its immutable id (a rename keeps its history; a drop + recreate does not inherit the old one's saves):
 
-| Registry state | What loads |
+| Namespace and registry state | What loads |
 |---|---|
-| An entry contains the namespace | Its newest such entry's checkpoint is loaded, then the WAL tail is replayed |
-| No entry contains it | Nothing is loaded; the namespace keeps its WAL-replayed construction state, an empty graph on a fresh deployment |
+| Loaded, and an entry contains it | Its newest such entry's checkpoint is loaded, then the WAL tail is replayed |
+| Loaded, and no entry contains it | Nothing is loaded; the namespace keeps its WAL-replayed construction state, an empty graph on a fresh deployment |
+| Its [startup-load policy](/fallen-8-core/namespaces/#startup-load) excludes it | Nothing at all: no engine is constructed, so no checkpoint is read and no WAL replayed. It stays cataloged and answers `503` until it is loaded |
 
 - A checkpoint file merely sitting in the storage directory is **not** auto-loaded. (Exception: a checkpoint strictly newer than the newest registered entry is adopted: it is a durable save whose registry write did not complete before a crash.)
-- To **adopt an unregistered checkpoint**, load it once with `PUT /load`; it is then registered permanently and boots normally thereafter.
-- A registered entry whose checkpoint file is missing aborts startup loudly rather than serving an empty graph: restore the file, or delete the entry (`DELETE /savegames/{id}`) and restart.
+- To **adopt an unregistered checkpoint**, load it once with `PUT /load`; it is then registered permanently and boots normally thereafter. A namespace that is *not loaded* and has only unregistered checkpoint files refuses [activation](/fallen-8-core/namespaces/#loading-one-now) with `409` rather than coming up empty beside them, and its detail names the adoption path.
+- A registered entry whose checkpoint file is missing aborts startup loudly rather than serving an empty graph: restore the file, or delete the entry (`DELETE /savegames/{id}`) and restart. That abort covers the namespaces this boot **selected**: broken files under a namespace nobody asked to load cannot keep the server down, and they are still exactly as broken when you do load it.
 - A corrupt `savegames.json` is a loud failure too, never silently overwritten: fix the JSON, or move the file aside and re-adopt the checkpoints with `PUT /load` (you lose the history, not the data).
 
 ## Configuration
@@ -73,8 +74,10 @@ Base URL `http://localhost:8080`. `PUT /save` and `PUT /load` target the address
 
 | Route | Scope | Body | Responses |
 |---|---|---|---|
-| `PUT /save` | namespace | `SaveSpecification` (all optional) | `200` created entry · `400` · `500` rolled back |
-| `PUT /save/all` | Fallen-8 | (none) | `200` one entry spanning all namespaces · `429` rate-limited · `500` (body names failed namespaces; successful ones are still registered) |
+| `PUT /save` | namespace | `SaveSpecification` (all optional) | `200` created entry · `400` · `500` rolled back · `503` the addressed namespace is not loaded |
+| `PUT /save/all` | Fallen-8 | (none) | `200` one entry spanning every **loaded** namespace · `429` rate-limited · `500` (body names failed namespaces; successful ones are still registered) |
+
+**A namespace with no engine in this process is never a member of a save**, so what a spanning entry covers depends on what the boot loaded. `PUT /save/all` skips such a namespace and names it in a `skippedNamespaces` member (on the `200`, and as a problem extension on the `500`); the clean-shutdown save skips it with an informational log line; a `PUT /save` addressed at it refuses with `503`. Its checkpoint files and its WAL are left untouched, which is the point: an empty save of a namespace that holds data would both bury the real checkpoint under a newer entry and reset that namespace's WAL to a bare header. The consequence to keep in mind is that "the newest entry is my whole Fallen-8" holds only while every namespace is loaded. See [namespaces](/fallen-8-core/namespaces/#startup-load).
 
 `SaveSpecification`: `saveGameLocation` (path; defaults to `CheckpointBaseName` in the addressed namespace's directory), `savePartitions` (defaults to the optimal count for the CPU). Both `PUT /save` and `PUT /save/all` wait for the save to finish before responding.
 
@@ -87,7 +90,7 @@ difference between "the graph is complete" and "the graph is what survived":
 
 | Field | Means |
 |---|---|
-| `walEnabled` | a write-ahead log is open for this namespace |
+| `walEnabled` | this namespace is logging commits to a write-ahead log (there is no persistent handle: every append opens the file, fsyncs and closes it) |
 | `degraded` | the log's failure fence has tripped, or an anchored log is waiting for its paired load: commits are landing in memory but not durably |
 | `recoveryRan` | a log replay has happened in this engine's lifetime |
 | `lastRecoveryTruncated` | that replay stopped before the end of the log, so the graph is a **prefix** of the committed history |
@@ -111,7 +114,7 @@ call.
 |---|---|---|
 | `GET /savegames` | List every entry, newest first | `200` |
 | `GET /savegames/{id}` | One entry | `200` · `204` unknown id |
-| `PUT /savegames/{id}/load` | Restore the entry's namespaces, replacing their in-memory graphs | `200` (waited) · `202` (accepted) · `404` · `500` (three causes, below) |
+| `PUT /savegames/{id}/load` | Restore the entry's namespaces, replacing their in-memory graphs | `200` (waited) · `202` (accepted) · `404` · `500` (four causes, below) |
 | `DELETE /savegames/{id}` | Remove the entry; `?deleteFiles=true` also deletes its checkpoint files | `204` · `404` |
 | `PUT /load` | Load a checkpoint from an arbitrary path into the addressed namespace | `204` · `400` · `500` rolled back |
 
@@ -119,9 +122,11 @@ Restore query parameters: `?waitForCompletion=true` awaits the load and returns 
 
 **A restore is not a rollback, because the WAL always participates.** A successful save re-anchors its namespace's WAL to the checkpoint it just wrote. Restoring the entry the live log is anchored to (normally the newest) therefore loads that checkpoint and then replays everything committed since it, landing back on the current committed state: "restore the last save game to undo my recent writes" is a no-op. Restoring an *older* entry re-anchors the log to it and **discards** the transactions committed after it, which is the honest way back to a point in time; the discard is announced as a loud server-log warning. `PUT /load` of an arbitrary path behaves identically.
 
-`500` from `PUT /savegames/{id}/load` has three causes, and the first two are all-or-nothing pre-flight failures that touch no graph at all: a member's checkpoint file is missing (`Save game files missing`, the REST twin of the startup abort above) or a dropped namespace could not be recreated (`Namespace restore failed`). Only the third, a rolled-back load transaction, can leave a partial restore; that body carries a `failedNamespaces` member naming the namespaces that failed.
+`500` from `PUT /savegames/{id}/load` has four causes, and the first two are all-or-nothing pre-flight failures that touch no graph at all: a member's checkpoint file is missing (`Save game files missing`, the REST twin of the startup abort above) or a dropped namespace could not be recreated (`Namespace restore failed`). The third is a member that is not loaded in this process and could not be activated (`Namespace restore failed` as well); it names in `activatedNamespaces` the members that were already activated and restored before it failed, and nothing else was. Only the fourth, a rolled-back load transaction, can leave a partial restore; that body carries a `failedNamespaces` member naming the namespaces that failed.
 
-A registry entry (`SaveGameREST`) reports: `id`, `savedAt` (ISO-8601 UTC), `trigger` (`api` \| `shutdown` \| `imported`), `location`, `fileCount`, `totalBytes`, `engineVersion`, `kpis` (`vertexCount`, `edgeCount`, `usedMemoryBytes` for the process working set at save time, plus the index/plugin/subgraph inventory), and a `namespaces[]` manifest (`name`, `id`, `location`, file facts, `kpis` per member). The top level is conditional: on a multi-namespace entry (what `PUT /save/all` and the shutdown save produce) `location` is `null` and `fileCount`/`totalBytes`/`kpis` are sums across the members, so read `namespaces[].location` for a member's checkpoint. A single-member entry mirrors that member at the top level, and a pre-namespace entry has no `namespaces` at all (it reads as a `default`-only save).
+**Restoring into a namespace this process did not load** activates it *and* sets its startup-load policy to enabled, reporting both in the response's `activatedNamespaces`. Activating alone would let the data you just restored go invisible again at the next boot; refusing would dead-end a legitimate recovery behind "change the policy, restart, restore". Such a member is restored directly from *this* entry's checkpoint rather than from the namespace's own newest one, and the policy write happens first, so a failure there means nothing was restored at all. It is loaded synchronously even with `waitForCompletion=false` (whose `202` carries no body); `GET /ns` then shows it as `ready`.
+
+A registry entry (`SaveGameREST`) reports: `id`, `savedAt` (ISO-8601 UTC), `trigger` (`api` \| `shutdown` \| `imported`), `location`, `fileCount`, `totalBytes`, `engineVersion`, `kpis` (`vertexCount`, `edgeCount`, `usedMemoryBytes` for the process working set at save time, plus the index/plugin/subgraph inventory), and a `namespaces[]` manifest (`name`, `id`, `location`, file facts, `kpis` per member). The top level is conditional: on a multi-namespace entry (what `PUT /save/all` and the shutdown save produce) `location` is `null` and `fileCount`/`totalBytes`/`kpis` are sums across the members, so read `namespaces[].location` for a member's checkpoint. A single-member entry mirrors that member at the top level, and a pre-namespace entry has no `namespaces` at all (it reads as a `default`-only save). Two members describe the **operation** rather than the entry and appear only on the response that produced them, never in `savegames.json`: `skippedNamespaces` (from `PUT /save/all`) and `activatedNamespaces` (from `PUT /savegames/{id}/load`).
 
 ## Examples
 
@@ -199,7 +204,7 @@ Invoke-RestMethod -Method Put -Uri http://localhost:8080/load -ContentType "appl
 
 ## Namespaces
 
-`PUT /save/all` checkpoints every namespace into **one** save-game entry: a single consistent restore point for the whole Fallen-8; the clean-shutdown save produces the same shape. Restore the whole entry, or a single member with `?namespace={name}`, via `PUT /savegames/{id}/load`. Each namespace keeps its own checkpoint files and WAL under its own directory (`default` uses the storage directory itself, every other namespace a `namespaces/<id>/` subdirectory of it), while the registry is shared. The namespace model itself lives in [namespaces](/fallen-8-core/namespaces/).
+`PUT /save/all` checkpoints every **loaded** namespace into **one** save-game entry: a single consistent restore point for as much of the Fallen-8 as this process holds (all of it, unless a [startup-load policy](/fallen-8-core/namespaces/#startup-load) excluded something, in which case the response names what it skipped); the clean-shutdown save produces the same shape. Restore the whole entry, or a single member with `?namespace={name}`, via `PUT /savegames/{id}/load`. Each namespace keeps its own checkpoint files and WAL under its own directory (`default` uses the storage directory itself, every other namespace a `namespaces/<id>/` subdirectory of it), while the registry is shared. The namespace model itself lives in [namespaces](/fallen-8-core/namespaces/).
 
 ## Studio
 

@@ -55,7 +55,7 @@ namespace NoSQL.GraphDB.Bench
     }
 
     /// <summary>
-    ///   The four measurements the capacity report publishes. Each is deliberately simple and
+    ///   The five measurements the capacity report publishes. Each is deliberately simple and
     ///   self-contained: the value of this tool is that a reader can see exactly what was timed.
     /// </summary>
     internal static class Measurements
@@ -204,6 +204,103 @@ namespace NoSQL.GraphDB.Bench
                 finally
                 {
                     engine.Dispose();
+                }
+            }
+            finally
+            {
+                TryDelete(directory);
+            }
+        }
+
+        /// <summary>
+        ///   How long it takes to bring one namespace up: construct an engine and restore the
+        ///   checkpoint it boots from. This is what a start pays per LOADED namespace, and therefore
+        ///   the latency half of what excluding a namespace from the startup load saves (feature
+        ///   namespace-startup-load; the heap half is <see cref="Memory" />). It is measured on the
+        ///   same graph shapes as <see cref="SaveStall" />, so a save and its restore can be read
+        ///   off one row pair.
+        ///
+        ///   <para>Deliberately NOT warmed up, which is the opposite choice from
+        ///   <see cref="SaveStall" /> and for a stated reason: a save repeats for the life of a
+        ///   process, so its steady state is what a caller waits on, while a startup load happens
+        ///   exactly once in a COLD process - the JIT and first-touch costs a warm-up would remove
+        ///   are part of the thing being measured. The scenarios run smallest first, so that one-off
+        ///   cost lands on the row where it is visible as a worse per-element rate rather than being
+        ///   hidden inside a large one.</para>
+        ///
+        ///   <para>The write-ahead-log tail is not in the number. A boot replays it on top of the
+        ///   checkpoint, and its cost is proportional to what was committed since the last save, not
+        ///   to the size of the graph.</para>
+        /// </summary>
+        internal static LoadMetric Load(Shape shape)
+        {
+            var directory = Path.Combine(Path.GetTempPath(), "f8-bench-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+
+            try
+            {
+                String checkpoint;
+                Int32 expectedVertices;
+                Int64 expectedEdges;
+
+                var writer = GraphBuilder.NewEngine();
+                try
+                {
+                    var vertices = GraphBuilder.AddVertices(writer, shape.Vertices);
+                    expectedEdges = GraphBuilder.AddEdges(writer, vertices, shape.EdgesPerVertex);
+                    expectedVertices = writer.VertexCount;
+
+                    var save = new SaveTransaction { Path = Path.Combine(directory, "checkpoint"), SavePartitions = 0 };
+                    writer.EnqueueTransaction(save).WaitUntilFinished();
+                    checkpoint = save.ActualPath;
+                }
+                finally
+                {
+                    writer.Dispose();
+                }
+
+                // The graph that produced the checkpoint has to be gone before the restore is timed:
+                // a boot restores into a heap that does not already hold a copy of the same graph,
+                // and leaving one there would have the restore allocating against a collector that
+                // is working twice as hard as it would on a real start.
+                GraphBuilder.RetainedBytes();
+
+                var stopwatch = Stopwatch.StartNew();
+                // Engine construction is inside the timed region on purpose: a boot pays it per
+                // namespace too (it is also where an unanchored write-ahead log replays), and "do
+                // not load this namespace" is precisely a decision not to run these two steps.
+                var restored = GraphBuilder.NewEngine();
+                try
+                {
+                    var load = new LoadTransaction { Path = checkpoint, StartServices = false };
+                    restored.EnqueueTransaction(load).WaitUntilFinished();
+                    stopwatch.Stop();
+
+                    // A load that quietly restored nothing would report a spectacular rate, so the
+                    // counts are checked rather than assumed: the engine treats a missing file as a
+                    // no-op, and a rolled-back load leaves the graph empty.
+                    if (restored.VertexCount != expectedVertices || restored.EdgeCount != expectedEdges)
+                    {
+                        throw new InvalidOperationException(String.Format(CultureInfo.InvariantCulture,
+                            "The restore of \"{0}\" produced {1} vertices and {2} edges, but the checkpoint was " +
+                            "written from {3} vertices and {4} edges; the measurement would be meaningless.",
+                            checkpoint, restored.VertexCount, restored.EdgeCount, expectedVertices, expectedEdges));
+                    }
+
+                    var elements = (Int64)restored.VertexCount + restored.EdgeCount;
+                    return new LoadMetric
+                    {
+                        Label = shape.Label,
+                        Elements = elements,
+                        Vertices = restored.VertexCount,
+                        Edges = expectedEdges,
+                        LoadMs = Math.Round(stopwatch.Elapsed.TotalMilliseconds, 1),
+                        ElementsPerSecond = Math.Round(elements / stopwatch.Elapsed.TotalSeconds, 0)
+                    };
+                }
+                finally
+                {
+                    restored.Dispose();
                 }
             }
             finally

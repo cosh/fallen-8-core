@@ -56,16 +56,29 @@ namespace NoSQL.GraphDB.App.Namespaces
         ///   process, and the request is retryable once it is loaded.</para>
         ///   <para><c>namespaceState</c> is what a client branches on, so it never has to parse the
         ///   detail sentence.</para>
+        ///   <para>The detail names both ways out, in the order an operator wants them: activate it
+        ///   now (this process), and set the policy so the next boot loads it too. Naming only the
+        ///   policy would tell an operator mid-incident to restart when they do not have to; naming
+        ///   only activation would have them fix it once per boot forever.</para>
         /// </summary>
-        internal static ObjectResult NotLoaded(String name) =>
-            ProblemResults.Create(StatusCodes.Status503ServiceUnavailable, "Namespace not loaded",
+        /// <param name="name">The addressed namespace.</param>
+        internal static ObjectResult NotLoaded(String name)
+        {
+            // The URLs carry the ENCODED name while the quoted one stays human-readable: names are
+            // permissive (a space, "#", "?", "%" or non-ASCII is valid) and the two instructions
+            // below would otherwise be wrong for exactly the names an operator needs help copying.
+            // Encoded once, here, per Namespace.UrlSegment's contract.
+            var url = Namespace.UrlSegment(name);
+            return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable, "Namespace not loaded",
                 "The namespace \"" + name + "\" exists on this Fallen-8 but is not loaded in this " +
-                "process, so it cannot serve requests. Its data on disk is untouched. Load it with " +
-                "POST /ns/" + name + "/activate, or set its startup-load policy and restart.",
+                "process, so it cannot serve requests. Its data on disk is untouched. Load it now " +
+                "with POST /ns/" + url + "/activate; to have every boot load it, also set its " +
+                "startup-load policy (PATCH /ns/" + url + " with \"loadOnStartup\": \"enabled\").",
                 p =>
                 {
                     p.Extensions["namespace"] = name;
-                    p.Extensions["namespaceState"] = "notLoaded";
+                    p.Extensions["namespaceState"] = Namespace.WireName(NamespaceState.NotLoaded);
                 });
+        }
     }
 }

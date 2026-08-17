@@ -32,20 +32,22 @@ import { createNamespace } from "../api/endpoints";
 import { ApiError } from "../api/client";
 import { DEFAULT_NAMESPACE } from "../instances/registry";
 import { isValidNamespaceName } from "../lib/namespaceName";
+import { formatCountOrDash } from "../lib/format";
 import { Truncated } from "./Truncated";
 
 /**
  * The top-bar namespace switcher (feature graph-namespaces, per the approved mock): a
  * trigger showing the active namespace with its counts, and a dropdown with a filter,
- * per-namespace rows (state dot, counts, active / bare-URL-alias / not-ready tags), an
+ * per-namespace rows (state dot, counts, active / bare-URL-alias / not-ready / not-loaded
+ * tags), an
  * inline "+ New namespace" create that switches to the newborn, a "Manage…" jump to the
  * Connect panel, and the quota footer. Full CRUD stays on the Connect screen.
+ *
+ * This component renders in the app shell on EVERY screen, so it must survive any entry the
+ * inventory can contain: a namespace the server did not load carries null counts, and throwing
+ * on one of them would take the whole Studio down with the error boundary - including the
+ * Namespaces panel an operator would use to undo the exclusion. Hence `formatCountOrDash`.
  */
-
-
-function formatCount(value: number): string {
-  return value.toLocaleString();
-}
 
 export function NamespaceSwitcher({
   instance,
@@ -128,11 +130,21 @@ export function NamespaceSwitcher({
         className="input flex w-auto max-w-[20rem] min-w-44 cursor-pointer items-center gap-2 text-left"
         onClick={() => (open ? close() : setOpen(true))}
       >
-        <span aria-hidden className="text-accent shrink-0">●</span>
+        {/* The trigger's dot is the residency signal on EVERY screen: an active namespace the
+            server did not load takes the same faint "◐" the dropdown rows already use for a
+            non-ready one, so nothing new enters the visual vocabulary. An entry the inventory
+            does not carry (offline, still loading) keeps today's accent dot. */}
+        <span
+          aria-hidden
+          title={active?.state}
+          className={`shrink-0 ${active && active.state !== "ready" ? "text-fg-faint" : "text-accent"}`}
+        >
+          {active && active.state !== "ready" ? "◐" : "●"}
+        </span>
         <Truncated text={activeNamespace} className="min-w-0 font-semibold" />
         {active && (
           <span className="text-fg-faint shrink-0 text-[11px]">
-            {formatCount(active.vertexCount)} v · {formatCount(active.edgeCount)} e
+            {formatCountOrDash(active.vertexCount)} v · {formatCountOrDash(active.edgeCount)} e
           </span>
         )}
         <span aria-hidden className="text-fg-faint ml-auto shrink-0">▾</span>
@@ -177,16 +189,23 @@ export function NamespaceSwitcher({
                 </span>
                 <Truncated text={entry.name} className="text-fg min-w-0 font-semibold" />
                 <span className="text-fg-faint shrink-0">
-                  {formatCount(entry.vertexCount)} v · {formatCount(entry.edgeCount)} e
+                  {formatCountOrDash(entry.vertexCount)} v · {formatCountOrDash(entry.edgeCount)} e
                 </span>
+                {/* Residency outranks "active" and "bare-URL alias" in the one tag slot: both of
+                    those are already said elsewhere (the trigger names the active namespace and
+                    aria-selected marks it; the Namespaces panel names the alias), while a
+                    not-loaded namespace unannounced is the one state that changes what every
+                    screen can do - it answers 503. "not ready" stays the word for "creating". */}
                 <span className="text-fg-faint ml-auto shrink-0 text-[10px] tracking-wider uppercase">
-                  {entry.name === activeNamespace
-                    ? "active"
-                    : entry.state !== "ready"
-                      ? "not ready"
-                      : entry.name === DEFAULT_NAMESPACE
-                        ? "bare-URL alias"
-                        : ""}
+                  {entry.state === "notLoaded"
+                    ? "not loaded"
+                    : entry.name === activeNamespace
+                      ? "active"
+                      : entry.state !== "ready"
+                        ? "not ready"
+                        : entry.name === DEFAULT_NAMESPACE
+                          ? "bare-URL alias"
+                          : ""}
                 </span>
               </button>
             ))}

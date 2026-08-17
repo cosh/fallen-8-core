@@ -47,7 +47,7 @@ Invoke-RestMethod -Uri http://localhost:8080/metrics
 </TabItem>
 </Tabs>
 
-**Engine meter `NoSQL.GraphDB.Core`** (per-engine; a host-assigned `fallen8.scope.id` tag carries the namespace id so several namespaces stay distinguishable; durations in seconds, sizes in bytes):
+**Engine meter `NoSQL.GraphDB.Core`** (per-engine; a host-assigned `fallen8.scope.id` tag carries the namespace id so several namespaces stay distinguishable; durations in seconds, sizes in bytes). Per-engine means per **loaded** namespace: one the boot did not load has no engine and therefore emits none of these instruments, while still appearing in `GET /ns` ([namespaces](/fallen-8-core/namespaces/#startup-load)):
 
 | Instrument | Type | Meaning |
 |---|---|---|
@@ -112,7 +112,7 @@ Spans exist only when `Otlp:Endpoint` is set: with no endpoint no sampler listen
 
 An **advisory**, lock-free graph-shape snapshot: reads run concurrent with the writer, so it is not transactionally consistent. Always available (no OTel wiring required). Requires the API key when one is configured (it exposes schema-shaped names) and sits under the sensitive fixed-window rate limiter so a runaway scrape loop cannot turn an O(V+E) pass into a DoS.
 
-It describes the addressed namespace and also answers under `/ns/{ns}/statistics` ([namespaces](/fallen-8-core/namespaces/)), so the bare URL below is the reserved `default` graph. Counts, cardinalities and the index inventory are per-namespace; the `memory` block is process-wide.
+It describes the addressed namespace and also answers under `/ns/{ns}/statistics` ([namespaces](/fallen-8-core/namespaces/)), so the bare URL below is the reserved `default` graph. A namespace this process did not load refuses it with `503`, like every namespace-scoped route except `/status`. Counts, cardinalities and the index inventory are per-namespace; the `memory` block is process-wide.
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -150,6 +150,7 @@ Invoke-RestMethod -Uri http://localhost:8080/statistics -Headers @{ "X-Api-Key" 
 The cheap discovery probe: config and O(1) count reads plus, only when the ingestion / NLP capabilities are on, a `GET /health` probe of each sidecar (cached for 30s, 5s budget). Never a graph pass. Anonymous even when an API key is set, so it doubles as the connection check. Like `/statistics` it describes the addressed namespace and answers under `/ns/{ns}/status` too ([namespaces](/fallen-8-core/namespaces/)): the counts and the index inventory are per-namespace, `usedMemory` is the whole process's working set. Reports:
 
 - `usedMemory`, `vertexCount`, `edgeCount`.
+- `namespaceState`: the addressed namespace's residency, `ready` or `notLoaded`. This is the **only** namespace-scoped route that still answers for a namespace this process did not load ([namespaces](/fallen-8-core/namespaces/#startup-load)); every other one refuses with `503`. In that state every engine-derived field below is absent (`null`) rather than zero or empty, counts and index inventory included, because a zero count reads as "healthy and empty" both to a first-run walkthrough and to a client that deletes what nothing asserts any more. The host-level half (memory, `apiKeyRequired`/`authenticated`, the provider blocks) is reported as usual, which is what keeps the probe usable.
 - `indices`: the live index inventory (id, plugin type, capabilities, key/value counts; a count is `null` when the index does not support counting).
 - `availableIndexPlugins`, `availablePathPlugins`, `availableSubGraphPlugins`, `availableAnalyticsPlugins`, `availableServicePlugins`: the discovered [plugins](/fallen-8-core/plugins/). The path, subgraph and analytics lists also carry this namespace's runtime-registered plugins, so a registered algorithm is discoverable here even where it is not invocable: what each contract can actually be called with is in [plugin registration](/fallen-8-core/plugin-registration/).
 - `apiKeyRequired` (server config) and `authenticated` (this request): a client is authorized iff `!apiKeyRequired || authenticated` (see [security](/fallen-8-core/security/)).
@@ -181,7 +182,7 @@ Both are anonymous and always mapped. The body is just the status word as `text/
 | Probe | Healthy (200) when |
 |---|---|
 | `GET /healthz` | Liveness: the server answers (no checks run). |
-| `GET /readyz` | Readiness: load-at-startup has completed (immediately in volatile mode); `503` before that. |
+| `GET /readyz` | Readiness: load-at-startup has completed for the namespaces this boot loads (immediately in volatile mode); `503` before that. Activating a namespace later never takes readiness away. |
 
 Honest note: hosted services finish startup before Kestrel accepts connections in the current wiring, so today `readyz` is effectively equivalent to `healthz` once the server serves. The endpoint still pins the contract and serves orchestrator convention.
 

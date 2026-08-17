@@ -50,12 +50,15 @@ namespace NoSQL.GraphDB.App.Controllers
     {
         private readonly Fallen8Namespaces _namespaces;
         private readonly SaveGameRegistry _registry;
+        private readonly NamespaceLoader _loader;
         private readonly ILogger<SaveGamesController> _logger;
 
-        public SaveGamesController(Fallen8Namespaces namespaces, SaveGameRegistry registry, ILogger<SaveGamesController> logger)
+        public SaveGamesController(Fallen8Namespaces namespaces, SaveGameRegistry registry, NamespaceLoader loader,
+            ILogger<SaveGamesController> logger)
         {
             _namespaces = namespaces;
             _registry = registry;
+            _loader = loader;
             _logger = logger;
         }
 
@@ -105,11 +108,19 @@ namespace NoSQL.GraphDB.App.Controllers
         /// namespace is recreated, an existing one has its content replaced, and namespaces the
         /// entry does NOT contain are left untouched. Pre-namespace (v1) entries restore into
         /// "default". With ?namespace={name}, only that one namespace is restored.
+        ///
+        /// A member that is cataloged but NOT loaded in this process is ACTIVATED and its
+        /// startup-load policy is set to "enabled" (feature namespace-startup-load, spec decision
+        /// 8.3), and both are reported in the response's "activatedNamespaces". Activating without
+        /// the policy would let the restored data go invisible again at the next boot; refusing
+        /// would dead-end a legitimate recovery behind "change policy, restart, restore". Such a
+        /// member is loaded synchronously even with waitForCompletion=false, whose 202 carries no
+        /// body - GET /ns then shows it as loaded.
         /// </remarks>
-        /// <response code="200">Loaded (waited); returns the save game</response>
+        /// <response code="200">Loaded (waited); returns the save game, plus "activatedNamespaces" when it had to load one</response>
         /// <response code="202">Load accepted (not waited)</response>
         /// <response code="404">No save game with that id, or the entry does not contain the requested namespace</response>
-        /// <response code="500">A load transaction was rolled back, or a dropped namespace could not be recreated</response>
+        /// <response code="500">A load transaction was rolled back, a dropped namespace could not be recreated, or a not-loaded member could not be activated</response>
         [HttpPut("/savegames/{id}/load")]
         [ProducesResponseType(typeof(SaveGameREST), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
@@ -154,7 +165,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             // Resolve/recreate ALL target namespaces before enqueuing ANY load, so a failure here
             // leaves every graph untouched. Namespaces the entry does not contain are never touched.
-            var targets = new List<(SaveGameNamespaceREST Member, Namespace Target, Boolean Recreated)>();
+            var targets = new List<(SaveGameNamespaceREST Member, Namespace Target, Boolean Recreated, Boolean Activated)>();
             foreach (var member in members)
             {
                 var recreated = false;
@@ -168,12 +179,94 @@ namespace NoSQL.GraphDB.App.Controllers
                     }
                     recreated = true;
                 }
-                targets.Add((member, target, recreated));
+
+                targets.Add((member, target, recreated, false));
+            }
+
+            // Not-loaded members are handled in their OWN pass, after every member resolved, so that
+            // every pre-existing failure mode still means literally "nothing was restored": the
+            // recreate above can fail, and it must not be able to fail after this pass has already
+            // loaded and restored a member (feature namespace-startup-load, spec decision 8.3).
+            var activated = new List<String>();
+            for (var i = 0; i < targets.Count; i++)
+            {
+                var (member, target, recreated, _) = targets[i];
+                if (target.IsLoaded)
+                {
+                    continue;
+                }
+
+                // The POLICY FLIP GOES FIRST, and the order is the whole argument: it is a cheap
+                // catalog write, so if it fails nothing has been restored yet and the refusal below is
+                // still true. Flipping afterwards could only ever leave a 200 body claiming a policy
+                // change that did not persist - the restored data would then go invisible at the next
+                // boot, which is exactly the trap 8.3 closes.
+                var policy = new NamespaceUpdate { LoadOnStartupSupplied = true, LoadOnStartupEnabled = true };
+                Boolean policySet;
+                try
+                {
+                    policySet = _namespaces.TryUpdate(target.Name, policy, out _, out _);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Could not persist the startup-load policy of namespace \"{Namespace}\" while " +
+                        "restoring save game {Id}; nothing was restored.", target.Name, id);
+                    policySet = false;
+                }
+
+                if (!policySet)
+                {
+                    return ProblemResults.Create(StatusCodes.Status500InternalServerError, "Namespace restore failed",
+                        "Namespace \"" + target.Name + "\" is not loaded in this process and its startup-load policy " +
+                        "could not be set to enabled, so nothing was restored: loading it without that policy would " +
+                        "hide the restored data again at the next boot.");
+                }
+
+                // Activation restores THIS entry's checkpoint directly (never the namespace's own
+                // newest one): loading the newest first would be a full load whose result this restore
+                // discards, and a rotted newest checkpoint would then block the very rollback the
+                // operator is here to perform. The engine is published only once that load succeeded.
+                var activation = await _namespaces.ActivateAsync(target.Name, _loader.RestoreFrom(member.Location));
+                if (!activation.Succeeded)
+                {
+                    return ProblemResults.Create(StatusCodes.Status500InternalServerError, "Namespace restore failed",
+                        "Namespace \"" + member.Name + "\" is not loaded in this process and could not be activated (" +
+                        (activation.Detail ?? activation.Outcome.ToString()) + "). Its startup-load policy is now " +
+                        "enabled, so the next boot will load it. " + NothingElseRestored(activated),
+                        p =>
+                        {
+                            if (activated.Count > 0)
+                            {
+                                p.Extensions["activatedNamespaces"] = activated;
+                            }
+                        });
+                }
+
+                if (activation.Outcome == NamespaceActivationOutcome.Activated)
+                {
+                    activated.Add(member.Name);
+                    // Loaded AND already carrying this entry's content, so the enqueue below skips it
+                    // rather than loading the same file a second time.
+                    targets[i] = (member, activation.Namespace, recreated, true);
+                }
+                else
+                {
+                    // AlreadyLoaded: a concurrent activation won the race between the residency check
+                    // above and this call. It is loaded, but with its OWN newest checkpoint rather than
+                    // this entry's, so it must still go through the load below - marking it restored
+                    // here would silently drop one member out of the restore.
+                    targets[i] = (member, activation.Namespace, recreated, false);
+                }
             }
 
             var loads = new List<(String Name, TransactionInformation Info)>();
-            foreach (var (member, target, _) in targets)
+            foreach (var (member, target, _, alreadyRestored) in targets)
             {
+                if (alreadyRestored)
+                {
+                    continue;
+                }
+
                 var tx = new LoadTransaction { Path = member.Location, StartServices = true };
                 loads.Add((member.Name, target.Engine.EnqueueTransaction(tx)));
             }
@@ -205,7 +298,7 @@ namespace NoSQL.GraphDB.App.Controllers
             // A RECREATED namespace has a fresh immutable id, so the entry that just restored it
             // no longer matches it at boot; register the restored checkpoint under the new id to
             // keep the boot chain intact (an unclean restart must not serve it empty).
-            foreach (var (member, target, recreated) in targets)
+            foreach (var (member, target, recreated, _) in targets)
             {
                 if (recreated)
                 {
@@ -221,7 +314,24 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
             }
 
+            if (activated.Count > 0)
+            {
+                // Safe to set on the entry: GetById deserializes a FRESH document per call, so this
+                // transient field cannot reach a later registry write (the same property the
+                // skippedNamespaces precedent relies on).
+                entry.ActivatedNamespaces = activated;
+            }
+
             return Ok(entry);
+        }
+
+        /// <summary>The honest tail of a mid-restore failure: what the caller still holds.</summary>
+        private static String NothingElseRestored(List<String> activated)
+        {
+            return activated.Count == 0
+                ? "Nothing was restored."
+                : "Nothing else was restored, but these namespaces were activated and restored from this " +
+                  "entry before the failure: " + String.Join(", ", activated) + ".";
         }
 
         /// <summary>

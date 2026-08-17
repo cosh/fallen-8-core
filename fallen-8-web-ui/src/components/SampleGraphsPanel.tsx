@@ -129,9 +129,12 @@ export function SampleGraphsPanel() {
   // "Empty" for the no-wipe fast path means NOTHING to lose AND nothing that would clash:
   // import 409s on any element, and a leftover index of the same id would fail createIndex
   // after a successful import. Indices can outlive elements, so count them too.
+  // A count must be PRESENT and 0, not merely falsy: /status reports null counts for a namespace
+  // the server catalogs but did not load (feature namespace-startup-load), and skipping the wipe
+  // on that unknown state would run the import straight into a graph that holds data.
   const graphIsEmpty =
-    (status.data?.vertexCount ?? 0) === 0 &&
-    (status.data?.edgeCount ?? 0) === 0 &&
+    status.data?.vertexCount === 0 &&
+    status.data?.edgeCount === 0 &&
     (status.data?.indices?.length ?? 0) === 0;
 
   const afterLoad = (

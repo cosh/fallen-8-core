@@ -301,6 +301,56 @@ namespace NoSQL.GraphDB.Tests
                 "the batch-created vertices are linked by the batch-created edge");
         }
 
+        // --- activation (engine -> REST -> MCP, feature namespace-startup-load §4.8) ----------
+
+        /// <summary>
+        ///   Activation is the ONE admin operation an agent needs to recover from the 503 every other
+        ///   tool gets for a not-loaded namespace, so it is bridged rather than deferred. Pinned here:
+        ///   it is discoverable in the tool schema, it is admin-gated, it hits the Fallen-8-level
+        ///   route with the name as ONE percent-encoded path segment, and an omitted namespace is
+        ///   named as a mistake instead of silently activating "default" (always a no-op).
+        /// </summary>
+        [TestMethod]
+        public async Task Admin_Activate_IsAdminGated_AndPostsToTheEncodedActivationRoute()
+        {
+            var schema = DummyCatalog(new McpToolsOptions { EnableAdmin = true }).ListTools()
+                .Single(t => t.Name == "f8_admin").InputSchema.GetRawText();
+            StringAssert.Contains(schema, "activate", "an agent can only use what the schema advertises");
+
+            var offTier = await DummyCatalog(new McpToolsOptions())
+                .CallAsync("f8_admin", McpTestSupport.Args("{\"op\":\"activate\",\"namespace\":\"archived\"}"),
+                    CancellationToken.None);
+            Assert.IsTrue(offTier.IsError, "activation is admin-tier: it must be rejected when that tier is off");
+
+            var requests = new List<HttpRequestMessage>();
+            var bridge = McpTestSupport.Bridge(new McpTestSupport.LambdaHandler(request =>
+            {
+                requests.Add(request);
+                return new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+                {
+                    Content = new System.Net.Http.StringContent(
+                        "{\"activated\":true,\"detail\":\"Restored from save game \\\"sg-1\\\".\"," +
+                        "\"namespace\":{\"name\":\"my graph\",\"state\":\"ready\",\"vertexCount\":5}}",
+                        System.Text.Encoding.UTF8, "application/json"),
+                };
+            }));
+            var catalog = McpTestSupport.Catalog(new McpToolsOptions { EnableAdmin = true }, new IMcpTool[] { new AdminTool(bridge) });
+
+            var missing = await catalog.CallAsync("f8_admin", McpTestSupport.Args("{\"op\":\"activate\"}"), CancellationToken.None);
+            Assert.IsTrue(missing.IsError, "activate without a namespace is a mistake, not a default-namespace no-op");
+            Assert.AreEqual(0, requests.Count, "and it never reaches the wire");
+
+            var result = await catalog.CallAsync("f8_admin",
+                McpTestSupport.Args("{\"op\":\"activate\",\"namespace\":\"my graph\"}"), CancellationToken.None);
+
+            var structured = McpTestSupport.Structured(result);
+            Assert.IsTrue(structured.GetProperty("activated").GetBoolean(), "the REST answer is passed through");
+            Assert.AreEqual(1, requests.Count);
+            Assert.AreEqual(HttpMethod.Post, requests[0].Method);
+            Assert.AreEqual("/ns/my%20graph/activate", requests[0].RequestUri.AbsolutePath,
+                "Fallen-8-level route, name percent-encoded into exactly one segment (never a scoping prefix)");
+        }
+
         private static async Task<Int32?> FindByName(ToolCatalog catalog, String name)
         {
             var search = await catalog.CallAsync("f8_search",

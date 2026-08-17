@@ -119,7 +119,7 @@ namespace NoSQL.GraphDB.Bench
         public String? RunnerLabel { get; set; }
     }
 
-    /// <summary>The four measurement families, each a list so a profile can size its own scenarios.</summary>
+    /// <summary>The five measurement families, each a list so a profile can size its own scenarios.</summary>
     public sealed class MetricSet
     {
         [JsonPropertyName("memory")]
@@ -130,6 +130,9 @@ namespace NoSQL.GraphDB.Bench
 
         [JsonPropertyName("saveStall")]
         public List<SaveStallMetric> SaveStall { get; set; } = new List<SaveStallMetric>();
+
+        [JsonPropertyName("load")]
+        public List<LoadMetric> Load { get; set; } = new List<LoadMetric>();
 
         [JsonPropertyName("traversal")]
         public List<TraversalMetric> Traversal { get; set; } = new List<TraversalMetric>();
@@ -193,6 +196,33 @@ namespace NoSQL.GraphDB.Bench
 
         [JsonPropertyName("writerHoldMs")]
         public Double WriterHoldMs { get; set; }
+    }
+
+    /// <summary>
+    ///   How long restoring one namespace's checkpoint takes, which is what a boot pays per loaded
+    ///   namespace - and therefore what excluding one from the startup load saves in time, next to
+    ///   the retained heap the <see cref="MemoryMetric" /> rows describe.
+    /// </summary>
+    public sealed class LoadMetric
+    {
+        [JsonPropertyName("label")]
+        public String Label { get; set; } = String.Empty;
+
+        [JsonPropertyName("elements")]
+        public Int64 Elements { get; set; }
+
+        [JsonPropertyName("vertices")]
+        public Int32 Vertices { get; set; }
+
+        [JsonPropertyName("edges")]
+        public Int64 Edges { get; set; }
+
+        /// <summary>Engine construction plus the checkpoint restore, wall clock.</summary>
+        [JsonPropertyName("loadMs")]
+        public Double LoadMs { get; set; }
+
+        [JsonPropertyName("elementsPerSecond")]
+        public Double ElementsPerSecond { get; set; }
     }
 
     /// <summary>Raw out-edge traversal throughput.</summary>

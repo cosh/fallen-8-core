@@ -250,6 +250,8 @@ form, or the command line). The defaults:
 | `Fallen8:Durability:SaveOnShutdown`           | `true`                                  | [Save games](/fallen-8-core/save-games/)                   |
 | `Fallen8:Metadata:Directory`                  | `<app base>/metadata`                   | [Save games](/fallen-8-core/save-games/)                   |
 | `Fallen8:Namespaces:MaxNamespaces`            | `10000`                                 | [Namespaces](/fallen-8-core/namespaces/)                   |
+| `Fallen8:Namespaces:LoadOnStartup`            | `true` (per-namespace overridable)      | [Namespaces](/fallen-8-core/namespaces/#startup-load)      |
+| `Fallen8:Namespaces:StartupLoadMode`          | `Catalog` (`All`, `DefaultOnly`)        | [Namespaces](/fallen-8-core/namespaces/#startup-load)      |
 | `Fallen8:Security:ApiKey`                     | `null` (open)                           | [Security](/fallen-8-core/security/)                       |
 | `Fallen8:Security:EnableDynamicPluginLoading` | `true` (per-namespace overridable)      | [Plugin registration](/fallen-8-core/plugin-registration/) |
 | `Fallen8:Security:AllowedCorsOrigins`         | `[]` (deny all cross-origin)            | [Standalone F8 Studio](/fallen-8-core/standalone-ui/)      |
@@ -266,6 +268,11 @@ form, or the command line). The defaults:
 
 `Volatile=true` disables all disk writes (no WAL, no checkpoints): the fastest way to run a
 throwaway instance for a demo or a test.
+
+`Fallen8__Namespaces__StartupLoadMode=All` overrides every per-namespace exclusion for a boot, which
+is the way back from an exclusion you regret without hand-editing the catalog; `DefaultOnly` loads
+nothing but `default`, for when the selection itself is what is broken
+([namespaces](/fallen-8-core/namespaces/#startup-load)).
 
 These are the defaults a bare run gets. The compose environment overrides several of them:
 `Metadata:Directory` becomes `/data/metadata` (it does not follow `StorageDirectory`, so both are

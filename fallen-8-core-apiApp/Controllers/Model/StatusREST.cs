@@ -37,6 +37,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     ///   "usedMemory": 1073741824,
     ///   "vertexCount": 10000,
     ///   "edgeCount": 25000,
+    ///   "namespaceState": "ready",
     ///   "indices": [{ "indexId": "nameIndex", "pluginType": "DictionaryIndex" }],
     ///   "availableIndexPlugins": ["DictionaryIndex", "SpatialIndex"],
     ///   "availablePathPlugins": ["Dijkstra", "AStar"],
@@ -61,21 +62,38 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>
-        ///   The total number of vertices in the database
+        ///   The addressed namespace's residency (feature namespace-startup-load): <c>ready</c>
+        ///   normally, <c>notLoaded</c> when this namespace is cataloged but has no engine in this
+        ///   process. In that state every engine-derived field on this response is ABSENT (null)
+        ///   rather than zero or empty - a zero count reads as "healthy and empty" both to the
+        ///   first-run walkthrough and to a client that deletes state because nothing asserts it any
+        ///   more. Only this probe answers for a not-loaded namespace; every other namespace-scoped
+        ///   route refuses with 503.
         /// </summary>
-        /// <example>10000</example>
-        [DefaultValue(10000)]
-        public Int32 VertexCount
+        /// <example>ready</example>
+        public String NamespaceState
         {
             get; set;
         }
 
         /// <summary>
-        ///   The total number of edges in the database
+        ///   The total number of vertices in the addressed namespace, or null when it is
+        ///   <c>notLoaded</c> (see <see cref="NamespaceState"/>)
+        /// </summary>
+        /// <example>10000</example>
+        [DefaultValue(10000)]
+        public Int32? VertexCount
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The total number of edges in the addressed namespace, or null when it is
+        ///   <c>notLoaded</c> (see <see cref="NamespaceState"/>)
         /// </summary>
         /// <example>25000</example>
         [DefaultValue(25000)]
-        public Int32 EdgeCount
+        public Int32? EdgeCount
         {
             get; set;
         }

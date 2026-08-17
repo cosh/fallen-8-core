@@ -358,6 +358,11 @@ namespace NoSQL.GraphDB.App
                 builder.Configuration.GetSection(Fallen8MetadataOptions.SectionName));
             builder.Services.AddSingleton<SaveGameRegistry>();
 
+            // The one home for restoring a single namespace from the registry: shared by the boot
+            // and by runtime activation, which differ only in what a failure means (feature
+            // namespace-startup-load).
+            builder.Services.AddSingleton<NamespaceLoader>();
+
             // Own the load-on-start / save-on-stop lifecycle around the existing Save/Load transactions.
             builder.Services.AddHostedService<DurabilityLifecycleService>();
 

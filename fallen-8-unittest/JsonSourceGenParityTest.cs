@@ -529,6 +529,20 @@ namespace NoSQL.GraphDB.Tests
                     MaxNamespaces = 10000
                 }, "NamespacesREST"),
                 (new NamespaceUpdateSpecification { Name = "fl-eu", PluginRegistration = "disabled" }, "NamespaceUpdateSpecification"),
+                (new NamespaceActivationREST
+                {
+                    Namespace = new NamespaceREST
+                    {
+                        Name = "archived",
+                        State = "ready",
+                        VertexCount = 191,
+                        EdgeCount = 1697,
+                        CreatedAt = "2026-07-23T10:15:02.412Z",
+                        LoadOnStartupEnabled = false
+                    },
+                    Activated = true,
+                    Detail = "Restored from save game \"sg-20260723-101502-9ab1\"."
+                }, "NamespaceActivationREST"),
                 (new SaveGameNamespaceREST
                 {
                     Name = "flights",

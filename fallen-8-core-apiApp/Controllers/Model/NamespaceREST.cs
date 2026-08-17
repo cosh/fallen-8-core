@@ -38,14 +38,27 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>The unique, URL-addressable name.</summary>
         public String Name { get; set; }
 
-        /// <summary>Lifecycle state: <c>ready</c> or <c>creating</c> (always <c>ready</c> in v1).</summary>
+        /// <summary>
+        ///   Lifecycle state: <c>ready</c>, <c>creating</c> (reserved for future async creation), or
+        ///   <c>notLoaded</c> - cataloged, but with no engine in this process (feature
+        ///   namespace-startup-load). A <c>notLoaded</c> namespace still appears here BY DESIGN:
+        ///   hiding it reaches the Studio recover state by absence, whose primary action recreates it
+        ///   empty.
+        /// </summary>
         public String State { get; set; }
 
-        /// <summary>The namespace's vertex count.</summary>
-        public Int32 VertexCount { get; set; }
+        /// <summary>
+        ///   The namespace's vertex count, or <c>null</c> when it is <c>notLoaded</c> and this
+        ///   process therefore has no count to report. Never <c>0</c> in that case: the Studio
+        ///   dashboard branches on <c>vertexCount === 0</c> to replay the first-run walkthrough, so a
+        ///   zero would greet an operator with "get started" over a namespace that holds data, and a
+        ///   reconciling writer would read "healthy and empty" and delete on that basis.
+        /// </summary>
+        public Int32? VertexCount { get; set; }
 
-        /// <summary>The namespace's edge count.</summary>
-        public Int32 EdgeCount { get; set; }
+        /// <summary>The namespace's edge count, or <c>null</c> when it is <c>notLoaded</c>
+        /// (see <see cref="VertexCount"/> for why absent rather than zero).</summary>
+        public Int32? EdgeCount { get; set; }
 
         /// <summary>When the namespace was created (UTC, ISO 8601).</summary>
         public String CreatedAt { get; set; }
@@ -56,6 +69,17 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   <c>Fallen8:Security:EnableDynamicPluginLoading</c> default.
         /// </summary>
         public Boolean? PluginRegistrationEnabled { get; set; }
+
+        /// <summary>
+        ///   This namespace's startup-load override (feature namespace-startup-load):
+        ///   <c>true</c>/<c>false</c> when set explicitly, <c>null</c> when it inherits the global
+        ///   <c>Fallen8:Namespaces:LoadOnStartup</c> default. It describes the NEXT boot, so it is
+        ///   independent of <see cref="State"/> - a loaded namespace can carry <c>false</c>, and a
+        ///   <c>notLoaded</c> one can carry <c>true</c> (it was excluded by
+        ///   <c>Fallen8:Namespaces:StartupLoadMode</c> instead). The reserved <c>default</c> namespace
+        ///   always reports <c>true</c>: it aliases every bare URL and cannot be excluded.
+        /// </summary>
+        public Boolean? LoadOnStartupEnabled { get; set; }
     }
 
     /// <summary>The namespace list with its configured ceiling.</summary>
@@ -69,8 +93,35 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     }
 
     /// <summary>
+    ///   The result of one <c>POST /ns/{name}/activate</c> (feature namespace-startup-load §4.8).
+    ///   Its own type rather than a bare <see cref="NamespaceREST"/>, because the answer is a report
+    ///   about an OPERATION - "did this call load it, and what came back" - and a namespace entry has
+    ///   no place to say that. Putting <see cref="Activated"/> on <see cref="NamespaceREST"/> instead
+    ///   would ship a meaningless field on every entry of <c>GET /ns</c>.
+    /// </summary>
+    public sealed class NamespaceActivationREST
+    {
+        /// <summary>The namespace as it stands after the call (state <c>ready</c>, real counts).</summary>
+        public NamespaceREST Namespace { get; set; }
+
+        /// <summary>
+        ///   Whether THIS call loaded the namespace. <c>false</c> means it was already loaded in this
+        ///   process and nothing was restored - a success, since activation is idempotent, and the
+        ///   only way a caller can tell the two apart.
+        /// </summary>
+        public Boolean Activated { get; set; }
+
+        /// <summary>
+        ///   What happened, in the operator's words: which save game was restored (and whether its
+        ///   write-ahead-log tail was replayed on top), or that the namespace was already loaded, or
+        ///   that no registered save game contains it.
+        /// </summary>
+        public String Detail { get; set; }
+    }
+
+    /// <summary>
     ///   Request body for updating a namespace via <c>PATCH /ns/{name}</c>: rename it and/or set its
-    ///   plugin-registration override. Both fields are optional; supply at least one.
+    ///   plugin-registration or startup-load override. Every field is optional; supply at least one.
     /// </summary>
     public sealed class NamespaceUpdateSpecification
     {
@@ -89,5 +140,15 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   <c>Fallen8:Security:EnableDynamicPluginLoading</c> default.
         /// </summary>
         public String PluginRegistration { get; set; }
+
+        /// <summary>
+        ///   Optional startup-load override (feature namespace-startup-load):
+        ///   <c>"enabled"</c> | <c>"disabled"</c> | <c>"inherit"</c>, the same tri-state vocabulary as
+        ///   <see cref="PluginRegistration"/>. Omit (or null) to leave it unchanged;
+        ///   <c>"inherit"</c> clears the override so this namespace follows the global
+        ///   <c>Fallen8:Namespaces:LoadOnStartup</c> default. It takes effect on the next restart -
+        ///   it never loads or unloads the namespace in the running process.
+        /// </summary>
+        public String LoadOnStartup { get; set; }
     }
 }

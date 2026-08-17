@@ -261,6 +261,18 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(namespaces.TryRename("flights", "bad/name", out _, out failure));
             Assert.AreEqual(NamespaceFailure.InvalidName, failure);
 
+            // An EMPTY or whitespace target is InvalidName, never a no-op success. This is the case
+            // TryRename's own name check exists for: TryUpdate reads an empty NewName as "leave the
+            // name alone", so without that check a rename request would be answered with true and a
+            // namespace still called "flights".
+            foreach (var empty in new[] { null, "", "   " })
+            {
+                Assert.IsFalse(namespaces.TryRename("flights", empty, out var unchanged, out failure),
+                    "an empty rename target must be rejected, not silently succeed");
+                Assert.AreEqual(NamespaceFailure.InvalidName, failure);
+                Assert.IsNull(unchanged);
+            }
+
             // The failed attempts changed nothing.
             Assert.IsTrue(namespaces.TryGet("flights", out _));
             Assert.AreEqual(3, namespaces.Count);

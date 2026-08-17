@@ -90,18 +90,56 @@ export interface SaveGame {
   namespaces?: SaveGameNamespace[] | null;
 }
 
+/**
+ * The PATCH /ns/{name} override vocabulary (feature namespace-startup-load): "inherit" CLEARS
+ * the override and falls back to the server's configured default. One type because the server
+ * parses every one of its tri-state fields through one parser.
+ */
+export type NamespaceTriState = "enabled" | "disabled" | "inherit";
+
 /** GET /ns — one namespace of the Fallen-8 (feature graph-namespaces). */
 export interface NamespaceEntry {
   name: string;
-  state: "ready" | "creating";
-  vertexCount: number;
-  edgeCount: number;
+  /**
+   * "notLoaded" is a namespace this Fallen-8 catalogs but did not load into the running
+   * process (feature namespace-startup-load). It is LISTED anyway: hiding it would reach
+   * the "recreate or switch" recover state by absence, and that state's primary action
+   * recreates the namespace empty over data that is still on disk.
+   */
+  state: "ready" | "creating" | "notLoaded";
+  /**
+   * Null for a "notLoaded" namespace: the server reports no count rather than 0, because a
+   * zero reads as "this graph is empty" - which is what drives the first-run walkthrough and
+   * the Samples panel's no-wipe fast path. Treat null as UNKNOWN, never as empty.
+   */
+  vertexCount: number | null;
+  /** Null for a "notLoaded" namespace (see `vertexCount`). */
+  edgeCount: number | null;
   createdAt: string;
+  /**
+   * Whether the NEXT boot loads this namespace: true/false when set explicitly, null when it
+   * inherits the server's Fallen8:Namespaces:LoadOnStartup default. Independent of `state` -
+   * it describes the next process, not this one.
+   */
+  loadOnStartupEnabled: boolean | null;
 }
 
 export interface NamespacesResponse {
   namespaces: NamespaceEntry[];
   maxNamespaces: number;
+}
+
+/**
+ * POST /ns/{name}/activate (feature namespace-startup-load): the namespace as it stands after
+ * the call, plus whether THIS call is what loaded it. `activated: false` is a success, not a
+ * conflict - the namespace was already loaded and nothing was restored, and this flag is the
+ * only way a caller can tell the two apart. It says nothing about the persisted startup-load
+ * policy, which activation deliberately leaves alone (`NamespaceEntry.loadOnStartupEnabled`).
+ */
+export interface NamespaceActivationREST {
+  namespace: NamespaceEntry;
+  activated: boolean;
+  detail: string | null;
 }
 
 /** POST /bulk/import success summary (feature bulk-import-export). */
@@ -121,8 +159,20 @@ export interface BenchmarkResult {
 }
 
 export interface StatusREST {
-  vertexCount: number;
-  edgeCount: number;
+  /**
+   * The addressed namespace's residency (feature namespace-startup-load): "ready", or
+   * "notLoaded" when the server catalogs this namespace but did not load it. /status is the
+   * ONE namespace-scoped route that still answers in that state; every other one refuses with
+   * 503. Optional so instances predating the field still parse.
+   */
+  namespaceState?: "ready" | "creating" | "notLoaded" | null;
+  /**
+   * Null when the addressed namespace is "notLoaded" - the server omits every engine-derived
+   * field rather than reporting zeros, so null means UNKNOWN and must never be read as empty.
+   */
+  vertexCount: number | null;
+  /** Null when the addressed namespace is "notLoaded" (see `vertexCount`). */
+  edgeCount: number | null;
   usedMemory: number;
   // Live index inventory (feature studio-index-discovery). Optional so instances
   // predating the field still parse.

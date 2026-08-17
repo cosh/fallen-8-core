@@ -116,6 +116,7 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(ResultTypeSpecification))]
     [JsonSerializable(typeof(NamespaceREST))]
     [JsonSerializable(typeof(NamespacesREST))]
+    [JsonSerializable(typeof(NamespaceActivationREST))]
     [JsonSerializable(typeof(NamespaceUpdateSpecification))]
     [JsonSerializable(typeof(ChangeEventREST))]
     [JsonSerializable(typeof(BulkImportResultREST))]

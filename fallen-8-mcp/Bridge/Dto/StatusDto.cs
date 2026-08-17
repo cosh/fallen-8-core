@@ -38,9 +38,20 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
     {
         public Int64 UsedMemory { get; set; }
 
-        public Int32 VertexCount { get; set; }
+        /// <summary>
+        ///   The addressed namespace's residency: <c>ready</c>, or <c>notLoaded</c> when it is
+        ///   cataloged but has no engine in the target process (feature namespace-startup-load).
+        ///   /status is the only namespace-scoped route that answers in that state, and it then
+        ///   reports no counts and no inventories at all.
+        /// </summary>
+        public String? NamespaceState { get; set; }
 
-        public Int32 EdgeCount { get; set; }
+        /// <summary>Null for a <c>notLoaded</c> namespace - absent, deliberately never zero, so an
+        /// agent cannot read "healthy and empty" off a namespace that holds data.</summary>
+        public Int32? VertexCount { get; set; }
+
+        /// <summary>Null for a <c>notLoaded</c> namespace (see <see cref="VertexCount"/>).</summary>
+        public Int32? EdgeCount { get; set; }
 
         public List<IndexDto>? Indices { get; set; }
 

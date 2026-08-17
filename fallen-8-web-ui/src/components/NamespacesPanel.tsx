@@ -33,13 +33,15 @@ import {
   dropNamespace,
   listNamespaces,
   renameNamespace,
+  setNamespaceLoadOnStartup,
 } from "../api/endpoints";
-import type { NamespaceEntry } from "../api/types";
+import type { NamespaceEntry, NamespaceTriState } from "../api/types";
 import { ApiError } from "../api/client";
 import { migrateInstanceStore, purgeInstanceStore } from "../state/instanceStore";
 import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 import { isValidNamespaceName } from "../lib/namespaceName";
+import { ABSENT, formatCountOrDash } from "../lib/format";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
 import { ListCapNote } from "./ListCapNote";
@@ -47,11 +49,43 @@ import { Truncated } from "./Truncated";
 
 /**
  * Namespace management on the Connect screen (feature graph-namespaces): the full CRUD
- * table for the ACTIVE instance's namespaces — state, counts, URL prefix, rename / switch
- * to / drop — plus the create form with live URL preview. "default" aliases the bare
- * (un-prefixed) routes and cannot be renamed or dropped. A drop is irreversible and
- * demands the typed namespace name; save-game entries remain valid restore points.
+ * table for the ACTIVE instance's namespaces - state, counts, URL prefix, the "at startup"
+ * policy, rename / switch to / drop - plus the create form with live URL preview. "default"
+ * aliases the bare (un-prefixed) routes and cannot be renamed, dropped, or excluded from a
+ * boot. A drop is irreversible and demands the typed namespace name; save-game entries
+ * remain valid restore points.
  */
+
+/**
+ * The "at startup" tri-state, in the server's own vocabulary (feature namespace-startup-load)
+ * with the labels an operator reads. "inherit" clears the override rather than picking a side.
+ */
+const STARTUP_OPTIONS: { value: NamespaceTriState; label: string }[] = [
+  { value: "enabled", label: "load" },
+  { value: "disabled", label: "skip" },
+  { value: "inherit", label: "inherit" },
+];
+
+/** What the message says the policy did. Every phrasing is about the NEXT start, never this one. */
+const STARTUP_EFFECT: Record<NamespaceTriState, string> = {
+  enabled: "will be loaded at the next start",
+  disabled: "will be skipped at the next start",
+  inherit: "follows the server default at the next start",
+};
+
+/**
+ * The entry's override as the control's value. A non-boolean (null, or absent on an instance
+ * predating the field) is "inherit": that is the truth for both, since neither carries an
+ * override of its own.
+ */
+function startupValue(entry: NamespaceEntry): NamespaceTriState {
+  // The reserved default is loaded whatever the catalog holds (the server refuses to exclude
+  // it), so its disabled control states that rather than echoing an override nobody honours -
+  // "inherit" there would read as "it depends on the server default", which it does not.
+  if (entry.name === DEFAULT_NAMESPACE) return "enabled";
+  if (typeof entry.loadOnStartupEnabled !== "boolean") return "inherit";
+  return entry.loadOnStartupEnabled ? "enabled" : "disabled";
+}
 
 
 export function NamespacesPanel() {
@@ -105,6 +139,17 @@ export function NamespacesPanel() {
     },
   });
 
+  const policy = useMutation({
+    mutationFn: ({ name, value }: { name: string; value: NamespaceTriState }) =>
+      setNamespaceLoadOnStartup(instance!, name, value),
+    onSuccess: (entry, { name, value }) => {
+      // No workspace or registry bookkeeping: this changes the NEXT boot's selection, not the
+      // running process, so nothing in this session is invalidated except the entry itself.
+      setMessage(`“${entry?.name ?? name}” ${STARTUP_EFFECT[value]} - takes effect on restart.`);
+      invalidate();
+    },
+  });
+
   const drop = useMutation({
     mutationFn: (name: string) => dropNamespace(instance!, name),
     onSuccess: (_result, name) => {
@@ -125,13 +170,21 @@ export function NamespacesPanel() {
   const entries = list.data?.namespaces ?? [];
   // Cap + scroll the inventory so a large namespace set never grows the panel without bound.
   const shownNamespaces = capList(entries);
-  const failed = [create, rename, drop].find((m) => m.isError);
+  const failed = [create, rename, drop, policy].find((m) => m.isError);
   const newNameValid = isValidNamespaceName(newName);
 
   const switchTo = (name: string) => {
     setActiveNamespace(instance.id, name);
     void navigate({ to: "/q/$ns/dashboard", params: { ns: name } });
   };
+
+  // What the drop confirmation says is at stake. A namespace the server did not load reports no
+  // counts, so the sentence names the data rather than inventing zeros for it - "0 vertices"
+  // would make an irreversible drop look free.
+  const droppingScale =
+    typeof dropping?.vertexCount === "number"
+      ? `its ${formatCountOrDash(dropping.vertexCount)} vertices and ${formatCountOrDash(dropping.edgeCount)} edges`
+      : "its data on disk (this process reports no counts for a namespace it did not load)";
 
   return (
     <section className="panel" data-testid="namespaces-panel">
@@ -168,6 +221,7 @@ export function NamespacesPanel() {
                 <th className="table-cell">edges</th>
                 <th className="table-cell">created</th>
                 <th className="table-cell">url prefix</th>
+                <th className="table-cell">at startup</th>
                 <th className="table-cell w-56">actions</th>
               </tr>
             </thead>
@@ -188,13 +242,51 @@ export function NamespacesPanel() {
                       <span className="text-fg-faint ml-2 font-normal">alias of bare URLs</span>
                     )}
                   </td>
-                  <td className="table-cell">{entry.vertexCount.toLocaleString()}</td>
-                  <td className="table-cell">{entry.edgeCount.toLocaleString()}</td>
+                  {/* A namespace the server did not load reports no counts at all, so these
+                      render a dash: a "0" would say a graph that still holds data is empty. */}
+                  <td className="table-cell">{formatCountOrDash(entry.vertexCount)}</td>
+                  <td className="table-cell">{formatCountOrDash(entry.edgeCount)}</td>
                   <td className="table-cell text-fg-dim">
-                    {entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : "—"}
+                    {entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : ABSENT}
                   </td>
                   <td className="table-cell text-fg-dim whitespace-nowrap">
                     <Truncated text={`/ns/${entry.name}/*`} max={DISPLAY_CAP.path} middle />
+                  </td>
+                  {/* Whether the NEXT boot loads this namespace. The reserved default has no
+                      choice to offer - every bare URL aliases it, so the server refuses the
+                      field with 409 - and its reason is rendered as TEXT under the disabled
+                      control, because a reason that only exists in a tooltip is a dead end on
+                      touch. The row keeps a control either way so the column stays scannable.
+                      Under rather than beside: as one nowrap line the reason made this column
+                      wide enough to push the actions column out of the panel's viewport. */}
+                  <td className="table-cell">
+                    <select
+                      className="input w-auto"
+                      data-testid={`namespace-startup-${entry.name}`}
+                      aria-label={`Load “${entry.name}” at startup`}
+                      value={startupValue(entry)}
+                      disabled={entry.name === DEFAULT_NAMESPACE || policy.isPending}
+                      title={
+                        entry.name === DEFAULT_NAMESPACE
+                          ? "The reserved default namespace is always loaded: every bare URL aliases it"
+                          : "Whether the next boot loads this namespace - takes effect on restart"
+                      }
+                      onChange={(e) =>
+                        policy.mutate({
+                          name: entry.name,
+                          value: e.target.value as NamespaceTriState,
+                        })
+                      }
+                    >
+                      {STARTUP_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {entry.name === DEFAULT_NAMESPACE && (
+                      <div className="text-fg-faint">always loaded: bare URLs alias it</div>
+                    )}
                   </td>
                   <td className="table-cell whitespace-nowrap">
                     {renaming === entry.name ? (
@@ -323,6 +415,15 @@ export function NamespacesPanel() {
               screens then offer “recreate or switch”) · quota exceeded = 422 with the configured
               limit in the body
             </p>
+            {/* The register the read-only configuration view already uses for startup-only
+                settings ("Changes take effect on restart"), so the two agree instead of each
+                inventing a phrasing for the same fact. */}
+            <p className="text-fg-faint text-[11px]" data-testid="namespace-startup-hint">
+              at startup = whether the next boot loads this namespace (“inherit” follows the
+              server's Fallen8:Namespaces:LoadOnStartup default). Changes take effect on restart;
+              nothing is loaded or unloaded in the running process. A namespace that was not
+              loaded reports no counts and answers 503 on every route but /status.
+            </p>
             {message && (
               <div className="text-accent text-[12px]" data-testid="namespace-message">
                 {message}
@@ -336,7 +437,7 @@ export function NamespacesPanel() {
       <ConfirmDialog
         open={dropping !== null}
         title={`Drop namespace “${dropping?.name ?? ""}”`}
-        description={`DELETE /ns/${dropping?.name ?? ""} — drops this namespace with its ${dropping?.vertexCount.toLocaleString() ?? 0} vertices and ${dropping?.edgeCount.toLocaleString() ?? 0} edges. There is no undo; save-game entries that contain it remain valid restore points.`}
+        description={`DELETE /ns/${dropping?.name ?? ""} - drops this namespace with ${droppingScale}. There is no undo; save-game entries that contain it remain valid restore points.`}
         instanceName={dropping?.name ?? ""}
         endpoint={describeEndpoint(instance)}
         confirmLabel="Drop namespace"

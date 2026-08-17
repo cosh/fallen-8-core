@@ -25,7 +25,7 @@
 
 // Renders a fallen-8-bench capacity report into the Capacity and performance page.
 //
-// The page owns its prose; this script owns only the four generated regions, each delimited by
+// The page owns its prose; this script owns only the generated regions, each delimited by
 // <!-- capacity:<name> --> ... <!-- /capacity:<name> -->. Everything outside a region is left byte
 // for byte alone, so a writer can edit the page freely without fighting the generator.
 //
@@ -102,6 +102,15 @@ requireRows(metrics.writeThroughput, "metrics.writeThroughput", ["producers", "w
 requireRows(metrics.saveStall, "metrics.saveStall", ["elements", "writerHoldMs"]);
 requireRows(metrics.traversal, "metrics.traversal", ["vertices", "edges", "iterations", "edgesPerSecond"]);
 
+// The startup-load family is the one OPTIONAL family: it was added after this schema major shipped,
+// so a report recorded before it is still valid and still renderable. Absent means "this run did not
+// measure it" and the page says exactly that - it must never render as a zero, which would read as
+// "loading a namespace is free".
+const loadRows =
+  metrics.load === undefined || metrics.load === null
+    ? null
+    : requireRows(metrics.load, "metrics.load", ["elements", "loadMs", "elementsPerSecond"]);
+
 // ---------------------------------------------------------------- rendering
 const int = (n) => Math.round(n).toLocaleString("en-US");
 const one = (n) => n.toFixed(1);
@@ -163,6 +172,37 @@ const saveBlock = () => {
   return ["| Graph size | Save duration (writer held) |", "| --- | --- |", ...rows].join("\n");
 };
 
+const loadBlock = () => {
+  if (loadRows === null) {
+    return "_The recorded run predates the startup-load measurement, so this table is empty rather than guessed. Re-run `fallen-8-bench` (any profile) to fill it._";
+  }
+  const rows = loadRows.map(
+    (l) => `| ${int(l.elements)} elements | ${one(l.loadMs)} ms | ${int(l.elementsPerSecond)} elements/s |`
+  );
+  const out = ["| Graph size | Load duration | Rate |", "| --- | --- | --- |", ...rows];
+
+  // The load-versus-save comparison lives HERE, beside the rows it is drawn from, and it is
+  // COMPUTED rather than asserted: the page's contract is that its numbers come from the tool, and
+  // an empty region must not carry a conclusion (the write family above does the same with its
+  // group-commit factor). The two families run the same graph shapes on purpose, so rows pair by
+  // element count; if a report ever pairs none, the block simply says nothing extra.
+  const pairs = loadRows
+    .map((l) => ({ l, s: metrics.saveStall.find((s) => s.elements === l.elements) }))
+    .filter((p) => p.s && p.s.writerHoldMs > 0);
+  if (pairs.length > 0) {
+    const ratios = pairs.map((p) => p.l.loadMs / p.s.writerHoldMs).sort((a, b) => a - b);
+    const span =
+      ratios.length === 1 || ratios[0].toFixed(1) === ratios[ratios.length - 1].toFixed(1)
+        ? `${one(ratios[0])}x`
+        : `${one(ratios[0])}x to ${one(ratios[ratios.length - 1])}x`;
+    out.push(
+      "",
+      `Row for row against the save table above, restoring a graph takes ${span} the time that checkpointing the same graph holds the writer.`
+    );
+  }
+  return out.join("\n");
+};
+
 const traversalBlock = () => {
   const rows = metrics.traversal.map(
     (t) =>
@@ -176,6 +216,7 @@ const regions = {
   memory: memoryBlock(),
   writes: writeBlock(),
   save: saveBlock(),
+  load: loadBlock(),
   traversal: traversalBlock(),
 };
 

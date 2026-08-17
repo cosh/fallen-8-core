@@ -81,7 +81,7 @@ These hold across the whole surface; each topic's own page carries the detail.
 | Boolean results | Two families report the outcome as a bare `true`/`false` body with `200` instead of a status code: the `/index…` routes and `POST /service` / `DELETE /service/{key}`. There, `false` means it did not happen (unknown index, element, or plugin) and is never signalled as an HTTP error. See [indexes](/fallen-8-core/indexes/) and [plugins](/fallen-8-core/plugins/). |
 | Mutations | Element writes are enqueued on the single writer thread and answer `202 Accepted`; pass `?waitForCompletion=true` to block until the commit lands. Not every mutating route is waitable: `POST /index` and the `HEAD` maintenance routes take no such parameter. See [graph model](/fallen-8-core/graph-model/). |
 | Status codes | Each action is annotated with `[ProducesResponseType]`, so the exact codes and DTOs live in the OpenAPI document / Scalar, not here. |
-| Namespaces | Every namespace-scoped route also answers under `/ns/{name}/…`; bare URLs address the reserved `default` namespace. See [namespaces](/fallen-8-core/namespaces/). |
+| Namespaces | Every namespace-scoped route also answers under `/ns/{name}/…`; bare URLs address the reserved `default` namespace. A namespace that exists but was not loaded by this process refuses every one of them with `503` before the action runs (`namespaceState: "notLoaded"`); `GET /status` is the single exception and reports that state instead. See [namespaces](/fallen-8-core/namespaces/#startup-load). |
 | Authentication | When configured, the API key travels in the `X-Api-Key` header (name configurable), the header name and key configuration are owned by [security](/fallen-8-core/security/). |
 
 ## Endpoint directory
@@ -100,7 +100,7 @@ Every endpoint group and the page that documents it. Routes shown bare; each als
 | Embeddings & semantics | `PUT/GET/DELETE /graphelement/{id}/embedding/{name}`, `POST /embedding/{element,elements,search,text}` | [semantic-traversal.md](/fallen-8-core/semantic-traversal/) |
 | Semantic layer (documents) | `POST/GET /document`, `POST /document/text`, `GET/DELETE /document/{id}`, `POST /document/search`, `GET /document/binding`, `POST /document/binding/ensure`, `GET /document/entities`. The whole group answers `403` while `Fallen8:Ingestion:Enabled` is off. | [unstructured-ingestion.md](/fallen-8-core/unstructured-ingestion/) |
 | Chat gateway **(Fallen-8-level)** | `POST /chat` (`403` while `Fallen8:Chat:Enabled` is off) | [semantic-traversal.md](/fallen-8-core/semantic-traversal/) |
-| Namespaces **(Fallen-8-level)** | `GET /ns`, `GET/PUT/PATCH/DELETE /ns/{name}` | [namespaces.md](/fallen-8-core/namespaces/) |
+| Namespaces **(Fallen-8-level)** | `GET /ns`, `GET/PUT/PATCH/DELETE /ns/{name}`, `POST /ns/{name}/activate` | [namespaces.md](/fallen-8-core/namespaces/) |
 | Bulk import/export | `GET /bulk/export`, `POST /bulk/import` | [bulk-import-export.md](/fallen-8-core/bulk-import-export/) |
 | Change feed | `GET /changefeed` (Server-Sent Events) | [change-feed.md](/fallen-8-core/change-feed/) |
 | Save games | `PUT /save`, `PUT /load`; then, all **(Fallen-8-level)**: `PUT /save/all`, `GET /savegames`, `GET/DELETE /savegames/{id}`, `PUT /savegames/{id}/load` | [save-games.md](/fallen-8-core/save-games/) |

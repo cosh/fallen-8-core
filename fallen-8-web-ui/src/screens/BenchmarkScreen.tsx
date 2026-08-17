@@ -35,7 +35,7 @@ import { Field } from "../components/Field";
 import { Stat } from "../components/Stat";
 import { Truncated } from "../components/Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
-import { formatCompact, formatExact } from "../lib/format";
+import { formatCompact, formatCountOrDash, formatExact } from "../lib/format";
 
 /**
  * Benchmark workspace (feature sample-graphs): graph generation + the traversal
@@ -118,8 +118,8 @@ export function BenchmarkScreen() {
         </h1>
         {status.data && (
           <span className="text-fg-faint ml-auto text-[11px]">
-            current graph: {status.data.vertexCount.toLocaleString()} vertices ·{" "}
-            {status.data.edgeCount.toLocaleString()} edges
+            current graph: {formatCountOrDash(status.data.vertexCount)} vertices ·{" "}
+            {formatCountOrDash(status.data.edgeCount)} edges
           </span>
         )}
       </div>

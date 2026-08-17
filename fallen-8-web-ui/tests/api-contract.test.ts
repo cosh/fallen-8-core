@@ -125,6 +125,9 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
   listNamespaces: () => endpoints.listNamespaces(instance),
   createNamespace: () => endpoints.createNamespace(instance, "analytics"),
   renameNamespace: () => endpoints.renameNamespace(instance, "analytics", "analytics-2"),
+  setNamespaceLoadOnStartup: () =>
+    endpoints.setNamespaceLoadOnStartup(instance, "analytics", "disabled"),
+  activateNamespace: () => endpoints.activateNamespace(instance, "analytics"),
   dropNamespace: () => endpoints.dropNamespace(instance, "analytics"),
   listSaveGames: () => endpoints.listSaveGames(instance),
   getSaveGame: () => endpoints.getSaveGame(instance, "sg-1"),
@@ -408,6 +411,28 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
       delegateKind: "VertexFilter",
       fragment: "return (v) => true;",
     });
+  });
+
+  it("the startup-load policy PATCH carries only loadOnStartup, never a name", async () => {
+    await endpoints.setNamespaceLoadOnStartup(instance, "analytics", "inherit");
+
+    expect(recorded[0].method).toBe("PATCH");
+    expect(recorded[0].path).toBe("/ns/analytics");
+    // The server applies the whole PATCH body atomically, so a "name" riding along on a policy
+    // edit would rename the namespace as a side effect - and a stale one would rename it back.
+    expect(recorded[0].body).toEqual({ loadOnStartup: "inherit" });
+  });
+
+  it("activation is a bodiless POST on its own sub-route, and no policy edit rides along", async () => {
+    await endpoints.activateNamespace(instance, "analytics");
+
+    expect(recorded[0].method).toBe("POST");
+    // Its own sub-route, not PATCH /ns/{name}: activation answers for THIS process while the
+    // PATCH answers for the next boot, and a caller that could only do both would make every
+    // "load it now" permanently change the boot selection.
+    expect(recorded[0].path).toBe("/ns/analytics/activate");
+    expect(recorded[0].rawBody).toBeUndefined();
+    expect(recorded[0].query.has("loadOnStartup")).toBe(false);
   });
 
   it("subgraph nesting: fromSubGraph travels as a query param, never in the body", async () => {

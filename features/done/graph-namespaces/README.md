@@ -34,9 +34,9 @@ member (Studio keys its "recreate or switch" recover state on it). Fallen-8-leve
 | Route | Behavior |
 |---|---|
 | `GET /ns` | list (name-ordered, always includes `default`) + `maxNamespaces` |
-| `GET /ns/{name}` | one entry: `{ name, state, vertexCount, edgeCount, createdAt }` |
+| `GET /ns/{name}` | one entry: `{ name, state, vertexCount, edgeCount, createdAt }` (later features added the `pluginRegistrationEnabled` and `loadOnStartupEnabled` overrides; the counts are absent while `state` is `notLoaded`) |
 | `PUT /ns/{name}` | 201 create · 400 invalid name · 409 exists · 422 quota (limit in body) |
-| `PATCH /ns/{name}` | rename — pure metadata, the id-keyed on-disk location never moves |
+| `PATCH /ns/{name}` | rename, pure metadata, the id-keyed on-disk location never moves (it now also carries the two overrides, applied with the rename as one atomic catalog write) |
 | `DELETE /ns/{name}` | drop, irreversible · 409 for `default` |
 
 No per-namespace memory figure by design: engines share one GC heap, a per-namespace byte
@@ -56,7 +56,7 @@ every path, so a namespace like `Flights EU #2` addresses `/ns/Flights%20EU%20%2
 | Operation | Scope |
 |---|---|
 | `PUT /save` (twinned) | checkpoints the addressed namespace → one-member save-game entry |
-| `PUT /save/all` | checkpoints EVERY namespace → one spanning entry (the shutdown auto-save's shape) |
+| `PUT /save/all` | checkpoints every LOADED namespace → one spanning entry (the shutdown auto-save's shape); a not-loaded one is skipped and named in `skippedNamespaces`, so the entry can span a strict subset |
 | `PUT /savegames/{id}/load` | restores exactly the entry's namespaces (recreates dropped ones, touches nothing else) |
 | `PUT /savegames/{id}/load?namespace=x` | restores only `x` out of the entry |
 | `HEAD /tabularasa` (twinned) | erases the addressed namespace's content (stays registered) |
@@ -83,9 +83,21 @@ namespaces/{id}/…             ← per-namespace WAL + default checkpoint locat
 <legacy paths>                ← "default" keeps the pre-namespace locations: zero-migration upgrade
 ```
 
-Boot is eager: the catalog names the engines to construct; each namespace loads the newest
-save-game entry containing it, then replays its WAL. Namespace create/rename/drop is durable
-through the catalog — a created-but-never-saved namespace survives restarts via its WAL.
+The catalog names the engines to construct; each loaded namespace loads the newest save-game entry
+containing it, then replays its WAL. Namespace create/rename/drop is durable through the catalog: a
+created-but-never-saved namespace survives restarts via its WAL.
+
+**Superseded (2026-08):** boot was eager for every cataloged namespace, and this feature's spec
+listed "no lazy engine loading" among its non-goals with the trigger "deployments with thousands of
+live namespaces, or boot time / memory pressure". That trigger arrived as an operator preference and
+[namespace-startup-load](../namespace-startup-load/) took the declarative half of it: each catalog
+entry carries a `loadOnStartupEnabled` tri-state, `Fallen8:Namespaces:LoadOnStartup` is what it
+inherits, and `Fallen8:Namespaces:StartupLoadMode` is the operator escape hatch. A namespace the boot
+skips stays cataloged with no engine (residency is a property of the entry, never of membership), so
+everything above about the catalog, name reservation, quota and drop still holds for it; it reports
+`state: "notLoaded"` with absent counts and refuses data requests with `503`, and
+`POST /ns/{name}/activate` loads it without a restart. Idle eviction remains a non-goal there. The
+spec and plan in this directory are the historical records and are not rewritten.
 
 ## Observability
 
@@ -97,7 +109,8 @@ distinguishable instruments. Map id → name via `GET /ns`.
 
 The top bar shows the `instance / namespace` pair — the switcher is a rich dropdown (per
 the approved mock): filter, per-namespace rows with counts and active / bare-URL-alias /
-not-ready tags, an inline "+ New namespace" quick-create that switches to the newborn, a
+not-ready tags (a `not loaded` tag was added ahead of those by
+[namespace-startup-load](../namespace-startup-load/)), an inline "+ New namespace" quick-create that switches to the newborn, a
 "Manage…" jump to Connect, and the quota footer. Scoped screens live under `/q/{ns}/…`
 (deep links restore the namespace; old flat paths redirect). Studio always sends the
 explicit `/ns/{ns}` prefix — `default` included — the bare alias exists for legacy clients,
@@ -110,9 +123,16 @@ rename, switch, typed-name drop); Save games and Benchmark stay Fallen-8-level a
 
 ## Limits / revisit triggers
 
-Each namespace owns a dedicated writer thread, an open WAL (durable mode), and metric
-instruments — the 10,000 quota is a cap, not a target; realistic fleets are dozens to
-hundreds (engine-side pooling is the revisit trigger for more). No auth (superseded
+Each LOADED namespace owns a dedicated writer thread, its resident graph, and metric instruments:
+the 10,000 quota is a cap, not a target; realistic fleets are dozens to hundreds (engine-side
+pooling is the revisit trigger for more). It never owns an open WAL handle, in any mode. This README
+and [spec.md](./spec.md) ("Per-namespace fixed cost") both claimed one until 2026-08, and it
+overstated the per-namespace cost: every append opens, fsyncs and closes
+(`fallen-8-core/Persistency/WriteAheadLog.cs`). The claim stands in the spec as the historical record;
+this line is the correction. No auth (superseded
 [multi-instance-host](../multi-instance-host/) territory; re-spec on an untrusted caller),
-no cross-namespace queries, no lazy engine loading, no async provisioning (`state` is always
-`ready` in v1).
+no cross-namespace queries, no async provisioning (`state` is `ready` or, since
+[namespace-startup-load](../namespace-startup-load/), `notLoaded`; `creating` remains unused).
+"No lazy engine loading" is superseded in part (see Durability layout): a boot can skip a namespace
+and it can be activated later, but nothing unloads a live engine and there is still no
+load-on-first-request.

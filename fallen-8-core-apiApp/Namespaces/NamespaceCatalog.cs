@@ -94,5 +94,19 @@ namespace NoSQL.GraphDB.App.Namespaces
         {
             get; set;
         }
+
+        /// <summary>
+        ///   This namespace's startup-load override (feature namespace-startup-load). Null ⇒
+        ///   inherit the global <c>Fallen8:Namespaces:LoadOnStartup</c> default; true/false force
+        ///   this namespace to be loaded/skipped by a boot regardless of the global value. There is
+        ///   no document-level slot for the reserved <c>default</c> namespace, unlike
+        ///   <see cref="NamespaceCatalogDocument.DefaultPluginRegistrationEnabled"/>: <c>default</c>
+        ///   aliases every bare URL, so it is always loaded and has nothing to override.
+        /// </summary>
+        [JsonPropertyName("loadOnStartupEnabled")]
+        public Boolean? LoadOnStartupEnabled
+        {
+            get; set;
+        }
     }
 }

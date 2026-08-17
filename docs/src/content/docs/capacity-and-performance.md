@@ -12,8 +12,8 @@ on yours.
 
 The numbers below are not hand-written. They are produced by
 [`fallen-8-bench`](https://github.com/cosh/fallen-8-core/tree/main/fallen-8-bench), a console tool in the
-repository that measures memory, write throughput, checkpoint stalls and traversal speed, then writes a
-result file:
+repository that measures memory, write throughput, checkpoint stalls, startup load and traversal speed,
+then writes a result file:
 
 ```bash
 # quick is sized for CI; full uses the larger graphs this page's guidance is really about
@@ -130,6 +130,32 @@ makes every commit durable, so **checkpoints do not have to be frequent**: save 
 your restore-point needs rather than out of fear of data loss, and avoid saving a very large graph in the
 middle of a write burst. Reads are unaffected, because they never touch the writer.
 
+## Booting: what one namespace costs to load
+
+A start pays this **per loaded namespace, one after another**: construct the engine, then restore the
+checkpoint it boots from. The write-ahead-log tail is replayed on top and is not in the number, because
+its cost follows what was committed since the last save rather than the size of the graph.
+
+<!-- capacity:load -->
+
+_The recorded run predates the startup-load measurement, so this table is empty rather than guessed. Re-run `fallen-8-bench` (any profile) to fill it._
+
+<!-- /capacity:load -->
+
+This is the one measurement that is deliberately **not** warmed up: a save repeats for the life of a
+process, but a startup load happens once, in a cold process, so the first-touch and JIT costs a
+warm-up would remove are part of what a boot actually waits for. The scenarios run smallest first, so
+the smallest row carries that one-off cost and reads as a worse per-element rate.
+
+Two things follow that need no figure of their own. A fleet's slowest namespace sits on the critical
+path of every start, because the selected namespaces load one after another; and a namespace that
+nobody reads still pays for its residency, in load time and in retained heap. That is what the
+per-namespace [startup-load policy](/fallen-8-core/namespaces/#startup-load) is for. Excluding a
+namespace saves exactly those two things and close to nothing else: no namespace holds an open
+write-ahead-log handle (every append opens, fsyncs and closes), and its writer thread is cheap.
+How a restore compares with checkpointing the same graph is a comparison of two measured rows, so it
+is stated inside the table above, when there are rows to state it from.
+
 ## Reads: what is cheap and what is linear
 
 | Operation | Cost |
@@ -182,6 +208,7 @@ loaded, so you can compare your own data against these shapes.
 | Batch your transactions | The single biggest write-throughput lever, worth the multiple measured above |
 | `Fallen8:Durability:Volatile=true` | No WAL, no checkpoints, no boot load: the fastest possible writes, and a restart loses everything |
 | `Fallen8:Durability:SaveOnShutdown` | `false` skips the final checkpoint and relies on WAL replay, trading a longer boot for a faster stop |
+| A namespace's [startup-load policy](/fallen-8-core/namespaces/#startup-load) | Keeps a namespace out of the boot entirely: saves its load time (above) and its retained heap, and nothing else |
 | Save frequency | Each save costs the stall measured above; the WAL is what makes rare saves safe |
 | Server GC | On by default in the engine package, the service and the benchmark tool, and the right choice for a resident graph |
 | `Fallen8:Analytics:MaxConcurrentRuns` | Defaults to 1, so a heavy analytics run cannot be stacked on itself |
@@ -198,6 +225,8 @@ Honest limits, so you can plan around them rather than discover them:
   frequently.
 - **Property scans are linear.** They are a discovery tool. Anything on a hot path wants an
   [index](/fallen-8-core/indexes/).
+- **The startup load is sequential**, one namespace after another (above). The lever today is loading
+  fewer of them, not loading them concurrently.
 - **There is no compressed adjacency structure.** A CSR-style representation was assessed and
   deliberately rejected: edges here are first-class objects with their own ids, properties and index
   membership, and the graph is continuously mutated, so CSR would add a second structure to maintain
@@ -209,6 +238,7 @@ Honest limits, so you can plan around them rather than discover them:
 
 - [Benchmark](/fallen-8-core/benchmark/): measure traversal throughput against a loaded graph from Studio
 - [Save games](/fallen-8-core/save-games/): the WAL, checkpoints, and what survives a crash
+- [Namespaces](/fallen-8-core/namespaces/): the startup-load policy, and what a not-loaded namespace costs (nothing) and answers (`503`)
 - [Use as a library](/fallen-8-core/library/): in-process consumption, where you control GC and batching
 - [Observability](/fallen-8-core/observability/): the metrics that show these costs on a live instance
 - [Bulk import/export](/fallen-8-core/bulk-import-export/): the batched path for loading large datasets

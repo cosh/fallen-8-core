@@ -36,6 +36,7 @@ import { ConfigurationPanel } from "../components/ConfigurationPanel";
 import { Truncated } from "../components/Truncated";
 import { ListCapNote } from "../components/ListCapNote";
 import { DISPLAY_CAP } from "../lib/truncate";
+import { formatCountOrDash } from "../lib/format";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
@@ -74,7 +75,7 @@ function InstanceHealth({ instance }: { instance: InstanceConfig }) {
     );
   return (
     <span className="text-accent">
-      {health.data.vertexCount.toLocaleString()} v · {health.data.edgeCount.toLocaleString()} e
+      {formatCountOrDash(health.data.vertexCount)} v · {formatCountOrDash(health.data.edgeCount)} e
     </span>
   );
 }

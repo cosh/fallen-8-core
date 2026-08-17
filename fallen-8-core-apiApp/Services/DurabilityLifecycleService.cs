@@ -26,14 +26,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
-using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Namespaces;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Transaction;
@@ -54,6 +52,7 @@ namespace NoSQL.GraphDB.App.Services
         private readonly Fallen8Namespaces _namespaces;
         private readonly Fallen8DurabilityOptions _options;
         private readonly SaveGameRegistry _saveGames;
+        private readonly NamespaceLoader _loader;
         private readonly ILogger<DurabilityLifecycleService> _logger;
 
         // StopAsync must run its save+register at most once: the host can invoke it more than once
@@ -66,17 +65,18 @@ namespace NoSQL.GraphDB.App.Services
         private readonly StartupState _startupState;
 
         public DurabilityLifecycleService(Fallen8Namespaces namespaces, IOptions<Fallen8DurabilityOptions> options,
-            SaveGameRegistry saveGames, ILogger<DurabilityLifecycleService> logger,
+            SaveGameRegistry saveGames, NamespaceLoader loader, ILogger<DurabilityLifecycleService> logger,
             StartupState startupState = null)
         {
             _namespaces = namespaces;
             _options = options.Value;
             _saveGames = saveGames;
+            _loader = loader;
             _logger = logger;
             _startupState = startupState;
         }
 
-        public Task StartAsync(CancellationToken cancellationToken)
+        public async Task StartAsync(CancellationToken cancellationToken)
         {
             if (_options.Volatile)
             {
@@ -85,7 +85,7 @@ namespace NoSQL.GraphDB.App.Services
 
                 // Nothing to load: ready immediately (feature observability).
                 _startupState?.MarkReady();
-                return Task.CompletedTask;
+                return;
             }
 
             // Per-namespace registry-driven boot (save-games FR-8 generalized): each namespace
@@ -94,133 +94,44 @@ namespace NoSQL.GraphDB.App.Services
             foreach (var ns in _namespaces.Snapshot())
             {
                 // A namespace the collection deliberately did not load has no engine to restore into
-                // (feature namespace-startup-load); the collection has already logged why.
+                // (feature namespace-startup-load); the collection has already logged why. This skip
+                // is also what scopes save-games FR-9's loud whole-process abort below to the
+                // SELECTED namespaces: a rotted or missing checkpoint under a namespace nobody asked
+                // for must not keep the whole server down.
                 if (!ns.IsLoaded)
                 {
                     continue;
                 }
 
-                StartNamespace(ns);
+                await StartNamespaceAsync(ns).ConfigureAwait(false);
             }
 
             // Load-at-startup completed for every namespace: the server is ready (feature
             // observability). The throwing failure paths deliberately never mark ready.
             _startupState?.MarkReady();
-            return Task.CompletedTask;
         }
 
-        private void StartNamespace(Namespace ns)
+        /// <summary>
+        ///   Restores one namespace at boot through the shared <see cref="NamespaceLoader"/>, and
+        ///   applies THE BOOT'S failure contract to the result: an unrestorable checkpoint aborts the
+        ///   whole process (save-games FR-9), because a machine that comes up serving an empty graph
+        ///   where a save was expected is worse than one that does not come up at all.
+        ///   <para>That contract is now the only thing this method adds. The load itself moved to the
+        ///   loader so runtime activation can share it (feature namespace-startup-load §4.8), where
+        ///   the identical failure must fail ONE request and leave the server standing - the reason
+        ///   the routine reports rather than throws.</para>
+        /// </summary>
+        private async Task StartNamespaceAsync(Namespace ns)
         {
-            var directory = _namespaces.DirectoryFor(ns);
-            // Matched by the IMMUTABLE id: a rename keeps the boot chain; a recreated namesake
-            // (fresh id) never loads the dropped predecessor's checkpoints.
-            var newest = _saveGames.NewestContaining(ns.Id);
-            var member = newest == null
-                ? null
-                : SaveGameRegistry.EffectiveNamespaces(newest).First(m => SaveGameRegistry.EffectiveId(m) == ns.Id);
+            var (outcome, detail, error) = await _loader.LoadNewestRegisteredAsync(ns, ns.Engine).ConfigureAwait(false);
 
-            if (member == null)
+            // Only a FAILED restore aborts. Unregistered checkpoint files (save-games FR-11) do not:
+            // this engine is already constructed and published, and the loader's contract says why
+            // that makes the boot the caller that proceeds while an activation refuses.
+            if (outcome == NamespaceRestoreOutcome.Failed)
             {
-                // Migration hint (FR-11): checkpoint files without a registry entry are not loaded.
-                if (CheckpointDiscovery.TryFindLatestCheckpoint(directory, _options.CheckpointBaseName, out var orphan))
-                {
-                    _logger.LogWarning("Fallen-8 found checkpoint files (e.g. \"{Checkpoint}\") for namespace \"{Namespace}\" " +
-                        "but no registered save game contains it, so it starts EMPTY (registry-driven boot). To adopt an " +
-                        "existing checkpoint, load it once via PUT /load - it is then registered permanently.",
-                        orphan, ns.Name);
-                }
-                else
-                {
-                    _logger.LogInformation("No registered save game contains namespace \"{Namespace}\"; it starts with its " +
-                        "current in-memory state ({VertexCount} vertices, {EdgeCount} edges) - any unanchored WAL was " +
-                        "replayed at construction.", ns.Name, ns.Engine.VertexCount, ns.Engine.EdgeCount);
-                }
-
-                return;
-            }
-
-            // Crash-window reconciliation (FR-10): a save completes and becomes durable on disk (the WAL
-            // is re-anchored to it inside the save transaction) and only THEN is its registry entry
-            // written. A crash in that window leaves a complete checkpoint on disk that the registry does
-            // not know. If discovery finds a checkpoint strictly newer than the newest REGISTERED member,
-            // it is exactly such an orphan - adopt it (load + register) so a crash never silently reverts
-            // to an older save.
-            var loadTarget = member.Location;
-            var adoptOrphan = false;
-            if (CheckpointDiscovery.TryFindLatestCheckpoint(directory, _options.CheckpointBaseName, out var diskCheckpoint))
-            {
-                var diskRegistered = _saveGames.GetAll()
-                    .SelectMany(SaveGameRegistry.EffectiveNamespaces)
-                    .Any(m => PathsEqual(m.Location, diskCheckpoint));
-                var newestFileExists = File.Exists(member.Location);
-                var diskNewer = !newestFileExists
-                    || File.GetLastWriteTimeUtc(diskCheckpoint) > File.GetLastWriteTimeUtc(member.Location);
-                if (!diskRegistered && diskNewer)
-                {
-                    _logger.LogWarning("A checkpoint on disk (\"{Disk}\") for namespace \"{Namespace}\" is newer than the " +
-                        "newest registered save game {Id} (saved {SavedAt}) and is not in the registry; adopting it - it " +
-                        "is a durable save whose registration did not complete (crash window).",
-                        diskCheckpoint, ns.Name, newest.Id, newest.SavedAt);
-                    loadTarget = diskCheckpoint;
-                    adoptOrphan = true;
-                }
-            }
-
-            if (!adoptOrphan)
-            {
-                _logger.LogInformation("Loading namespace \"{Namespace}\" from save game {Id} at \"{Location}\" (saved {SavedAt}).",
-                    ns.Name, newest.Id, loadTarget, newest.SavedAt);
-            }
-
-            // A missing primary checkpoint file does NOT roll the load back (the engine's Load treats
-            // a non-existent file as a no-op), so it would silently serve an empty graph. Fail startup
-            // loudly here instead (FR-9) - the operator restores the files or removes the entry.
-            if (!File.Exists(loadTarget))
-            {
-                throw new InvalidOperationException(
-                    "The newest save game containing namespace \"" + ns.Name + "\" (\"" + newest.Id + "\") points at \"" +
-                    loadTarget + "\", which does not exist; startup is aborted so a missing save is never masked by an " +
-                    "empty graph. Restore its files, or remove the entry (DELETE /savegames/" + newest.Id + ") and restart.");
-            }
-
-            var loadInfo = ns.Engine.EnqueueTransaction(new LoadTransaction { Path = loadTarget });
-            loadInfo.WaitUntilFinished();
-
-            if (loadInfo.TransactionState == TransactionState.RolledBack)
-            {
-                throw new InvalidOperationException(
-                    "Fallen-8 failed to load namespace \"" + ns.Name + "\" from \"" + loadTarget +
-                    "\"; startup is aborted. Restore its files, or remove the entry (DELETE /savegames/" + newest.Id +
-                    ") and restart to use the next-newest (or start empty).", loadInfo.Error);
-            }
-
-            if (adoptOrphan)
-            {
-                // Register the adopted orphan now that the graph is loaded (so its KPIs are correct).
-                try
-                {
-                    _saveGames.RegisterImportIfUnknown(ns.Name, ns.Id, ns.Engine, loadTarget);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Adopted the orphan checkpoint \"{Disk}\" for namespace \"{Namespace}\" but could " +
-                        "not register it; it will be re-adopted on the next boot.", loadTarget, ns.Name);
-                }
-            }
-
-            _logger.LogInformation("Namespace \"{Namespace}\" loaded: {VertexCount} vertices, {EdgeCount} edges.",
-                ns.Name, ns.Engine.VertexCount, ns.Engine.EdgeCount);
-        }
-
-        private static bool PathsEqual(string a, string b)
-        {
-            try
-            {
-                return string.Equals(Path.GetFullPath(a), Path.GetFullPath(b), StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+                throw new InvalidOperationException(detail + " Startup is aborted; restart once its files or its " +
+                    "registry entry are in order.", error);
             }
         }
 

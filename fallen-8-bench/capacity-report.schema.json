@@ -116,6 +116,24 @@
             }
           }
         },
+        "load": {
+          "description": "How long restoring one namespace's checkpoint takes, i.e. what a boot pays per LOADED namespace. OPTIONAL, unlike the other four families: it was added after schema major 1 shipped, and requiring it would make every report recorded before it unreadable rather than merely incomplete. A consumer that finds it absent must say the run predates the measurement, never that the cost is zero.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "elements", "vertices", "edges", "loadMs", "elementsPerSecond"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1 },
+              "elements": { "type": "integer", "minimum": 1 },
+              "vertices": { "type": "integer", "minimum": 0 },
+              "edges": { "type": "integer", "minimum": 0 },
+              "loadMs": { "description": "Engine construction plus the checkpoint restore, wall clock. The write-ahead-log tail is not included: a boot replays it on top, and its cost follows what was committed since the last save rather than the graph.", "type": "number", "minimum": 0 },
+              "elementsPerSecond": { "type": "number", "minimum": 0 }
+            }
+          }
+        },
         "traversal": {
           "description": "Raw out-edge traversal throughput, the same work GET /benchmark does.",
           "type": "array",

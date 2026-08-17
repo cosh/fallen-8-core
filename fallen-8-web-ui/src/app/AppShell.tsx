@@ -194,7 +194,14 @@ export function AppShell({ children }: { children: ReactNode }) {
     }
   }, [active?.id, namespaces.data, namespaces.error, setNamespaceSupport]);
   const namespaceEntries = namespaces.data?.namespaces ?? [
-    { name: DEFAULT_NAMESPACE, state: "ready" as const, vertexCount: 0, edgeCount: 0, createdAt: "" },
+    {
+      name: DEFAULT_NAMESPACE,
+      state: "ready" as const,
+      vertexCount: 0,
+      edgeCount: 0,
+      createdAt: "",
+      loadOnStartupEnabled: null,
+    },
   ];
 
   const leafOf = (path: string) => (path.startsWith("/q/") ? path.split("/").slice(3).join("/") : "");

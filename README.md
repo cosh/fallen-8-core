@@ -55,7 +55,8 @@ Each feature has a deep-dive doc — follow the link.
 - **[Save games](https://cosh.github.io/fallen-8-core/save-games/)** — checkpoints tracked by a registry that drives startup,
   on top of a write-ahead log.
 - **[Namespaces](https://cosh.github.io/fallen-8-core/namespaces/)** — many isolated graphs in one Fallen-8, addressable under
-  `/ns/{name}/…`.
+  `/ns/{name}/…`, each choosing whether a boot loads it (a skipped one stays cataloged, answers `503`,
+  and is never written to) and loadable into a running process on demand.
 - **[Observability](https://cosh.github.io/fallen-8-core/observability/)**: opt-in Prometheus/OTLP metrics and traces, a
   graph-shape snapshot, and health probes for one instance, plus a multi-tenant consumer stack
   (Collector, Prometheus, Tempo, Loki, Grafana) that collects what many instances push into one
@@ -91,7 +92,7 @@ Each feature has a deep-dive doc — follow the link.
   trim-compatible, so a fully trimmed client keeps only what it uses, and a host that registers its plugin
   types gets name-based lookup, index creation and vector search even where assembly scanning finds nothing.
 - **[Capacity and performance](https://cosh.github.io/fallen-8-core/capacity-and-performance/)**: measured bytes per
-  vertex and edge, write throughput, and what a save game costs the writer.
+  vertex and edge, write throughput, what a save game costs the writer, and what booting a namespace costs.
 - **[Security](https://cosh.github.io/fallen-8-core/security/)** — optional all-or-nothing API key; dynamic code execution is
   always on (queries are C#), so set a key before exposing the service off-box.
 

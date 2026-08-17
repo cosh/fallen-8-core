@@ -40,8 +40,20 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
     {
         public String Name { get; set; } = String.Empty;
 
-        public Int32 VertexCount { get; set; }
+        /// <summary>
+        ///   <c>ready</c>, <c>creating</c>, or <c>notLoaded</c> - cataloged but with no engine in the
+        ///   target process (feature namespace-startup-load).
+        /// </summary>
+        public String? State { get; set; }
 
-        public Int32 EdgeCount { get; set; }
+        /// <summary>
+        ///   Null for a <c>notLoaded</c> namespace: the target reports no count rather than a zero,
+        ///   and this DTO must stay nullable to READ that - a non-nullable Int32 fails the whole
+        ///   directory listing on a JSON null.
+        /// </summary>
+        public Int32? VertexCount { get; set; }
+
+        /// <summary>Null for a <c>notLoaded</c> namespace (see <see cref="VertexCount"/>).</summary>
+        public Int32? EdgeCount { get; set; }
     }
 }

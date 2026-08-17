@@ -1,16 +1,23 @@
 # Namespace startup load - Specification
 
-> **Status:** Open. Branch-only workflow (`feature/namespace-startup-load`), no GitHub issue or PR
-> unless asked. This fires the revisit trigger [graph-namespaces](../../done/graph-namespaces/)
-> named for itself and takes the **declarative** half of it: an operator chooses which namespaces
-> a boot loads. Idle eviction stays out (see Non-goals).
+> **Status:** IMPLEMENTED (2026-08-17), phases 0 to 5 landed on `feature/namespace-startup-load`
+> (branch-only workflow, no GitHub issue or PR unless asked). This fires the revisit trigger
+> [graph-namespaces](../graph-namespaces/) named for itself and takes the **declarative** half of it:
+> an operator chooses which namespaces a boot loads. Idle eviction stays out (see Non-goals).
+> Deviations from this spec and from the plan are recorded in [plan.md](./plan.md) under each
+> phase's "as landed" note; what remains open is listed there too (the published bench figure and an
+> e2e scenario for the policy round trip). The Studio activation button, which phase 4 could not
+> build because phase 3 ran beside it, was wired afterwards on this branch, as were the review
+> follow-ups: activation refuses a namespace whose only checkpoint files are unregistered (§4.8's
+> third documented addition), `screen-connect.png` was recaptured with the "at startup" column, and
+> `NotLoaded`'s dead `extraDetail` parameter is gone.
 
 ## 1. Why
 
-A Fallen-8 boots every cataloged namespace eagerly and loads each one's newest checkpoint
+Before this feature, a Fallen-8 booted every cataloged namespace eagerly and loaded each one's newest checkpoint
 **sequentially** (`Services/DurabilityLifecycleService.cs`), so the slowest namespace in a fleet
 sits on the critical path of every start, and its heap stays resident whether anyone reads it or
-not. [graph-namespaces](../../done/graph-namespaces/spec.md) predicted this request in its own
+not. [graph-namespaces](../graph-namespaces/spec.md) predicted this request in its own
 non-goals ("No lazy engine loading / idle eviction. Trigger: deployments with thousands of live
 namespaces, or boot time / memory pressure"). This is that trigger arriving as an operator
 preference rather than as an incident, which is the good version of it.
@@ -24,14 +31,32 @@ nothing else:
   1024-dimension vector index (measured, [capacity-and-performance](../../../docs/src/content/docs/capacity-and-performance.md));
 - one writer thread per engine, which is cheap;
 - **no** persistent write-ahead-log handle: every append opens, fsyncs and closes
-  (`fallen-8-core/Persistency/WriteAheadLog.cs`). `Fallen8NamespacesOptions`' XML doc claims each
-  namespace holds "an open write-ahead log"; that is wrong and this feature corrects it rather
-  than repeating it.
+  (`fallen-8-core/Persistency/WriteAheadLog.cs`). `Fallen8NamespacesOptions`' XML doc claimed each
+  namespace holds "an open write-ahead log"; that was wrong, and this feature corrected it rather
+  than repeating it - in that XML doc (phase 1), and in the `namespaces` docs page, the `save-games`
+  durability block and graph-namespaces' living README (phase 5). It stands uncorrected in
+  graph-namespaces' own spec, which is a historical record.
 
-Boot-time savings are therefore **claimed only once measured**: the plan adds a load row to
-`fallen-8-bench`. Until it exists, the spec states heap and says the latency claim is unmeasured.
-That is deliberate: a feature justified by a number nobody produced is how the WAL-handle
-overstatement got into the codebase in the first place.
+Boot-time savings are **claimed only once measured**, because a feature justified by a number nobody
+produced is how the WAL-handle overstatement got into the codebase in the first place.
+
+**As landed (phase 5):** `fallen-8-bench` grew a fifth measurement family, `load`, on the same graph
+shapes as the save-stall family, so a checkpoint and the boot that restores it can be read off one
+row pair. It times engine construction plus the checkpoint restore, deliberately un-warmed (a
+startup load happens once, in a cold process, so the first-touch and JIT costs belong in the
+number), and excludes the write-ahead-log tail, whose cost follows what was committed since the
+last save rather than the graph. The rendered rows live in the
+[Capacity and performance](../../../docs/src/content/docs/capacity-and-performance.md) page's
+`capacity:load` region.
+
+The **published** figure therefore arrives with the next `capacity` workflow run, not with this
+branch: the checked-in report describes a different machine, and a report generated from a dirty
+working tree stamps the page "(uncommitted changes present)". Until then that region says the
+recorded run predates the measurement, which is why the family is the one OPTIONAL family in the
+report schema. A local verification run on the implementing machine (a laptop, not the published
+reference) restored 300k elements in about 0.8 s and 1.2M in about 3.7 s, i.e. a few hundred
+thousand elements per second: enough to establish that the latency this feature avoids is seconds
+per namespace at modest sizes, and the reason no number from that run is written into the docs.
 
 ## 3. What a user defines, and where it lives
 
@@ -39,7 +64,7 @@ A **persisted, per-namespace tri-state**, editable at runtime, inheriting a glob
 byte-for-byte the shape `pluginRegistration` already ships (`Namespaces/NamespaceCatalog.cs`), so
 the feature adds a field to a pattern rather than a pattern.
 
-The owner asked to *define* this as a user, and [instance-config](../../done/instance-config/spec.md)
+The owner asked to *define* this as a user, and [instance-config](../instance-config/spec.md)
 makes every `Fallen8:*` key startup-only and non-mutable. A configuration-only answer would
 therefore mean nobody can define anything without a redeploy, which is not the request.
 
@@ -63,6 +88,18 @@ one file whose malformation takes the server down.
 | 4.7 | **REST refusal:** `503` problem+json from one home (`NamespaceProblems.NotLoaded`), enforced pre-action in `NamespaceValidationFilter` with an exception-filter twin for the off-request path, carrying `namespace` and `namespaceState: "notLoaded"`. **Not 404** - see 7.1. |
 | 4.8 | **Activation:** `POST /ns/{name}/activate` loads a not-loaded namespace into the running process. Idempotent, rate-limited, and it does **not** change the persisted policy. Named *activate* because `/ns/{ns}/load` already means "restore a checkpoint". |
 | 4.9 | The reserved `default` namespace **cannot** be excluded, by catalog or by config. Every bare URL aliases it, so a Fallen-8 whose `default` is absent has no coherent answer for most of its own surface. |
+
+Every rule above landed as written, with three documented additions that the plan's phase notes own in
+full: `GET /status` is the ONE route exempted from 4.7 (it opts out with
+`[NamespaceResidencyOptional]` and reports `namespaceState` with every engine-derived field null, so
+the anonymous connection probe stays usable); 4.8's load routine is asynchronous end to end,
+which turned `DurabilityLifecycleService.StartAsync` into an `async` method; and **4.8 refuses one
+case with `409`** - a namespace whose directory holds checkpoint files that no registered save game
+contains (save-games FR-11). Publishing an engine there is this feature's own data-loss path entered
+from the other end: the namespace becomes resident and empty beside real files, section 5's guard
+correctly stops protecting it, and the next clean shutdown registers that empty graph as its newest
+checkpoint. The full argument, and the boot's deliberately different answer, live on
+`Services/NamespaceLoader.cs`.
 
 ## 5. The data-loss guard (normative)
 
@@ -128,25 +165,43 @@ snapshot" flow today that warns rather than refuses. *Revisit trigger:* a second
 | Question | Decision | Rejected, and why |
 |---|---|---|
 | Is runtime activation in v1? | **Yes**, as its own phase after the policy works. Without it the only way back from a wrong exclusion is edit-and-restart, so the first mistake costs an outage; with it, exclusion also becomes a deliberate posture (boot fast, activate on demand). | Policy-only v1: cheaper, but it makes every refusal message, Studio branch and doc say "restart to get your data back". |
-| What does the factory reset (`/tabularasa/all`) do to a not-loaded namespace? | **Drops it**, and names it in the response among what was dropped. The reset's contract is explicit and already has no undo. | Sparing them: a documented factory reset that silently leaves data behind, which the next boot resurrects after the operator believes they erased it. That is the worse surprise. |
+| What does the factory reset (`/tabularasa/all`) do to a not-loaded namespace? | **Drops it**, catalog entry, directory and write-ahead log included. The reset's contract is explicit and already has no undo. **As landed:** the route is `[HttpHead]` and answers `204` with no body, so nothing in the response can name what it dropped - the server log does, one line per namespace. An earlier version of this row and of the `namespaces` page claimed the response named them, which was never true. | Sparing them: a documented factory reset that silently leaves data behind, which the next boot resurrects after the operator believes they erased it. That is the worse surprise. |
 | Does restoring a save game into an excluded namespace flip it? | **Activates it for this process AND flips the persisted policy to enabled**, reporting both in the response. | Activate only: the restored data goes invisible again at the next boot. Refuse: dead-ends a legitimate recovery during an incident behind "change policy, restart, restore". |
 
 ## 9. Impact on existing features (mandatory sweep)
 
 | Feature / layer | Impact | Action |
 |---|---|---|
-| [graph-namespaces](../../done/graph-namespaces/) | Supersedes "boot is eager" and its "no lazy engine loading" non-goal; the per-namespace fixed cost now applies to **loaded** namespaces only | Edit its LIVING README; cite the spec's non-goal as superseded rather than rewriting the historical spec |
-| [save-games](../../done/save-games/) | FR-9's whole-process abort scopes to selected namespaces; the spanning entry becomes a subset; restore into a not-loaded target follows 8.3 | Guard, tests, and the `save-games` docs page |
-| [hosted-durability-lifecycle](../../done/hosted-durability-lifecycle/) | Both the start loop and the shutdown save loop become residency-aware; its "never silently degrade" posture governs how loud the selection is | Code + tests |
+| [graph-namespaces](../graph-namespaces/) | Supersedes "boot is eager" and its "no lazy engine loading" non-goal; the per-namespace fixed cost now applies to **loaded** namespaces only | Edit its LIVING README; cite the spec's non-goal as superseded rather than rewriting the historical spec |
+| [save-games](../save-games/) | FR-9's whole-process abort scopes to selected namespaces; the spanning entry becomes a subset; restore into a not-loaded target follows 8.3 | Guard, tests, and the `save-games` docs page |
+| [hosted-durability-lifecycle](../hosted-durability-lifecycle/) | Both the start loop and the shutdown save loop become residency-aware; its "never silently degrade" posture governs how loud the selection is | Code + tests |
 | Engine (`fallen-8-core`) | **None** (section 6) | Revisit trigger recorded |
-| REST / [api-error-contract](../../done/api-error-contract/) | A new reachable 503 on every namespace-scoped operation, via the global filter | One documented home, per 4.7 |
+| REST / [api-error-contract](../api-error-contract/) | A new reachable 503 on every namespace-scoped operation, via the global filter | One documented home, per 4.7 |
 | OpenAPI snapshot | Schema additions plus one new path (activation) | `powershell -File scripts/update-openapi-snapshot.ps1`, review the diff |
 | MCP (engine → REST → MCP) | **The gate will not protect us here:** `McpRestCoverageTest` keys on `METHOD /path`, so a new *field* on the already-bridged `PATCH /ns/{name}` is invisible to it. Activation, being a new path, does trip it | `f8_overview` reports residency (read tier) as the prerequisite; activation joins the admin tier; the policy field is bridged with its own reasoning, not by omission |
 | F8 Studio | A third namespace state to render, absent-capable counts, the policy affordance, and the switcher tag | Reuse the existing degraded-state vocabulary; no new visual language |
-| [studio-embeddable](../../done/studio-embeddable/) | `lockNamespace` must also hide the policy control: an embed scoped to one graph must not re-plan the host's boot | One condition, pinned by a test |
+| [studio-embeddable](../studio-embeddable/) | `lockNamespace` must also hide the policy control: an embed scoped to one graph must not re-plan the host's boot | One condition, pinned by a test |
 | Docs site | `namespaces`, `save-games` (its Startup table is the most wrong section today), `architecture`, `running`, `capacity-and-performance`, `observability`, `studio`, `troubleshooting` | Amend in place; **no new page** - a separate page would be a third home for the namespace story |
 | Screenshots | The Namespaces table gains a column; it is fully in-viewport on `screen-connect.png` | Recapture that one; the not-loaded switcher tag never occurs in a capture by construction |
 | NL-assist fine-tune | No delegate kind, fragment surface, snippet or prompt changes | No `RETRAIN-LOG.md` entry |
+
+Every row was swept and acted on, with three corrections and one row left open:
+
+- **Docs site** also needed `mcp-server` (the `activate` op joined `f8_admin`), and the `save-games`
+  page needed more than its Startup table: the `walEnabled` row of the durability block carried the
+  same "a write-ahead log is open" wording section 2 exists to retire.
+- **F8 Studio** landed in three pieces rather than one: the residency guards could not wait for its
+  own phase, and the activation button could not be built while phase 3 was still inventing the route
+  it calls. See the plan's phase-2 and phase-4 notes and "Left open".
+- **studio-embeddable** is satisfied by one condition, but it also hides the *way out* under
+  `lockNamespace`, not just the policy control: an embed must not send its user to a screen whose
+  only action is one the host reserved. Activation is on that list for the same reason - it decides
+  what the host's process holds - so under `lockNamespace` the explanation renders and no button
+  does.
+- **Screenshots** was the open row and is now closed: `screen-connect.png` was recaptured against a
+  live app whose inventory carries a non-inherit policy, so the "at startup" column shows real
+  values (`skip` / `load` / `inherit`) rather than one repeated default. The capture spec creates
+  that fixture itself, so the next recapture reproduces it.
 
 ## 10. Non-goals (right-sized, with revisit triggers)
 

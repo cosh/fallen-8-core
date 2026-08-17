@@ -91,7 +91,10 @@ namespace NoSQL.GraphDB.Tests
             ("PUT", "/ns/{name}"),
             ("PATCH", "/ns/{name}"),
             ("DELETE", "/ns/{name}"),
-            // Admin tier.
+            // Admin tier. Activation is admin rather than write: it restores a checkpoint into the
+            // running process (feature namespace-startup-load §4.8), which is durability work, not
+            // part of the create/rename/drop lifecycle f8_namespace owns.
+            ("POST", "/ns/{name}/activate"),
             ("PUT", "/save"),
             ("GET", "/savegames"),
             ("PUT", "/savegames/{id}/load"),
