@@ -1,8 +1,9 @@
 # MIT License. fallen-8-nlp - the semantic-layer NLP enrichment sidecar (feature nlp-gpu-tier).
 # Copyright (c) 2011-2026 Henning Rauch.
 #
-# A small FastAPI + spaCy service, English-only and GPU-tiered. The model is downloaded at BUILD
-# time so the running container makes no network call and starts offline:
+# A small FastAPI + spaCy service, English-only and GPU-tiered. The model is installed at BUILD
+# time directly from GitHub release wheels (bypassing the spaCy compatibility-table API) so the
+# running container makes no network call and starts offline:
 #   - CPU (default):   en_core_web_lg (MIT).
 #   - GPU (F8_NLP_GPU=1): en_core_web_trf (MIT) - its wheel pulls its own backend
 #     (spacy-curated-transformers) + torch - plus the spacy[cuda12x] extra (cupy) so
@@ -26,12 +27,15 @@ ENV F8_NLP_MODEL=${F8_NLP_MODEL}
 # cupy + torch land ONLY on the GPU image. NOTE: trf uses spacy-curated-transformers, NOT the
 # classic spacy-transformers - do not install that one (wrong backend, torch/transformers conflict).
 COPY requirements.txt .
+# Install the model wheel directly from GitHub to avoid the spaCy compatibility-table API call
+# (which rate-limits at 429 during parallel builds). URL pattern: <model>-3.8.0 for spaCy 3.8.x.
 RUN pip install --no-cache-dir -r requirements.txt \
     && if [ "$F8_NLP_GPU" = "1" ]; then pip install --no-cache-dir "spacy[cuda12x]==3.8.2"; fi \
-    && python -m spacy download ${F8_NLP_MODEL}
+    && pip install --no-cache-dir \
+    "https://github.com/explosion/spacy-models/releases/download/${F8_NLP_MODEL}-3.8.0/${F8_NLP_MODEL}-3.8.0-py3-none-any.whl"
 
 COPY app ./app
-
+    
 EXPOSE 8100
 
 # Single worker: the model is loaded per-process and lazy; scale with replicas, not workers, so
