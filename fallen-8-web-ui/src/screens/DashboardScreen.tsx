@@ -33,6 +33,7 @@ import { Stat } from "../components/Stat";
 import { Truncated } from "../components/Truncated";
 import { FirstRunShow } from "../firstrun/FirstRunShow";
 import { useFirstRun } from "../firstrun/firstRunStore";
+import { formatCountOrDash } from "../lib/format";
 
 /**
  * Dashboard (FR-2/3/4): the status overview for the active namespace — vertex/edge counts
@@ -72,6 +73,9 @@ export function DashboardScreen() {
   }
   const data = status.data!;
 
+  // Strictly 0, never a missing count: /status answers for a namespace the server catalogs but
+  // did not load, and reports null counts for it. Reading that as empty would greet an operator
+  // with "get started" over a graph that holds data.
   if (data.vertexCount === 0 && !dismissed) {
     return (
       <div className="flex h-full flex-col gap-3">
@@ -109,8 +113,8 @@ export function DashboardScreen() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-        <Stat label="vertices" value={data.vertexCount.toLocaleString()} />
-        <Stat label="edges" value={data.edgeCount.toLocaleString()} />
+        <Stat label="vertices" value={formatCountOrDash(data.vertexCount)} />
+        <Stat label="edges" value={formatCountOrDash(data.edgeCount)} />
         <Stat label="used memory" value={`${(data.usedMemory / 1024 / 1024).toFixed(1)} MiB`} />
       </div>
 

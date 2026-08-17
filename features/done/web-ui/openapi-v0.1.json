@@ -741,7 +741,7 @@
             }
           },
           "503": {
-            "description": "The change feed is disabled (Fallen8:ChangeFeed:Enabled=false) or the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached",
+            "description": "The change feed is disabled (Fallen8:ChangeFeed:Enabled=false), the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached, or the addressed namespace is not loaded in this process (namespaceState \"notLoaded\")",
             "content": {
               "text/event-stream": { }
             }
@@ -4768,6 +4768,7 @@
           "Namespaces"
         ],
         "summary": "Lists all namespaces with their counts and the configured ceiling",
+        "description": "A namespace that is cataloged but NOT loaded in this process is listed too, with state\r\n\"notLoaded\" and absent (null) vertex/edge counts (feature namespace-startup-load) - the\r\nlist is the inventory, not the residency filter.",
         "parameters": [
           {
             "name": "api-version",
@@ -5031,8 +5032,8 @@
         "tags": [
           "Namespaces"
         ],
-        "summary": "Updates a namespace: rename it and/or set its plugin-registration override",
-        "description": "Rename is a pure metadata operation: the engine, its data, and its on-disk locations\r\n(keyed by the immutable namespace id) are untouched — only the URL address changes. The\r\nreserved \"default\" namespace cannot be RENAMED, but its plugin-registration override CAN\r\nbe set. \"pluginRegistration\" is \"enabled\"/\"disabled\"/\"inherit\" (feature\r\nplugin-registration): it overrides Fallen8:Security:EnableDynamicPluginLoading for this\r\nnamespace (\"inherit\" clears the override). Supply at least one of the two fields.",
+        "summary": "Updates a namespace: rename it and/or set its plugin-registration or startup-load override",
+        "description": "Rename is a pure metadata operation: the engine, its data, and its on-disk locations\r\n(keyed by the immutable namespace id) are untouched - only the URL address changes. The\r\nreserved \"default\" namespace cannot be RENAMED, but its plugin-registration override CAN\r\nbe set. Both overrides take \"enabled\"/\"disabled\"/\"inherit\" (\"inherit\" clears them):\r\n\"pluginRegistration\" overrides Fallen8:Security:EnableDynamicPluginLoading for this\r\nnamespace (feature plugin-registration), and \"loadOnStartup\" overrides\r\nFallen8:Namespaces:LoadOnStartup, i.e. whether the NEXT boot loads this namespace at all\r\n(feature namespace-startup-load) - it takes effect on restart and never loads or unloads\r\nthe running process's engine. The reserved \"default\" namespace is always loaded and\r\nrefuses \"loadOnStartup\" with 409. The whole update is applied atomically: every field is\r\nvalidated first, then all of them are persisted by one catalog write. Supply at least one\r\nfield.",
         "parameters": [
           {
             "name": "name",
@@ -5059,7 +5060,7 @@
           }
         ],
         "requestBody": {
-          "description": "The update: an optional new name and/or a plugin-registration override",
+          "description": "The update: an optional new name and/or either override",
           "content": {
             "application/json; ver=0.1": {
               "schema": {
@@ -5096,7 +5097,7 @@
             }
           },
           "400": {
-            "description": "Neither field supplied, an invalid new name, or an unrecognized \"pluginRegistration\" value",
+            "description": "No field supplied, an invalid new name, or an unrecognized \"pluginRegistration\"/\"loadOnStartup\" value",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -5156,7 +5157,7 @@
             }
           },
           "409": {
-            "description": "The new name is already in use, or a rename of the reserved \"default\" namespace",
+            "description": "The new name is already in use, or a rename or \"loadOnStartup\" of the reserved \"default\" namespace",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -5310,6 +5311,103 @@
                   "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{name}/activate": {
+      "post": {
+        "tags": [
+          "Namespaces"
+        ],
+        "summary": "Loads a cataloged namespace into the running process",
+        "description": "The way back from an exclusion without a restart (feature namespace-startup-load): the\r\nnamespace's engine is constructed, its newest registered save game is restored and its\r\nwrite-ahead-log tail replayed on top, and only then does it start serving requests - so a\r\nfailed restore leaves it exactly as not-loaded as it was, and no request ever sees a\r\nhalf-loaded graph.\r\n\r\nIdempotent: activating a namespace that is already loaded is a 200 with\r\n\"activated\": false, never a conflict.\r\n\r\nIt does NOT change the persisted startup-load policy, because the two answer different\r\nquestions: this call answers for the running process, the policy answers for the next\r\nboot, which still honours it. To make it stick, PATCH /ns/{name} with \"loadOnStartup\":\r\n\"enabled\" as well.\r\n\r\nNamed \"activate\" because /ns/{name}/load already means \"restore a checkpoint into a\r\nnamespace\".",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The namespace name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The namespace is loaded (whether by this call or already)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamespaceActivationREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No namespace with this name exists",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "It has checkpoint files no registered save game contains; the body names how to adopt them",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "500": {
+            "description": "Its checkpoint could not be restored; it stays not loaded and its files are untouched",
+            "content": {
+              "application/json": { }
             }
           }
         }
@@ -6036,7 +6134,7 @@
             }
           },
           "503": {
-            "description": "The change feed is disabled (Fallen8:ChangeFeed:Enabled=false) or the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached",
+            "description": "The change feed is disabled (Fallen8:ChangeFeed:Enabled=false), the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached, or the addressed namespace is not loaded in this process (namespaceState \"notLoaded\")",
             "content": {
               "text/event-stream": { }
             }
@@ -11452,6 +11550,7 @@
           "Admin"
         ],
         "summary": "Gets the current status of the Fallen-8 database",
+        "description": "The anonymous connection probe. It is also the ONE namespace-scoped route that still\r\nanswers for a namespace this process did not load (feature namespace-startup-load): it\r\nthen reports \"namespaceState\": \"notLoaded\" and leaves every engine-derived field null\r\n(counts, index inventory, available plugins, durability) rather than reporting zeros or\r\nempty lists. Every other namespace-scoped route refuses such a namespace with 503.",
         "parameters": [
           {
             "name": "ns",
@@ -14222,7 +14321,7 @@
           "Admin"
         ],
         "summary": "Saves every namespace into one save-game entry (Fallen-8-level — all namespaces)",
-        "description": "One consistent restore point for the whole Fallen-8: each namespace is checkpointed to\r\nits own default location and the registry records a single entry whose \"namespaces\"\r\nmanifest lists every member. Restore the whole entry - or a single namespace out of it -\r\nvia PUT /savegames/{id}/load.",
+        "description": "One consistent restore point for the whole Fallen-8: each namespace is checkpointed to\r\nits own default location and the registry records a single entry whose \"namespaces\"\r\nmanifest lists every member. Restore the whole entry - or a single namespace out of it -\r\nvia PUT /savegames/{id}/load.\r\n\r\nA namespace that is cataloged but NOT loaded in this process is never a member of a save\r\n(feature namespace-startup-load): it is skipped, its checkpoint and write-ahead log are\r\nleft untouched, and it is named in the response's \"skippedNamespaces\" (on the 200 body,\r\nand as a problem extension on the 500) - so the entry spanning a strict subset of the\r\nFallen-8 is visible rather than implied.",
         "parameters": [
           {
             "name": "api-version",
@@ -14241,7 +14340,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Returns the created save-game registry entry",
+            "description": "Returns the created save-game registry entry, plus \"skippedNamespaces\" when it does not span every namespace",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -14449,7 +14548,7 @@
           "SaveGames"
         ],
         "summary": "Restores a registered save game's namespaces, replacing their in-memory graphs",
-        "description": "Restores exactly the namespaces the entry contains (feature graph-namespaces): a dropped\r\nnamespace is recreated, an existing one has its content replaced, and namespaces the\r\nentry does NOT contain are left untouched. Pre-namespace (v1) entries restore into\r\n\"default\". With ?namespace={name}, only that one namespace is restored.",
+        "description": "Restores exactly the namespaces the entry contains (feature graph-namespaces): a dropped\r\nnamespace is recreated, an existing one has its content replaced, and namespaces the\r\nentry does NOT contain are left untouched. Pre-namespace (v1) entries restore into\r\n\"default\". With ?namespace={name}, only that one namespace is restored.\r\n\r\nA member that is cataloged but NOT loaded in this process is ACTIVATED and its\r\nstartup-load policy is set to \"enabled\" (feature namespace-startup-load, spec decision\r\n8.3), and both are reported in the response's \"activatedNamespaces\". Activating without\r\nthe policy would let the restored data go invisible again at the next boot; refusing\r\nwould dead-end a legitimate recovery behind \"change policy, restart, restore\". Such a\r\nmember is loaded synchronously even with waitForCompletion=false, whose 202 carries no\r\nbody - GET /ns then shows it as loaded.",
         "parameters": [
           {
             "name": "id",
@@ -14493,7 +14592,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Loaded (waited); returns the save game",
+            "description": "Loaded (waited); returns the save game, plus \"activatedNamespaces\" when it had to load one",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -14536,7 +14635,7 @@
             }
           },
           "500": {
-            "description": "A load transaction was rolled back, or a dropped namespace could not be recreated"
+            "description": "A load transaction was rolled back, a dropped namespace could not be recreated, or a not-loaded member could not be activated"
           }
         }
       }
@@ -15253,6 +15352,7 @@
           "Admin"
         ],
         "summary": "Gets the current status of the Fallen-8 database",
+        "description": "The anonymous connection probe. It is also the ONE namespace-scoped route that still\r\nanswers for a namespace this process did not load (feature namespace-startup-load): it\r\nthen reports \"namespaceState\": \"notLoaded\" and leaves every engine-derived field null\r\n(counts, index inventory, available plugins, durability) rather than reporting zeros or\r\nempty lists. Every other namespace-scoped route refuses such a namespace with 503.",
         "parameters": [
           {
             "name": "api-version",
@@ -20029,6 +20129,27 @@
         },
         "description": "One label (or property key) with its element count. When the response is\r\n    sampled, counts are AS COUNTED IN THE SAMPLE (multiply by sampleStride to extrapolate)."
       },
+      "NamespaceActivationREST": {
+        "type": "object",
+        "properties": {
+          "namespace": {
+            "description": "The namespace as it stands after the call (state `ready`, real counts).",
+            "$ref": "#/components/schemas/NamespaceREST"
+          },
+          "activated": {
+            "type": "boolean",
+            "description": "Whether THIS call loaded the namespace. `false` means it was already loaded in this\r\nprocess and nothing was restored - a success, since activation is idempotent, and the\r\nonly way a caller can tell the two apart."
+          },
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "What happened, in the operator's words: which save game was restored (and whether its\r\nwrite-ahead-log tail was replayed on top), or that the namespace was already loaded, or\r\nthat no registered save game contains it."
+          }
+        },
+        "description": "The result of one `POST /ns/{name}/activate` (feature namespace-startup-load §4.8).\r\nIts own type rather than a bare NamespaceREST, because the answer is a report\r\nabout an OPERATION - \"did this call load it, and what came back\" - and a namespace entry has\r\nno place to say that. Putting bool NamespaceActivationREST.Activated on NamespaceREST instead\r\nwould ship a meaningless field on every entry of `GET /ns`."
+      },
       "NamespaceREST": {
         "type": "object",
         "properties": {
@@ -20044,24 +20165,26 @@
               "null",
               "string"
             ],
-            "description": "Lifecycle state: `ready` or `creating` (always `ready` in v1)."
+            "description": "Lifecycle state: `ready`, `creating` (reserved for future async creation), or\r\n`notLoaded` - cataloged, but with no engine in this process (feature\r\nnamespace-startup-load). A `notLoaded` namespace still appears here BY DESIGN:\r\nhiding it reaches the Studio recover state by absence, whose primary action recreates it\r\nempty."
           },
           "vertexCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
+              "null",
               "integer",
               "string"
             ],
-            "description": "The namespace's vertex count.",
+            "description": "The namespace's vertex count, or `null` when it is `notLoaded` and this\r\nprocess therefore has no count to report. Never `0` in that case: the Studio\r\ndashboard branches on `vertexCount === 0` to replay the first-run walkthrough, so a\r\nzero would greet an operator with \"get started\" over a namespace that holds data, and a\r\nreconciling writer would read \"healthy and empty\" and delete on that basis.",
             "format": "int32"
           },
           "edgeCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
+              "null",
               "integer",
               "string"
             ],
-            "description": "The namespace's edge count.",
+            "description": "The namespace's edge count, or `null` when it is `notLoaded`\r\n    (see int? NamespaceREST.VertexCount for why absent rather than zero).",
             "format": "int32"
           },
           "createdAt": {
@@ -20077,6 +20200,13 @@
               "boolean"
             ],
             "description": "This namespace's plugin-registration override (feature plugin-registration):\r\n`true`/`false` when set explicitly, `null` when it inherits the global\r\n`Fallen8:Security:EnableDynamicPluginLoading` default."
+          },
+          "loadOnStartupEnabled": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "This namespace's startup-load override (feature namespace-startup-load):\r\n`true`/`false` when set explicitly, `null` when it inherits the global\r\n`Fallen8:Namespaces:LoadOnStartup` default. It describes the NEXT boot, so it is\r\nindependent of string NamespaceREST.State - a loaded namespace can carry `false`, and a\r\n`notLoaded` one can carry `true` (it was excluded by\r\n`Fallen8:Namespaces:StartupLoadMode` instead). The reserved `default` namespace\r\nalways reports `true`: it aliases every bare URL and cannot be excluded."
           }
         },
         "description": "One namespace as the REST surface reports it (feature graph-namespaces). No memory\r\nfigure by design: engines share one GC heap, so a per-namespace byte count would be\r\nfiction (spec §5.3)."
@@ -20122,9 +20252,16 @@
               "string"
             ],
             "description": "Optional plugin-registration override (feature plugin-registration):\r\n`\"enabled\"` | `\"disabled\"` | `\"inherit\"`. Omit (or null) to leave it\r\nunchanged; `\"inherit\"` clears the override so this namespace follows the global\r\n`Fallen8:Security:EnableDynamicPluginLoading` default."
+          },
+          "loadOnStartup": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Optional startup-load override (feature namespace-startup-load):\r\n`\"enabled\"` | `\"disabled\"` | `\"inherit\"`, the same tri-state vocabulary as\r\nstring NamespaceUpdateSpecification.PluginRegistration. Omit (or null) to leave it unchanged;\r\n`\"inherit\"` clears the override so this namespace follows the global\r\n`Fallen8:Namespaces:LoadOnStartup` default. It takes effect on the next restart -\r\nit never loads or unloads the namespace in the running process."
           }
         },
-        "description": "Request body for updating a namespace via `PATCH /ns/{name}`: rename it and/or set its\r\nplugin-registration override. Both fields are optional; supply at least one."
+        "description": "Request body for updating a namespace via `PATCH /ns/{name}`: rename it and/or set its\r\nplugin-registration or startup-load override. Every field is optional; supply at least one."
       },
       "NlpStatsREST": {
         "type": "object",
@@ -21324,6 +21461,26 @@
               "$ref": "#/components/schemas/SaveGameNamespaceREST"
             },
             "description": "The namespaces this save game contains (feature graph-namespaces, registry schema v2).\r\nNull on pre-namespace (v1) entries, which are read forever as \"a default-only save\"\r\nwhose checkpoint is string SaveGameREST.Location. On single-namespace entries the top-level\r\nlocation/kpis mirror the one member (v1-shaped); on multi-namespace entries the\r\ntop-level location is null and fileCount/totalBytes are sums across the members."
+          },
+          "skippedNamespaces": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The namespaces `PUT /save/all` did NOT save because they are cataloged but not\r\nloaded in this process (feature namespace-startup-load): the entry therefore spans a\r\nstrict SUBSET of the Fallen-8, and a caller reading only `namespaces` could not tell\r\nthat from a Fallen-8 that has no other namespaces.\r\nTransient, and the ONLY field on this DTO that is: it describes one operation\r\nrather than the registered save game, so it is set on that response alone and is null\r\n(hence omitted, and absent from savegames.json) everywhere else. A header was\r\nrejected because namespace names may contain commas and non-ASCII characters, neither of\r\nwhich a header value can carry faithfully."
+          },
+          "activatedNamespaces": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The namespaces `PUT /savegames/{id}/load` had to LOAD into this process before it\r\ncould restore into them, because they were cataloged but not loaded (feature\r\nnamespace-startup-load, spec decision 8.3). Their startup-load policy was set to\r\n`enabled` in the same request - restoring data into a namespace the next boot skips\r\nwould make it invisible again, which is the trap 8.3 exists to close - so this one member\r\nreports both halves of a single decision.\r\nTransient in exactly the way List&lt;string&gt; SaveGameREST.SkippedNamespaces is (see there for the\r\nreasoning, which is the same and lives in one place): it describes one operation, not the\r\nregistered save game, so it is null - hence omitted, and absent from\r\nsavegames.json - everywhere else."
           }
         },
         "description": "A registered save game (checkpoint) with its metadata (feature save-games)."
@@ -21575,13 +21732,22 @@
             "default": 1073741824,
             "example": 1073741824
           },
+          "namespaceState": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The addressed namespace's residency (feature namespace-startup-load): `ready`\r\nnormally, `notLoaded` when this namespace is cataloged but has no engine in this\r\nprocess. In that state every engine-derived field on this response is ABSENT (null)\r\nrather than zero or empty - a zero count reads as \"healthy and empty\" both to the\r\nfirst-run walkthrough and to a client that deletes state because nothing asserts it any\r\nmore. Only this probe answers for a not-loaded namespace; every other namespace-scoped\r\nroute refuses with 503.",
+            "example": "ready"
+          },
           "vertexCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
+              "null",
               "integer",
               "string"
             ],
-            "description": "The total number of vertices in the database",
+            "description": "The total number of vertices in the addressed namespace, or null when it is\r\n`notLoaded` (see string StatusREST.NamespaceState)",
             "format": "int32",
             "default": 10000,
             "example": 10000
@@ -21589,10 +21755,11 @@
           "edgeCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
             "type": [
+              "null",
               "integer",
               "string"
             ],
-            "description": "The total number of edges in the database",
+            "description": "The total number of edges in the addressed namespace, or null when it is\r\n`notLoaded` (see string StatusREST.NamespaceState)",
             "format": "int32",
             "default": 25000,
             "example": 25000
@@ -21718,6 +21885,7 @@
           "usedMemory": 1073741824,
           "vertexCount": 10000,
           "edgeCount": 25000,
+          "namespaceState": "ready",
           "indices": [
             {
               "indexId": "nameIndex",

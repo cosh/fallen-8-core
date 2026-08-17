@@ -39,10 +39,16 @@ namespace NoSQL.GraphDB.Mcp.Tools
 {
     /// <summary>
     ///   <c>f8_admin</c> — durability &amp; maintenance (spec §3.2/§3.4/§3.7). Honest scoping:
-    ///   <c>save</c>/<c>trim</c>/<c>tabula_rasa</c> are namespace-scoped; <c>list_savegames</c> and
-    ///   <c>load</c> are Fallen-8-level (<c>load</c> restores a registry entry by id, with an
-    ///   optional <c>restoreNamespace</c> member selector). <c>trim</c>/<c>tabula_rasa</c> are
-    ///   fire-and-forget (HEAD, 204): they report "enqueued", never "applied".
+    ///   <c>save</c>/<c>trim</c>/<c>tabula_rasa</c> are namespace-scoped; <c>list_savegames</c>,
+    ///   <c>load</c> and <c>activate</c> are Fallen-8-level (<c>load</c> restores a registry entry by
+    ///   id, with an optional <c>restoreNamespace</c> member selector; <c>activate</c> names a
+    ///   namespace as a path segment rather than a scoping prefix).
+    ///   <c>trim</c>/<c>tabula_rasa</c> are fire-and-forget (HEAD, 204): they report "enqueued",
+    ///   never "applied".
+    ///   <para><c>activate</c> lives here rather than on the write-tier <c>f8_namespace</c> because it
+    ///   is a durability operation on the running process (it restores a checkpoint), not part of the
+    ///   create/rename/drop lifecycle - and because it is how an agent recovers from the 503 that
+    ///   every other tool gets for a not-loaded namespace.</para>
     /// </summary>
     public sealed class AdminTool : IMcpTool
     {
@@ -64,12 +70,15 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 Name = Name,
                 Title = "Admin & durability",
                 Description =
-                    "Durability and maintenance: save, load (by save-game id), list_savegames, trim, tabula_rasa. " +
-                    "trim/tabula_rasa are fire-and-forget (reported as enqueued). load/trim/tabula_rasa are destructive.",
+                    "Durability and maintenance: save, load (by save-game id), list_savegames, activate, trim, " +
+                    "tabula_rasa. trim/tabula_rasa are fire-and-forget (reported as enqueued). load/trim/tabula_rasa " +
+                    "are destructive. activate loads a namespace that this process did not load at startup (the fix " +
+                    "for a 503 'Namespace not loaded'); it is idempotent and does not change the startup policy.",
                 InputSchema = SchemaBuilder.Create()
                     .Str("op", "The operation.", required: true,
-                        choices: new[] { "save", "load", "list_savegames", "trim", "tabula_rasa" })
-                    .Str("namespace", "The namespace for save/trim/tabula_rasa. Defaults to 'default'.")
+                        choices: new[] { "save", "load", "list_savegames", "activate", "trim", "tabula_rasa" })
+                    .Str("namespace", "The namespace for save/trim/tabula_rasa, and the one to load for activate " +
+                        "(required there). Defaults to 'default'.")
                     .Str("saveGameLocation", "Optional save path (save).")
                     .Int("savePartitions", "Optional partition count (save).")
                     .Str("id", "Save-game id (load).")
@@ -135,6 +144,22 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     return ToolResults.Ok($"save-game '{id}' loaded.", ToolResults.Pass(loaded));
                 }
 
+                case "activate":
+                {
+                    // Fallen-8-level: the namespace is a PATH SEGMENT of the route (never the
+                    // /ns/{ns} scoping prefix the bridge builds for data routes), so it is validated
+                    // and percent-encoded here. No default: activating "default" is always a no-op,
+                    // so an omitted namespace is a mistake worth naming rather than answering.
+                    if (!UrlSafety.TryEncodeNamespace(@namespace, out var encoded, out var nameError))
+                    {
+                        return ToolResults.Error(400, "Invalid arguments", "activate requires a 'namespace': " + nameError);
+                    }
+
+                    var activated = await _bridge.RequestRawAsync(HttpMethod.Post, null, $"ns/{encoded}/activate", null, cancellationToken)
+                        .ConfigureAwait(false);
+                    return ToolResults.Ok($"namespace '{@namespace}' is loaded.", ToolResults.Pass(activated));
+                }
+
                 case "trim":
                 {
                     await _bridge.RequestVoidAsync(HttpMethod.Head, @namespace, "trim", null, cancellationToken).ConfigureAwait(false);
@@ -151,7 +176,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
                 default:
                     return ToolResults.Error(400, "Invalid arguments",
-                        "op must be save, load, list_savegames, trim, or tabula_rasa.");
+                        "op must be save, load, list_savegames, activate, trim, or tabula_rasa.");
             }
         }
     }

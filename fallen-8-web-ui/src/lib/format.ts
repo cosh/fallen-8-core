@@ -37,3 +37,19 @@ export function formatExact(value: number): string {
   if (!Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
+
+/**
+ * The one glyph this UI renders for a value the server does not have, so a row cannot mix two
+ * spellings of "absent" in one table and read as two different states.
+ */
+export const ABSENT = "-";
+
+/**
+ * A count the server may not have: grouped digits when it exists, the absent glyph when it does
+ * not. The absent case is real - a namespace the server catalogs but did not load reports
+ * null counts rather than zeros (feature namespace-startup-load) - and it must not render as
+ * "0", which would tell the operator a populated graph is empty.
+ */
+export function formatCountOrDash(value: number | null | undefined): string {
+  return value === null || value === undefined ? ABSENT : formatExact(value);
+}

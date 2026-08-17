@@ -99,7 +99,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="200">The SSE stream (text/event-stream); it stays open until the client disconnects</response>
         /// <response code="400">An unknown kind/element value or a malformed since position</response>
         /// <response code="401">No valid credential was supplied</response>
-        /// <response code="503">The change feed is disabled (Fallen8:ChangeFeed:Enabled=false) or the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached</response>
+        /// <response code="503">The change feed is disabled (Fallen8:ChangeFeed:Enabled=false), the concurrent subscriber limit (Fallen8:ChangeFeed:MaxSubscribers) is reached, or the addressed namespace is not loaded in this process (namespaceState "notLoaded")</response>
         [HttpGet("/changefeed")]
         [Produces("text/event-stream")]
         [ProducesResponseType(StatusCodes.Status200OK)]

@@ -383,6 +383,15 @@ namespace NoSQL.GraphDB.App.Ingestion
         {
             foreach (var ns in _namespaces.Snapshot())
             {
+                // A namespace that is cataloged but not loaded in this process has no engine to
+                // sweep (feature namespace-startup-load); its interrupted stubs stay as they are
+                // until it is loaded, which is the same position they were in while the process
+                // that wrote them was down.
+                if (!ns.IsLoaded)
+                {
+                    continue;
+                }
+
                 using (NoSQL.GraphDB.App.Namespaces.AddressedFallen8.PushNamespace(ns.Name))
                 {
                     ReconcileEntityIndex();

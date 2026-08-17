@@ -156,6 +156,43 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   The namespaces <c>PUT /save/all</c> did NOT save because they are cataloged but not
+        ///   loaded in this process (feature namespace-startup-load): the entry therefore spans a
+        ///   strict SUBSET of the Fallen-8, and a caller reading only <c>namespaces</c> could not tell
+        ///   that from a Fallen-8 that has no other namespaces.
+        ///   <para>Transient, and the ONLY field on this DTO that is: it describes one operation
+        ///   rather than the registered save game, so it is set on that response alone and is null
+        ///   (hence omitted, and absent from <c>savegames.json</c>) everywhere else. A header was
+        ///   rejected because namespace names may contain commas and non-ASCII characters, neither of
+        ///   which a header value can carry faithfully.</para>
+        /// </summary>
+        [JsonPropertyName("skippedNamespaces")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<String> SkippedNamespaces
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The namespaces <c>PUT /savegames/{id}/load</c> had to LOAD into this process before it
+        ///   could restore into them, because they were cataloged but not loaded (feature
+        ///   namespace-startup-load, spec decision 8.3). Their startup-load policy was set to
+        ///   <c>enabled</c> in the same request - restoring data into a namespace the next boot skips
+        ///   would make it invisible again, which is the trap 8.3 exists to close - so this one member
+        ///   reports both halves of a single decision.
+        ///   <para>Transient in exactly the way <see cref="SkippedNamespaces"/> is (see there for the
+        ///   reasoning, which is the same and lives in one place): it describes one operation, not the
+        ///   registered save game, so it is null - hence omitted, and absent from
+        ///   <c>savegames.json</c> - everywhere else.</para>
+        /// </summary>
+        [JsonPropertyName("activatedNamespaces")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<String> ActivatedNamespaces
+        {
+            get; set;
+        }
     }
 
     /// <summary>

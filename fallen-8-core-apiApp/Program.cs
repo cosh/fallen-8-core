@@ -358,6 +358,11 @@ namespace NoSQL.GraphDB.App
                 builder.Configuration.GetSection(Fallen8MetadataOptions.SectionName));
             builder.Services.AddSingleton<SaveGameRegistry>();
 
+            // The one home for restoring a single namespace from the registry: shared by the boot
+            // and by runtime activation, which differ only in what a failure means (feature
+            // namespace-startup-load).
+            builder.Services.AddSingleton<NamespaceLoader>();
+
             // Own the load-on-start / save-on-stop lifecycle around the existing Save/Load transactions.
             builder.Services.AddHostedService<DurabilityLifecycleService>();
 
@@ -553,6 +558,11 @@ namespace NoSQL.GraphDB.App
                 options.Conventions.Add(new NamespaceRouteConvention());
                 options.Filters.Add(typeof(NamespaceValidationFilter));
                 options.Filters.Add(typeof(UnknownNamespaceExceptionFilter));
+                // Its twin for a namespace that exists but is not loaded in this process (feature
+                // namespace-startup-load): the net under every engine-dereference site the
+                // pre-action filter does not cover, mapping to 503 rather than 404 because a 404
+                // sends Studio to its "recreate empty" recover state over real data.
+                options.Filters.Add(typeof(NamespaceNotLoadedExceptionFilter));
                 // Restores application/problem+json on an error body that an action's
                 // [Produces("application/json")] would otherwise downgrade; see the filter. The
                 // order MUST be passed here: a filter added by type is described by a

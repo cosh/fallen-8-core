@@ -38,8 +38,10 @@ import type {
   IntegrationJobReport,
   IntegrationJobRequest,
   IntegrationProvider,
+  NamespaceActivationREST,
   NamespaceEntry,
   NamespacesResponse,
+  NamespaceTriState,
   AnalyticsSpecification,
   BenchmarkResult,
   BulkImportResultREST,
@@ -168,6 +170,40 @@ export const renameNamespace = (i: InstanceConfig, name: string, newName: string
   apiRequest<NamespaceEntry>(i, `/ns/${encodeURIComponent(name)}`, {
     method: "PATCH",
     body: { name: newName },
+    scope: "fallen8",
+  });
+
+/**
+ * Sets whether the NEXT boot loads this namespace (feature namespace-startup-load);
+ * "inherit" clears the override and falls back to the server's configured default. It never
+ * loads or unloads the running process's engine, so nothing observable changes until a
+ * restart. Its own function rather than a parameter on renameNamespace, because the server
+ * applies the whole PATCH body atomically: a shared caller would have to send a name it was
+ * not asked to change, and a stale one would rename the namespace as a side effect of a
+ * policy edit. The reserved "default" namespace refuses this field with 409.
+ */
+export const setNamespaceLoadOnStartup = (
+  i: InstanceConfig,
+  name: string,
+  loadOnStartup: NamespaceTriState,
+) =>
+  apiRequest<NamespaceEntry>(i, `/ns/${encodeURIComponent(name)}`, {
+    method: "PATCH",
+    body: { loadOnStartup },
+    scope: "fallen8",
+  });
+
+/**
+ * Loads a cataloged-but-not-loaded namespace into the RUNNING process (feature
+ * namespace-startup-load): the server constructs its engine, restores its newest registered save
+ * game and replays the write-ahead-log tail on top before it serves anything, so a failed restore
+ * leaves it exactly as not-loaded as it was. Idempotent - activating a loaded namespace answers
+ * 200 with `activated: false`. It does NOT change the persisted policy, which is what the next
+ * boot honours: that is `setNamespaceLoadOnStartup`, and the two are separate on purpose.
+ */
+export const activateNamespace = (i: InstanceConfig, name: string) =>
+  apiRequest<NamespaceActivationREST>(i, `/ns/${encodeURIComponent(name)}/activate`, {
+    method: "POST",
     scope: "fallen8",
   });
 

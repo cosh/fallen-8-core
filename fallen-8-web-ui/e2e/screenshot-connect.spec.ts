@@ -44,6 +44,18 @@ test("capture the Connect screen", async ({ page, request }) => {
 
   await request.head("/tabularasa/all", { headers: AUTH });
 
+  // Two namespaces beside "default", so the "at startup" column shows a real per-namespace value
+  // instead of "inherit" everywhere: one inherits the server default, one is explicitly excluded
+  // from the next boot (feature namespace-startup-load). The policy is persisted server-side and
+  // changes nothing in the running process, so the capture stays a pure screenshot fixture.
+  await request.put("/ns/flights", { headers: AUTH });
+  await request.put("/ns/archive-2024", { headers: AUTH });
+  const excluded = await request.patch("/ns/archive-2024", {
+    headers: AUTH,
+    data: { loadOnStartup: "disabled" },
+  });
+  expect(excluded.ok(), await excluded.text()).toBeTruthy();
+
   // The auto-seeded same-origin "local" default has no persistent key (feature standalone-ui),
   // so on a secured server it reads "unauthorized"; register a keyed same-origin instance with a
   // distinct name so the list clearly shows the default alongside an authorized one.
@@ -60,6 +72,15 @@ test("capture the Connect screen", async ({ page, request }) => {
   // Connect is the root route; it stays reachable in every connection state.
   await page.goto("/");
   await expect(page.getByTestId("instance-add")).toBeVisible({ timeout: 20_000 });
+
+  // Wait for the inventory itself, so the Namespaces panel is on the picture with its rows and
+  // the "at startup" column populated rather than mid-fetch.
+  await expect(page.getByTestId("namespace-row-archive-2024")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("namespace-startup-archive-2024")).toHaveValue("disabled");
+
+  // Each instance's health cell is a lazy GET /status, and the reload above restarts it, so wait
+  // for every one of them to resolve - otherwise the picture catches them mid-"checking…".
+  await expect(page.getByText("checking…")).toHaveCount(0, { timeout: 20_000 });
 
   await page.screenshot({ path: "../docs/src/assets/images/screen-connect.png" });
 });

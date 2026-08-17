@@ -47,6 +47,12 @@ namespace NoSQL.GraphDB.Mcp.Tools
     /// </summary>
     public sealed class OverviewTool : IMcpTool
     {
+        /// <summary>
+        ///   The wire spelling the target uses for "cataloged, but with no engine in this process"
+        ///   (the apiApp's <c>Namespace.WireName</c> owns it).
+        /// </summary>
+        private const String NotLoadedState = "notLoaded";
+
         private readonly Fallen8RestClient _bridge;
 
         public OverviewTool(Fallen8RestClient bridge)
@@ -106,7 +112,18 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
             var node = BuildStatus(@namespace, status);
 
-            if (String.Equals(ToolArgs.GetString(arguments, "detail"), "statistics", StringComparison.OrdinalIgnoreCase))
+            // Residency, straight off the body /status already answered. /status is the ONE
+            // namespace-scoped route that answers for a namespace the target did not load; every
+            // other one refuses with 503, and the bridge turns any non-2xx into a thrown error - so
+            // following up on a not-loaded namespace would cost the agent the residency answer it is
+            // holding right here (feature namespace-startup-load). An older target sends no
+            // namespaceState at all, and its present counts are what says it is loaded.
+            var loaded = status.VertexCount.HasValue
+                && !String.Equals(status.NamespaceState, NotLoadedState, StringComparison.Ordinal);
+            var wantsStatistics = String.Equals(
+                ToolArgs.GetString(arguments, "detail"), "statistics", StringComparison.OrdinalIgnoreCase);
+
+            if (wantsStatistics && loaded)
             {
                 var statistics = await _bridge.GetAsync<JsonElement>(@namespace, "statistics", cancellationToken).ConfigureAwait(false);
                 if (statistics.ValueKind == JsonValueKind.Object)
@@ -114,10 +131,26 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     node["statistics"] = JsonNode.Parse(statistics.GetRawText());
                 }
             }
+            else if (wantsStatistics)
+            {
+                // Say WHY it is missing. A silently absent block reads as "nothing to report", which
+                // is a different and wrong conclusion about a namespace that holds data.
+                node["statisticsUnavailable"] =
+                    "the namespace is not loaded in this process, so /statistics refuses with 503";
+            }
 
-            return ToolResults.Ok(
-                $"namespace '{@namespace}': {status.VertexCount} vertices, {status.EdgeCount} edges.",
-                node);
+            // A not-loaded namespace has no counts to report: say so in the summary line rather than
+            // printing an absent count as nothing or as zero, because "0 vertices" is what an agent
+            // would act on. The unavailable statistics block is named for the same reason - silence
+            // reads as "there is nothing to report".
+            var summary = loaded
+                ? $"namespace '{@namespace}': {status.VertexCount} vertices, {status.EdgeCount} edges."
+                : $"namespace '{@namespace}' is not loaded in this process (namespaceState " +
+                  $"'{status.NamespaceState ?? NotLoadedState}'), so it reports no counts, no inventories and no " +
+                  $"statistics; its data on disk is untouched. Load it with f8_admin op:'activate' " +
+                  $"(admin tier), which is also what makes every other tool stop answering 503 for it.";
+
+            return ToolResults.Ok(summary, node);
         }
 
         private static JsonNode BuildNamespaceDirectory(NamespacesDto list)
@@ -128,6 +161,7 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 namespaces.Add(new JsonObject
                 {
                     ["name"] = ns.Name,
+                    ["state"] = ns.State,
                     ["vertexCount"] = ns.VertexCount,
                     ["edgeCount"] = ns.EdgeCount,
                 });
@@ -145,10 +179,13 @@ namespace NoSQL.GraphDB.Mcp.Tools
             var node = new JsonObject
             {
                 ["namespace"] = @namespace,
+                ["namespaceState"] = status.NamespaceState,
                 ["vertexCount"] = status.VertexCount,
                 ["edgeCount"] = status.EdgeCount,
                 ["usedMemoryBytes"] = status.UsedMemory,
-                ["indexCount"] = status.Indices?.Count ?? 0,
+                // Absent, not 0, when the target reported no inventory at all (a not-loaded
+                // namespace): "0 indices" is a fact an agent would act on.
+                ["indexCount"] = status.Indices?.Count,
                 ["apiKeyRequired"] = status.ApiKeyRequired,
                 ["authenticated"] = status.Authenticated,
             };
@@ -162,16 +199,23 @@ namespace NoSQL.GraphDB.Mcp.Tools
             return node;
         }
 
-        private static JsonArray ToJsonArray(List<String>? values)
+        /// <summary>
+        ///   Null in, null out: an absent inventory (a not-loaded namespace reports none) must not
+        ///   become an empty array claiming the namespace can run nothing.
+        /// </summary>
+        private static JsonArray? ToJsonArray(List<String>? values)
         {
-            var arr = new JsonArray();
-            if (values is not null)
+            if (values is null)
             {
-                foreach (var v in values)
-                {
-                    arr.Add(v);
-                }
+                return null;
             }
+
+            var arr = new JsonArray();
+            foreach (var v in values)
+            {
+                arr.Add(v);
+            }
+
             return arr;
         }
     }

@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -50,17 +51,34 @@ namespace NoSQL.GraphDB.Tests
         private sealed class NamespaceFactory : WebApplicationFactory<Program>
         {
             private readonly string _maxNamespaces;
+            private readonly string _storageDir;
+            private readonly string _metaDir;
 
-            public NamespaceFactory(string maxNamespaces = null)
+            public NamespaceFactory(string maxNamespaces = null, string storageDir = null, string metaDir = null)
             {
                 _maxNamespaces = maxNamespaces;
+                _storageDir = storageDir;
+                _metaDir = metaDir;
             }
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
                 builder.UseEnvironment("Development");
-                // Volatile durability: booting the host writes no checkpoint/WAL into the test bin.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
+                if (_storageDir == null)
+                {
+                    // Volatile durability: booting the host writes no checkpoint/WAL into the test bin.
+                    builder.UseSetting("Fallen8:Durability:Volatile", "true");
+                }
+                else
+                {
+                    // Durable, into a temp directory: the only way to have a CATALOG, which is what
+                    // makes a namespace exist without being loaded (feature namespace-startup-load).
+                    builder.UseSetting("Fallen8:Durability:Volatile", "false");
+                    builder.UseSetting("Fallen8:Durability:StorageDirectory", _storageDir);
+                    builder.UseSetting("Fallen8:Durability:SaveOnShutdown", "false");
+                    builder.UseSetting("Fallen8:Metadata:Directory", _metaDir);
+                }
+
                 if (_maxNamespaces != null)
                 {
                     builder.UseSetting("Fallen8:Namespaces:MaxNamespaces", _maxNamespaces);
@@ -69,6 +87,42 @@ namespace NoSQL.GraphDB.Tests
         }
 
         #region helpers
+
+        /// <summary>
+        ///   A host whose catalog already holds one EXCLUDED namespace, written the way an operator's
+        ///   PATCH persists it. No first boot and no data: the point is the wire contract of a
+        ///   namespace that exists with no engine, and the real catalog reader takes the decision.
+        /// </summary>
+        private NamespaceFactory NotLoadedHost(string name = "archived")
+        {
+            _storageDir = Path.Combine(Path.GetTempPath(), "f8_nsx_" + Guid.NewGuid().ToString("N"));
+            _metaDir = Path.Combine(_storageDir, "metadata");
+            Directory.CreateDirectory(_metaDir);
+            File.WriteAllText(Path.Combine(_metaDir, "namespaces.json"),
+                "{\"schemaVersion\":1,\"namespaces\":[{\"id\":\"ns-20260101-000000-abcd\",\"name\":\"" + name +
+                "\",\"createdAt\":\"2026-01-01T00:00:00.000Z\",\"loadOnStartupEnabled\":false}]}");
+
+            return new NamespaceFactory(storageDir: _storageDir, metaDir: _metaDir);
+        }
+
+        private string _storageDir;
+        private string _metaDir;
+
+        [TestCleanup]
+        public void TestCleanup()
+        {
+            try
+            {
+                if (_storageDir != null && Directory.Exists(_storageDir))
+                {
+                    Directory.Delete(_storageDir, true);
+                }
+            }
+            catch
+            {
+                // best-effort cleanup
+            }
+        }
 
         private static StringContent Json(string body)
         {
@@ -138,6 +192,9 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(0, entry.GetProperty("vertexCount").GetInt32());
             Assert.AreEqual(0, entry.GetProperty("edgeCount").GetInt32());
             Assert.IsFalse(string.IsNullOrEmpty(entry.GetProperty("createdAt").GetString()));
+            // The reserved default namespace is always loaded and cannot be excluded (feature
+            // namespace-startup-load §4.9), so it reports the policy in force rather than "inherit".
+            Assert.IsTrue(entry.GetProperty("loadOnStartupEnabled").GetBoolean());
         }
 
         [TestMethod]
@@ -307,6 +364,11 @@ namespace NoSQL.GraphDB.Tests
                 "/plugin",
                 "/ns",
                 "/ns/{name}",
+                // Activation is a management route like every other /ns/{name} one (its controller is
+                // [Fallen8Level] and its route parameter is "name", not "ns"): a twin would spell
+                // /ns/{ns}/ns/{name}/activate, and it must stay OUTSIDE the residency filter so a
+                // not-loaded namespace can be activated at all.
+                "/ns/{name}/activate",
                 "/chat",
                 "/config",
             };
@@ -364,5 +426,255 @@ namespace NoSQL.GraphDB.Tests
             using var reserved = await client.DeleteAsync("/ns/default");
             await AssertProblem(reserved, HttpStatusCode.Conflict, "Reserved namespace");
         }
+
+        #region feature namespace-startup-load: the REST surface (spec sections 4.6 / 4.7)
+
+        /// <summary>
+        ///   GET /ns LISTS a not-loaded namespace, with state "notLoaded" and ABSENT counts. Both
+        ///   halves are load-bearing: hiding it reaches Studio's recover state by absence (whose
+        ///   primary action recreates the namespace empty), and a zero count reaches the first-run
+        ///   walkthrough - "get started" over a namespace that holds data.
+        /// </summary>
+        [TestMethod]
+        public async Task List_IncludesANotLoadedNamespace_WithNullCounts_AndStateNotLoaded()
+        {
+            using var factory = NotLoadedHost();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/ns");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, "one excluded namespace must not 503 the whole list");
+            var namespaces = (await ReadJson(response)).GetProperty("namespaces").EnumerateArray().ToList();
+            Assert.AreEqual(2, namespaces.Count);
+
+            var archived = namespaces.Single(n => n.GetProperty("name").GetString() == "archived");
+            Assert.AreEqual("notLoaded", archived.GetProperty("state").GetString());
+            Assert.AreEqual(JsonValueKind.Null, archived.GetProperty("vertexCount").ValueKind,
+                "absent, never 0");
+            Assert.AreEqual(JsonValueKind.Null, archived.GetProperty("edgeCount").ValueKind);
+            Assert.IsFalse(archived.GetProperty("loadOnStartupEnabled").GetBoolean(),
+                "the policy that excluded it is visible, so an operator can undo it");
+
+            // The loaded default in the same list still reports real numbers.
+            var byDefault = namespaces.Single(n => n.GetProperty("name").GetString() == "default");
+            Assert.AreEqual("ready", byDefault.GetProperty("state").GetString());
+            Assert.AreEqual(0, byDefault.GetProperty("vertexCount").GetInt32());
+
+            // GET /ns/{name} agrees with the list entry.
+            using var single = await client.GetAsync("/ns/archived");
+            Assert.AreEqual(HttpStatusCode.OK, single.StatusCode);
+            Assert.AreEqual("notLoaded", (await ReadJson(single)).GetProperty("state").GetString());
+        }
+
+        /// <summary>
+        ///   The exact 503 body, pinned once: it is built in one home
+        ///   (<c>NamespaceProblems.NotLoaded</c>) and refused pre-action, so a read and a write answer
+        ///   identically and neither reaches an engine.
+        /// </summary>
+        [TestMethod]
+        public async Task DataRoute_OnANotLoadedNamespace_Answers503_WithNamespaceStateNotLoaded()
+        {
+            using var factory = NotLoadedHost();
+            using var client = factory.CreateClient();
+
+            using (var read = await client.GetAsync("/ns/archived/vertex/count"))
+            {
+                Assert.AreEqual(HttpStatusCode.ServiceUnavailable, read.StatusCode);
+                Assert.AreEqual("application/problem+json", read.Content.Headers.ContentType?.MediaType);
+                var problem = await ReadJson(read);
+                Assert.AreEqual(503, problem.GetProperty("status").GetInt32());
+                Assert.AreEqual("Namespace not loaded", problem.GetProperty("title").GetString());
+                Assert.AreEqual("archived", problem.GetProperty("namespace").GetString());
+                Assert.AreEqual("notLoaded", problem.GetProperty("namespaceState").GetString());
+                // The detail names BOTH ways out, in the order an operator wants them: activate this
+                // process now, and set the policy so the next boot loads it too. Naming only the policy
+                // would send someone mid-incident to a restart they do not need; naming only activation
+                // would have them repeat it after every boot.
+                Assert.AreEqual(
+                    "The namespace \"archived\" exists on this Fallen-8 but is not loaded in this process, so it " +
+                    "cannot serve requests. Its data on disk is untouched. Load it now with POST " +
+                    "/ns/archived/activate; to have every boot load it, also set its startup-load policy " +
+                    "(PATCH /ns/archived with \"loadOnStartup\": \"enabled\").",
+                    problem.GetProperty("detail").GetString());
+            }
+
+            // A mutation is refused before any action runs, and nothing lands anywhere.
+            using (var write = await client.PutAsync("/ns/archived/vertex?waitForCompletion=true",
+                Json("{\"label\":\"person\",\"creationDate\":1,\"properties\":[]}")))
+            {
+                Assert.AreEqual(HttpStatusCode.ServiceUnavailable, write.StatusCode);
+                Assert.AreEqual("notLoaded", (await ReadJson(write)).GetProperty("namespaceState").GetString());
+            }
+            Assert.AreEqual(0, await VertexCount(client, ""));
+        }
+
+        /// <summary>
+        ///   The 404 body is byte-for-byte what it always was. The two refusals must stay
+        ///   distinguishable: Studio turns a 404 carrying a string "namespace" extension into its
+        ///   recover state, and that state's button recreates the namespace EMPTY.
+        /// </summary>
+        [TestMethod]
+        public async Task UnknownNamespace_404Body_IsUnchangedBesideTheNotLoaded503()
+        {
+            using var factory = NotLoadedHost();
+            using var client = factory.CreateClient();
+
+            using var missing = await client.GetAsync("/ns/nowhere/vertex/count");
+            Assert.AreEqual(HttpStatusCode.NotFound, missing.StatusCode);
+            var problem = await ReadJson(missing);
+            Assert.AreEqual(404, problem.GetProperty("status").GetInt32());
+            Assert.AreEqual("Namespace not found", problem.GetProperty("title").GetString());
+            Assert.AreEqual("No namespace named \"nowhere\" exists on this Fallen-8.",
+                problem.GetProperty("detail").GetString());
+            Assert.AreEqual("nowhere", problem.GetProperty("namespace").GetString());
+            Assert.IsFalse(problem.TryGetProperty("namespaceState", out _),
+                "the 404 gained no new members - a client keying on namespaceState must not see one here");
+        }
+
+        /// <summary>
+        ///   The namespace MANAGEMENT routes are never refused for a not-loaded namespace: without
+        ///   this, a wrong exclusion could not be undone over REST at all. Structural rather than a
+        ///   special case - the controller is Fallen-8-level, so it has no /ns/{ns} twin and its route
+        ///   parameter is "name", never "ns".
+        /// </summary>
+        [TestMethod]
+        public async Task ManagementRoutes_StayOpen_ForANotLoadedNamespace()
+        {
+            using var factory = NotLoadedHost();
+            using var client = factory.CreateClient();
+
+            using (var patched = await client.PatchAsync("/ns/archived", Json("{\"loadOnStartup\":\"enabled\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, patched.StatusCode, "the policy must be reconfigurable");
+                var body = await ReadJson(patched);
+                Assert.IsTrue(body.GetProperty("loadOnStartupEnabled").GetBoolean());
+                Assert.AreEqual("notLoaded", body.GetProperty("state").GetString(),
+                    "the policy is about the next boot; this process is unchanged");
+                Assert.AreEqual(JsonValueKind.Null, body.GetProperty("vertexCount").ValueKind);
+            }
+
+            using (var renamed = await client.PatchAsync("/ns/archived", Json("{\"name\":\"archived-eu\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, renamed.StatusCode);
+                Assert.AreEqual("archived-eu", (await ReadJson(renamed)).GetProperty("name").GetString());
+            }
+
+            using (var dropped = await client.DeleteAsync("/ns/archived-eu"))
+            {
+                Assert.AreEqual(HttpStatusCode.NoContent, dropped.StatusCode, "a not-loaded namespace must be droppable");
+            }
+        }
+
+        /// <summary>
+        ///   GET /status is the anonymous connection probe, so it is the ONE namespace-scoped route
+        ///   that still answers for a not-loaded namespace - reporting residency, and omitting every
+        ///   engine-derived field rather than reporting zeros and empty plugin lists.
+        /// </summary>
+        [TestMethod]
+        public async Task Status_OnANotLoadedNamespace_ReportsResidency_AndOmitsDerivedNumbers()
+        {
+            using var factory = NotLoadedHost();
+            using var client = factory.CreateClient();
+
+            using var status = await client.GetAsync("/ns/archived/status");
+            Assert.AreEqual(HttpStatusCode.OK, status.StatusCode);
+            var body = await ReadJson(status);
+            Assert.AreEqual("notLoaded", body.GetProperty("namespaceState").GetString());
+            Assert.AreEqual(JsonValueKind.Null, body.GetProperty("vertexCount").ValueKind);
+            Assert.AreEqual(JsonValueKind.Null, body.GetProperty("edgeCount").ValueKind);
+            Assert.AreEqual(JsonValueKind.Null, body.GetProperty("indices").ValueKind);
+            Assert.AreEqual(JsonValueKind.Null, body.GetProperty("availableIndexPlugins").ValueKind,
+                "an empty list would claim this namespace can create nothing");
+            Assert.AreEqual(JsonValueKind.Null, body.GetProperty("durability").ValueKind);
+            // The host-level half is still true and still usable as the connection probe.
+            Assert.IsTrue(body.GetProperty("usedMemory").GetInt64() > 0);
+            Assert.IsFalse(body.GetProperty("apiKeyRequired").GetBoolean());
+
+            // A loaded namespace is unaffected: real counts, real inventory, state "ready".
+            using var loaded = await client.GetAsync("/status");
+            var loadedBody = await ReadJson(loaded);
+            Assert.AreEqual("ready", loadedBody.GetProperty("namespaceState").GetString());
+            Assert.AreEqual(0, loadedBody.GetProperty("vertexCount").GetInt32());
+            Assert.AreNotEqual(JsonValueKind.Null, loadedBody.GetProperty("availableIndexPlugins").ValueKind);
+        }
+
+        /// <summary>
+        ///   The PATCH round-trip of the new field on a normal, loaded namespace: the tri-state
+        ///   vocabulary is the one "pluginRegistration" already ships, both fields can ride one
+        ///   request, and an unrecognized value is rejected by name.
+        /// </summary>
+        [TestMethod]
+        public async Task Patch_LoadOnStartup_RoundTripsTheTriState_AndRejectsAnythingElse()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+            await CreateNamespace(client, "flights");
+
+            using (var response = await client.GetAsync("/ns/flights"))
+            {
+                Assert.AreEqual(JsonValueKind.Null, (await ReadJson(response)).GetProperty("loadOnStartupEnabled").ValueKind,
+                    "a fresh namespace inherits the global default");
+            }
+
+            foreach (var (wire, expected) in new[] { ("disabled", false), ("enabled", true) })
+            {
+                using var response = await client.PatchAsync("/ns/flights", Json("{\"loadOnStartup\":\"" + wire + "\"}"));
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+                Assert.AreEqual(expected, (await ReadJson(response)).GetProperty("loadOnStartupEnabled").GetBoolean());
+            }
+
+            using (var response = await client.PatchAsync("/ns/flights", Json("{\"loadOnStartup\":\"inherit\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+                Assert.AreEqual(JsonValueKind.Null, (await ReadJson(response)).GetProperty("loadOnStartupEnabled").ValueKind);
+            }
+
+            // One request, all three fields, one atomic update.
+            using (var response = await client.PatchAsync("/ns/flights",
+                Json("{\"name\":\"fl-eu\",\"pluginRegistration\":\"disabled\",\"loadOnStartup\":\"disabled\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+                var body = await ReadJson(response);
+                Assert.AreEqual("fl-eu", body.GetProperty("name").GetString());
+                Assert.IsFalse(body.GetProperty("pluginRegistrationEnabled").GetBoolean());
+                Assert.IsFalse(body.GetProperty("loadOnStartupEnabled").GetBoolean());
+            }
+
+            // An unrecognized value is refused by its own name, and changes nothing.
+            using (var response = await client.PatchAsync("/ns/fl-eu", Json("{\"loadOnStartup\":\"maybe\"}")))
+            {
+                await AssertProblem(response, HttpStatusCode.BadRequest, "Invalid loadOnStartup");
+            }
+            using (var response = await client.PatchAsync("/ns/fl-eu", Json("{\"loadOnStartup\":\"Disabled\"}")))
+            {
+                await AssertProblem(response, HttpStatusCode.BadRequest, "Invalid loadOnStartup",
+                    detailEquals: "Expected \"enabled\", \"disabled\", or \"inherit\".");
+            }
+            using (var response = await client.GetAsync("/ns/fl-eu"))
+            {
+                Assert.IsFalse((await ReadJson(response)).GetProperty("loadOnStartupEnabled").GetBoolean(),
+                    "a rejected value must not disturb the policy in effect");
+            }
+
+            // A rename that rides along with a rejected policy is not applied either (B31's ordering).
+            using (var response = await client.PatchAsync("/ns/fl-eu",
+                Json("{\"name\":\"fl-emea\",\"loadOnStartup\":\"nope\"}")))
+            {
+                await AssertProblem(response, HttpStatusCode.BadRequest, "Invalid loadOnStartup");
+            }
+            using (var response = await client.GetAsync("/ns/fl-emea"))
+            {
+                Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode, "the rename must not have committed");
+            }
+
+            // The new field joins the "supply at least one field" guard: an empty body is still a 400,
+            // and its detail now names all three fields.
+            using (var response = await client.PatchAsync("/ns/fl-eu", Json("{}")))
+            {
+                await AssertProblem(response, HttpStatusCode.BadRequest, "Invalid namespace update");
+                StringAssert.Contains((await ReadJson(response)).GetProperty("detail").GetString(), "loadOnStartup");
+            }
+        }
+
+        #endregion
     }
 }

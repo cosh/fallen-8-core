@@ -19,6 +19,10 @@ prose and become the output of a tool anyone can run.
    - **traversal**: raw out-edge traversal throughput at several graph sizes, through the same engine
      primitive `GET /benchmark` uses
 
+   A fifth family, **load** (how long restoring one namespace's checkpoint takes, on the same shapes as
+   `saveStall`), was added later by [namespace-startup-load](../namespace-startup-load/); it is the one
+   family the schema leaves optional, for the reason recorded there.
+
    Two profiles. `full` peaks at the headline shape of **10,000,000 vertices and 100,000,000 edges**,
    which retains around 13 GB, so it wants a machine with 32 GB or more and takes tens of minutes, most
    of it building edges. `quick` is sized for CI but is deliberately not tiny: see the sizing note below.

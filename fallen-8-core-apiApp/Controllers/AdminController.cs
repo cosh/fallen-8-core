@@ -186,9 +186,17 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Gets the current status of the Fallen-8 database
         /// </summary>
         /// <returns>Status information including counts, the current index inventory, available plugins and memory usage</returns>
+        /// <remarks>
+        /// The anonymous connection probe. It is also the ONE namespace-scoped route that still
+        /// answers for a namespace this process did not load (feature namespace-startup-load): it
+        /// then reports "namespaceState": "notLoaded" and leaves every engine-derived field null
+        /// (counts, index inventory, available plugins, durability) rather than reporting zeros or
+        /// empty lists. Every other namespace-scoped route refuses such a namespace with 503.
+        /// </remarks>
         /// <response code="200">Returns the database status information</response>
         [HttpGet("/status")]
         [AllowAnonymous]
+        [NamespaceResidencyOptional]
         [Produces("application/json")]
         [ProducesResponseType(typeof(StatusREST), StatusCodes.Status200OK)]
         public async Task<StatusREST> Status()
@@ -199,56 +207,79 @@ namespace NoSQL.GraphDB.App.Controllers
             // process's memory (and matches /statistics' processWorkingSetBytes).
             var totalBytesOfMemoryUsed = Process.GetCurrentProcess().WorkingSet64;
 
-            var vertexCount = _fallen8.VertexCount;
-            var edgeCount = _fallen8.EdgeCount;
+            // Residency decides whether any of this response's engine-derived half exists at all
+            // (feature namespace-startup-load §4.6). The host-level half below - memory, auth posture,
+            // the provider blocks - is true regardless, which is what keeps this probe usable.
+            var addressed = AddressedNamespace();
+            var loaded = addressed == null || addressed.IsLoaded;
 
-            // Every "available plugins" list below answers one question - what can this namespace
-            // create or run by NAME? - so every one of them comes from the single union rule
-            // PluginFactory.AvailablePluginNames owns (built-ins + this namespace's registered
-            // plugins), reached directly for the two algorithm contracts and through the owning
-            // factory for index/service/subgraph. Whether a name came from an assembly scan or from a
-            // host registering the TYPE is not the client's business - POST /index, POST /service and
-            // the path/analytics endpoints take either - and in a trimmed or browser host, where a scan
-            // finds nothing, a registered name may be the only one that resolves at all. Capture the
-            // registry once (Dispose may null it under a concurrent teardown); a null registry yields
-            // the built-ins alone rather than throwing.
-            var pluginRegistry = _fallen8.Plugins;
-            IEnumerable<String> availableIndices = _fallen8.IndexFactory.GetAvailableIndexPlugins();
-            IEnumerable<String> availableServices = _fallen8.ServiceFactory.GetAvailableServicePlugins();
-            IEnumerable<String> availablePathAlgos = PluginFactory.AvailablePluginNames(PluginContract.Path, pluginRegistry);
-            IEnumerable<String> availableAnalyticsAlgos = PluginFactory.AvailablePluginNames(PluginContract.Analytics, pluginRegistry);
+            Int32? vertexCount = null;
+            Int32? edgeCount = null;
+            List<IndexDescriptionREST> indices = null;
+            List<String> availableIndices = null;
+            List<String> availableServices = null;
+            List<String> availablePathAlgos = null;
+            List<String> availableAnalyticsAlgos = null;
+            List<String> availableSubGraphAlgos = null;
+            DurabilityStatusREST durability = null;
 
-            // Read-locked snapshot (id -> index); O(#indices) plus the per-index counts
-            // (see IndexDescriptionREST.Values), no graph pass. A bound vector index
-            // (feature element-embeddings) also reports its embedding binding + model
-            // identity so a client can mark it a self-maintained projection.
-            var indices = new List<IndexDescriptionREST>();
-            foreach (var kv in _fallen8.IndexFactory.GetNamedIndicesSnapshot())
+            if (loaded)
             {
-                var description = new IndexDescriptionREST
+                vertexCount = _fallen8.VertexCount;
+                edgeCount = _fallen8.EdgeCount;
+
+                // Every "available plugins" list below answers one question - what can this namespace
+                // create or run by NAME? - so every one of them comes from the single union rule
+                // PluginFactory.AvailablePluginNames owns (built-ins + this namespace's registered
+                // plugins), reached directly for the two algorithm contracts and through the owning
+                // factory for index/service/subgraph. Whether a name came from an assembly scan or from a
+                // host registering the TYPE is not the client's business - POST /index, POST /service and
+                // the path/analytics endpoints take either - and in a trimmed or browser host, where a scan
+                // finds nothing, a registered name may be the only one that resolves at all. Capture the
+                // registry once (Dispose may null it under a concurrent teardown); a null registry yields
+                // the built-ins alone rather than throwing.
+                var pluginRegistry = _fallen8.Plugins;
+                availableIndices = new List<String>(_fallen8.IndexFactory.GetAvailableIndexPlugins());
+                availableServices = new List<String>(_fallen8.ServiceFactory.GetAvailableServicePlugins());
+                availablePathAlgos = new List<String>(PluginFactory.AvailablePluginNames(PluginContract.Path, pluginRegistry));
+                availableAnalyticsAlgos = new List<String>(PluginFactory.AvailablePluginNames(PluginContract.Analytics, pluginRegistry));
+                availableSubGraphAlgos = new List<String>(_fallen8.SubGraphFactory.GetAvailableSubGraphPlugins());
+                durability = DurabilityBlock(_fallen8.Durability);
+
+                // Read-locked snapshot (id -> index); O(#indices) plus the per-index counts
+                // (see IndexDescriptionREST.Values), no graph pass. A bound vector index
+                // (feature element-embeddings) also reports its embedding binding + model
+                // identity so a client can mark it a self-maintained projection.
+                indices = new List<IndexDescriptionREST>();
+                foreach (var kv in _fallen8.IndexFactory.GetNamedIndicesSnapshot())
                 {
-                    IndexId = kv.Key,
-                    PluginType = kv.Value?.PluginName,
-                    Capabilities = IndexCapabilities.Describe(kv.Value),
-                    Keys = NonNegativeCount(kv.Value?.CountOfKeys()),
-                    Values = NonNegativeCount(kv.Value?.CountOfValues()),
-                };
-                if (kv.Value is NoSQL.GraphDB.Core.Index.Vector.IVectorIndex vectorIndex)
-                {
-                    description.EmbeddingName = vectorIndex.EmbeddingName;
-                    description.Model = vectorIndex.Model;
+                    var description = new IndexDescriptionREST
+                    {
+                        IndexId = kv.Key,
+                        PluginType = kv.Value?.PluginName,
+                        Capabilities = IndexCapabilities.Describe(kv.Value),
+                        Keys = NonNegativeCount(kv.Value?.CountOfKeys()),
+                        Values = NonNegativeCount(kv.Value?.CountOfValues()),
+                    };
+                    if (kv.Value is NoSQL.GraphDB.Core.Index.Vector.IVectorIndex vectorIndex)
+                    {
+                        description.EmbeddingName = vectorIndex.EmbeddingName;
+                        description.Model = vectorIndex.Model;
+                    }
+                    indices.Add(description);
                 }
-                indices.Add(description);
             }
 
             return new StatusREST
             {
+                NamespaceState = Namespaces.Namespace.WireName(
+                    addressed?.EffectiveState ?? NoSQL.GraphDB.App.Namespaces.NamespaceState.Ready),
                 Indices = indices,
-                AvailableIndexPlugins = new List<String>(availableIndices),
-                AvailablePathPlugins = new List<String>(availablePathAlgos),
-                AvailableSubGraphPlugins = new List<String>(_fallen8.SubGraphFactory.GetAvailableSubGraphPlugins()),
-                AvailableAnalyticsPlugins = new List<String>(availableAnalyticsAlgos),
-                AvailableServicePlugins = new List<String>(availableServices),
+                AvailableIndexPlugins = availableIndices,
+                AvailablePathPlugins = availablePathAlgos,
+                AvailableSubGraphPlugins = availableSubGraphAlgos,
+                AvailableAnalyticsPlugins = availableAnalyticsAlgos,
+                AvailableServicePlugins = availableServices,
                 EdgeCount = edgeCount,
                 VertexCount = vertexCount,
                 UsedMemory = totalBytesOfMemoryUsed,
@@ -260,8 +291,17 @@ namespace NoSQL.GraphDB.App.Controllers
                     HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None),
                 Nlp = await NlpStatsREST.From(_nlpOptions, _nlpClient,
                     HttpContext?.RequestAborted ?? System.Threading.CancellationToken.None),
-                Durability = DurabilityBlock(_fallen8.Durability),
+                Durability = durability,
             };
+        }
+
+        /// <summary>
+        ///   The addressed namespace, or null when this controller was constructed directly (unit
+        ///   tests) and every operation targets the one supplied engine.
+        /// </summary>
+        private Namespaces.Namespace AddressedNamespace()
+        {
+            return _namespaces != null && _namespaces.TryGet(AddressedNamespaceName(), out var ns) ? ns : null;
         }
 
         /// <summary>
@@ -620,8 +660,14 @@ namespace NoSQL.GraphDB.App.Controllers
         /// its own default location and the registry records a single entry whose "namespaces"
         /// manifest lists every member. Restore the whole entry - or a single namespace out of it -
         /// via PUT /savegames/{id}/load.
+        ///
+        /// A namespace that is cataloged but NOT loaded in this process is never a member of a save
+        /// (feature namespace-startup-load): it is skipped, its checkpoint and write-ahead log are
+        /// left untouched, and it is named in the response's "skippedNamespaces" (on the 200 body,
+        /// and as a problem extension on the 500) - so the entry spanning a strict subset of the
+        /// Fallen-8 is visible rather than implied.
         /// </remarks>
-        /// <response code="200">Returns the created save-game registry entry</response>
+        /// <response code="200">Returns the created save-game registry entry, plus "skippedNamespaces" when it does not span every namespace</response>
         /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
         /// <response code="500">At least one namespace's save failed (the body names it; successfully saved namespaces are still registered)</response>
         [Fallen8Level]
@@ -634,9 +680,22 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             var members = new List<(String Name, String Id, IFallen8 Engine, String Location)>();
             var failed = new List<String>();
+            var skipped = new List<String>();
 
             foreach (var ns in _namespaces.Snapshot())
             {
+                // The same data-loss guard the shutdown save applies (feature
+                // namespace-startup-load §5): a namespace with no resident engine is never a member
+                // of a save. Reported as SKIPPED rather than failed - without this it would land in
+                // `failed` and turn a correct sweep into a 500, and worse, an engine-less namespace
+                // that somehow reached the save would have its write-ahead log truncated to a
+                // header and an empty checkpoint registered as its newest.
+                if (!ns.IsLoaded)
+                {
+                    skipped.Add(ns.Name);
+                    continue;
+                }
+
                 var savePath = ReferenceEquals(ns, _namespaces.Default)
                     ? _savePath
                     : System.IO.Path.Combine(EnsuredNamespaceDirectory(ns), _saveFile);
@@ -685,7 +744,30 @@ namespace NoSQL.GraphDB.App.Controllers
                 return Helper.ProblemResults.Create(StatusCodes.Status500InternalServerError, "Save incomplete",
                     "The save transaction rolled back for: " + String.Join(", ", failed) +
                     ". Successfully saved namespaces were registered" + (entry != null ? " as " + entry.Id : "") + ".",
-                    p => p.Extensions["failedNamespaces"] = failed);
+                    p =>
+                    {
+                        p.Extensions["failedNamespaces"] = failed;
+                        if (skipped.Count > 0)
+                        {
+                            p.Extensions["skippedNamespaces"] = skipped;
+                        }
+                    });
+            }
+
+            if (skipped.Count > 0)
+            {
+                // Named to the CALLER, not just to the server log: the registered entry now spans a
+                // strict SUBSET of the Fallen-8, and from the response alone that is indistinguishable
+                // from a Fallen-8 that has no other namespaces. The 500 path above carries the same
+                // list as a problem extension, so both outcomes name the same thing.
+                _logger.LogInformation("PUT /save/all skipped {Count} namespace(s) that are not loaded in this " +
+                    "process: {Namespaces}. Their checkpoints and write-ahead logs are untouched.",
+                    skipped.Count, String.Join(", ", skipped));
+
+                if (entry != null)
+                {
+                    entry.SkippedNamespaces = skipped;
+                }
             }
 
             return Ok(entry);

@@ -154,9 +154,12 @@ A thin ASP.NET Core layer. It owns what the engine deliberately does not:
 - **The save-game registry and the durability lifecycle.** One JSON document per deployment
   (`metadata/savegames.json`, relocatable with `Fallen8:Metadata:Directory`) records every
   checkpoint and is the sole authority for what each engine loads on boot; on startup every
-  namespace loads its newest registered save game (replaying the paired WAL), and a clean shutdown
-  checkpoints every namespace into one Fallen-8-level entry. That is why `/savegames/*` and
-  `PUT /save/all` are Fallen-8-level rather than per-namespace.
+  namespace the catalog selects loads its newest registered save game (replaying the paired WAL),
+  and a clean shutdown checkpoints every loaded namespace into one Fallen-8-level entry. That is why
+  `/savegames/*` and `PUT /save/all` are Fallen-8-level rather than per-namespace. Which namespaces a
+  boot loads is itself a per-namespace, catalog-persisted policy, and one that was excluded is
+  cataloged without an engine: it answers `503` until it is loaded, and its files are never written
+  to ([namespaces](/fallen-8-core/namespaces/#startup-load)).
 - **The optional [embedding provider](/fallen-8-core/semantic-traversal/).** Text-in embedding lives only
   in the app so the engine stays model-free; a bare run has it off, and the compose
   environment wires it to the model sidecar.

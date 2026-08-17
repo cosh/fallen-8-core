@@ -77,9 +77,9 @@ namespace NoSQL.GraphDB.Bench
                     case "--only":
                         if (++i >= args.Length) { return Usage("--only needs a family name"); }
                         only = args[i];
-                        if (only != "memory" && only != "writes" && only != "save" && only != "traversal")
+                        if (only != "memory" && only != "writes" && only != "save" && only != "load" && only != "traversal")
                         {
-                            return Usage("--only must be memory, writes, save or traversal");
+                            return Usage("--only must be memory, writes, save, load or traversal");
                         }
                         break;
                     case "--help":
@@ -141,6 +141,11 @@ namespace NoSQL.GraphDB.Bench
                     new Shape("degree 20", 100_000, 20)
                 };
 
+            // Shared by the save-stall and the startup-load families on purpose: the two are the same
+            // graph written and read back, so a reader can compare a checkpoint's cost with the cost
+            // of booting from it without wondering whether the shapes match. They also run smallest
+            // first, which the load measurement depends on (see Measurements.Load: it is deliberately
+            // not warmed up, so the process's one-off costs land on the smallest row).
             var saveShapes = full
                 ? new[]
                 {
@@ -215,6 +220,15 @@ namespace NoSQL.GraphDB.Bench
                 {
                     Console.WriteLine("save stall: " + shape.Label + " ...");
                     report.Metrics.SaveStall.Add(Measurements.SaveStall(shape));
+                }
+            }
+
+            if (Wanted("load"))
+            {
+                foreach (var shape in saveShapes)
+                {
+                    Console.WriteLine("startup load: " + shape.Label + " ...");
+                    report.Metrics.Load.Add(Measurements.Load(shape));
                 }
             }
 

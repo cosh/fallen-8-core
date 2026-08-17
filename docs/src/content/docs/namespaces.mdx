@@ -5,13 +5,13 @@ description: "Many isolated graphs in one Fallen-8, addressable under /ns/{name}
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-A Fallen-8 is a collection of namespaces, and a namespace is one isolated graph backed by its own Fallen-8 engine. Each namespace owns a private set of vertices, edges, indices, subgraphs, stored queries, registered plugins, and a change feed; nothing crosses between them. One reserved namespace, `default`, always exists and answers the bare (un-prefixed) URLs. This page covers the model, the `/ns/{name}/…` routing scheme, the management API, naming rules, the catalog that keeps the inventory durable, and how namespaces interact with save games.
+A Fallen-8 is a collection of namespaces, and a namespace is one isolated graph backed by its own Fallen-8 engine. Each namespace owns a private set of vertices, edges, indices, subgraphs, stored queries, registered plugins, and a change feed; nothing crosses between them. One reserved namespace, `default`, always exists and answers the bare (un-prefixed) URLs. This page covers the model, the `/ns/{name}/…` routing scheme, the management API, naming rules, the catalog that keeps the inventory durable, which namespaces a boot loads, and how namespaces interact with save games.
 
 ## The model
 
 | Property | Value |
 |---|---|
-| Namespaces per Fallen-8 | Up to `Fallen8:Namespaces:MaxNamespaces` (default **10000**), counting `default`. A cap, not a target, each namespace runs a full engine with its own writer thread and (in durable mode) write-ahead log, so realistic fleets are dozens to hundreds. |
+| Namespaces per Fallen-8 | Up to `Fallen8:Namespaces:MaxNamespaces` (default **10000**), counting `default`. A cap, not a target: each **loaded** namespace runs a full engine with its own writer thread and its graph resident in memory, so realistic fleets are dozens to hundreds. No namespace holds an open write-ahead-log handle (every append opens, fsyncs and closes), so the per-namespace cost is the resident graph plus the load time it took to get there, both [measured](/fallen-8-core/capacity-and-performance/) and both avoidable per namespace ([startup load](#startup-load)). |
 | Isolation | Every namespace has its own engine. Data, indices, subgraphs, stored queries, and [registered plugins](/fallen-8-core/plugin-registration/) written to one are invisible to the others. Isolation covers data and metadata, not process resources: the GC heap, the sensitive-endpoint rate-limit window, the single [analytics](/fallen-8-core/graph-analytics/) run slot (`429` while it is held), and the global [ingestion](/fallen-8-core/unstructured-ingestion/) queue (`503` when full) are Fallen-8-wide. |
 | Reserved namespace | `default` is always present, aliases the bare URLs, and cannot be renamed or dropped. |
 | Identity | Internally each namespace has an immutable, collection-assigned id (e.g. `ns-20260723-101502-3f2a`). On-disk storage and metrics are keyed by the id, never the name, which is why names are permissive and rename is a pure metadata move. The management API never reports the id; the one place it surfaces is a save game's `namespaces[]` manifest, which the boot chain matches on (see [save games](/fallen-8-core/save-games/)). |
@@ -41,7 +41,7 @@ Invoke-RestMethod http://localhost:8080/ns/flights/vertex/count
 </TabItem>
 </Tabs>
 
-A `/ns/{name}/…` request for a namespace that does not exist returns `404` problem+json with the offending name in the `namespace` extension member, for both reads and writes, before any mutation runs.
+A `/ns/{name}/…` request for a namespace that does not exist returns `404` problem+json with the offending name in the `namespace` extension member, for both reads and writes, before any mutation runs. A namespace that exists but was not loaded into this process answers `503` instead, from the same pre-action check ([startup load](#startup-load)).
 
 ## Managing namespaces (REST)
 
@@ -52,18 +52,22 @@ These routes are Fallen-8-level: they exist once and are never themselves prefix
 | `GET /ns` | List all namespaces (name-ordered, always includes `default`) with the `maxNamespaces` ceiling | `200` |
 | `GET /ns/{name}` | Get one namespace | `200` · `404` |
 | `PUT /ns/{name}` | Create a new, empty namespace | `201` · `400` invalid name · `401` · `409` name in use · `422` quota reached (body carries `maxNamespaces`) · `429` |
-| `PATCH /ns/{name}` | Rename (body field `name`) and/or set the [plugin-registration](/fallen-8-core/plugin-registration/) override (body field `pluginRegistration`: `"enabled"`, `"disabled"`, or `"inherit"`). Both fields are optional; supply at least one | `200` · `400` neither field supplied, invalid new name, or unrecognized `pluginRegistration` · `401` · `404` · `409` new name in use, or a *rename* of `default` (setting `default`'s override is allowed) · `429` |
+| `PATCH /ns/{name}` | Rename (body field `name`) and/or set either persisted override: `pluginRegistration` ([plugin registration](/fallen-8-core/plugin-registration/)) and `loadOnStartup` ([startup load](#startup-load)), each `"enabled"`, `"disabled"`, or `"inherit"`. Every field is optional; supply at least one. The whole body is validated first and then applied by one catalog write, so a rejected update changes nothing | `200` · `400` no field supplied, invalid new name, or an unrecognized `pluginRegistration`/`loadOnStartup` · `401` · `404` · `409` new name in use, or a *rename* or `loadOnStartup` of `default` (setting `default`'s plugin-registration override is allowed) · `429` |
+| `POST /ns/{name}/activate` | Load a not-loaded namespace into the running process ([startup load](#startup-load)). Idempotent; does **not** change the persisted policy | `200` · `401` · `404` · `409` its directory holds checkpoint files no save game contains ([why](#loading-one-now)) · `429` · `500` its checkpoint could not be restored |
 | `DELETE /ns/{name}` | Drop irreversibly | `204` · `401` · `404` · `409` target is `default` · `429` |
 
-Create, rename, and drop require an authenticated caller and are rate-limited (`401`/`429`); see [security](/fallen-8-core/security/). A list/get entry reports:
+Create, rename, drop, and activate require an authenticated caller and are rate-limited (`401`/`429`); see [security](/fallen-8-core/security/). A list/get entry reports:
 
 | Field | Meaning |
 |---|---|
 | `name` | The URL-addressable name |
-| `state` | `ready` or `creating` (always `ready` today) |
-| `vertexCount` / `edgeCount` | Element counts for this namespace |
+| `state` | `ready`, `notLoaded` (cataloged, but with no engine in this process, see [startup load](#startup-load)), or `creating` (reserved for future async creation) |
+| `vertexCount` / `edgeCount` | Element counts for this namespace, **absent** (`null`) while it is `notLoaded`: this process has no count to report, and a zero would read as "healthy and empty" over a namespace that holds data |
 | `createdAt` | Creation time (UTC, ISO 8601) |
 | `pluginRegistrationEnabled` | This namespace's plugin-registration override: `true`/`false` when set explicitly, `null` when it inherits the instance default (see [plugin registration](/fallen-8-core/plugin-registration/)) |
+| `loadOnStartupEnabled` | This namespace's startup-load override: `true`/`false` when set explicitly, `null` when it inherits `Fallen8:Namespaces:LoadOnStartup`. It describes the **next** boot, so it is independent of `state` ([startup load](#startup-load)) |
+
+`GET /ns` lists a `notLoaded` namespace like any other. That is deliberate: it is the inventory, not the residency filter, and a namespace missing from the list is exactly how a client concludes it was deleted.
 
 There is no per-namespace memory figure: engines share one GC heap, so a byte count would be fiction.
 
@@ -109,23 +113,105 @@ So `Flights EU`, `code.repo_v2`, `fraud!(q3)#2`, `ümlaut-Ω-graphé`, and `con`
 
 ## The namespace catalog
 
-The inventory itself is durable, independently of save games. Create, rename, drop, and the plugin-registration override are written to a catalog file, `namespaces.json`, in the metadata directory (`Fallen8:Metadata:Directory`, default `<app base>/metadata`, next to `savegames.json`). The write goes to a temp file and then replaces the catalog, so a crash mid-write leaves the previous one intact. A namespace that was created but never saved therefore returns after a restart, its committed data replayed from its own write-ahead log.
+The inventory itself is durable, independently of save games. Create, rename, drop, and the two per-namespace overrides (plugin registration and [startup load](#startup-load)) are written to a catalog file, `namespaces.json`, in the metadata directory (`Fallen8:Metadata:Directory`, default `<app base>/metadata`, next to `savegames.json`). The write goes to a temp file and then replaces the catalog, so a crash mid-write leaves the previous one intact. A namespace that was created but never saved therefore returns after a restart, its committed data replayed from its own write-ahead log.
 
 Three operator notes. A catalog that cannot be read, or that is invalid JSON, aborts startup loudly rather than being silently overwritten: fix or remove the file and restart. A single entry that is reserved (`default`), duplicate, or malformed is skipped with an error log while its on-disk data stays untouched, so repairing the entry restores it. In volatile mode (`Fallen8:Durability:Volatile=true`) there is no catalog at all, so namespaces created over REST are gone on the next start along with everything else.
 
+## Startup load
+
+By default a boot loads every cataloged namespace and restores each one's newest checkpoint, one after
+another. That is the right default and the wrong bill for a fleet with a namespace nobody reads: the
+slowest namespace sits on the critical path of every start, and its graph stays resident either way.
+So each namespace carries a **persisted startup-load policy**, and a boot honours it.
+
+What excluding a namespace actually saves is its [retained heap and its load time](/fallen-8-core/capacity-and-performance/#booting-what-one-namespace-costs-to-load),
+and close to nothing else: no namespace holds an open write-ahead-log handle, and a writer thread is
+cheap. It is not a way to make a Fallen-8 with a thousand namespaces cheap; it is a way to stop paying
+for the ones you are not using.
+
+### Choosing what loads
+
+| Where | What it says |
+|---|---|
+| `loadOnStartupEnabled` on the namespace | Per-namespace, persisted in the catalog, editable at runtime with `PATCH /ns/{name}` (`"loadOnStartup": "enabled" \| "disabled" \| "inherit"`). `"inherit"` clears it |
+| `Fallen8:Namespaces:LoadOnStartup` | Default **`true`**. What a namespace with no override inherits |
+| `Fallen8:Namespaces:StartupLoadMode` | `Catalog` (default) honours each policy; `All` ignores every exclusion; `DefaultOnly` loads nothing but `default` |
+
+The two modes are the escape hatch, and the reason it is a **mode and never a name list**: names are mutable while the immutable id is the on-disk key, so a configured name list silently changes meaning after a rename. `All` is the way back from an exclusion you regret without hand-editing the catalog, which matters because a malformed catalog aborts startup, and `DefaultOnly` is for when the selection itself is what is broken.
+
+A `PATCH` **takes effect on restart**. It never loads or unloads anything in the running process; that is what `POST /ns/{name}/activate` is for.
+
+The reserved `default` namespace **cannot** be excluded, by catalog or by config: every bare URL aliases it, so a Fallen-8 without it has no coherent answer for most of its own surface. `PATCH /ns/default` with a `loadOnStartup` field answers `409`, and its entry always reports `loadOnStartupEnabled: true`.
+
+Boot is loud. Every cataloged namespace gets one log line saying it was loaded or skipped **and why** (its own policy, the inherited default, or the mode), plus one summary line naming the mode and the global default. A selection that loads nothing but `default` logs that summary as a warning, because that shape is usually a mistake.
+
+### What a not-loaded namespace does
+
+It stays a full member of the Fallen-8, minus its engine. The catalog entry, the name reservation, the quota slot, enumeration, rename and drop all keep working; only the graph is absent.
+
+| Ask it | Answer |
+|---|---|
+| `GET /ns`, `GET /ns/{name}` | Listed, `state: "notLoaded"`, counts absent |
+| `GET /status` (also `/ns/{ns}/status`) | Answers, with `"namespaceState": "notLoaded"` and every engine-derived field absent (counts, index inventory, available plugins, the durability block). It is the anonymous connection probe, so it stays usable |
+| Anything else namespace-scoped (reads, writes, `/save`, `/changefeed`, …) | `503` problem+json, title `Namespace not loaded`, extensions `namespace` and `namespaceState: "notLoaded"`, refused before the action runs. Its detail names both ways out |
+| `DELETE /ns/{name}` | Drops it, write-ahead log and directory included, exactly like a loaded one |
+| `HEAD /tabularasa/all` | Drops it too: the factory reset means what it says. Being a `HEAD` route it answers `204` with no body at all, so the server log is what names each namespace it dropped |
+
+It is a `503`, not a `404`, on purpose: a `404` carrying a `namespace` member is what a client (F8 Studio included) turns into a "this namespace is gone, recreate it empty" recovery, which over a namespace whose data is on disk is the destructive wrong turn.
+
+**Its data is never touched.** A namespace with no resident engine is never a member of a save: not on shutdown, not in `PUT /save/all` (which names it in `skippedNamespaces`), and a `PUT /save` addressed at it refuses. Its checkpoint files and its write-ahead log are left exactly as they were.
+
+The honest consequence, since it changes what a save game means: the clean-shutdown entry and `PUT /save/all` then span a strict **subset** of the Fallen-8. "The newest entry is my whole Fallen-8" stops being true as soon as one namespace is excluded, which is why both responses name what they skipped. See [save games](/fallen-8-core/save-games/).
+
+### Loading one now
+
+`POST /ns/{name}/activate` constructs the engine, restores the namespace's newest registered save game and replays its write-ahead-log tail on top, and only then starts serving requests, so a failed restore leaves it exactly as not-loaded as it was.
+
+<Tabs syncKey="shell">
+<TabItem label="Bash">
+
+```bash
+# load it into the running process (idempotent)
+curl -X POST http://localhost:8080/ns/archived/activate
+
+# and have every boot load it from now on
+curl -X PATCH http://localhost:8080/ns/archived \
+  -H "Content-Type: application/json" -d '{"loadOnStartup":"enabled"}'
+```
+
+</TabItem>
+<TabItem label="PowerShell">
+
+```powershell
+Invoke-RestMethod -Method Post http://localhost:8080/ns/archived/activate
+
+Invoke-RestMethod -Method Patch http://localhost:8080/ns/archived `
+  -ContentType application/json -Body '{"loadOnStartup":"enabled"}'
+```
+
+</TabItem>
+</Tabs>
+
+The response is `{ "namespace": <entry>, "activated": true|false, "detail": "…" }`. `activated: false` is a success: the namespace was already loaded and nothing was restored, which is the only way a caller can tell the two apart. Activating `default` is always that no-op.
+
+One refusal is worth knowing about, because it protects data. If the namespace's directory holds checkpoint files that **no registered save game contains**, activation answers `409` and loads nothing. Only registered checkpoints are ever restored ([save games](/fallen-8-core/save-games/#startup)), so loading it would publish an *empty* graph beside real files, and a resident namespace joins the next save: a clean shutdown would then register that empty graph as its newest checkpoint and reset its write-ahead log to a bare header. The `409` detail names the way to adopt those files instead, which is to register them: set `loadOnStartup` to `enabled`, restart, then load that checkpoint once with `PUT /ns/{name}/load`. Activation restores it from then on.
+
+The two calls are deliberately separate, because they answer different questions: activation answers for **this process**, the policy answers for the **next boot**, which still honours it. The one place they move together is a save-game restore into a not-loaded namespace, which activates it *and* flips the policy to enabled, reporting both, since restoring data into a namespace the next boot skips would just hide it again.
+
 ## Save, load, and restore
 
-Checkpoints follow namespace boundaries. `PUT /save` checkpoints the addressed namespace (it has a `/ns/{name}/…` twin); `PUT /save/all` checkpoints every namespace into one Fallen-8-level entry. Restoring with `PUT /savegames/{id}/load` replaces exactly the namespaces the entry contains: a dropped namespace is recreated, an existing one has its graph replaced, and namespaces the entry does not contain are left untouched. Add `?namespace={name}` to restore just one namespace out of the entry (`404` if the entry lacks it). Because a drop keeps checkpoint files, a dropped namespace can be brought back from a save game. The mechanics, checkpoints, the write-ahead log, durability, live in [save games](/fallen-8-core/save-games/).
+Checkpoints follow namespace boundaries. `PUT /save` checkpoints the addressed namespace (it has a `/ns/{name}/…` twin); `PUT /save/all` checkpoints every **loaded** namespace into one Fallen-8-level entry ([startup load](#startup-load)). Restoring with `PUT /savegames/{id}/load` replaces exactly the namespaces the entry contains: a dropped namespace is recreated, a not-loaded one is activated and its startup-load policy set to enabled (both reported in `activatedNamespaces`), an existing one has its graph replaced, and namespaces the entry does not contain are left untouched. Add `?namespace={name}` to restore just one namespace out of the entry (`404` if the entry lacks it). Because a drop keeps checkpoint files, a dropped namespace can be brought back from a save game. The mechanics, checkpoints, the write-ahead log, durability, live in [save games](/fallen-8-core/save-games/).
 
 ## Studio
 
-F8 Studio shows the current instance and namespace as a pair in the top bar, and its Connect screen creates, renames, switches, and drops the namespaces of an instance. See [studio](/fallen-8-core/studio/).
+F8 Studio shows the current instance and namespace as a pair in the top bar, and its Connect screen creates, renames, switches, and drops the namespaces of an instance, and sets each one's **at startup** policy. A namespace the server did not load is tagged in the switcher and, when you open it, the screen says so in prose rather than offering to recreate it, with an **Activate now** button that runs `POST /ns/{name}/activate` and leaves the policy alone. See [studio](/fallen-8-core/studio/).
 
 ## See also
 
 - [Graph model](/fallen-8-core/graph-model/): the elements, properties, and transactions a namespace holds
 - [Save games](/fallen-8-core/save-games/): checkpoints, the write-ahead log, `/save` / `/save/all` / `/savegames/{id}/load`
 - [Stored queries](/fallen-8-core/stored-queries/): the per-namespace, WAL-durable query library
-- [Security](/fallen-8-core/security/): the API key that gates create/rename/drop
+- [Capacity and performance](/fallen-8-core/capacity-and-performance/): what a loaded namespace costs in heap and in boot time, measured
+- [Security](/fallen-8-core/security/): the API key that gates create/rename/drop/activate
 - [Studio](/fallen-8-core/studio/): the instance/namespace top bar and the Connect screen
 - [REST API](/fallen-8-core/rest-api/): REST conventions, the OpenAPI document, and the Scalar reference

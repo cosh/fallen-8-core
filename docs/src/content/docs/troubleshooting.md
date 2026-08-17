@@ -167,6 +167,40 @@ all abort startup rather than serving an empty graph or overwriting a bad file.
 for corrupt JSON, fix the file or move it aside and re-adopt the checkpoints with `PUT /load`.
 The startup rules are in [Save games](/fallen-8-core/save-games/).
 
+## A namespace answers 503 "Namespace not loaded"
+
+**Symptom.** Every call against one namespace returns `503` problem+json titled `Namespace not
+loaded`, with `"namespaceState": "notLoaded"`. `GET /ns` still lists it, with no counts, and F8
+Studio tags it `not loaded` instead of showing a screen. Other namespaces are fine.
+
+**Cause.** This process did not load it. Either its own startup-load policy says so
+(`loadOnStartupEnabled: false` on its catalog entry), or it inherited
+`Fallen8:Namespaces:LoadOnStartup=false`, or the boot ran with
+`Fallen8:Namespaces:StartupLoadMode=DefaultOnly`. The boot log says which, one line per namespace.
+**Nothing is lost:** no engine was constructed, so its checkpoint and its write-ahead log were never
+opened, and a namespace with no engine is never a member of a save.
+
+**Fix.** Load it now, and separately decide about the next boot:
+
+```bash
+curl -X POST http://localhost:8080/ns/archived/activate           # this process, no restart
+curl -X PATCH http://localhost:8080/ns/archived \
+  -H "Content-Type: application/json" -d '{"loadOnStartup":"enabled"}'   # every boot from now on
+```
+
+In F8 Studio, opening that namespace offers the same two: an **Activate now** button (the first call) and the **at startup** selector in the Connect screen's Namespaces panel (the second).
+
+If the selection itself is what went wrong, boot once with
+`Fallen8__Namespaces__StartupLoadMode=All`: it ignores every exclusion, so you never have to
+hand-edit the one file whose malformation aborts startup. Full rules:
+[Namespaces](/fallen-8-core/namespaces/#startup-load).
+
+**If the activation answers `409` instead**, the namespace's directory holds checkpoint files that no
+registered save game contains, and loading it would come up empty beside them. The refusal's detail
+names the file and the fix, which is to register it: set `loadOnStartup` to `enabled`, restart, then
+`PUT /ns/{name}/load` that checkpoint once
+([activation](/fallen-8-core/namespaces/#loading-one-now)).
+
 ## No OpenAPI / Scalar at :8080
 
 **Cause.** The compose container runs in the Production environment; the OpenAPI document and
@@ -191,6 +225,7 @@ AMD note) lives in [Running](/fallen-8-core/running/#gpu-acceleration).
 
 ## See also
 
+- [Namespaces](/fallen-8-core/namespaces/): the startup-load policy, activation, and what a not-loaded namespace answers
 - [Running](/fallen-8-core/running/): models, GPU, and every launch option
 - [Security](/fallen-8-core/security/): the API key (dynamic code execution is always on)
 - [Studio](/fallen-8-core/studio/): where the assist and semantic features surface in the UI

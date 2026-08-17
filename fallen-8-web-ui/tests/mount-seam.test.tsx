@@ -163,6 +163,10 @@ describe("host knobs", () => {
     // locked too: no row actions, no namespace management, and activation disabled - the
     // switcher's absence would otherwise be bypassable right here.
     expect(el.querySelector('[data-testid="namespaces-panel"]')).toBeNull();
+    // The startup-load policy control lives in that panel, and it is the one affordance that
+    // re-plans the HOST's next boot rather than this session (feature namespace-startup-load),
+    // so it is asserted by name: a future panel-less home for it must not resurface it here.
+    expect(el.querySelector('[data-testid^="namespace-startup-"]')).toBeNull();
     expect([...el.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Edit");
     const radio = el.querySelector<HTMLInputElement>('input[type="radio"][name="active-instance"]');
     expect(radio).not.toBeNull();
