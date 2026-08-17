@@ -9,18 +9,21 @@ currently loaded graph, regardless of edge type
 ([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)), and reports edges traversed
 per second (TPS). This is raw traversal throughput, not query latency and not analytics timing.
 
-The screen (route `/benchmarks`) is Fallen-8-level: rather than taking a namespace parameter, it
-always generates into and measures the `default` namespace's graph on the active instance,
-whatever namespace the switcher is on. It does not aggregate across namespaces.
+The screen (route `/q/{namespace}/benchmarks`) is **namespace-scoped**: it generates into, and
+measures, the namespace the switcher is on, and the namespace is in the URL so a pasted link
+restores it. It never aggregates across namespaces. The older flat `/benchmarks` link still works
+and redirects to the active namespace's screen.
 
 ## Running a benchmark
 
-1. Open **Benchmark** in the left rail.
+1. Pick the [namespace](/fallen-8-core/namespaces/) you want to measure in the top bar, then open
+   **Benchmark** in the left rail. The screen header names the instance and that namespace.
 2. (Optional) Give it a graph to measure. You can point the benchmark at anything already
    loaded, a [sample](/fallen-8-core/samples/), a restored [save game](/fallen-8-core/save-games/),
    or your own data, so this step is only needed when the graph is empty. To conjure one, use the
    **Graph generation** panel: set `vertices`, `edges / vertex`, and a `distribution`, or click a
-   preset, then **Generate**.
+   preset, then **Generate**. The result reports what was created and, as **into namespace**, the
+   graph the server actually wrote.
 3. Set **iterations** (default 1000) in the **Edge-traversal throughput** panel and click
    **Run benchmark**.
 
@@ -45,6 +48,9 @@ your own data.
 
 The generation panel is a convenience for producing a graph to measure. A few things to know:
 
+- It writes into **the namespace the switcher shows**, whichever that is, and never falls back to
+  `default` when it is some other one. The response names the namespace it wrote, so you can always
+  tell from the result alone which graph grew.
 - It is **additive**. Generated vertices and edges are added on top of the current graph; nothing
   is wiped. Generated edges only ever target vertices from the same call, so generating on top of a
   loaded sample leaves a second, disconnected component: generate into an empty graph when the
@@ -81,25 +87,57 @@ the count (10 to 50) on million-edge graphs and do not benchmark an instance tha
 
 ## REST equivalents
 
-The screen calls two Fallen-8-level endpoints. Both are exposed at the API root as bare paths
-(not under the versioned `api/v0.1` prefix) and operate on the `default` namespace:
+The screen calls two endpoints. Both are exposed at the API root (not under the versioned
+`api/v0.1` prefix) and both act on the namespace in the URL:
 
 | Method and route | Purpose |
 |---|---|
-| `GET /generate?nodeCount=&edgeCount=&distribution=` | Add a generated graph (returns a human-readable timing summary). |
-| `GET /benchmark?iterations=` | Run the timed edge-traversal passes (returns the TPS statistics). |
+| `GET /ns/{namespace}/generate?nodeCount=&edgeCount=&distribution=` | Add a generated graph to that namespace (returns the generation result below). |
+| `GET /ns/{namespace}/benchmark?iterations=` | Run the timed edge-traversal passes over that namespace (returns the TPS statistics). |
+
+These two are the only namespace-scoped routes with **no bare-URL alias to `default`**. Everywhere
+else `/vertex` means `/ns/default/vertex`; here a URL that names no namespace answers `400`
+("Namespace required") and names the scoped form, because one operation writes a graph and the
+other reports a graph's throughput as yours - picking a graph for you is the wrong answer in both
+cases. Call `GET /ns/default/generate` when `default` is genuinely what you meant.
+
+```bash
+curl 'http://localhost:8080/ns/flights/generate?nodeCount=10000&edgeCount=10&distribution=preferential'
+```
+
+```json
+{
+  "namespace": "flights",
+  "verticesCreated": 10000,
+  "edgesCreated": 99945,
+  "distribution": "preferential",
+  "elapsedMilliseconds": 412.8,
+  "vertexCountAfter": 10000,
+  "edgeCountAfter": 99945
+}
+```
+
+`verticesCreated` and `edgesCreated` are what this call added, counted rather than derived from the
+arguments: targets are drawn distinct, so `edgesCreated` falls below `nodeCount x edgeCount`
+whenever the requested out-degree exceeds the available targets, and under `preferential` it always
+does. The 55 missing edges above are exactly that: vertex *i* can only attach to the *i* vertices
+before it, so the total is `nodeCount x edgeCount - edgeCount x (edgeCount + 1) / 2`.
+`vertexCountAfter` and `edgeCountAfter` are the namespace's totals once generation finished, which
+differ from the created counts whenever the namespace already held data (here it was empty).
 
 All three `/generate` parameters are optional, with server-side defaults of 200 vertices, 5
 out-edges per vertex, and `uniform`. A non-numeric or negative count, or a distribution other than
 `uniform` or `preferential`, answers `400`.
 
-`GET /benchmark` returns `iterations`, `edgesTraversed` (edges in a single pass), `averageTps`,
-`medianTps`, and `standardDeviationTps`. `iterations` also defaults to 1000 when omitted. It
-answers `400` on a graph with no vertices, and on a non-numeric or non-positive iteration count.
+`GET /ns/{namespace}/benchmark` returns `iterations`, `edgesTraversed` (edges in a single pass),
+`averageTps`, `medianTps`, and `standardDeviationTps`. `iterations` also defaults to 1000 when
+omitted. It answers `400` on a graph with no vertices, and on a non-numeric or non-positive
+iteration count. An unknown namespace is a `404`, and one this process did not load is a `503`.
 See the full contract in the [API reference](/fallen-8-core/api-reference/).
 
 ## See also
 
+- [Namespaces](/fallen-8-core/namespaces/) explains the `/ns/{name}/…` addressing this screen uses.
 - [F8 Studio](/fallen-8-core/studio/) is the workbench this screen lives in.
 - [Running Fallen-8](/fallen-8-core/running/) covers launch options and configuration that affect
   performance.

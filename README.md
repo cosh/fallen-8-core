@@ -79,7 +79,8 @@ Each feature has a deep-dive doc — follow the link.
   into your own product - a WASM graph running entirely in the page, the canvas component rendering it, and
   the full embedded Studio against a hosted instance, with the boundary between them stated plainly.
 - **[Benchmark](https://cosh.github.io/fallen-8-core/benchmark/)**: measure raw edge-traversal throughput over the
-  loaded graph (generated, a sample, or your own data) in the Studio Benchmark screen.
+  loaded graph (generated, a sample, or your own data) in the Studio Benchmark screen - per namespace,
+  and generation reports what it created and where.
 - **[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
   writes and three auth modes up to OAuth 2.1.

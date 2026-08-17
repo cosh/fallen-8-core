@@ -62,7 +62,7 @@ export interface SectionHelpEntry {
 
 /**
  * Keyed by the SAME leaf strings as AppShell's NAV array. Flat/unscoped sections carry a
- * leading slash ("/", "/save-games", "/benchmarks"); scoped sections are bare leaves.
+ * leading slash ("/", "/save-games", "/integrations"); scoped sections are bare leaves.
  */
 export const SECTION_HELP: Record<string, SectionHelpEntry> = {
   "/": {
@@ -153,12 +153,12 @@ export const SECTION_HELP: Record<string, SectionHelpEntry> = {
       { slug: "graph-model", title: "Graph model", blurb: "What the canvas renders: vertices, edges, and properties." },
     ],
   },
-  "/benchmarks": {
+  benchmarks: {
     heading: "How the benchmark works",
     links: [
       { slug: "benchmark", title: "Benchmark", blurb: "Measure raw edge-traversal throughput over the loaded graph." },
+      { slug: "namespaces", title: "Namespaces", blurb: "Generation and measurement both act on the namespace the switcher shows, never on another one." },
       { slug: "running", title: "Running Fallen-8", blurb: "Launch options and configuration that affect performance." },
-      { slug: "architecture", title: "Architecture", blurb: "How the engine and REST API fit together." },
     ],
   },
   "/integrations": {

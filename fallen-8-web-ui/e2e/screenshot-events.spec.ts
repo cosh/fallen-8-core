@@ -64,7 +64,8 @@ test("capture the Events panel with live change-feed rows", async ({ page, reque
 
   // A small generated graph: every vertex/edge creation lands in the feed.
   expect(
-    (await request.get("/generate?nodeCount=14&edgeCount=2", { headers: AUTH })).ok(),
+    // Namespace-scoped: /generate has no bare alias to "default" (feature graph-namespaces).
+    (await request.get("/ns/default/generate?nodeCount=14&edgeCount=2", { headers: AUTH })).ok(),
   ).toBeTruthy();
 
   // The bell signals without being clicked; then the panel shows the rows.

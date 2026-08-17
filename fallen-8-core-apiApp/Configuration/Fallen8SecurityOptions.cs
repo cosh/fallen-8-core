@@ -108,7 +108,7 @@ namespace NoSQL.GraphDB.App.Configuration
         private Int32 _benchmarkMaxIterations = DefaultBenchmarkMaxIterations;
 
         /// <summary>
-        ///   Ceiling on the timed iterations <c>GET /benchmark</c> accepts: a higher count is a 400,
+        ///   Ceiling on the timed iterations <c>GET /ns/{ns}/benchmark</c> accepts: a higher count is a 400,
         ///   and a request that names no count gets the endpoint default clamped to this value.
         ///   Default 10000, the same ceiling analytics puts on its iterations
         ///   (<c>GraphAnalyticsDefinition.MaxIterationsCeiling</c>). It sits with the other

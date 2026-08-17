@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Fallen-8 REST API",
-    "description": "A Fallen-8 hosts isolated graph namespaces. Every namespace-scoped path exists twice: bare, aliasing the reserved \"default\" namespace, and prefixed with /ns/{ns} to address a named namespace. A request naming an unknown namespace answers 404 application/problem+json with a \"namespace\" extension member. Fallen-8-level paths (the /ns management routes, save games, benchmark, delegate validation) exist once and concern the whole collection of namespaces.",
+    "description": "A Fallen-8 hosts isolated graph namespaces. Every namespace-scoped path exists twice: bare, aliasing the reserved \"default\" namespace, and prefixed with /ns/{ns} to address a named namespace. A request naming an unknown namespace answers 404 application/problem+json with a \"namespace\" extension member. Fallen-8-level paths (the /ns management routes, save games, delegate validation) exist once and concern the whole collection of namespaces. Two scoped paths have no bare alias: /generate and /benchmark act on exactly one graph and never pick one for you, so their bare form answers 400 naming the /ns/{ns} URL.",
     "version": "0.1"
   },
   "servers": [
@@ -376,7 +376,7 @@
           "Benchmark"
         ],
         "summary": "Runs the edge-traversal benchmark and returns structured statistics",
-        "description": "Fallen-8-level: the benchmark traverses the \"default\" namespace (feature graph-namespaces).\r\nIt follows every outgoing edge of every vertex regardless of edge-property-id, so it\r\nworks on any loaded graph and reports edges traversed per second (not query latency).",
+        "description": "Traverses the ADDRESSED namespace, and like GET /ns/{ns}/generate it has no bare-URL\r\nalias to \"default\" (feature graph-namespaces): measuring a graph the caller did not name\r\nwould report the wrong graph's throughput as if it were theirs. It follows every outgoing\r\nedge of every vertex regardless of edge-property-id, so it works on any loaded graph and\r\nreports edges traversed per second (not query latency).",
         "parameters": [
           {
             "name": "iterations",
@@ -402,19 +402,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "The benchmark statistics",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/BenchmarkResultREST"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "400": {
-            "description": "Empty graph, non-positive or non-numeric iteration count, or a count\r\n    above Fallen8:Security:BenchmarkMaxIterations",
+            "description": "Always: this route names no namespace, and the operation acts on one graph. Call the /ns/{ns} form instead.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -424,7 +413,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/bulk/export": {
@@ -2844,7 +2834,7 @@
           "Benchmark"
         ],
         "summary": "Generates a random benchmark graph on top of the current one",
-        "description": "Fallen-8-level: generation targets the \"default\" namespace, whatever namespace a\r\nclient is otherwise working in (feature graph-namespaces). The generated vertices are\r\nunlabeled and the edges carry edge property \"A\". This endpoint is a convenience for\r\nconjuring a graph to measure - GET /benchmark follows every out-edge regardless of\r\nedge-property-id, so it benchmarks any loaded graph, not only generated ones.",
+        "description": "Writes into the ADDRESSED namespace, and names it in the response. This is one of the\r\ntwo operations with no bare-URL alias to \"default\" (feature graph-namespaces): it grows\r\nexactly one graph, so a URL that names no namespace is a 400 rather than a silent write\r\ninto \"default\". The generated vertices are unlabeled and the edges carry edge property\r\n\"A\". A convenience for conjuring a graph to measure - GET /ns/{ns}/benchmark follows\r\nevery out-edge regardless of edge-property-id, so it benchmarks any loaded graph, not\r\nonly generated ones.",
         "parameters": [
           {
             "name": "nodeCount",
@@ -2886,19 +2876,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "A human-readable timing summary",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "type": "string"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "400": {
-            "description": "A non-numeric or negative count, or an unknown distribution",
+            "description": "Always: this route names no namespace, and the operation acts on one graph. Call the /ns/{ns} form instead.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2908,7 +2887,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/graph": {
@@ -5796,6 +5776,71 @@
         }
       }
     },
+    "/ns/{ns}/benchmark": {
+      "get": {
+        "tags": [
+          "Benchmark"
+        ],
+        "summary": "Runs the edge-traversal benchmark and returns structured statistics",
+        "description": "Traverses the ADDRESSED namespace, and like GET /ns/{ns}/generate it has no bare-URL\r\nalias to \"default\" (feature graph-namespaces): measuring a graph the caller did not name\r\nwould report the wrong graph's throughput as if it were theirs. It follows every outgoing\r\nedge of every vertex regardless of edge-property-id, so it works on any loaded graph and\r\nreports edges traversed per second (not query latency).",
+        "parameters": [
+          {
+            "name": "iterations",
+            "in": "query",
+            "description": "Number of timed iterations (default 1000, at most\r\n    Fallen8:Security:BenchmarkMaxIterations; the default is clamped to that ceiling)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The benchmark statistics",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/BenchmarkResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "Empty graph, non-positive or non-numeric iteration count, a count\r\n    above Fallen8:Security:BenchmarkMaxIterations, or a bare URL naming no namespace",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/ns/{ns}/bulk/export": {
       "get": {
         "tags": [
@@ -8125,6 +8170,87 @@
           "503": {
             "description": "The embedding backend is unavailable",
             "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/generate": {
+      "get": {
+        "tags": [
+          "Benchmark"
+        ],
+        "summary": "Generates a random benchmark graph on top of the current one",
+        "description": "Writes into the ADDRESSED namespace, and names it in the response. This is one of the\r\ntwo operations with no bare-URL alias to \"default\" (feature graph-namespaces): it grows\r\nexactly one graph, so a URL that names no namespace is a 400 rather than a silent write\r\ninto \"default\". The generated vertices are unlabeled and the edges carry edge property\r\n\"A\". A convenience for conjuring a graph to measure - GET /ns/{ns}/benchmark follows\r\nevery out-edge regardless of edge-property-id, so it benchmarks any loaded graph, not\r\nonly generated ones.",
+        "parameters": [
+          {
+            "name": "nodeCount",
+            "in": "query",
+            "description": "Vertices to create (default 200)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "edgeCount",
+            "in": "query",
+            "description": "Out-edges added per vertex (default 5)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "distribution",
+            "in": "query",
+            "description": "Edge-target distribution: \"uniform\" (default) or\r\n    \"preferential\" (Barabási–Albert-style attachment — heavy-tailed in-degrees, so\r\n    PageRank/degree analytics at scale show real hubs)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What was created, how long it took, and the resulting totals",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphGenerationResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A non-numeric or negative count, an unknown distribution, or a bare\r\n    URL naming no namespace",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
               "application/json": { }
             }
           }
@@ -17406,7 +17532,7 @@
             "format": "double"
           }
         },
-        "description": "Structured result of the edge-traversal benchmark (GET /benchmark)"
+        "description": "Structured result of the edge-traversal benchmark (GET /ns/{ns}/benchmark)"
       },
       "BinaryOperator": {
         "type": "integer"
@@ -19398,6 +19524,78 @@
           }
         },
         "description": "The result of a graph-function invocation (feature plugin-registration): the selected\r\nvertices and edges, projected with the SAME DTOs as `GET /vertex/{id}` /\r\n`GET /edge/{id}` (a view of existing elements at call time)."
+      },
+      "GraphGenerationResultREST": {
+        "type": "object",
+        "properties": {
+          "namespace": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The namespace the vertices and edges were written into.",
+            "example": "flights"
+          },
+          "verticesCreated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The number of vertices created by this call.",
+            "format": "int32",
+            "example": 200
+          },
+          "edgesCreated": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The number of edges created by this call. Lower than\r\n`verticesCreated * edgeCount` whenever the requested out-degree exceeds the number\r\nof distinct targets available (targets are drawn distinct), and under\r\n`preferential` by construction, because the earliest vertices have fewer earlier\r\nvertices to attach to.",
+            "format": "int64",
+            "example": 1000
+          },
+          "distribution": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The edge-target distribution that was used: \"uniform\" or \"preferential\".",
+            "example": "uniform"
+          },
+          "elapsedMilliseconds": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "description": "Wall-clock milliseconds spent creating and committing the graph.",
+            "format": "double",
+            "example": 412.8
+          },
+          "vertexCountAfter": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The namespace's total vertex count once generation finished.",
+            "format": "int32",
+            "example": 200
+          },
+          "edgeCountAfter": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The namespace's total edge count once generation finished.",
+            "format": "int32",
+            "example": 1000
+          }
+        },
+        "description": "Structured result of a benchmark-graph generation (GET /ns/{ns}/generate)."
       },
       "GraphStatisticsREST": {
         "type": "object",

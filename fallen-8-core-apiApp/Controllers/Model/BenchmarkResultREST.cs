@@ -29,7 +29,7 @@ using System.Text.Json.Serialization;
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>
-    ///   Structured result of the edge-traversal benchmark (GET /benchmark)
+    ///   Structured result of the edge-traversal benchmark (GET /ns/{ns}/benchmark)
     /// </summary>
     /// <remarks>
     ///   TPS = traversed edges per second. Each iteration traverses every out-edge of every

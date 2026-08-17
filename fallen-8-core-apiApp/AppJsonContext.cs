@@ -141,6 +141,7 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(DelegateValidationREST))]
     [JsonSerializable(typeof(DelegateDiagnosticREST))]
     [JsonSerializable(typeof(BenchmarkResultREST))]
+    [JsonSerializable(typeof(GraphGenerationResultREST))]
     [JsonSerializable(typeof(SaveGameREST))]
     [JsonSerializable(typeof(SaveGameKpisREST))]
     [JsonSerializable(typeof(SaveGameNamespaceREST))]

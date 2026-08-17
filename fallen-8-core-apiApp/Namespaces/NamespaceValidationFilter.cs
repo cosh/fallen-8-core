@@ -37,7 +37,8 @@ namespace NoSQL.GraphDB.App.Namespaces
     ///   <see cref="NamespaceProblems"/> and carry the <c>namespace</c> extension member - the stable
     ///   marker F8 Studio keys its "recreate or switch" recover state on, which is exactly why the
     ///   not-loaded case must NOT be a 404. Bare routes carry no <c>ns</c> route value and pass
-    ///   through untouched.
+    ///   through untouched, EXCEPT for a <see cref="NamespaceRequiredAttribute"/> action, which has no
+    ///   default-namespace alias and is refused with 400 instead.
     ///
     ///   <para>The namespace MANAGEMENT routes (<c>GET /ns</c>, <c>GET|PUT|PATCH|DELETE /ns/{name}</c>,
     ///   <c>POST /ns/{name}/activate</c>) are never refused here, and that is structural rather than a
@@ -64,6 +65,16 @@ namespace NoSQL.GraphDB.App.Namespaces
             if (!context.RouteData.Values.TryGetValue(NamespaceRouteConvention.RouteParameterName, out var value)
                 || !(value is String name))
             {
+                // A bare URL. For almost every namespace-scoped action that IS the default-namespace
+                // alias; an action that refuses to pick a graph for the caller is answered instead.
+                // The matched route template - not the request path - is echoed, so the message never
+                // reflects unvalidated input back at the caller.
+                if (context.ActionDescriptor.EndpointMetadata.OfType<NamespaceRequiredAttribute>().Any())
+                {
+                    context.Result = NamespaceProblems.NamespaceRequired(
+                        context.ActionDescriptor.AttributeRouteInfo?.Template);
+                }
+
                 return;
             }
 
@@ -101,6 +112,26 @@ namespace NoSQL.GraphDB.App.Namespaces
     /// </summary>
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
     public sealed class NamespaceResidencyOptionalAttribute : Attribute
+    {
+    }
+
+    /// <summary>
+    ///   Marks a namespace-scoped action (or a whole controller) that has NO bare-URL alias to the
+    ///   default namespace: reached over its bare route it is refused with
+    ///   <see cref="NamespaceProblems.NamespaceRequired"/> rather than served against
+    ///   <c>default</c>. The opposite end of the scale from <see cref="Fallen8LevelAttribute"/>,
+    ///   which marks an action that concerns the whole collection: this one concerns exactly one
+    ///   graph and declines to guess which.
+    ///   <para>Only the benchmark controller carries it (feature graph-namespaces): generation
+    ///   WRITES a graph and the benchmark MEASURES one, and a caller who left the namespace out of
+    ///   the URL almost certainly meant the one they were working in - the bare alias made
+    ///   "generate into default" the silent outcome of every such call.</para>
+    ///   <para>Note that the bare route is still REGISTERED: the convention keeps twinning and this
+    ///   only refuses at request time. Why that matters is stated once, on
+    ///   <see cref="NamespaceProblems.NamespaceRequired"/>.</para>
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
+    public sealed class NamespaceRequiredAttribute : Attribute
     {
     }
 }

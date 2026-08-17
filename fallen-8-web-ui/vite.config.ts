@@ -73,7 +73,9 @@ const API_PREFIXES = [
   "/trim",
   "/tabularasa",
   "/generate",
-  "/benchmark",
+  // RegExp form: the bare-string "/benchmark" would also swallow the SPA's own /benchmarks
+  // route (the legacy redirect to /q/{ns}/benchmarks), answering it from the API in dev.
+  "^/benchmark(/|\\?|$)",
   "/plugin",
   "/changefeed",
 ];

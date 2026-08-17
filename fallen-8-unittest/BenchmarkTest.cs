@@ -49,12 +49,23 @@ namespace NoSQL.GraphDB.Tests
             var benchmark = new ScaleFreeNetwork(fallen8);
 
             // Act
-            benchmark.CreateScaleFreeNetworkAsync(1000, 10).Wait();
+            var generated = benchmark.CreateScaleFreeNetworkAsync(1000, 10).Result;
             var benchRan = benchmark.TryBench(out var result, out var message, 10);
 
             // Assert
             Assert.AreEqual(1000, fallen8.VertexCount, "Expected 1000 vertices in the scale free network");
             Assert.AreEqual(10000, fallen8.EdgeCount, "Expected 10000 edges in the scale free network");
+
+            // The reported counts are what was written, not an estimate: they must agree with the
+            // engine's own totals. (The namespace is stamped by the controller, so it is null here -
+            // this builder knows only a graph.)
+            Assert.AreEqual(1000, generated.VerticesCreated);
+            Assert.AreEqual(10000L, generated.EdgesCreated);
+            Assert.AreEqual(fallen8.VertexCount, generated.VertexCountAfter);
+            Assert.AreEqual(fallen8.EdgeCount, generated.EdgeCountAfter);
+            Assert.AreEqual("uniform", generated.Distribution);
+            Assert.IsTrue(generated.ElapsedMilliseconds > 0, "Generating 10k edges takes measurable time");
+            Assert.IsNull(generated.Namespace, "The graph builder must not invent a namespace");
             Assert.IsTrue(benchRan, "Benchmark should run on a populated graph: " + message);
             Assert.AreEqual(10, result.Iterations);
             Assert.IsTrue(result.EdgesTraversed > 0, "The traversal must count edges");

@@ -25,9 +25,9 @@
 
 /**
  * The Studio navigation: the single source of truth for the shell's icon rail and for anything
- * keyed by section (e.g. the per-section help in lib/sectionHelp.ts). Connect, Save games,
- * Benchmark and Integrations are Fallen-8-level (flat routes); the rest operate on the ACTIVE
- * NAMESPACE and live under /q/{ns}/… (feature graph-namespaces).
+ * keyed by section (e.g. the per-section help in lib/sectionHelp.ts). Connect, Save games and
+ * Integrations are Fallen-8-level (flat routes); the rest operate on the ACTIVE NAMESPACE and
+ * live under /q/{ns}/… (feature graph-namespaces).
  *
  * An entry may declare a `capability`, which the shell reads to HIDE it rather than disable it. Only
  * one does: an instance either has an integrations runtime or has nothing to say about integrations,
@@ -46,7 +46,10 @@ export const NAV = [
   { leaf: "analytics", label: "Analytics", icon: "∑", scoped: true },
   { leaf: "plugins", label: "Plugins", icon: "⧉", scoped: true },
   { leaf: "canvas", label: "Canvas", icon: "❉", scoped: true },
-  { leaf: "/benchmarks", label: "Benchmark", icon: "◔", scoped: false },
+  // Namespace-scoped: generation WRITES the active graph and the measurement reads it, so the
+  // namespace is in the URL like every other scoped screen (it used to be a flat route that
+  // silently generated into "default" whatever the switcher said).
+  { leaf: "benchmarks", label: "Benchmark", icon: "◔", scoped: true },
   // Knowledge (feature semantic-layer): the semantic layer over the graph. Deliberately last,
   // after Benchmark - it is the "documents in, graph out" entry point, not a core-graph screen.
   { leaf: "knowledge", label: "Knowledge", icon: "▤", scoped: true },

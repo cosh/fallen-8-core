@@ -68,6 +68,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 import { scopedPath } from "../src/api/client";
+import { generateGraph, runBenchmark } from "../src/api/endpoints";
 import { isValidNamespaceName } from "../src/lib/namespaceName";
 import {
   getInstanceStore,
@@ -155,6 +156,33 @@ describe("the /ns prefix seam", () => {
 
   it("leaves an unbound instance's paths bare (pre-namespace servers keep working)", () => {
     expect(scopedPath(SAME_ORIGIN_INSTANCE, "/vertex")).toBe("/vertex");
+  });
+
+  /**
+   * Regression: benchmark generation and measurement were sent with scope "fallen8", so they went
+   * to the BARE routes and always hit "default" - a graph generated from the Benchmark screen
+   * landed in the wrong namespace whatever the switcher said. Both are ordinary scoped calls now,
+   * and the server refuses their bare form rather than defaulting.
+   */
+  it("scopes benchmark generation and measurement to the addressed namespace", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => "null",
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      await generateGraph(bound, 20, 2, "preferential");
+      await runBenchmark(bound, 5);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    const urls = fetchMock.mock.calls.map((call) => String((call as unknown[])[0]));
+    expect(urls[0]).toContain("/ns/flights/generate?");
+    expect(urls[0]).toContain("distribution=preferential");
+    expect(urls[1]).toContain("/ns/flights/benchmark?");
+    expect(urls.some((url) => /^\/(generate|benchmark)/.test(url))).toBe(false);
   });
 });
 

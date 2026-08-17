@@ -45,7 +45,8 @@ test("capture the Dashboard screen with a loaded graph", async ({ page, request 
   // Idempotent reset, then a 200-vertex graph with 5 out-edges each (1,000 edges).
   await request.head("/tabularasa/all", { headers: AUTH });
   expect(
-    (await request.get("/generate?nodeCount=200&edgeCount=5", { headers: AUTH })).ok(),
+    // Namespace-scoped: /generate has no bare alias to "default" (feature graph-namespaces).
+    (await request.get("/ns/default/generate?nodeCount=200&edgeCount=5", { headers: AUTH })).ok(),
   ).toBeTruthy();
 
   // Activate the auto-seeded same-origin "local" instance with the e2e key (same handshake as

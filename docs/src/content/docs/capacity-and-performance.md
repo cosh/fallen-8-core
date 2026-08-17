@@ -172,8 +172,8 @@ is stated inside the table above, when there are rows to state it from.
 Readers never block writers and writers never block readers: the graph is published copy-on-write, so a
 reader holds a consistent snapshot for the whole operation.
 
-Raw out-edge traversal, through the same engine primitive `GET /benchmark` uses, measured at several
-graph sizes on the machine described above:
+Raw out-edge traversal, through the same engine primitive `GET /ns/{name}/benchmark` uses, measured
+at several graph sizes on the machine described above:
 
 <!-- capacity:traversal -->
 

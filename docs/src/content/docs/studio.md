@@ -13,7 +13,7 @@ A namespace the server **did not load** is marked rather than hidden: the switch
 
 Each screen's input form and the Canvas contents are remembered per instance-and-namespace: leaving a screen and returning restores exactly what you had entered. Fetched results are re-run on demand rather than persisted. Instances you register, and their API keys, live only in this browser's local storage.
 
-Connect, Save games, and Benchmark are Fallen-8-level (they can span namespaces); the rest operate on the active namespace and live under `/q/{ns}/…`.
+Connect, Save games and Integrations keep flat routes: the first two are Fallen-8-level (they span namespaces), and an integration job names the namespace it writes into rather than inheriting it. Every other screen operates on the active namespace and lives under `/q/{ns}/…`, Benchmark included.
 
 A low-key **Replay intro** button is pinned to the bottom of the rail and is always available: it plays the first-run walkthrough (below) on demand.
 
@@ -33,7 +33,7 @@ Every screen also carries a **How does this work?** button in the top bar, next 
 | Analytics | namespace | Graph shape + run algorithms with write-back |
 | Plugins | namespace | Built-in plugin families + the runtime-authored plugin registry |
 | Canvas | namespace | 2D/3D visualization of whatever you send to it |
-| Benchmark | Fallen-8 | Optionally generate a random graph, measure edge-traversal throughput on any loaded graph |
+| Benchmark | namespace | Optionally generate a random graph, measure edge-traversal throughput on any loaded graph |
 | Knowledge | namespace | The semantic layer: index binding, document ingest, entity network, chunk search |
 | Integrations | namespace | Run an [integration](/fallen-8-core/integrations/) against a system on your own network and read its report. Present only when the instance has an integrations runtime |
 
@@ -182,7 +182,7 @@ Below it is the persistent checkpoint registry as a Fallen-8-level table: saved-
 
 ![Benchmark screen](../../assets/images/screen-benchmark.png)
 
-Fallen-8-level. **Graph generation** optionally adds random vertices with out-edges *on top of* the current graph (no wipe); you can equally point the benchmark at a sample or at your own data. The **edge-traversal** run then follows every out-edge of every vertex and reports edges per run and average/median/stddev TPS, with a per-session history. It measures raw edge-traversal throughput, not query latency or analytics. Presets, what the numbers mean, and the REST equivalents: [benchmark.md](/fallen-8-core/benchmark/).
+Namespace-scoped: both panels act on the namespace in the top bar, and the header names it. **Graph generation** optionally adds random vertices with out-edges *on top of* that namespace's graph (no wipe), then reports what it created, how long it took, the resulting totals, and the namespace the server wrote into; you can equally point the benchmark at a sample or at your own data. The **edge-traversal** run then follows every out-edge of every vertex and reports edges per run and average/median/stddev TPS, with a per-session history. It measures raw edge-traversal throughput, not query latency or analytics. Presets, what the numbers mean, and the REST equivalents: [benchmark.md](/fallen-8-core/benchmark/).
 
 ## The delegate editor
 

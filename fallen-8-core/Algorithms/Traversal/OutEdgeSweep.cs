@@ -38,7 +38,7 @@ namespace NoSQL.GraphDB.Core.Algorithms.Traversal
     ///   This is the raw traversal-throughput primitive: the fastest honest full sweep of the
     ///   adjacency, doing the pointer-following work a real traversal does and nothing else.
     ///
-    ///   <para><b>The ONE home for the sweep.</b> <c>GET /benchmark</c> and the offline
+    ///   <para><b>The ONE home for the sweep.</b> <c>GET /ns/{ns}/benchmark</c> and the offline
     ///   <c>fallen-8-bench</c> capacity tool both call this, so the throughput a user measures with
     ///   either is the same code path. It lives in the engine because that is the only place the
     ///   allocation-free adjacency enumerator is reachable: an out-of-assembly caller has to go
