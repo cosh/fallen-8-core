@@ -402,19 +402,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "The benchmark statistics",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/BenchmarkResultREST"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "400": {
-            "description": "Empty graph, non-positive or non-numeric iteration count, a count\r\n    above Fallen8:Security:BenchmarkMaxIterations, or a bare URL naming no namespace",
+            "description": "Always: this route names no namespace, and the operation acts on one graph. Call the /ns/{ns} form instead.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -424,7 +413,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/bulk/export": {
@@ -2886,19 +2876,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": "What was created, how long it took, and the resulting totals",
-            "content": {
-              "application/json; ver=0.1": {
-                "schema": {
-                  "$ref": "#/components/schemas/GraphGenerationResultREST"
-                }
-              },
-              "application/json": { }
-            }
-          },
           "400": {
-            "description": "A non-numeric or negative count, an unknown distribution, or a bare\r\n    URL naming no namespace",
+            "description": "Always: this route names no namespace, and the operation acts on one graph. Call the /ns/{ns} form instead.",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -2908,7 +2887,8 @@
               "application/json": { }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/graph": {
@@ -17552,7 +17532,7 @@
             "format": "double"
           }
         },
-        "description": "Structured result of the edge-traversal benchmark (GET /benchmark)"
+        "description": "Structured result of the edge-traversal benchmark (GET /ns/{ns}/benchmark)"
       },
       "BinaryOperator": {
         "type": "integer"

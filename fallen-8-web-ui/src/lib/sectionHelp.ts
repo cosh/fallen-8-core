@@ -157,7 +157,7 @@ export const SECTION_HELP: Record<string, SectionHelpEntry> = {
     heading: "How the benchmark works",
     links: [
       { slug: "benchmark", title: "Benchmark", blurb: "Measure raw edge-traversal throughput over the loaded graph." },
-      { slug: "namespaces", title: "Namespaces", blurb: "Generation and measurement both act on the ACTIVE namespace, never on \"default\"." },
+      { slug: "namespaces", title: "Namespaces", blurb: "Generation and measurement both act on the namespace the switcher shows, never on another one." },
       { slug: "running", title: "Running Fallen-8", blurb: "Launch options and configuration that affect performance." },
     ],
   },

@@ -995,15 +995,18 @@ namespace NoSQL.GraphDB.Tests
                     MedianTps = 601225777.44,
                     StandardDeviationTps = 60311324.76
                 }, "BenchmarkResultREST"),
+                // A REALIZABLE result, so the fixture cannot be read as a contract that lies: 100k
+                // vertices at edgeCount=10 under preferential attachment is exactly
+                // 100000*10 - 10*11/2 = 999,945 edges, on top of a namespace that already held 34/78.
                 (new GraphGenerationResultREST
                 {
                     Namespace = "flights",
                     VerticesCreated = 100_000,
-                    EdgesCreated = 999_955,
+                    EdgesCreated = 999_945,
                     Distribution = "preferential",
                     ElapsedMilliseconds = 8412.7,
                     VertexCountAfter = 100_034,
-                    EdgeCountAfter = 1_000_033
+                    EdgeCountAfter = 1_000_023
                 }, "GraphGenerationResultREST"),
                 (new IndexDescriptionREST
                 {

@@ -135,7 +135,7 @@
           }
         },
         "traversal": {
-          "description": "Raw out-edge traversal throughput, the same work GET /benchmark does.",
+          "description": "Raw out-edge traversal throughput, the same work GET /ns/{ns}/benchmark does.",
           "type": "array",
           "minItems": 1,
           "items": {

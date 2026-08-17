@@ -126,9 +126,9 @@ namespace NoSQL.GraphDB.App.Namespaces
     ///   WRITES a graph and the benchmark MEASURES one, and a caller who left the namespace out of
     ///   the URL almost certainly meant the one they were working in - the bare alias made
     ///   "generate into default" the silent outcome of every such call.</para>
-    ///   <para>The bare route is still REGISTERED (the convention keeps twinning, this only refuses
-    ///   at request time) because an unrouted path would be answered by the SPA fallback with the app
-    ///   shell and HTTP 200 - see <see cref="NamespaceProblems.NamespaceRequired"/>.</para>
+    ///   <para>Note that the bare route is still REGISTERED: the convention keeps twinning and this
+    ///   only refuses at request time. Why that matters is stated once, on
+    ///   <see cref="NamespaceProblems.NamespaceRequired"/>.</para>
     /// </summary>
     [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
     public sealed class NamespaceRequiredAttribute : Attribute

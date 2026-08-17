@@ -48,8 +48,9 @@ your own data.
 
 The generation panel is a convenience for producing a graph to measure. A few things to know:
 
-- It writes into **the active namespace**, never into `default`. The response names the namespace
-  it wrote, so you can always tell from the result alone which graph grew.
+- It writes into **the namespace the switcher shows**, whichever that is, and never falls back to
+  `default` when it is some other one. The response names the namespace it wrote, so you can always
+  tell from the result alone which graph grew.
 - It is **additive**. Generated vertices and edges are added on top of the current graph; nothing
   is wiped. Generated edges only ever target vertices from the same call, so generating on top of a
   loaded sample leaves a second, disconnected component: generate into an empty graph when the
@@ -108,19 +109,21 @@ curl 'http://localhost:8080/ns/flights/generate?nodeCount=10000&edgeCount=10&dis
 {
   "namespace": "flights",
   "verticesCreated": 10000,
-  "edgesCreated": 99955,
+  "edgesCreated": 99945,
   "distribution": "preferential",
   "elapsedMilliseconds": 412.8,
   "vertexCountAfter": 10000,
-  "edgeCountAfter": 99955
+  "edgeCountAfter": 99945
 }
 ```
 
 `verticesCreated` and `edgesCreated` are what this call added, counted rather than derived from the
 arguments: targets are drawn distinct, so `edgesCreated` falls below `nodeCount x edgeCount`
 whenever the requested out-degree exceeds the available targets, and under `preferential` it always
-does. `vertexCountAfter` and `edgeCountAfter` are the namespace's totals once generation finished,
-which differ from the created counts whenever the namespace already held data.
+does. The 55 missing edges above are exactly that: vertex *i* can only attach to the *i* vertices
+before it, so the total is `nodeCount x edgeCount - edgeCount x (edgeCount + 1) / 2`.
+`vertexCountAfter` and `edgeCountAfter` are the namespace's totals once generation finished, which
+differ from the created counts whenever the namespace already held data (here it was empty).
 
 All three `/generate` parameters are optional, with server-side defaults of 200 vertices, 5
 out-edges per vertex, and `uniform`. A non-numeric or negative count, or a distribution other than

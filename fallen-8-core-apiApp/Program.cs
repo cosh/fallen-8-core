@@ -90,6 +90,20 @@ namespace NoSQL.GraphDB.App
                  action.ControllerTypeInfo.GetCustomAttributes(inherit: true).OfType<IAllowAnonymous>().Any());
         }
 
+        /// <summary>
+        ///   True when <paramref name="description"/> is the BARE path of a
+        ///   <see cref="NamespaceRequiredAttribute"/> action, i.e. the one selector that can only ever
+        ///   refuse. Derived from the attribute plus the matched path rather than a hand-kept route
+        ///   list, so it cannot drift from the controller.
+        /// </summary>
+        private static Boolean RefusesEveryRequest(Microsoft.AspNetCore.Mvc.ApiExplorer.ApiDescription description)
+        {
+            return description.ActionDescriptor.EndpointMetadata != null
+                && description.ActionDescriptor.EndpointMetadata.OfType<NamespaceRequiredAttribute>().Any()
+                && !(description.RelativePath ?? String.Empty).StartsWith(
+                       "ns/{" + NamespaceRouteConvention.RouteParameterName + "}/", StringComparison.Ordinal);
+        }
+
         [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = "MVC Controllers use reflection (AddControllers is RequiresUnreferencedCode) which is incompatible with trimming. Trimming is disabled for this application.")]
         public static void Main(string[] args)
         {
@@ -195,6 +209,27 @@ namespace NoSQL.GraphDB.App
                     if (AllowsAnonymousAccess(context.Description))
                     {
                         operation.Security = new List<Microsoft.OpenApi.OpenApiSecurityRequirement>();
+                    }
+                    return System.Threading.Tasks.Task.CompletedTask;
+                });
+
+                // The bare path of a [NamespaceRequired] action can only refuse, so the document must
+                // not advertise its success response there: a client generated from this document
+                // would otherwise expose a typed method that fails every single call. Marked
+                // deprecated and stripped down to the refusal, from the action's own metadata.
+                options.AddOperationTransformer((operation, context, _) =>
+                {
+                    if (RefusesEveryRequest(context.Description) && operation.Responses != null)
+                    {
+                        operation.Deprecated = true;
+                        operation.Responses.Remove("200");
+                        if (operation.Responses.TryGetValue("400", out var refusal)
+                            && refusal is Microsoft.OpenApi.OpenApiResponse response)
+                        {
+                            response.Description =
+                                "Always: this route names no namespace, and the operation acts on one " +
+                                "graph. Call the /ns/{ns} form instead.";
+                        }
                     }
                     return System.Threading.Tasks.Task.CompletedTask;
                 });

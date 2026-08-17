@@ -311,7 +311,7 @@ namespace NoSQL.GraphDB.Bench
 
         /// <summary>
         ///   Raw out-edge traversal throughput, through the SAME engine primitive
-        ///   (<see cref="OutEdgeSweep" />) that <c>GET /benchmark</c> uses, so a number measured here
+        ///   (<see cref="OutEdgeSweep" />) that <c>GET /ns/{ns}/benchmark</c> uses, so a number measured here
         ///   and a number measured through the REST endpoint describe one code path.
         ///
         ///   <para>The vertex snapshot is materialised once, outside the timed region: it is an O(V)

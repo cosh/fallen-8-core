@@ -35,10 +35,9 @@ with the bare alias REFUSED rather than pointed at `default`. Marked `[Namespace
 graph's throughput as the caller's, and defaulting made "generated into `default` while working in
 `flights`" the silent outcome. Bare ⇒ `400` "Namespace required" naming the scoped URL and carrying
 **no** `namespace` extension member (there is no namespace to be missing, and that member is the
-recover-state marker). The bare route stays REGISTERED rather than removed: this app serves Studio
-behind `MapFallbackToFile("index.html")`, so an unrouted `/generate` would answer with the app shell
-and `200`. `NamespaceValidationFilter` is the one home for all three refusals (unknown, not loaded,
-namespace required).
+recover-state marker). The bare route stays REGISTERED rather than removed, for a reason stated on
+`NamespaceProblems.NamespaceRequired`. `NamespaceValidationFilter` is the one home for all three
+refusals (unknown, not loaded, namespace required).
 
 ### Namespace CRUD
 

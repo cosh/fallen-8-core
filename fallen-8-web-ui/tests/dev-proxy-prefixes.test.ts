@@ -52,7 +52,11 @@ function readSource(relative: string): string {
 /** The allowlist as vite.config.ts declares it (entries stay raw: a "^" one is a RegExp). */
 const proxyPrefixes: string[] = (() => {
   const body = /const API_PREFIXES = \[([\s\S]*?)\];/.exec(readSource("vite.config.ts"));
-  return [...(body?.[1] ?? "").matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) =>
+  // Line comments are stripped FIRST: a comment inside the array may quote a prefix while
+  // explaining it (the /benchmark entry does), and scanning it would put an entry in this model
+  // that the dev server does not have - the test would then vouch for a route nothing proxies.
+  const entries = (body?.[1] ?? "").replace(/\/\/[^\n]*/g, "");
+  return [...entries.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) =>
     // The file is TypeScript source: unescape the one escape it uses (\? inside a RegExp entry).
     m[1].replace(/\\\\/g, "\\"),
   );
@@ -94,6 +98,15 @@ describe("dev proxy allowlist", () => {
         `${root}?waitForCompletion=true is not proxied in dev`,
       ).toBe(true);
     }
+  });
+
+  it("does not swallow an SPA route that merely EXTENDS an API family name", () => {
+    // "/benchmarks" (plural) is the Studio screen's legacy path, which redirects into
+    // /q/{ns}/benchmarks; the singular "/benchmark" is the REST route. A bare-string prefix for
+    // the latter would proxy the former to the API in dev, so its entry is anchored.
+    expect(isProxied("/benchmark")).toBe(true);
+    expect(isProxied("/benchmark?iterations=2")).toBe(true);
+    expect(isProxied("/benchmarks")).toBe(false);
   });
 
   it("namespace-scoped URLs are proxied whatever the family", () => {

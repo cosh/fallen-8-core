@@ -414,6 +414,35 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        /// The MACHINE-READABLE half of the no-bare-alias contract: a bare [NamespaceRequired] path is
+        /// described as deprecated with no success response, so a client generated from this document
+        /// cannot expose a typed method that fails every call. Its twin keeps the full contract.
+        /// </summary>
+        [TestMethod]
+        public async Task OpenApi_BareNamespaceRequiredPaths_AdvertiseOnlyTheirRefusal()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+            using var response = await client.GetAsync("/openapi/v0.1.json");
+            var paths = (await ReadJson(response)).GetProperty("paths");
+
+            foreach (var bare in new[] { "/generate", "/benchmark" })
+            {
+                var operation = paths.GetProperty(bare).GetProperty("get");
+                Assert.IsTrue(operation.GetProperty("deprecated").GetBoolean(), bare + " must be deprecated");
+                var responses = operation.GetProperty("responses");
+                Assert.IsFalse(responses.TryGetProperty("200", out _), bare + " must advertise no 200");
+                Assert.IsTrue(responses.TryGetProperty("400", out _), bare + " must advertise its refusal");
+
+                var twin = paths.GetProperty("/ns/{ns}" + bare).GetProperty("get");
+                Assert.IsFalse(twin.TryGetProperty("deprecated", out var flag) && flag.GetBoolean(),
+                    "the twin is the supported form and must not be deprecated");
+                Assert.IsTrue(twin.GetProperty("responses").TryGetProperty("200", out _),
+                    "the twin must keep its success response");
+            }
+        }
+
+        /// <summary>
         /// Benchmark generation writes the ADDRESSED namespace and says so in its structured result.
         /// The regression this pins: /generate was [Fallen8Level], so it had no twin and every
         /// generation landed in "default" no matter which namespace the caller was working in.
