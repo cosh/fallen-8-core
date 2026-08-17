@@ -104,6 +104,8 @@ const GATED = [
   "nav-analytics",
   "nav-plugins",
   "nav-canvas",
+  // Namespace-scoped since generation writes the addressed graph, so it is gated like the rest.
+  "nav-benchmark",
 ];
 
 function renderShell(children: ReactNode = <div data-testid="screen" />, path = "/") {

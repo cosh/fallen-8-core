@@ -89,8 +89,8 @@ export interface RequestOptions {
    * Namespace scoping (feature graph-namespaces). "namespace" (the default) prefixes the
    * path with /ns/{namespace} when the instance is namespace-bound - the namespace is
    * ALWAYS explicit on the wire, "default" included. "fallen8" pins Fallen-8-level
-   * endpoints (save games, benchmark, delegate validation, the /ns management routes)
-   * to their bare form regardless of binding.
+   * endpoints (save games, delegate validation, the /ns management routes) to their bare
+   * form regardless of binding.
    */
   scope?: "namespace" | "fallen8";
 }

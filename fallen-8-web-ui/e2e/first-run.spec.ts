@@ -119,9 +119,9 @@ test("replays on demand as an overlay, on the mock, writing nothing, and restore
   await registerSecuredInstance(page);
   // Populate via the Benchmark generator so we are on an ordinary populated screen (proves replay
   // works when NOT empty). The unit-test graph is deliberately never used in the UI.
-  await page.goto("/benchmarks");
+  await page.goto("/q/default/benchmarks");
   await page.getByTestId("generate-sample").click();
-  await expect(page.getByTestId("generate-message")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("generate-result")).toBeVisible({ timeout: 30_000 });
 
   await page.goto("/browser");
   await expect(page).toHaveURL(/\/q\/default\/browser/);

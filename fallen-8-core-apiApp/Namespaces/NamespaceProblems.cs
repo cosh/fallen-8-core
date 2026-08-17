@@ -47,6 +47,30 @@ namespace NoSQL.GraphDB.App.Namespaces
                 p => p.Extensions["namespace"] = name);
 
         /// <summary>
+        ///   The refusal for a <see cref="NamespaceRequiredAttribute"/> action reached over its BARE
+        ///   URL (feature graph-namespaces): it has no default-namespace alias, so the request names
+        ///   no graph and is answered rather than guessed at.
+        ///   <para>400 and not 404, and the bare route stays registered rather than being removed:
+        ///   this app serves F8 Studio from the same origin behind
+        ///   <c>MapFallbackToFile("index.html")</c>, so an UNROUTED bare path would answer with the
+        ///   app shell and HTTP 200 - a silent success that looks like the generation worked.</para>
+        ///   <para>Deliberately carries NO <c>namespace</c> extension member: there is no namespace to
+        ///   report, and that member is what a client keys its "namespace is gone" recover state on.</para>
+        /// </summary>
+        /// <param name="bareRoute">The matched route template, with or without its leading slash
+        /// (MVC reports the absolute template "/generate" as "generate").</param>
+        internal static ObjectResult NamespaceRequired(String bareRoute)
+        {
+            var route = "/" + (bareRoute ?? String.Empty).TrimStart('/');
+
+            return ProblemResults.Create(StatusCodes.Status400BadRequest, "Namespace required",
+                "The route \"" + route + "\" names no namespace, and this operation has no " +
+                "default-namespace alias: it acts on ONE graph, so it never picks one for you. " +
+                "Address a namespace explicitly - /ns/{namespace}" + route + " - and see GET /ns for " +
+                "the namespaces this Fallen-8 holds.");
+        }
+
+        /// <summary>
         ///   The "exists but is not loaded" refusal (feature namespace-startup-load).
         ///   <para>503 and NOT 404, deliberately: the Studio client turns any 404 problem+json
         ///   carrying a string <c>namespace</c> extension into its recover state, whose primary

@@ -149,7 +149,22 @@ export interface BulkImportResultREST {
   linesRead: number;
 }
 
-/** GET /benchmark - structured edge-traversal statistics (TPS = traversals/second). */
+/**
+ * GET /ns/{ns}/generate - what a benchmark-graph generation created. Generation is ADDITIVE, so
+ * the created counts and the resulting totals are both reported, and `namespace` names the graph
+ * that grew (the endpoint has no default-namespace alias).
+ */
+export interface GraphGenerationResult {
+  namespace: string;
+  verticesCreated: number;
+  edgesCreated: number;
+  distribution: "uniform" | "preferential";
+  elapsedMilliseconds: number;
+  vertexCountAfter: number;
+  edgeCountAfter: number;
+}
+
+/** GET /ns/{ns}/benchmark - structured edge-traversal statistics (TPS = traversals/second). */
 export interface BenchmarkResult {
   iterations: number;
   edgesTraversed: number;

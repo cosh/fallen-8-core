@@ -51,7 +51,7 @@ namespace NoSQL.GraphDB.Tests
     /// <c>[RequestSizeLimit(1_048_576)]</c> on each sensitive action, which these tests read out of the
     /// action's metadata. An old config file that still carries the removed key must keep binding.
     ///
-    /// B38: <c>GET /benchmark</c> accepted any positive iteration count, and one pass saturates every
+    /// B38: <c>GET /ns/{ns}/benchmark</c> accepted any positive iteration count, and one pass saturates every
     /// core. It is now bounded by <see cref="Fallen8SecurityOptions.BenchmarkMaxIterations"/> (400 above
     /// the ceiling, the omitted-count default clamped to it), following the ceiling that analytics puts
     /// on its own iterations.
@@ -95,11 +95,19 @@ namespace NoSQL.GraphDB.Tests
             return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
         }
 
-        /// <summary>Gives the default namespace a small graph, so /benchmark has edges to follow.</summary>
+        /// <summary>
+        ///   The addressed namespace: generation and the benchmark are the two scoped routes with NO
+        ///   bare alias to "default" (feature graph-namespaces), and their bare form is refused with
+        ///   a 400 - the same status the ceiling assertions below expect, so a bare URL here would
+        ///   make them pass for the wrong reason.
+        /// </summary>
+        private const String Ns = "/ns/default";
+
+        /// <summary>Gives the addressed namespace a small graph, so the benchmark has edges to follow.</summary>
         private static async Task Generate(HttpClient client)
         {
-            using var response = await client.GetAsync("/generate?nodeCount=20&edgeCount=2");
-            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, "GET /generate");
+            using var response = await client.GetAsync(Ns + "/generate?nodeCount=20&edgeCount=2");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, "GET " + Ns + "/generate");
         }
 
         /// <summary>
@@ -206,7 +214,7 @@ namespace NoSQL.GraphDB.Tests
             using var client = factory.CreateClient();
             await Generate(client);
 
-            using var tooMany = await client.GetAsync("/benchmark?iterations=4");
+            using var tooMany = await client.GetAsync(Ns + "/benchmark?iterations=4");
             Assert.AreEqual(HttpStatusCode.BadRequest, tooMany.StatusCode);
             Assert.AreEqual("application/problem+json", tooMany.Content.Headers.ContentType?.MediaType);
             var detail = (await ReadJson(tooMany)).GetProperty("detail").GetString();
@@ -215,7 +223,7 @@ namespace NoSQL.GraphDB.Tests
                 "the caller is told which key raises it");
 
             // The boundary itself runs.
-            using var atCeiling = await client.GetAsync("/benchmark?iterations=3");
+            using var atCeiling = await client.GetAsync(Ns + "/benchmark?iterations=3");
             Assert.AreEqual(HttpStatusCode.OK, atCeiling.StatusCode);
             Assert.AreEqual(3, (await ReadJson(atCeiling)).GetProperty("iterations").GetInt32(),
                 "an accepted count is run and echoed, never silently clamped");
@@ -233,7 +241,7 @@ namespace NoSQL.GraphDB.Tests
             using var client = factory.CreateClient();
             await Generate(client);
 
-            using var response = await client.GetAsync("/benchmark");
+            using var response = await client.GetAsync(Ns + "/benchmark");
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
             Assert.AreEqual(2, (await ReadJson(response)).GetProperty("iterations").GetInt32());
         }
@@ -246,22 +254,22 @@ namespace NoSQL.GraphDB.Tests
             await Generate(client);
 
             // The pre-fix footgun: this used to start a pass nothing could interrupt.
-            using var tooMany = await client.GetAsync("/benchmark?iterations=10001");
+            using var tooMany = await client.GetAsync(Ns + "/benchmark?iterations=10001");
             Assert.AreEqual(HttpStatusCode.BadRequest, tooMany.StatusCode);
             Assert.AreEqual("application/problem+json", tooMany.Content.Headers.ContentType?.MediaType);
             StringAssert.Contains((await ReadJson(tooMany)).GetProperty("detail").GetString(), "10000");
 
             // Unchanged: the ceiling check is additional, the existing 400s still answer first.
-            using var zero = await client.GetAsync("/benchmark?iterations=0");
+            using var zero = await client.GetAsync(Ns + "/benchmark?iterations=0");
             Assert.AreEqual(HttpStatusCode.BadRequest, zero.StatusCode);
             StringAssert.Contains((await ReadJson(zero)).GetProperty("detail").GetString(), "greater than 0");
 
-            using var garbage = await client.GetAsync("/benchmark?iterations=abc");
+            using var garbage = await client.GetAsync(Ns + "/benchmark?iterations=abc");
             Assert.AreEqual(HttpStatusCode.BadRequest, garbage.StatusCode);
             StringAssert.Contains((await ReadJson(garbage)).GetProperty("detail").GetString(), "not a valid");
 
             // And a normal small run is unaffected.
-            using var ok = await client.GetAsync("/benchmark?iterations=2");
+            using var ok = await client.GetAsync(Ns + "/benchmark?iterations=2");
             Assert.AreEqual(HttpStatusCode.OK, ok.StatusCode);
             Assert.AreEqual(2, (await ReadJson(ok)).GetProperty("iterations").GetInt32());
         }

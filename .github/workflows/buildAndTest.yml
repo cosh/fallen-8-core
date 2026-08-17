@@ -172,9 +172,12 @@ jobs:
         curl -sf http://localhost:8080/F8Black.svg > /dev/null
         echo "--- engine answers"
         curl -sf -H "Authorization: Bearer ci-key" http://localhost:8080/status | grep -q vertexCount
-        echo "--- structured benchmark"
-        curl -sf -H "Authorization: Bearer ci-key" "http://localhost:8080/generate?nodeCount=50&edgeCount=2" > /dev/null
-        curl -sf -H "Authorization: Bearer ci-key" "http://localhost:8080/benchmark?iterations=2" | grep -q averageTps
+        echo "--- structured benchmark (namespace-scoped: these two routes have no bare alias)"
+        curl -sf -H "Authorization: Bearer ci-key" "http://localhost:8080/ns/default/generate?nodeCount=50&edgeCount=2" | grep -q verticesCreated
+        curl -sf -H "Authorization: Bearer ci-key" "http://localhost:8080/ns/default/benchmark?iterations=2" | grep -q averageTps
+        # The bare form must be REFUSED, not served against "default" (-f would fail on the 400, so
+        # ask for the body and match the problem title).
+        curl -s -H "Authorization: Bearer ci-key" "http://localhost:8080/generate?nodeCount=1&edgeCount=1" | grep -q "Namespace required"
         echo "--- delegate validation compiles in-container"
         curl -sf -X POST -H "Authorization: Bearer ci-key" -H "Content-Type: application/json" \
           -d '{"delegateKind":"VertexFilter","fragment":"return (v) => v.Label == \"person\";"}' \

@@ -167,6 +167,25 @@ all abort startup rather than serving an empty graph or overwriting a bad file.
 for corrupt JSON, fix the file or move it aside and re-adopt the checkpoints with `PUT /load`.
 The startup rules are in [Save games](/fallen-8-core/save-games/).
 
+## `/generate` or `/benchmark` answers 400 "Namespace required"
+
+**Symptom.** A `curl` or script that used to work now returns `400` problem+json titled `Namespace
+required`, whose detail names `/ns/{namespace}/generate` (or `/benchmark`). Nothing was generated.
+
+**Cause.** Those two are the only namespace-scoped routes with **no bare-URL alias** to `default`.
+One writes a graph and the other reports a graph's throughput as yours, and while they were
+Fallen-8-level a call meaning "the namespace I am working in" silently hit `default` instead. They
+now refuse rather than choose. Every other bare route still aliases `default` unchanged.
+
+**Fix.** Name the namespace. `GET /ns` lists the ones this Fallen-8 holds:
+
+```bash
+curl "http://localhost:8080/ns/flights/generate?nodeCount=200&edgeCount=5"
+curl "http://localhost:8080/ns/default/benchmark?iterations=100"   # when default is what you meant
+```
+
+The response of the first names the namespace it wrote into. Details: [Benchmark](/fallen-8-core/benchmark/).
+
 ## A namespace answers 503 "Namespace not loaded"
 
 **Symptom.** Every call against one namespace returns `503` problem+json titled `Namespace not

@@ -25,7 +25,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useActiveInstance } from "../instances/registry";
+import { useInstanceStore } from "../instances/registry";
 import { generateGraph, runBenchmark } from "../api/endpoints";
 import { invalidateInstanceQueries } from "../api/queries";
 import type { BenchmarkResult } from "../api/types";
@@ -35,7 +35,7 @@ import { Field } from "../components/Field";
 import { Stat } from "../components/Stat";
 import { Truncated } from "../components/Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
-import { formatCompact, formatCountOrDash, formatExact } from "../lib/format";
+import { ABSENT, formatCompact, formatCountOrDash, formatExact } from "../lib/format";
 
 /**
  * Benchmark workspace (feature sample-graphs): graph generation + the traversal
@@ -43,6 +43,12 @@ import { formatCompact, formatCountOrDash, formatExact } from "../lib/format";
  * benchmark follows every out-edge of every vertex regardless of edge-property-id
  * (feature schema-agnostic-benchmark), so it measures whatever graph is currently loaded;
  * generation is just a convenient way to conjure a graph of a chosen size to measure.
+ *
+ * NAMESPACE-BOUND (feature graph-namespaces): the instance comes from useInstanceStore, so
+ * generation writes - and the benchmark measures - the namespace in the URL. It was a
+ * Fallen-8-level screen reading the raw instance, which made every generation land in
+ * "default" while the switcher named another namespace, and the header count report
+ * "default"'s totals rather than the addressed graph's.
  */
 
 type Distribution = "uniform" | "preferential";
@@ -68,14 +74,14 @@ interface BenchmarkRun {
 }
 
 export function BenchmarkScreen() {
-  const instance = useActiveInstance()!;
+  const { instance } = useInstanceStore();
+  const namespace = instance.namespace ?? "default";
   const queryClient = useQueryClient();
   const status = useStatus(instance);
   const [nodeCount, setNodeCount] = useState("200");
   const [edgesPerVertex, setEdgesPerVertex] = useState("5");
   const [distribution, setDistribution] = useState<Distribution>("uniform");
   const [iterations, setIterations] = useState("1000");
-  const [generateMessage, setGenerateMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<BenchmarkRun[]>([]);
 
   const generate = useMutation({
@@ -86,10 +92,7 @@ export function BenchmarkScreen() {
         Number(edgesPerVertex) || 5,
         distribution,
       ),
-    onSuccess: (serverMessage) => {
-      setGenerateMessage(serverMessage ?? "Graph generated.");
-      invalidateInstanceQueries(queryClient, instance.id);
-    },
+    onSuccess: () => invalidateInstanceQueries(queryClient, instance.id),
   });
 
   const benchmark = useMutation({
@@ -115,6 +118,8 @@ export function BenchmarkScreen() {
         <h1 className="text-fg flex min-w-0 items-baseline gap-1 text-sm font-bold tracking-wider uppercase">
           <span className="shrink-0">Benchmark —</span>
           <Truncated text={instance.name} max={DISPLAY_CAP.name} />
+          <span className="shrink-0">/</span>
+          <Truncated text={namespace} max={DISPLAY_CAP.name} />
         </h1>
         {status.data && (
           <span className="text-fg-faint ml-auto text-[11px]">
@@ -189,13 +194,33 @@ export function BenchmarkScreen() {
             </div>
           </div>
           <p className="text-fg-faint text-[11px]">
-            Adds vertices with random out-edges ON TOP of the current graph (no wipe).
+            Adds vertices with random out-edges ON TOP of the{" "}
+            <span className="text-fg-dim">{namespace}</span> namespace's graph (no wipe).
             Optional: the benchmark below traverses every edge of whatever graph is
             loaded, so you can also just point it at a sample or your own data.
           </p>
-          {generateMessage && (
-            <div className="text-accent text-[12px]" data-testid="generate-message">
-              {generateMessage}
+          {generate.data && (
+            <div
+              className="border-line grid grid-cols-2 gap-3 border-t pt-3 md:grid-cols-4"
+              data-testid="generate-result"
+            >
+              <Stat
+                label="vertices created"
+                value={formatExact(generate.data.verticesCreated)}
+              />
+              <Stat label="edges created" value={formatExact(generate.data.edgesCreated)} />
+              <Stat
+                label="elapsed ms"
+                value={formatCompact(generate.data.elapsedMilliseconds)}
+              />
+              {/* The namespace the server says it wrote, not the one this screen asked for:
+                  reporting the request back would hide exactly the bug this screen had. */}
+              <Stat label="into namespace" value={generate.data.namespace ?? ABSENT} />
+              <p className="text-fg-faint col-span-full text-[11px]">
+                {generate.data.distribution} distribution · that namespace now holds{" "}
+                {formatExact(generate.data.vertexCountAfter)} vertices and{" "}
+                {formatExact(generate.data.edgeCountAfter)} edges
+              </p>
             </div>
           )}
           {generate.isError && <ErrorBox error={generate.error} />}

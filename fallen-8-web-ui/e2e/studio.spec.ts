@@ -108,9 +108,16 @@ test("scenario 2: the Benchmark tab generates a graph and shows structured numbe
   page,
 }) => {
   await registerSecuredInstance(page);
+  // The screen is namespace-scoped (generation WRITES the addressed graph), so the flat
+  // "/benchmarks" is a legacy path that redirects to the active namespace's screen.
   await page.goto("/benchmarks");
+  await expect(page).toHaveURL(/\/q\/default\/benchmarks/);
   await page.getByTestId("generate-sample").click();
-  await expect(page.getByTestId("generate-message")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("generate-result")).toBeVisible({ timeout: 30_000 });
+  // The structured result names the namespace the SERVER wrote into, which is what regressed
+  // when this screen was Fallen-8-level: every generation landed in "default".
+  await expect(page.getByTestId("stat-into-namespace")).toHaveText("default");
+  await expect(page.getByTestId("stat-vertices-created")).not.toHaveText("0");
 
   await page.goto("/dashboard");
   await expect
@@ -121,7 +128,7 @@ test("scenario 2: the Benchmark tab generates a graph and shows structured numbe
     .toBeGreaterThan(0);
 
   // Structured benchmark output rendered as stat tiles, plus the session run history.
-  await page.goto("/benchmarks");
+  await page.goto("/q/default/benchmarks");
   await page.getByTestId("run-benchmark").click();
   await expect(page.getByTestId("benchmark-result")).toBeVisible({ timeout: 120_000 });
   await expect(page.getByTestId("stat-avg-tps")).not.toHaveText("—");
@@ -415,6 +422,60 @@ test("scenario 12 (graph-namespaces): create, populate, isolate, save all, drop,
   await page.getByRole("button", { name: "Load", exact: true }).click();
   await page.getByTestId("bulk-filter").fill(label);
   await expect(page.locator("tr", { hasText: label }).first()).toBeVisible({ timeout: 20_000 });
+});
+
+/**
+ * Regression (feature graph-namespaces): the Benchmark screen was Fallen-8-level and always wrote
+ * into `default`, whatever the switcher said. Scenario 2 above cannot catch that, because it works
+ * in `default` and so cannot tell a scoped write from a defaulted one - which is exactly why the bug
+ * survived. This one uses a NON-default namespace and asserts `default` stays empty.
+ */
+test("scenario 13 (graph-namespaces): benchmark generation writes the SELECTED namespace", async ({
+  page,
+  request,
+}) => {
+  const auth = { Authorization: `Bearer ${API_KEY}` };
+  const ns = "benchns";
+  await request.delete(`/ns/${ns}`, { headers: auth });
+  expect((await request.put(`/ns/${ns}`, { headers: auth })).status()).toBe(201);
+
+  try {
+    await registerSecuredInstance(page, "benchtest");
+
+    await page.goto(`/q/${ns}/benchmarks`);
+    // The screen names the graph it acts on (instance / namespace).
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(ns);
+
+    await page.getByTestId("generate-sample").click();
+    await expect(page.getByTestId("generate-result")).toBeVisible({ timeout: 30_000 });
+    // The SERVER's answer, not the request: it names the namespace it wrote into.
+    await expect(page.getByTestId("stat-into-namespace")).toHaveText(ns);
+    await expect(page.getByTestId("stat-vertices-created")).toHaveText("200");
+    // The header count follows the addressed namespace too (it used to report default's).
+    await expect(page.getByText(/current graph: 200 vertices/)).toBeVisible({ timeout: 20_000 });
+
+    // The bug, stated as an assertion: nothing landed in `default`.
+    const inventory = await (await request.get("/ns", { headers: auth })).json();
+    const vertices = Object.fromEntries(
+      (inventory.namespaces as Array<{ name: string; vertexCount: number }>).map((entry) => [
+        entry.name,
+        entry.vertexCount,
+      ]),
+    );
+    expect(vertices[ns]).toBe(200);
+    expect(vertices.default).toBe(0);
+
+    // The benchmark measures the same graph: 200 vertices x 5 distinct targets.
+    await page.getByTestId("run-benchmark").click();
+    await expect(page.getByTestId("benchmark-result")).toBeVisible({ timeout: 120_000 });
+    await expect(page.getByTestId("stat-edges-per-run")).toHaveText("1,000");
+
+    // The pre-namespace flat URL still lands on the active namespace's screen.
+    await page.goto("/benchmarks");
+    await expect(page).toHaveURL(new RegExp(`/q/${ns}/benchmarks`));
+  } finally {
+    await request.delete(`/ns/${ns}`, { headers: auth });
+  }
 });
 
 test("scenario 11: nav stays locked until the active instance is connected AND authorized", async ({

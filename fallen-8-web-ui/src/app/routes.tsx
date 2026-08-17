@@ -68,19 +68,11 @@ const connectRoute = createRoute({
 // NOTE: "/save-games" (hyphen) - the un-hyphenated path is the real GET /savegames API
 // route, which would win over the SPA fallback on a full-page load (same reason /subgraphs
 // is plural). Save games are Fallen-8-level (entries can span namespaces), so the route
-// stays OUTSIDE /q/$ns - like /benchmarks and Connect.
+// stays OUTSIDE /q/$ns - like Connect and Integrations.
 const saveGamesRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/save-games",
   component: SaveGamesScreen,
-});
-
-// NOTE: "/benchmarks" (plural) - the singular path is the real GET /benchmark API route,
-// which would win over the SPA fallback on a full-page load. Benchmark is Fallen-8-level.
-const benchmarkRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/benchmarks",
-  component: BenchmarkScreen,
 });
 
 /**
@@ -179,6 +171,16 @@ const canvasRoute = createRoute({
   component: CanvasScreen,
 });
 
+// NOTE: "benchmarks" (plural) - the singular leaf would still be fine under /q/{ns}/, but the
+// plural keeps the URL a bookmark redirect away from the flat /benchmarks it replaced (same
+// reason "indexes" and "subgraphs" are plural). Namespace-scoped: generation writes the active
+// graph and the benchmark measures it.
+const benchmarkRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "benchmarks",
+  component: BenchmarkScreen,
+});
+
 /** The active namespace read OUTSIDE React (redirects run before any component mounts). */
 function activeNamespace(): string {
   const s = useRegistry.getState();
@@ -191,6 +193,9 @@ function activeNamespace(): string {
  * (Samples, Plugins) are intentionally absent: they never had pre-namespace bookmarks, and
  * a bare /plugins would in any case resolve to the REST /plugins route (not the SPA) on a
  * full-page load — both are reached via the rail, which links the scoped /q/{ns}/… URL.
+ *
+ * "/benchmarks" joined the list when Benchmark stopped being Fallen-8-level: it was a flat
+ * route for real, so links to it exist and must land on the active namespace's screen.
  */
 const LEGACY_SCOPED_PATHS = [
   "/dashboard",
@@ -201,6 +206,7 @@ const LEGACY_SCOPED_PATHS = [
   "/subgraphs",
   "/analytics",
   "/canvas",
+  "/benchmarks",
 ] as const;
 
 const legacyRedirectRoutes = LEGACY_SCOPED_PATHS.map((path) =>
@@ -214,7 +220,7 @@ const legacyRedirectRoutes = LEGACY_SCOPED_PATHS.map((path) =>
 );
 
 // Integrations are Fallen-8-level: one runtime serves the whole instance and a job names the
-// namespace it writes into, so the route stays OUTSIDE /q/$ns - like Benchmark and Save games.
+// namespace it writes into, so the route stays OUTSIDE /q/$ns - like Save games and Connect.
 const integrationsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/integrations",
@@ -224,7 +230,6 @@ const integrationsRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   connectRoute,
   saveGamesRoute,
-  benchmarkRoute,
   integrationsRoute,
   namespaceRoute.addChildren([
     dashboardRoute,
@@ -239,6 +244,7 @@ const routeTree = rootRoute.addChildren([
     analyticsRoute,
     pluginsRoute,
     canvasRoute,
+    benchmarkRoute,
   ]),
   ...legacyRedirectRoutes,
 ]);

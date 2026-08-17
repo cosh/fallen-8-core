@@ -24,7 +24,6 @@
 // SOFTWARE.
 
 using System;
-using System.Diagnostics;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -44,7 +43,7 @@ namespace NoSQL.GraphDB.App.Controllers
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]
     [ApiVersion("0.1")]
-    [Fallen8Level]
+    [NamespaceRequired]
     public class BenchmarkController : ControllerBase, IRESTService
     {
         #region Data
@@ -93,19 +92,22 @@ namespace NoSQL.GraphDB.App.Controllers
         /// "preferential" (Barabási–Albert-style attachment — heavy-tailed in-degrees, so
         /// PageRank/degree analytics at scale show real hubs)</param>
         /// <remarks>
-        /// Fallen-8-level: generation targets the "default" namespace, whatever namespace a
-        /// client is otherwise working in (feature graph-namespaces). The generated vertices are
-        /// unlabeled and the edges carry edge property "A". This endpoint is a convenience for
-        /// conjuring a graph to measure - GET /benchmark follows every out-edge regardless of
-        /// edge-property-id, so it benchmarks any loaded graph, not only generated ones.
+        /// Writes into the ADDRESSED namespace, and names it in the response. This is one of the
+        /// two operations with no bare-URL alias to "default" (feature graph-namespaces): it grows
+        /// exactly one graph, so a URL that names no namespace is a 400 rather than a silent write
+        /// into "default". The generated vertices are unlabeled and the edges carry edge property
+        /// "A". A convenience for conjuring a graph to measure - GET /ns/{ns}/benchmark follows
+        /// every out-edge regardless of edge-property-id, so it benchmarks any loaded graph, not
+        /// only generated ones.
         /// </remarks>
-        /// <response code="200">A human-readable timing summary</response>
-        /// <response code="400">A non-numeric or negative count, or an unknown distribution</response>
+        /// <response code="200">What was created, how long it took, and the resulting totals</response>
+        /// <response code="400">A non-numeric or negative count, an unknown distribution, or a bare
+        /// URL naming no namespace</response>
         [HttpGet("/generate")]
         [Produces("application/json")]
-        [ProducesResponseType(typeof(string), StatusCodes.Status200OK)]
+        [ProducesResponseType(typeof(GraphGenerationResultREST), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
-        public async Task<ActionResult<string>> CreateGraph([FromQuery] string nodeCount, [FromQuery] string edgeCount, [FromQuery] string distribution = null)
+        public async Task<ActionResult<GraphGenerationResultREST>> CreateGraph([FromQuery] string nodeCount, [FromQuery] string edgeCount, [FromQuery] string distribution = null)
         {
             var nodes = 200;
             if (!String.IsNullOrWhiteSpace(nodeCount) && (!Int32.TryParse(nodeCount, out nodes) || nodes < 0))
@@ -120,27 +122,30 @@ namespace NoSQL.GraphDB.App.Controllers
             }
 
             bool preferential;
-            if (String.IsNullOrWhiteSpace(distribution) || String.Equals(distribution, "uniform", StringComparison.OrdinalIgnoreCase))
+            if (String.IsNullOrWhiteSpace(distribution)
+                || String.Equals(distribution, ScaleFreeNetwork.UniformDistribution, StringComparison.OrdinalIgnoreCase))
             {
                 preferential = false;
             }
-            else if (String.Equals(distribution, "preferential", StringComparison.OrdinalIgnoreCase))
+            else if (String.Equals(distribution, ScaleFreeNetwork.PreferentialDistribution, StringComparison.OrdinalIgnoreCase))
             {
                 preferential = true;
             }
             else
             {
-                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid distribution (expected uniform or preferential).", distribution));
+                return ProblemResults.BadRequest(String.Format("'{0}' is not a valid distribution (expected {1} or {2}).",
+                    distribution, ScaleFreeNetwork.UniformDistribution, ScaleFreeNetwork.PreferentialDistribution));
             }
 
-            var sw = Stopwatch.StartNew();
+            var result = await _introProvider.CreateScaleFreeNetworkAsync(nodes, edgesPerVertex, preferential);
 
-            await _introProvider.CreateScaleFreeNetworkAsync(nodes, edgesPerVertex, preferential);
+            // The graph builder knows only a graph; the namespace is an addressing concept, so the
+            // controller stamps it. [NamespaceRequired] guarantees the route named one, which is why
+            // this reads the route value instead of falling back to the default namespace.
+            result.Namespace = HttpContext?.Request.RouteValues[
+                NamespaceRouteConvention.RouteParameterName] as String;
 
-            sw.Stop();
-
-            return String.Format("It took {0}ms to create a Fallen-8 graph with {1} nodes and {2} edges per node{3}.",
-                sw.Elapsed.TotalMilliseconds, nodes, edgesPerVertex, preferential ? " (preferential attachment)" : "");
+            return result;
         }
 
         /// <summary>
@@ -150,13 +155,15 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Fallen8:Security:BenchmarkMaxIterations; the default is clamped to that ceiling)</param>
         /// <returns>Per-iteration TPS statistics (average, median, standard deviation)</returns>
         /// <remarks>
-        /// Fallen-8-level: the benchmark traverses the "default" namespace (feature graph-namespaces).
-        /// It follows every outgoing edge of every vertex regardless of edge-property-id, so it
-        /// works on any loaded graph and reports edges traversed per second (not query latency).
+        /// Traverses the ADDRESSED namespace, and like GET /ns/{ns}/generate it has no bare-URL
+        /// alias to "default" (feature graph-namespaces): measuring a graph the caller did not name
+        /// would report the wrong graph's throughput as if it were theirs. It follows every outgoing
+        /// edge of every vertex regardless of edge-property-id, so it works on any loaded graph and
+        /// reports edges traversed per second (not query latency).
         /// </remarks>
         /// <response code="200">The benchmark statistics</response>
-        /// <response code="400">Empty graph, non-positive or non-numeric iteration count, or a count
-        /// above Fallen8:Security:BenchmarkMaxIterations</response>
+        /// <response code="400">Empty graph, non-positive or non-numeric iteration count, a count
+        /// above Fallen8:Security:BenchmarkMaxIterations, or a bare URL naming no namespace</response>
         [HttpGet("/benchmark")]
         [Produces("application/json")]
         [ProducesResponseType(typeof(BenchmarkResultREST), StatusCodes.Status200OK)]

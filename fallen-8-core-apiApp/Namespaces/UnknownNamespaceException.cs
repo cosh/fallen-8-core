@@ -45,12 +45,14 @@ namespace NoSQL.GraphDB.App.Namespaces
         public String NamespaceName { get; }
     }
 
-    /// <summary>Maps <see cref="UnknownNamespaceException"/> to the 404 problem+json contract.</summary>
+    /// <summary>Maps <see cref="UnknownNamespaceException"/> to the 404 problem+json contract,
+    /// wherever in the exception it sits (see <see cref="NamespaceExceptionUnwrap"/>).</summary>
     public sealed class UnknownNamespaceExceptionFilter : IExceptionFilter
     {
         public void OnException(ExceptionContext context)
         {
-            if (context.Exception is UnknownNamespaceException unknown)
+            var unknown = NamespaceExceptionUnwrap.FirstOrDefault<UnknownNamespaceException>(context.Exception);
+            if (unknown != null)
             {
                 context.Result = NamespaceProblems.NotFound(unknown.NamespaceName);
                 context.ExceptionHandled = true;

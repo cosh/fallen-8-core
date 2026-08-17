@@ -138,8 +138,10 @@ namespace NoSQL.GraphDB.App
                         "prefixed with /ns/{ns} to address a named namespace. A request naming an " +
                         "unknown namespace answers 404 application/problem+json with a " +
                         "\"namespace\" extension member. Fallen-8-level paths (the /ns management " +
-                        "routes, save games, benchmark, delegate validation) exist " +
-                        "once and concern the whole collection of namespaces.";
+                        "routes, save games, delegate validation) exist " +
+                        "once and concern the whole collection of namespaces. Two scoped paths have " +
+                        "no bare alias: /generate and /benchmark act on exactly one graph and never " +
+                        "pick one for you, so their bare form answers 400 naming the /ns/{ns} URL.";
 
                     // Describe the credential (feature api-security-boundary) so Scalar offers an
                     // auth field and a generated client has somewhere to put the key. Declared

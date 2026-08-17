@@ -45,6 +45,7 @@ import type {
   AnalyticsSpecification,
   BenchmarkResult,
   BulkImportResultREST,
+  GraphGenerationResult,
   AlgorithmPluginRegistration,
   DelegateKind,
   DelegateValidationResult,
@@ -249,20 +250,24 @@ export const trimGraph = (i: InstanceConfig) =>
 export const tabulaRasa = (i: InstanceConfig) =>
   apiRequest<void>(i, "/tabularasa", { method: "HEAD", query: WAIT });
 
-/** Generates a random benchmark graph server-side (edgeCount = out-edges PER VERTEX; Fallen-8-level, targets "default"). */
+/**
+ * Generates a random benchmark graph server-side (edgeCount = out-edges PER VERTEX) INTO THE
+ * ACTIVE NAMESPACE. Namespace-scoped like every other write: the server refuses the bare form
+ * rather than generating into "default", so the /ns/{ns} prefix is not optional here.
+ */
 export const generateGraph = (
   i: InstanceConfig,
   nodeCount = 200,
   edgeCount = 5,
   distribution: "uniform" | "preferential" = "uniform",
 ) =>
-  apiRequest<string>(i, "/generate", {
+  apiRequest<GraphGenerationResult>(i, "/generate", {
     query: { nodeCount, edgeCount, distribution },
-    scope: "fallen8",
   });
 
+/** Runs the edge-traversal benchmark over the ACTIVE namespace's graph. */
 export const runBenchmark = (i: InstanceConfig, iterations = 1000) =>
-  apiRequest<BenchmarkResult>(i, "/benchmark", { query: { iterations }, scope: "fallen8" });
+  apiRequest<BenchmarkResult>(i, "/benchmark", { query: { iterations } });
 
 // ---- bulk interchange (concept spec §7) ----
 // Raw fetch, not apiRequest: the payload is application/x-ndjson, not JSON.

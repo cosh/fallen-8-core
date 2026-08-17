@@ -32,8 +32,8 @@ import path from "node:path";
  * NON-generated graph — the Karate Club sample (34 vertices / 78 edges), whose edges are labelled
  * "knows", never the generator's "A". This proves the point of the feature: the benchmark now
  * measures whatever graph is loaded. Capture-only; imports the sample via REST, activates the
- * seeded same-origin instance, then screenshots /benchmarks without running (a run would add
- * machine-dependent TPS numbers and a history table).
+ * seeded same-origin instance, then screenshots /q/default/benchmarks without running (a run
+ * would add machine-dependent TPS numbers and a history table).
  *
  *   F8_SCREENSHOT=1 npx playwright test e2e/screenshot-benchmark.spec.ts
  *
@@ -73,7 +73,9 @@ test("capture the Benchmark tab on a loaded (non-generated) graph", async ({ pag
   await expect(page.getByTestId("active-endpoint")).toContainText("same origin");
   await expect(page.getByTestId("health-chip")).toContainText(/online/i, { timeout: 20_000 });
 
-  await page.goto("/benchmarks");
+  // The namespace-scoped URL (the screen is no longer Fallen-8-level): the sample was imported
+  // into "default", so that is the namespace the capture must address.
+  await page.goto("/q/default/benchmarks");
   // Both panels rendered and the header reflects the loaded sample (34 vertices) — proving it is a
   // real loaded graph, not a generated one.
   await expect(page.getByTestId("run-benchmark")).toBeVisible();

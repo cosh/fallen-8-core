@@ -81,12 +81,12 @@ These hold across the whole surface; each topic's own page carries the detail.
 | Boolean results | Two families report the outcome as a bare `true`/`false` body with `200` instead of a status code: the `/index…` routes and `POST /service` / `DELETE /service/{key}`. There, `false` means it did not happen (unknown index, element, or plugin) and is never signalled as an HTTP error. See [indexes](/fallen-8-core/indexes/) and [plugins](/fallen-8-core/plugins/). |
 | Mutations | Element writes are enqueued on the single writer thread and answer `202 Accepted`; pass `?waitForCompletion=true` to block until the commit lands. Not every mutating route is waitable: `POST /index` and the `HEAD` maintenance routes take no such parameter. See [graph model](/fallen-8-core/graph-model/). |
 | Status codes | Each action is annotated with `[ProducesResponseType]`, so the exact codes and DTOs live in the OpenAPI document / Scalar, not here. |
-| Namespaces | Every namespace-scoped route also answers under `/ns/{name}/…`; bare URLs address the reserved `default` namespace. A namespace that exists but was not loaded by this process refuses every one of them with `503` before the action runs (`namespaceState: "notLoaded"`); `GET /status` is the single exception and reports that state instead. See [namespaces](/fallen-8-core/namespaces/#startup-load). |
+| Namespaces | Every namespace-scoped route also answers under `/ns/{name}/…`; bare URLs address the reserved `default` namespace, except `GET /generate` and `GET /benchmark`, which have no bare alias and answer `400` naming the scoped URL. A namespace that exists but was not loaded by this process refuses every one of them with `503` before the action runs (`namespaceState: "notLoaded"`); `GET /status` is the single exception and reports that state instead. See [namespaces](/fallen-8-core/namespaces/#startup-load). |
 | Authentication | When configured, the API key travels in the `X-Api-Key` header (name configurable), the header name and key configuration are owned by [security](/fallen-8-core/security/). |
 
 ## Endpoint directory
 
-Every endpoint group and the page that documents it. Routes shown bare; each also exists under `/ns/{name}/…` unless noted **(Fallen-8-level)**.
+Every endpoint group and the page that documents it. Routes shown bare; each also exists under `/ns/{name}/…` unless noted **(Fallen-8-level)**. One group is noted **(namespace required)**: it is scoped like the rest, but its bare form is refused instead of aliasing `default`.
 
 | Group | Routes | Doc |
 |---|---|---|
@@ -109,7 +109,7 @@ Every endpoint group and the page that documents it. Routes shown bare; each als
 | Services | `POST /service`, `DELETE /service/{key}` | [plugins.md](/fallen-8-core/plugins/) |
 | Observability | `GET /status`, `GET /statistics`, `GET /config` **(Fallen-8-level)**; plus `/healthz`, `/readyz` and `/metrics`, which are mapped outside MVC (no `/ns` twin, absent from the OpenAPI document, and `/metrics` only when the Prometheus exporter is on) | [observability.md](/fallen-8-core/observability/) |
 | Sample graph | `PUT /unittest` (the canned test graph; for real datasets use the [sample gallery](/fallen-8-core/samples/)) | [path-finding.md](/fallen-8-core/path-finding/) |
-| Benchmark **(Fallen-8-level)** | `GET /generate`, `GET /benchmark` | [benchmark.md](/fallen-8-core/benchmark/) |
+| Benchmark **(namespace required)** | `GET /ns/{name}/generate`, `GET /ns/{name}/benchmark` - the only two scoped routes whose bare form is refused with `400` instead of aliasing `default` | [benchmark.md](/fallen-8-core/benchmark/) |
 | Maintenance | `HEAD /trim`, `HEAD /tabularasa` (clear graph), `HEAD /tabularasa/all` **(Fallen-8-level)** | [graph-model.md](/fallen-8-core/graph-model/) |
 
 ## Generating a client

@@ -47,12 +47,14 @@ namespace NoSQL.GraphDB.App.Namespaces
         public String NamespaceName { get; }
     }
 
-    /// <summary>Maps <see cref="NamespaceNotLoadedException"/> to the 503 problem+json contract.</summary>
+    /// <summary>Maps <see cref="NamespaceNotLoadedException"/> to the 503 problem+json contract,
+    /// wherever in the exception it sits (see <see cref="NamespaceExceptionUnwrap"/>).</summary>
     public sealed class NamespaceNotLoadedExceptionFilter : IExceptionFilter
     {
         public void OnException(ExceptionContext context)
         {
-            if (context.Exception is NamespaceNotLoadedException notLoaded)
+            var notLoaded = NamespaceExceptionUnwrap.FirstOrDefault<NamespaceNotLoadedException>(context.Exception);
+            if (notLoaded != null)
             {
                 context.Result = NamespaceProblems.NotLoaded(notLoaded.NamespaceName);
                 context.ExceptionHandled = true;

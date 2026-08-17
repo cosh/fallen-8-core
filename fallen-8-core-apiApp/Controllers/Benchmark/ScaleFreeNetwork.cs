@@ -52,6 +52,14 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         // the benchmark contract.
         private static string edgeProperty = "A";
 
+        /// <summary>The canonical wire spelling of the uniform edge-target distribution: the ONE home
+        /// for the name the query parameter is parsed against, the 400 message lists, and the
+        /// generation result reports.</summary>
+        internal const String UniformDistribution = "uniform";
+
+        /// <summary>The canonical wire spelling of the preferential-attachment distribution.</summary>
+        internal const String PreferentialDistribution = "preferential";
+
         public ScaleFreeNetwork(IFallen8 fallen8)
         {
             _f8 = fallen8;
@@ -69,12 +77,16 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// <param name="edgeCountPerVertex">The number of edges per vertex</param>
         /// <param name="preferentialAttachment">Whether targets are drawn preferentially
         /// (rich-get-richer) instead of uniformly</param>
-        public async Task CreateScaleFreeNetworkAsync(int nodeCount, int edgeCountPerVertex, bool preferentialAttachment = false)
+        /// <returns>What was created, how long it took, and the graph's totals afterwards. The
+        /// edge count is COUNTED, not derived from the arguments: both distributions cap the
+        /// per-vertex out-degree at the distinct targets actually available. The addressed
+        /// namespace's name is stamped on by the caller - this builder knows only a graph.</returns>
+        public async Task<GraphGenerationResultREST> CreateScaleFreeNetworkAsync(int nodeCount, int edgeCountPerVertex, bool preferentialAttachment = false)
         {
             // The shared local-clock stamp (feature code-quality): the clock convention lives
             // in DateHelper alone - see the comment on DateHelper.GetModificationDate.
             var creationDate = DateHelper.GetNowStamp();
-            var prng = new Random();
+            var sw = Stopwatch.StartNew();
 
             CreateVerticesTransaction vertexTx = new CreateVerticesTransaction();
 
@@ -97,11 +109,13 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
             var verticesCreates = vertexTx.GetCreatedVertices();
 
+            var edgesCreated = 0L;
+
             if (edgeCountPerVertex != 0 && verticesCreates.Count > 0)
             {
                 if (preferentialAttachment)
                 {
-                    await CreatePreferentialEdgesAsync(verticesCreates, edgeCountPerVertex, creationDate);
+                    edgesCreated = await CreatePreferentialEdgesAsync(verticesCreates, edgeCountPerVertex, creationDate);
                 }
                 else
                 {
@@ -109,8 +123,9 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
 
                     // The partitions build their edge transactions CPU-parallel and enqueue without
                     // blocking; the single await below covers all of them, so no pool thread is
-                    // pinned while the writer drains the batch.
-                    var edgeCommits = new ConcurrentBag<TransactionInformation>();
+                    // pinned while the writer drains the batch. Each partition reports the edges it
+                    // added alongside its commit, so the total is counted rather than recomputed.
+                    var edgeCommits = new ConcurrentBag<(TransactionInformation Commit, Int64 Edges)>();
 
                     Parallel.ForEach(partitions, range =>
                     {
@@ -118,16 +133,32 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                         edgeCommits.Add(CreateEdges(verticesCreates, verticesCreates.GetRange(range.Item1, verticesInPartition), edgeCountPerVertex, creationDate));
                     });
 
-                    await Task.WhenAll(edgeCommits.Select(commit => commit.Completion));
+                    await Task.WhenAll(edgeCommits.Select(commit => commit.Commit.Completion));
+
+                    edgesCreated = edgeCommits.Sum(commit => commit.Edges);
                 }
             }
 
             TrimTransaction tx = new TrimTransaction();
 
             _f8.EnqueueTransaction(tx);
+
+            // Deliberately after the trim ENQUEUE but without awaiting it: trimming compacts
+            // tombstones and changes no live count, so the totals below are already settled.
+            sw.Stop();
+
+            return new GraphGenerationResultREST
+            {
+                VerticesCreated = verticesCreates.Count,
+                EdgesCreated = edgesCreated,
+                Distribution = preferentialAttachment ? PreferentialDistribution : UniformDistribution,
+                ElapsedMilliseconds = sw.Elapsed.TotalMilliseconds,
+                VertexCountAfter = _f8.VertexCount,
+                EdgeCountAfter = _f8.EdgeCount
+            };
         }
 
-        private TransactionInformation CreateEdges(ImmutableList<VertexModel> allVertices, ImmutableList<VertexModel> partition, long edgesPerVertex, UInt32 creationDate)
+        private (TransactionInformation Commit, Int64 Edges) CreateEdges(ImmutableList<VertexModel> allVertices, ImmutableList<VertexModel> partition, long edgesPerVertex, UInt32 creationDate)
         {
             CreateEdgesTransaction edgesCreateTx = new CreateEdgesTransaction();
 
@@ -138,6 +169,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             // (GET /generate?nodeCount=3&edgeCount=10). The preferential path bounds the
             // same way via Math.Min(edgesPerVertex, i).
             var targetCount = Math.Min(edgesPerVertex, allVertices.Count);
+            var edges = 0L;
 
             foreach (var aVertex in partition)
             {
@@ -157,10 +189,11 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                     //                                                           });
                     //
                     edgesCreateTx.AddEdge(aVertex.Id, edgeProperty, aTargetVertex, creationDate);
+                    edges++;
                 }
             }
 
-            return _f8.EnqueueTransaction(edgesCreateTx);
+            return (_f8.EnqueueTransaction(edgesCreateTx), edges);
         }
 
         /// <summary>
@@ -172,7 +205,9 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
         /// partitions. Vertex i gets min(edgesPerVertex, i) out-edges, all toward earlier
         /// vertices, so the pool always holds enough distinct targets.
         /// </summary>
-        private async Task CreatePreferentialEdgesAsync(ImmutableList<VertexModel> vertices, int edgesPerVertex, UInt32 creationDate)
+        /// <returns>The number of edges created, which is the sum of min(edgesPerVertex, i) and so
+        /// always below the requested vertices * edgesPerVertex.</returns>
+        private async Task<Int64> CreatePreferentialEdgesAsync(ImmutableList<VertexModel> vertices, int edgesPerVertex, UInt32 creationDate)
         {
             const int edgesPerTransaction = 50_000;
 
@@ -184,6 +219,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             var commits = new List<TransactionInformation>();
             var edgesCreateTx = new CreateEdgesTransaction();
             var edgesInTransaction = 0;
+            var edges = 0L;
 
             for (var i = 0; i < vertices.Count; i++)
             {
@@ -200,6 +236,7 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
                     {
                         edgesCreateTx.AddEdge(vertices[i].Id, edgeProperty, target, creationDate);
                         pool.Add(target);
+                        edges++;
 
                         if (++edgesInTransaction >= edgesPerTransaction)
                         {
@@ -219,6 +256,8 @@ namespace NoSQL.GraphDB.App.Controllers.Benchmark
             }
 
             await Task.WhenAll(commits.Select(commit => commit.Completion));
+
+            return edges;
         }
 
         /// <summary>

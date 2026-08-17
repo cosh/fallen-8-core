@@ -995,6 +995,16 @@ namespace NoSQL.GraphDB.Tests
                     MedianTps = 601225777.44,
                     StandardDeviationTps = 60311324.76
                 }, "BenchmarkResultREST"),
+                (new GraphGenerationResultREST
+                {
+                    Namespace = "flights",
+                    VerticesCreated = 100_000,
+                    EdgesCreated = 999_955,
+                    Distribution = "preferential",
+                    ElapsedMilliseconds = 8412.7,
+                    VertexCountAfter = 100_034,
+                    EdgeCountAfter = 1_000_033
+                }, "GraphGenerationResultREST"),
                 (new IndexDescriptionREST
                 {
                     IndexId = "embeddings",

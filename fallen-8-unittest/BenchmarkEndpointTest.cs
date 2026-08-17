@@ -36,14 +36,24 @@ using NoSQL.GraphDB.App;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Pipeline tests for GET /benchmark (feature web-ui): the endpoint returns structured
-    /// JSON statistics instead of a formatted (locale-dependent) string, defaults to 1000
-    /// iterations when the parameter is omitted, and maps the empty-graph and bad-input
-    /// cases to 400 instead of a 200 with an error sentence.
+    /// Pipeline tests for GET /ns/{ns}/benchmark and GET /ns/{ns}/generate (feature web-ui): both
+    /// return structured JSON instead of a formatted (locale-dependent) string, the benchmark
+    /// defaults to 1000 iterations when the parameter is omitted, and the empty-graph and bad-input
+    /// cases map to 400 instead of a 200 with an error sentence.
     /// </summary>
+    /// <remarks>
+    /// Every URL here is EXPLICITLY scoped, because these two routes are the only namespace-scoped
+    /// ones whose bare form is refused rather than aliased to "default" (feature graph-namespaces).
+    /// That refusal is also a 400, so a bare URL would leave the input-validation assertions below
+    /// passing for the wrong reason; the twin/refusal contract itself lives in
+    /// <c>NamespaceEndpointTest</c>.
+    /// </remarks>
     [TestClass]
     public class BenchmarkEndpointTest
     {
+        /// <summary>The addressed namespace every request here names.</summary>
+        private const string Ns = "/ns/default";
+
         private sealed class VolatileFactory : WebApplicationFactory<Program>
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -58,10 +68,10 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new VolatileFactory();
             using var client = factory.CreateClient();
 
-            var generate = await client.GetAsync("/generate?nodeCount=50&edgeCount=2");
+            var generate = await client.GetAsync(Ns + "/generate?nodeCount=50&edgeCount=2");
             Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode);
 
-            var response = await client.GetAsync("/benchmark?iterations=3");
+            var response = await client.GetAsync(Ns + "/benchmark?iterations=3");
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
 
             using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -81,7 +91,7 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new VolatileFactory();
             using var client = factory.CreateClient();
 
-            var response = await client.GetAsync("/benchmark?iterations=1");
+            var response = await client.GetAsync(Ns + "/benchmark?iterations=1");
             Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
             StringAssert.Contains(await response.Content.ReadAsStringAsync(), "No vertices");
         }
@@ -92,13 +102,13 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new VolatileFactory();
             using var client = factory.CreateClient();
 
-            var generate = await client.GetAsync("/generate?nodeCount=10&edgeCount=1");
+            var generate = await client.GetAsync(Ns + "/generate?nodeCount=10&edgeCount=1");
             Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode);
 
-            var zero = await client.GetAsync("/benchmark?iterations=0");
+            var zero = await client.GetAsync(Ns + "/benchmark?iterations=0");
             Assert.AreEqual(HttpStatusCode.BadRequest, zero.StatusCode);
 
-            var garbage = await client.GetAsync("/benchmark?iterations=abc");
+            var garbage = await client.GetAsync(Ns + "/benchmark?iterations=abc");
             Assert.AreEqual(HttpStatusCode.BadRequest, garbage.StatusCode);
         }
 
@@ -111,7 +121,7 @@ namespace NoSQL.GraphDB.Tests
             const int nodes = 2000;
             const int edgesPerVertex = 3;
             var generate = await client.GetAsync(
-                $"/generate?nodeCount={nodes}&edgeCount={edgesPerVertex}&distribution=preferential");
+                Ns + $"/generate?nodeCount={nodes}&edgeCount={edgesPerVertex}&distribution=preferential");
             Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode, await generate.Content.ReadAsStringAsync());
 
             var engine = factory.Services
@@ -121,6 +131,15 @@ namespace NoSQL.GraphDB.Tests
             // Vertex i gets min(edgesPerVertex, i) out-edges - an exact, seed-independent count.
             var expectedEdges = nodes * edgesPerVertex - edgesPerVertex * (edgesPerVertex + 1) / 2;
             Assert.AreEqual(expectedEdges, engine.EdgeCount);
+
+            // The response reports what was written, checked against the engine over the wire: a
+            // count derived from the arguments instead of measured would read 6000 here.
+            using var generated = JsonDocument.Parse(await generate.Content.ReadAsStringAsync());
+            Assert.AreEqual("default", generated.RootElement.GetProperty("namespace").GetString());
+            Assert.AreEqual(nodes, generated.RootElement.GetProperty("verticesCreated").GetInt32());
+            Assert.AreEqual(expectedEdges, generated.RootElement.GetProperty("edgesCreated").GetInt64());
+            Assert.AreEqual(engine.VertexCount, generated.RootElement.GetProperty("vertexCountAfter").GetInt32());
+            Assert.AreEqual(engine.EdgeCount, generated.RootElement.GetProperty("edgeCountAfter").GetInt32());
 
             // The point of preferential attachment: heavy-tailed in-degrees. Uniform random
             // in-degrees are ~Poisson(3) (max ≈ 12 over 2000 draws); Barabási–Albert growth
@@ -136,7 +155,7 @@ namespace NoSQL.GraphDB.Tests
 
             // The benchmark follows every out-edge, so it counts exactly the generated edges
             // (schema-agnostic; see Bench_FollowsEveryOutEdge_RegardlessOfSchema for a non-"A" graph).
-            var benchmark = await client.GetAsync("/benchmark?iterations=1");
+            var benchmark = await client.GetAsync(Ns + "/benchmark?iterations=1");
             Assert.AreEqual(HttpStatusCode.OK, benchmark.StatusCode);
             using var body = JsonDocument.Parse(await benchmark.Content.ReadAsStringAsync());
             Assert.AreEqual(expectedEdges, body.RootElement.GetProperty("edgesTraversed").GetInt64());
@@ -150,7 +169,7 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new VolatileFactory();
             using var client = factory.CreateClient();
 
-            var generate = await client.GetAsync("/generate?nodeCount=3&edgeCount=10");
+            var generate = await client.GetAsync(Ns + "/generate?nodeCount=3&edgeCount=10");
             Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode);
 
             var engine = factory.Services
@@ -168,7 +187,7 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new VolatileFactory();
             using var client = factory.CreateClient();
 
-            var generate = await client.GetAsync("/generate?nodeCount=0&edgeCount=5");
+            var generate = await client.GetAsync(Ns + "/generate?nodeCount=0&edgeCount=5");
             Assert.AreEqual(HttpStatusCode.OK, generate.StatusCode);
             var engine = factory.Services
                 .GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
@@ -182,14 +201,14 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new VolatileFactory();
             using var client = factory.CreateClient();
 
-            var unknownDistribution = await client.GetAsync("/generate?nodeCount=10&edgeCount=1&distribution=banana");
+            var unknownDistribution = await client.GetAsync(Ns + "/generate?nodeCount=10&edgeCount=1&distribution=banana");
             Assert.AreEqual(HttpStatusCode.BadRequest, unknownDistribution.StatusCode);
             StringAssert.Contains(await unknownDistribution.Content.ReadAsStringAsync(), "distribution");
 
-            var garbageNodes = await client.GetAsync("/generate?nodeCount=abc&edgeCount=1");
+            var garbageNodes = await client.GetAsync(Ns + "/generate?nodeCount=abc&edgeCount=1");
             Assert.AreEqual(HttpStatusCode.BadRequest, garbageNodes.StatusCode);
 
-            var negativeEdges = await client.GetAsync("/generate?nodeCount=10&edgeCount=-1");
+            var negativeEdges = await client.GetAsync(Ns + "/generate?nodeCount=10&edgeCount=-1");
             Assert.AreEqual(HttpStatusCode.BadRequest, negativeEdges.StatusCode);
 
             // Nothing was created by the rejected calls.

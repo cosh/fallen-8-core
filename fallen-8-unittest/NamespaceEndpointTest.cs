@@ -33,9 +33,15 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Abstractions;
+using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App;
+using NoSQL.GraphDB.App.Namespaces;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -358,8 +364,10 @@ namespace NoSQL.GraphDB.Tests
             {
                 "/save/all",
                 "/tabularasa/all",
-                "/generate",
-                "/benchmark",
+                // NOTE: /generate and /benchmark are NOT here. They are namespace-scoped (they act on
+                // exactly one graph) and additionally [NamespaceRequired], which refuses their bare
+                // form at request time rather than removing it - so they are twinned like any scoped
+                // route and the pinning below applies to them unchanged.
                 "/delegates/validate",
                 "/plugin",
                 "/ns",
@@ -403,6 +411,197 @@ namespace NoSQL.GraphDB.Tests
                     Assert.IsTrue(hasTwin, path + " is namespace-scoped and must have a /ns/{ns} twin");
                 }
             }
+        }
+
+        /// <summary>
+        /// Benchmark generation writes the ADDRESSED namespace and says so in its structured result.
+        /// The regression this pins: /generate was [Fallen8Level], so it had no twin and every
+        /// generation landed in "default" no matter which namespace the caller was working in.
+        /// </summary>
+        [TestMethod]
+        public async Task Generate_WritesTheAddressedNamespace_AndNamesItInTheResult()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+            await CreateNamespace(client, "flights");
+
+            using var response = await client.GetAsync("/ns/flights/generate?nodeCount=20&edgeCount=2");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            var result = await ReadJson(response);
+
+            Assert.AreEqual("flights", result.GetProperty("namespace").GetString());
+            Assert.AreEqual(20, result.GetProperty("verticesCreated").GetInt32());
+            // Counted, not derived: 2 distinct targets are available for every one of the 20 vertices.
+            Assert.AreEqual(40, result.GetProperty("edgesCreated").GetInt64());
+            Assert.AreEqual("uniform", result.GetProperty("distribution").GetString());
+            Assert.AreEqual(20, result.GetProperty("vertexCountAfter").GetInt32());
+            Assert.AreEqual(40, result.GetProperty("edgeCountAfter").GetInt32());
+            Assert.IsTrue(result.GetProperty("elapsedMilliseconds").GetDouble() >= 0.0);
+
+            // The addressed namespace grew and the default one did NOT - the whole point.
+            Assert.AreEqual(20, await VertexCount(client, "/ns/flights"));
+            Assert.AreEqual(0, await VertexCount(client, "/ns/default"));
+        }
+
+        /// <summary>
+        /// Preferential attachment reports FEWER edges than nodeCount * edgeCount, because vertex i
+        /// can only attach to the i vertices before it. The count is measured, so the result cannot
+        /// drift from what was written.
+        /// </summary>
+        [TestMethod]
+        public async Task Generate_Preferential_ReportsTheEdgesItActuallyCreated()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync(
+                "/ns/default/generate?nodeCount=10&edgeCount=3&distribution=preferential");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            var result = await ReadJson(response);
+
+            Assert.AreEqual("preferential", result.GetProperty("distribution").GetString());
+            // sum(min(3, i)) for i in 0..9 = 0+1+2+3*7 = 24, never the naive 30.
+            Assert.AreEqual(24, result.GetProperty("edgesCreated").GetInt64());
+            Assert.AreEqual(24, result.GetProperty("edgeCountAfter").GetInt32());
+            Assert.AreEqual(10, await VertexCount(client, "/ns/default"));
+        }
+
+        /// <summary>
+        /// Generation and the benchmark have NO bare-URL alias to "default": the bare route is
+        /// registered (an unrouted path would be answered by the SPA fallback with HTTP 200) and
+        /// refuses with 400 problem+json naming the scoped URL. Nothing is written on the way.
+        /// </summary>
+        [TestMethod]
+        public async Task BareUrls_OfTheNamespaceRequiredRoutes_Are400_AndWriteNothing()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+
+            using var generate = await client.GetAsync("/generate?nodeCount=20&edgeCount=2");
+            await AssertProblem(generate, HttpStatusCode.BadRequest, "Namespace required");
+            StringAssert.Contains((await ReadJson(generate)).GetProperty("detail").GetString(),
+                "/ns/{namespace}/generate");
+
+            using var benchmark = await client.GetAsync("/benchmark?iterations=1");
+            await AssertProblem(benchmark, HttpStatusCode.BadRequest, "Namespace required");
+            StringAssert.Contains((await ReadJson(benchmark)).GetProperty("detail").GetString(),
+                "/ns/{namespace}/benchmark");
+
+            // The refusal happens BEFORE the action, so the default namespace is untouched.
+            Assert.AreEqual(0, await VertexCount(client, "/ns/default"));
+        }
+
+        /// <summary>
+        /// The refusal carries no <c>namespace</c> extension member: that member is the marker Studio
+        /// turns into its "namespace is gone - recreate or switch" recover state, and there is no
+        /// namespace here to be gone.
+        /// </summary>
+        [TestMethod]
+        public async Task NamespaceRequiredRefusal_CarriesNoNamespaceExtension()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/generate");
+            var problem = await ReadJson(response);
+            Assert.IsFalse(problem.TryGetProperty("namespace", out _),
+                "the namespace-required refusal must not look like a missing-namespace 404");
+        }
+
+        /// <summary>
+        /// The benchmark measures the addressed namespace: run against an empty one it reports an
+        /// empty graph even while another namespace holds a generated one.
+        /// </summary>
+        [TestMethod]
+        public async Task Benchmark_MeasuresTheAddressedNamespace()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+            await CreateNamespace(client, "flights");
+
+            using var generated = await client.GetAsync("/ns/flights/generate?nodeCount=20&edgeCount=2");
+            Assert.AreEqual(HttpStatusCode.OK, generated.StatusCode);
+
+            using var measured = await client.GetAsync("/ns/flights/benchmark?iterations=2");
+            Assert.AreEqual(HttpStatusCode.OK, measured.StatusCode);
+            var result = await ReadJson(measured);
+            Assert.AreEqual(2, result.GetProperty("iterations").GetInt32());
+            Assert.AreEqual(40, result.GetProperty("edgesTraversed").GetInt64());
+
+            // "default" is still empty, so measuring it reports an empty graph rather than flights'
+            // numbers - which is what a Fallen-8-level benchmark could not distinguish.
+            using var empty = await client.GetAsync("/ns/default/benchmark?iterations=2");
+            await AssertProblem(empty, HttpStatusCode.BadRequest, "Bad Request",
+                detailEquals: "No vertices found in the graph.");
+        }
+
+        /// <summary>
+        /// A namespace dropped or excluded MID-request must answer 404/503 even when the engine
+        /// dereference happened on a worker thread: benchmark generation resolves the engine inside a
+        /// <c>Parallel.ForEach</c> body, which reports the failure wrapped in an
+        /// <c>AggregateException</c>. Testing the wrapped shape directly, because the race itself is
+        /// not reproducible on demand - and without the unwrap both filters miss it and the contracted
+        /// problem+json becomes a bare 500.
+        /// </summary>
+        [TestMethod]
+        public void MidRequestNamespaceFailure_FromAWorkerThread_StillMapsToItsContract()
+        {
+            foreach (var wrapped in new Exception[]
+            {
+                new UnknownNamespaceException("flights"),
+                // Two levels deep: Parallel.ForEach can hand back an aggregate of aggregates.
+                new AggregateException(new AggregateException(new UnknownNamespaceException("flights"))),
+                new AggregateException(new UnknownNamespaceException("flights")),
+            })
+            {
+                var context = ExceptionContextFor(wrapped);
+                new UnknownNamespaceExceptionFilter().OnException(context);
+
+                Assert.IsTrue(context.ExceptionHandled, wrapped.GetType().Name + " must be handled");
+                var problem = (ProblemDetails)((ObjectResult)context.Result).Value;
+                Assert.AreEqual(StatusCodes.Status404NotFound, problem.Status);
+                Assert.AreEqual("flights", problem.Extensions["namespace"]);
+            }
+
+            var notLoaded = ExceptionContextFor(
+                new AggregateException(new NamespaceNotLoadedException("archived")));
+            new NamespaceNotLoadedExceptionFilter().OnException(notLoaded);
+
+            Assert.IsTrue(notLoaded.ExceptionHandled);
+            var notLoadedProblem = (ProblemDetails)((ObjectResult)notLoaded.Result).Value;
+            Assert.AreEqual(StatusCodes.Status503ServiceUnavailable, notLoadedProblem.Status);
+            Assert.AreEqual("notLoaded", notLoadedProblem.Extensions["namespaceState"]);
+
+            // An unrelated aggregate is NOT unwrapped into a namespace problem: this is a mapping
+            // fix, not a blanket "any wrapped exception becomes a 404".
+            var unrelated = ExceptionContextFor(new AggregateException(new InvalidOperationException("boom")));
+            new UnknownNamespaceExceptionFilter().OnException(unrelated);
+            new NamespaceNotLoadedExceptionFilter().OnException(unrelated);
+            Assert.IsFalse(unrelated.ExceptionHandled, "only the namespace refusals are unwrapped");
+        }
+
+        private static ExceptionContext ExceptionContextFor(Exception exception)
+        {
+            var actionContext = new ActionContext(new DefaultHttpContext(), new RouteData(),
+                new ActionDescriptor());
+            return new ExceptionContext(actionContext, new List<IFilterMetadata>())
+            {
+                Exception = exception
+            };
+        }
+
+        /// <summary>
+        /// Now that they are twinned, the newly scoped routes inherit the namespace guard: an unknown
+        /// namespace is the same 404-with-marker every other scoped route answers.
+        /// </summary>
+        [TestMethod]
+        public async Task Generate_UnknownNamespace_Is404WithTheStudioMarker()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/ns/nope/generate?nodeCount=5&edgeCount=1");
+            await AssertProblem(response, HttpStatusCode.NotFound, "Namespace not found", "nope");
         }
 
         [TestMethod]

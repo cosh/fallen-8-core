@@ -12,6 +12,9 @@ avg/median/stddev TPS. A session-local run history keeps before/after numbers. T
 benchmark follows every out-edge of every vertex regardless of edge label, so it measures
 whatever graph is currently loaded — a sample, your own data, or a generated one (feature
 schema-agnostic-benchmark); generation is just a convenient way to conjure a sized graph.
+Both halves act on the ACTIVE namespace (the tab lives at `/q/{ns}/benchmarks`), and generation
+reports what it created plus the namespace it wrote: see
+[graph-namespaces](../graph-namespaces/README.md) for why those two routes have no bare-URL alias.
 
 ## Sample graphs (Samples screen)
 

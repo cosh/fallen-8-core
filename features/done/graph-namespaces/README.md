@@ -27,7 +27,18 @@ GET /ns/flights/vertex/42 ← the same action on the "flights" namespace
 An unknown namespace answers `404 application/problem+json` with a `"namespace"` extension
 member (Studio keys its "recreate or switch" recover state on it). Fallen-8-level routes
 (marked `[Fallen8Level]`) exist once: `/ns` management, `/savegames*`, `/save/all`,
-`/tabularasa/all`, `/generate`, `/benchmark`, `/delegates/validate`, plugin upload.
+`/tabularasa/all`, `/delegates/validate`, plugin upload.
+
+**Namespace-required routes** are the other end of the scale: scoped, twinned like any other, but
+with the bare alias REFUSED rather than pointed at `default`. Marked `[NamespaceRequired]`, and only
+`/generate` + `/benchmark` carry it: generation writes one graph and the benchmark reports one
+graph's throughput as the caller's, and defaulting made "generated into `default` while working in
+`flights`" the silent outcome. Bare ⇒ `400` "Namespace required" naming the scoped URL and carrying
+**no** `namespace` extension member (there is no namespace to be missing, and that member is the
+recover-state marker). The bare route stays REGISTERED rather than removed: this app serves Studio
+behind `MapFallbackToFile("index.html")`, so an unrouted `/generate` would answer with the app shell
+and `200`. `NamespaceValidationFilter` is the one home for all three refusals (unknown, not loaded,
+namespace required).
 
 ### Namespace CRUD
 
@@ -119,7 +130,10 @@ server predates namespaces and Studio degrades to bare paths so the previous rel
 working.) Workspace stores, react-query caches, and the change-feed
 stream are all keyed per instance + namespace (the pre-namespace store is adopted as
 `default`'s). The Connect screen carries the NAMESPACES panel (create with live URL preview,
-rename, switch, typed-name drop); Save games and Benchmark stay Fallen-8-level and say so.
+rename, switch, typed-name drop); Save games stays Fallen-8-level and says so. Benchmark started
+that way and was WRONG to: it wrote into `default` whatever the switcher said, so it is now a scoped
+screen at `/q/{ns}/benchmarks` (the flat `/benchmarks` redirects) reading the bound instance, and its
+generation result names the namespace the server wrote.
 
 ## Limits / revisit triggers
 
