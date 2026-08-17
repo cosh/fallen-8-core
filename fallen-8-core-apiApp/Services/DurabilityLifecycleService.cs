@@ -93,6 +93,13 @@ namespace NoSQL.GraphDB.App.Services
             // WAL-replayed construction state. The registry - never directory discovery - decides.
             foreach (var ns in _namespaces.Snapshot())
             {
+                // A namespace the collection deliberately did not load has no engine to restore into
+                // (feature namespace-startup-load); the collection has already logged why.
+                if (!ns.IsLoaded)
+                {
+                    continue;
+                }
+
                 StartNamespace(ns);
             }
 
@@ -241,6 +248,22 @@ namespace NoSQL.GraphDB.App.Services
                 var members = new List<(String Name, String Id, IFallen8 Engine, String Location)>();
                 foreach (var ns in _namespaces.Snapshot())
                 {
+                    // THE DATA-LOSS GUARD (feature namespace-startup-load §5). A namespace with no
+                    // resident engine is never a member of a save. Saving one would be catastrophic
+                    // rather than merely useless: Fallen8.Save resets the write-ahead log to a bare
+                    // header, so every post-checkpoint delta the log still held is gone with no
+                    // other artifact carrying it, and the empty-but-complete checkpoint it writes
+                    // gets registered as the NEWEST entry for that id, so the next boot loads the
+                    // empty one. Both halves are silent today. Nothing is written and nothing is
+                    // registered instead, so the data on disk stays exactly as the last process
+                    // that actually held this namespace left it.
+                    if (!ns.IsLoaded)
+                    {
+                        _logger.LogInformation("Skipping the shutdown save of namespace \"{Namespace}\": it is not loaded " +
+                            "in this process, so its checkpoint and write-ahead log are left untouched.", ns.Name);
+                        continue;
+                    }
+
                     var checkpointPath = ReferenceEquals(ns, _namespaces.Default)
                         ? _options.ResolveCheckpointPath()
                         : Path.Combine(_namespaces.DirectoryFor(ns), _options.CheckpointBaseName);

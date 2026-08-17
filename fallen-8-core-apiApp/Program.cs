@@ -553,6 +553,11 @@ namespace NoSQL.GraphDB.App
                 options.Conventions.Add(new NamespaceRouteConvention());
                 options.Filters.Add(typeof(NamespaceValidationFilter));
                 options.Filters.Add(typeof(UnknownNamespaceExceptionFilter));
+                // Its twin for a namespace that exists but is not loaded in this process (feature
+                // namespace-startup-load): the net under every engine-dereference site the
+                // pre-action filter does not cover, mapping to 503 rather than 404 because a 404
+                // sends Studio to its "recreate empty" recover state over real data.
+                options.Filters.Add(typeof(NamespaceNotLoadedExceptionFilter));
                 // Restores application/problem+json on an error body that an action's
                 // [Produces("application/json")] would otherwise downgrade; see the filter. The
                 // order MUST be passed here: a filter added by type is described by a

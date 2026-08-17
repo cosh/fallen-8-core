@@ -634,9 +634,22 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             var members = new List<(String Name, String Id, IFallen8 Engine, String Location)>();
             var failed = new List<String>();
+            var skipped = new List<String>();
 
             foreach (var ns in _namespaces.Snapshot())
             {
+                // The same data-loss guard the shutdown save applies (feature
+                // namespace-startup-load §5): a namespace with no resident engine is never a member
+                // of a save. Reported as SKIPPED rather than failed - without this it would land in
+                // `failed` and turn a correct sweep into a 500, and worse, an engine-less namespace
+                // that somehow reached the save would have its write-ahead log truncated to a
+                // header and an empty checkpoint registered as its newest.
+                if (!ns.IsLoaded)
+                {
+                    skipped.Add(ns.Name);
+                    continue;
+                }
+
                 var savePath = ReferenceEquals(ns, _namespaces.Default)
                     ? _savePath
                     : System.IO.Path.Combine(EnsuredNamespaceDirectory(ns), _saveFile);
@@ -685,7 +698,23 @@ namespace NoSQL.GraphDB.App.Controllers
                 return Helper.ProblemResults.Create(StatusCodes.Status500InternalServerError, "Save incomplete",
                     "The save transaction rolled back for: " + String.Join(", ", failed) +
                     ". Successfully saved namespaces were registered" + (entry != null ? " as " + entry.Id : "") + ".",
-                    p => p.Extensions["failedNamespaces"] = failed);
+                    p =>
+                    {
+                        p.Extensions["failedNamespaces"] = failed;
+                        if (skipped.Count > 0)
+                        {
+                            p.Extensions["skippedNamespaces"] = skipped;
+                        }
+                    });
+            }
+
+            if (skipped.Count > 0)
+            {
+                // Named, not silent: the registered entry now spans a strict SUBSET of the
+                // Fallen-8, so a caller must be able to see which namespaces it does not cover.
+                _logger.LogInformation("PUT /save/all skipped {Count} namespace(s) that are not loaded in this " +
+                    "process: {Namespaces}. Their checkpoints and write-ahead logs are untouched.",
+                    skipped.Count, String.Join(", ", skipped));
             }
 
             return Ok(entry);

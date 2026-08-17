@@ -30,6 +30,27 @@ non-resident, so the most dangerous code lands with tests and zero blast radius.
   to `..._SpansEveryLoadedNamespace_...` - an intentional contract change, recorded as such, not a
   test that broke.
 
+### Phase 0 as landed, and one thing it taught
+
+Two corrections to this plan, recorded rather than quietly absorbed:
+
+- **`PUT /save` needed no code of its own.** It resolves through `AddressedFallen8`, so the
+  throwing `Engine` accessor plus the new exception filter already produce the 503. The refusal is
+  the throw, not a hand-written branch - fewer sites, same contract.
+- **The first version of the guard's test proved nothing, and the mutation probe caught it.** With
+  the explicit skip disabled the test stayed green, because the throwing accessor lands in the
+  shutdown loop's per-namespace `catch` and skips too. The outcome was doubly protected but not
+  *pinned*: the test could not tell the guard from its absence. It now also asserts the **clean
+  informational path** (an `Information` skip line, and no `Error` naming that namespace), which
+  fails correctly when the guard is removed and protects a real property - an operator must not see
+  an error on every clean shutdown for a namespace they deliberately excluded.
+
+**Ordering correction for Phase 1:** `NamespacesController.ToRest` reads `ns.Engine.VertexCount`
+directly, so the moment Phase 1 makes exclusion reachable, `GET /ns` would answer 503 for the whole
+list instead of listing the namespace. `NamespaceState.NotLoaded` and the absent-capable counts
+therefore move **into Phase 1**; Phase 2 keeps the refusal filter, the PATCH field, `/status` and
+the snapshot. Phase 1 is not shippable without them.
+
 ## Phase 1 - The policy and the boot decision (no REST, no UI)
 
 - `Namespaces/NamespaceCatalog.cs`: `loadOnStartupEnabled` on the entry, re-emitted by the catalog

@@ -29,11 +29,14 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Namespaces;
@@ -86,10 +89,12 @@ namespace NoSQL.GraphDB.Tests
         private sealed class DurabilityFactory : WebApplicationFactory<Program>
         {
             private readonly IReadOnlyDictionary<string, string> _settings;
+            private readonly TestLogSink _sink;
 
-            public DurabilityFactory(IReadOnlyDictionary<string, string> settings)
+            public DurabilityFactory(IReadOnlyDictionary<string, string> settings, TestLogSink sink = null)
             {
                 _settings = settings;
+                _sink = sink;
             }
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -98,10 +103,15 @@ namespace NoSQL.GraphDB.Tests
                 {
                     builder.UseSetting(kv.Key, kv.Value);
                 }
+
+                if (_sink != null)
+                {
+                    builder.ConfigureLogging(logging => logging.AddProvider(_sink));
+                }
             }
         }
 
-        private DurabilityFactory NewHost(bool saveOnShutdown = true)
+        private DurabilityFactory NewHost(bool saveOnShutdown = true, TestLogSink sink = null)
         {
             return new DurabilityFactory(new Dictionary<string, string>
             {
@@ -109,7 +119,7 @@ namespace NoSQL.GraphDB.Tests
                 ["Fallen8:Durability:Volatile"] = "false",
                 ["Fallen8:Durability:SaveOnShutdown"] = saveOnShutdown ? "true" : "false",
                 ["Fallen8:Metadata:Directory"] = _metaDir,
-            });
+            }, sink);
         }
 
         #region helpers
@@ -142,6 +152,189 @@ namespace NoSQL.GraphDB.Tests
         private static async Task<JsonElement> ReadJson(HttpResponseMessage response)
         {
             return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        }
+
+        /// <summary>
+        ///   Puts a namespace with NO resident engine into the collection (feature
+        ///   namespace-startup-load), which is the state a boot produces for a namespace excluded
+        ///   from the startup load. Reflection because the apiApp declares no
+        ///   <c>InternalsVisibleTo</c> - the same convention this suite already uses elsewhere - and
+        ///   because phase 0 lands the guard while nothing can yet be excluded through configuration:
+        ///   the dangerous code gets its tests before the feature that reaches it exists.
+        /// </summary>
+        private static Namespace AddNotLoadedNamespace(Fallen8Namespaces namespaces, string name, string id)
+        {
+            var ctor = typeof(Namespace).GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic).Single();
+            var ns = (Namespace)ctor.Invoke(new object[] { name, id, null, DateTime.UtcNow });
+
+            var byName = typeof(Fallen8Namespaces)
+                .GetField("_byName", BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(namespaces);
+            byName.GetType().GetMethod("TryAdd").Invoke(byName, new object[] { name, ns });
+
+            Assert.IsFalse(ns.IsLoaded, "the fixture namespace must be non-resident");
+            return ns;
+        }
+
+        #endregion
+
+        #region feature namespace-startup-load: the data-loss guard (spec section 5)
+
+        /// <summary>
+        ///   THE test this feature exists to make safe. A namespace that is cataloged but not loaded
+        ///   must never be a member of a save, because saving it is not merely useless but
+        ///   destructive: <c>Fallen8.Save</c> resets the write-ahead log to a bare header (so every
+        ///   post-checkpoint delta it held is gone, with no other artifact carrying it) and the
+        ///   empty-but-complete checkpoint it writes gets registered as the NEWEST entry for that
+        ///   id, so the next boot loads the empty one. Both halves are silent.
+        /// </summary>
+        [TestMethod]
+        public async Task NotLoadedNamespace_IsNotSavedOnShutdown_AndItsWalAndCheckpointSurvive()
+        {
+            string directory;
+            string walPath;
+            byte[] walBefore;
+            int checkpointFilesBefore;
+
+            // A real, populated namespace, checkpointed and then left with post-checkpoint deltas in
+            // its write-ahead log - exactly the state that has something to lose. SaveOnShutdown is
+            // OFF here so this process's own teardown does not save (which would reset the WAL to a
+            // header and rob the assertions below of the very deltas they are protecting).
+            using (var host = NewHost(saveOnShutdown: false))
+            {
+                using var client = host.CreateClient();
+                var namespaces = Collection(host);
+                var flights = Create(namespaces, "flights");
+                AddVertices(flights.Engine, 3);
+
+                using var saved = await client.PutAsync("/ns/flights/save", new StringContent("{}", Encoding.UTF8, "application/json"));
+                Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode);
+
+                // Post-checkpoint work, so the WAL holds deltas the checkpoint does not.
+                AddVertices(flights.Engine, 2);
+
+                directory = namespaces.DirectoryFor(flights);
+                walPath = Directory.GetFiles(directory, "fallen8.wal*").Single();
+                walBefore = File.ReadAllBytes(walPath);
+                checkpointFilesBefore = Directory.GetFiles(directory, "Temp.f8s*").Length;
+                Assert.IsTrue(walBefore.Length > 0, "the WAL must hold post-checkpoint deltas");
+            }
+
+            // Now a process in which that namespace is present but NOT loaded, shutting down with
+            // SaveOnShutdown on - the exact shape that used to destroy it.
+            var sink = new TestLogSink();
+            using (var host = NewHost(saveOnShutdown: true, sink: sink))
+            {
+                var namespaces = Collection(host);
+                Assert.IsTrue(namespaces.TryGet("flights", out var loaded), "the catalog must still list it");
+                var id = loaded.Id;
+
+                // Replace the loaded entry with a non-resident one carrying the SAME id, so the
+                // shutdown save would target the same files.
+                var byName = typeof(Fallen8Namespaces)
+                    .GetField("_byName", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(namespaces);
+                ((System.Collections.IDictionary)byName).Remove("flights");
+                AddNotLoadedNamespace(namespaces, "flights", id);
+
+                var lifecycle = host.Services.GetServices<Microsoft.Extensions.Hosting.IHostedService>()
+                    .OfType<DurabilityLifecycleService>().Single();
+                await lifecycle.StopAsync(System.Threading.CancellationToken.None);
+            }
+
+            // (i) No new checkpoint was written for it.
+            Assert.AreEqual(checkpointFilesBefore, Directory.GetFiles(directory, "Temp.f8s*").Length,
+                "a not-loaded namespace must not produce a checkpoint");
+
+            // (ii) The write-ahead log is byte-identical, so it was never reset to a header.
+            CollectionAssert.AreEqual(walBefore, File.ReadAllBytes(walPath),
+                "the WAL of a not-loaded namespace must be untouched (Save resets it to a bare header)");
+
+            // (iii) It was skipped BY DESIGN, on the clean informational path - not by accident via
+            //       the throwing engine accessor landing in the per-namespace catch. Without this
+            //       assertion the test cannot tell the explicit guard from its absence (verified:
+            //       disabling the guard leaves every other assertion here green), and an operator
+            //       would see an ERROR line on every clean shutdown for a namespace they
+            //       deliberately excluded.
+            Assert.IsTrue(sink.Contains(LogLevel.Information, "Skipping the shutdown save", "flights"),
+                "the skip must be announced as a normal, expected condition");
+            Assert.IsFalse(sink.Contains(LogLevel.Error, "flights"),
+                "skipping a not-loaded namespace must not surface as an error");
+
+            // (iv) The data comes back in full on a boot that loads it again - the end-to-end proof
+            //      that nothing was lost, not merely that no file changed.
+            using (var host = NewHost(saveOnShutdown: false))
+            {
+                var namespaces = Collection(host);
+                Assert.IsTrue(namespaces.TryGet("flights", out var flights));
+                Assert.AreEqual(5, flights.Engine.VertexCount,
+                    "the checkpoint plus the replayed WAL deltas must restore every vertex");
+            }
+        }
+
+        /// <summary>
+        ///   PUT /save/all skips a not-loaded namespace and says so, rather than counting it as a
+        ///   failure: without the guard an engine-less namespace would land in the failure list and
+        ///   turn an otherwise correct sweep into a 500.
+        /// </summary>
+        [TestMethod]
+        public async Task SaveAll_SkipsNotLoadedNamespaces_AndDoesNotFail()
+        {
+            using var host = NewHost(saveOnShutdown: false);
+            using var client = host.CreateClient();
+            var namespaces = Collection(host);
+            AddVertices(namespaces.Default.Engine, 1);
+            AddNotLoadedNamespace(namespaces, "archived", "ns-archived-fixture");
+
+            using var response = await client.PutAsync("/save/all", new StringContent("", Encoding.UTF8, "application/json"));
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, "a skipped namespace is not a failure");
+            var entry = await ReadJson(response);
+            var members = entry.GetProperty("namespaces").EnumerateArray()
+                .Select(m => m.GetProperty("name").GetString()).ToList();
+            CollectionAssert.DoesNotContain(members, "archived",
+                "the spanning entry must not claim to cover a namespace it never saved");
+            CollectionAssert.Contains(members, "default");
+        }
+
+        /// <summary>
+        ///   Addressing a not-loaded namespace answers 503 with its own title and a
+        ///   <c>namespaceState</c> extension - never 404, because the Studio client turns a 404
+        ///   carrying a <c>namespace</c> extension into a recover state whose primary action
+        ///   recreates the namespace EMPTY, i.e. destroys the data this refusal is protecting.
+        /// </summary>
+        [TestMethod]
+        public async Task AddressingANotLoadedNamespace_Answers503_NotFound404()
+        {
+            using var host = NewHost(saveOnShutdown: false);
+            using var client = host.CreateClient();
+            AddNotLoadedNamespace(Collection(host), "archived", "ns-archived-fixture");
+
+            using var response = await client.GetAsync("/ns/archived/vertex/count");
+
+            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            var problem = await ReadJson(response);
+            Assert.AreEqual("Namespace not loaded", problem.GetProperty("title").GetString());
+            Assert.AreEqual("archived", problem.GetProperty("namespace").GetString());
+            Assert.AreEqual("notLoaded", problem.GetProperty("namespaceState").GetString());
+        }
+
+        /// <summary>
+        ///   The engine accessor throws rather than returning null, so a dereference site the sweep
+        ///   missed fails diagnosably (and, inside the shutdown save's per-namespace catch, means
+        ///   "skip") instead of NullReferenceException-ing. This repo has no nullable-reference
+        ///   analysis, so this is the only fail-safe default available.
+        /// </summary>
+        [TestMethod]
+        public void NotLoadedNamespace_EngineAccessorThrows_AndTryGetEngineReportsIt()
+        {
+            using var host = NewHost(saveOnShutdown: false);
+            var ns = AddNotLoadedNamespace(Collection(host), "archived", "ns-archived-fixture");
+
+            Assert.IsFalse(ns.TryGetEngine(out var engine));
+            Assert.IsNull(engine);
+            var thrown = Assert.ThrowsException<NamespaceNotLoadedException>(() => _ = ns.Engine);
+            Assert.AreEqual("archived", thrown.NamespaceName);
         }
 
         #endregion

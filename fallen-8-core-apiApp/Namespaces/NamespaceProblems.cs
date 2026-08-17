@@ -45,5 +45,27 @@ namespace NoSQL.GraphDB.App.Namespaces
             ProblemResults.Create(StatusCodes.Status404NotFound, "Namespace not found",
                 "No namespace named \"" + name + "\" exists on this Fallen-8.",
                 p => p.Extensions["namespace"] = name);
+
+        /// <summary>
+        ///   The "exists but is not loaded" refusal (feature namespace-startup-load).
+        ///   <para>503 and NOT 404, deliberately: the Studio client turns any 404 problem+json
+        ///   carrying a string <c>namespace</c> extension into its recover state, whose primary
+        ///   action recreates the namespace EMPTY. Answering 404 here would tell an operator their
+        ///   populated graph is gone and then offer them the one button that makes that true. 503
+        ///   also carries the honest semantics: the namespace is temporarily unavailable in this
+        ///   process, and the request is retryable once it is loaded.</para>
+        ///   <para><c>namespaceState</c> is what a client branches on, so it never has to parse the
+        ///   detail sentence.</para>
+        /// </summary>
+        internal static ObjectResult NotLoaded(String name) =>
+            ProblemResults.Create(StatusCodes.Status503ServiceUnavailable, "Namespace not loaded",
+                "The namespace \"" + name + "\" exists on this Fallen-8 but is not loaded in this " +
+                "process, so it cannot serve requests. Its data on disk is untouched. Load it with " +
+                "POST /ns/" + name + "/activate, or set its startup-load policy and restart.",
+                p =>
+                {
+                    p.Extensions["namespace"] = name;
+                    p.Extensions["namespaceState"] = "notLoaded";
+                });
     }
 }

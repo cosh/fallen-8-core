@@ -557,8 +557,16 @@ namespace NoSQL.GraphDB.App.Namespaces
                 return;
             }
 
+            // A namespace that is cataloged but not loaded has no engine to dispose (feature
+            // namespace-startup-load). Marked disposed anyway so the bookkeeping stays single-valued.
+            if (!ns.TryGetEngine(out var engine))
+            {
+                ns.EngineDisposed = true;
+                return;
+            }
+
             ns.EngineDisposed = true;
-            ns.Engine.Dispose();
+            engine.Dispose();
         }
 
         #endregion

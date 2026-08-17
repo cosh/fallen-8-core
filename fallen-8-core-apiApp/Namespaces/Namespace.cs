@@ -41,9 +41,19 @@ namespace NoSQL.GraphDB.App.Namespaces
         {
             Name = name;
             Id = id;
-            Engine = engine;
+            _engine = engine;
             CreatedAtUtc = createdAtUtc;
         }
+
+        /// <summary>
+        ///   Absent when this namespace is cataloged but not resident in this process (feature
+        ///   namespace-startup-load). Residency is a property of the ENTRY, never of collection
+        ///   membership: the catalog writer rebuilds its whole document from the collection it is
+        ///   handed, so a namespace that left the collection would have its catalog entry erased,
+        ///   its data directory stranded unreachable, and its name freed to be re-minted under a
+        ///   second id over real data.
+        /// </summary>
+        private readonly Fallen8 _engine;
 
         /// <summary>The unique, URL-addressable name (permissive; see <see cref="Fallen8Namespaces.IsValidName"/>); changed by rename.</summary>
         public String Name { get; internal set; }
@@ -51,8 +61,35 @@ namespace NoSQL.GraphDB.App.Namespaces
         /// <summary>The immutable collection-assigned id (e.g. <c>ns-20260723-101502-3f2a</c>).</summary>
         public String Id { get; }
 
-        /// <summary>The Fallen-8 engine that holds this namespace's graph.</summary>
-        public Fallen8 Engine { get; }
+        /// <summary>
+        ///   The Fallen-8 engine that holds this namespace's graph.
+        ///   <para>THROWS <see cref="NamespaceNotLoadedException"/> when the namespace is cataloged
+        ///   but not loaded in this process, rather than returning null. This repo has no
+        ///   nullable-reference analysis (no <c>&lt;Nullable&gt;</c> in Directory.Build.props or any
+        ///   csproj), so the compiler cannot point at the sites that must branch - which makes a
+        ///   throw the only fail-safe default. A site the sweep missed then fails diagnosably, and
+        ///   inside the shutdown save's per-namespace catch it means "skip", so a not-loaded
+        ///   namespace is never enqueued for a save that would overwrite its checkpoint with an
+        ///   empty graph and truncate its write-ahead log (spec §5). A null-returning property
+        ///   would reach the same skip by NullReferenceException, which is neither diagnosable nor
+        ///   mappable to a problem body.</para>
+        ///   <para>Branch with <see cref="IsLoaded"/> or <see cref="TryGetEngine"/>.</para>
+        /// </summary>
+        public Fallen8 Engine =>
+            _engine ?? throw new NamespaceNotLoadedException(Name);
+
+        /// <summary>Whether this namespace's engine is resident in this process.</summary>
+        public Boolean IsLoaded => _engine != null;
+
+        /// <summary>
+        ///   The engine if this namespace is loaded. The accessor for every site that must treat a
+        ///   not-loaded namespace as a normal, expected condition rather than an error.
+        /// </summary>
+        public Boolean TryGetEngine(out Fallen8 engine)
+        {
+            engine = _engine;
+            return engine != null;
+        }
 
         /// <summary>When the namespace was created (UTC).</summary>
         public DateTime CreatedAtUtc { get; }
