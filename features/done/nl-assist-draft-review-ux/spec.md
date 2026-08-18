@@ -77,6 +77,3 @@ is untouched, so the fine-tune corpus/consolidation contract is unaffected.
   delegate-editor NL panel today (Studio screenshots are per-screen; the editor is a modal), so
   no image is recaptured. No new root-README key-feature bullet: this refines an existing
   Studio feature rather than adding one.
-  > Superseded (2026-08-18), and only the screenshot sentence above: `screen-nl-assist.png` and
-  > `screen-delegate-editor.png` now do depict the panel. A modal is shootable after all, by
-  > cropping the frame to the dialog's own box. Every other decision in this section stands.
