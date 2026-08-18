@@ -20,7 +20,7 @@ return (v) => v.AnyPropertyValueMatches(s => s.Contains("Tech", StringComparison
 ```
 
 The user-facing story lives on the docs site's
-[Delegates page](https://cosh.github.io/fallen-8-core/delegates/) (accessor table +
+[Delegates page](https://docs.fallen-8.com/delegates/) (accessor table +
 troubleshooting). The NL-assist impact (new member on the fragment type surface, new
 scenario classes, prompt rule allowing predicate-argument lambdas) is logged as the
 2026-07-29 PENDING entry in [`nl-assist-finetune/RETRAIN-LOG.md`](../../../nl-assist-finetune/RETRAIN-LOG.md);

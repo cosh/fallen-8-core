@@ -4,13 +4,13 @@ description: "How the natural-language fragment assistant works, which models it
 ---
 
 Fallen-8 has no query language: a filter or a cost is a
-[C# fragment](/fallen-8-core/delegates/) compiled at runtime. That is powerful and it is also the
-steepest part of the learning curve, so [F8 Studio](/fallen-8-core/studio/) can draft a fragment from a
+[C# fragment](/delegates/) compiled at runtime. That is powerful and it is also the
+steepest part of the learning curve, so [F8 Studio](/studio/) can draft a fragment from a
 sentence like "only follow edges created in the last week". This page covers where those drafts come
 from, and how to produce a better model than the one that ships.
 
 The in-editor experience itself, the backend switch, the draft list and the review flow, is documented
-once on [F8 Studio](/fallen-8-core/studio/#nl-assist). Read that first if you just want to use it.
+once on [F8 Studio](/studio/#nl-assist). Read that first if you just want to use it.
 
 ## The models
 
@@ -25,7 +25,7 @@ fine-tunes specialised on the delegate contract:
 
 Fallen-8 ships **no weights**. The compose environment's Ollama sidecar pulls them on first start from
 the repositories named by `F8_DELEGATE_REPO` and `F8_PHI4F8_REPO`, so the models and their MIT licences
-bind whoever runs them ([running](/fallen-8-core/running/#first-start-pulls-models)). Until a fine-tune
+bind whoever runs them ([running](/running/#first-start-pulls-models)). Until a fine-tune
 exists in that Ollama, the default model 404s and the stock `phi4-mini` preset is the fallback.
 
 ## Why a fine-tune at all
@@ -41,7 +41,7 @@ build. Rows are templated from the live delegate contract (the type model, the s
 the dataset cannot drift away from the product without the drift guard noticing. Each row carries the
 *real* runtime prompt from Studio's own prompt module, so training matches the shipping prompt exactly
 rather than a Python re-encoding of it. Whole-type
-[plugin](/fallen-8-core/plugin-registration/) rows train alongside the fragment rows, compile-gated the
+[plugin](/plugin-registration/) rows train alongside the fragment rows, compile-gated the
 same way through `POST /plugins/{category}/validate`.
 
 ## The pipeline
@@ -117,8 +117,8 @@ fine-tune, that log is the list of things your model has not been trained for ye
 
 ## See also
 
-- [F8 Studio](/fallen-8-core/studio/#nl-assist): the assist panel, its backends, and the review flow
-- [Delegates](/fallen-8-core/delegates/): the fragment contract the model is trained against
-- [Semantic traversal](/fallen-8-core/semantic-traversal/): the chat gateway that serves instance-mode assist
-- [Running Fallen-8](/fallen-8-core/running/): the model sidecar, first-start pulls, and GPU acceleration
-- [Plugin registration](/fallen-8-core/plugin-registration/): the whole-type plugins assist can also draft
+- [F8 Studio](/studio/#nl-assist): the assist panel, its backends, and the review flow
+- [Delegates](/delegates/): the fragment contract the model is trained against
+- [Semantic traversal](/semantic-traversal/): the chat gateway that serves instance-mode assist
+- [Running Fallen-8](/running/): the model sidecar, first-start pulls, and GPU acceleration
+- [Plugin registration](/plugin-registration/): the whole-type plugins assist can also draft

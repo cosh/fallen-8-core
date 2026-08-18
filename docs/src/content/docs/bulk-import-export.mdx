@@ -14,7 +14,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 | `GET` | `/bulk/export` | response `application/x-ndjson` | Stream the graph as JSONL |
 | `POST` | `/bulk/import` | request `application/x-ndjson` | Load a JSONL file into an empty graph |
 
-`GET /bulk/export` takes optional query parameters, all exact-match: `vertexLabel` and `edgeLabel` filter by label, `edgePropertyId` filters edges by their type (it combines with `edgeLabel` as AND, [edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)). Both endpoints are per-namespace like every data route: a bare URL addresses `default`, `/ns/{name}/bulk/…` addresses a named graph ([namespaces](/fallen-8-core/namespaces/)). Both sit behind the standard API-key fallback policy ([security](/fallen-8-core/security/)).
+`GET /bulk/export` takes optional query parameters, all exact-match: `vertexLabel` and `edgeLabel` filter by label, `edgePropertyId` filters edges by their type (it combines with `edgeLabel` as AND, [edge type vs label](/graph-model/#edge-type-vs-label)). Both endpoints are per-namespace like every data route: a bare URL addresses `default`, `/ns/{name}/bulk/…` addresses a named graph ([namespaces](/namespaces/)). Both sit behind the standard API-key fallback policy ([security](/security/)).
 
 | Endpoint | Status | Meaning |
 |---|---|---|
@@ -54,12 +54,12 @@ A freshly exported meta line also carries an informational `"exportedAtUtc"` (IS
 | `label` | vertex, edge | no | The element label; may be null or omitted |
 | `creationDate` | vertex, edge | yes | The `UInt32` Unix timestamp the model stores. There is no server-side default, so a hand-written line must carry one; it is preserved on import (`modificationDate` is not carried) |
 | `properties` | vertex, edge | no | Object of `key → {type, value}`; omit or leave empty for none |
-| `edgePropertyId` | edge | yes | A non-empty string: the edge's type, which is the adjacency-list key ([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)) |
+| `edgePropertyId` | edge | yes | A non-empty string: the edge's type, which is the adjacency-list key ([edge type vs label](/graph-model/#edge-type-vs-label)) |
 | `source`, `target` | edge | yes | File `id`s of the endpoint vertices |
 
 ### Typed property values
 
-Each property is `{"type": "<name>", "value": "<string>"}`. Export emits the full type name (`System.Int32`) and an invariant-culture string; import resolves the [same closed allow-list of 18 primitive types](/fallen-8-core/graph-model/) (case-insensitive, aliases accepted). Encoding the value as a typed string rather than a raw JSON value is what makes it round-trip **CLR-type-exactly**: `Int64` past 2^53, `Decimal` scale, `Single` vs `Double`, and sub-second `DateTime` ticks all survive.
+Each property is `{"type": "<name>", "value": "<string>"}`. Export emits the full type name (`System.Int32`) and an invariant-culture string; import resolves the [same closed allow-list of 18 primitive types](/graph-model/) (case-insensitive, aliases accepted). Encoding the value as a typed string rather than a raw JSON value is what makes it round-trip **CLR-type-exactly**: `Int64` past 2^53, `Decimal` scale, `Single` vs `Double`, and sub-second `DateTime` ticks all survive.
 
 | Type(s) | Value string |
 |---|---|
@@ -73,13 +73,13 @@ Each property is `{"type": "<name>", "value": "<string>"}`. Export emits the ful
 | `Guid` | `"D"` |
 | `System.Single[]` | comma-joined `"R"` floats; an empty array is the empty string |
 
-`System.Single[]` is the one non-scalar type (added in format version 2). It carries **element embeddings**: a named embedding lives on the reserved property `$embedding:<name>`, e.g. `"$embedding:default":{"type":"System.Single[]","value":"-0.02936,0.02324,…"}`. A provider-generated vector travels with a second reserved property next to it, `$embeddingModel:<name>`, a plain `System.String` recording the model identity (e.g. `"bge-m3#1024#Cosine"`); it exports and imports like any other property, so a moved file keeps the record of which model produced its vectors. What an embedding is, how traversal reads it, and what that identity is checked against: [semantic traversal](/fallen-8-core/semantic-traversal/).
+`System.Single[]` is the one non-scalar type (added in format version 2). It carries **element embeddings**: a named embedding lives on the reserved property `$embedding:<name>`, e.g. `"$embedding:default":{"type":"System.Single[]","value":"-0.02936,0.02324,…"}`. A provider-generated vector travels with a second reserved property next to it, `$embeddingModel:<name>`, a plain `System.String` recording the model identity (e.g. `"bge-m3#1024#Cosine"`); it exports and imports like any other property, so a moved file keeps the record of which model produced its vectors. What an embedding is, how traversal reads it, and what that identity is checked against: [semantic traversal](/semantic-traversal/).
 
 ## Export
 
 Export takes two back-to-back point-in-time reads of the lock-free store (vertices, then edges), validates every property up front, then streams. An edge whose source or target vertex is not in the exported set is **omitted**, so every exported file is internally consistent and importable by construction, neither a label filter nor a concurrent write can produce a dangling edge line.
 
-**Consistency (honest).** This is data interchange, not a crash-consistent backup. Reads are lock-free, so a write committed *during* the export may or may not appear. The guarantee is exactly: the file is internally consistent, and everything committed before the export began is present (subject to the label filters). For a point-in-time snapshot, quiesce writes or take a [checkpoint](/fallen-8-core/save-games/).
+**Consistency (honest).** This is data interchange, not a crash-consistent backup. Reads are lock-free, so a write committed *during* the export may or may not appear. The guarantee is exactly: the file is internally consistent, and everything committed before the export began is present (subject to the label filters). For a point-in-time snapshot, quiesce writes or take a [checkpoint](/save-games/).
 
 **Fidelity refusal.** If any element carries a null property value or a value whose CLR type is outside the allow-list (reachable only via the library/plugin API, never the REST write path), the whole export fails with `422` naming the element and property, before the `200` status line, so a failed export is never a half-written file. An allow-listed type is not on its own enough: a `String` or `Char` holding invalid UTF-16 (an unpaired surrogate, which the JSON writer would silently replace with U+FFFD) is refused the same way, and the problem body names that cause rather than blaming the allow-list. A non-exportable property that a concurrent writer adds *mid-stream* is instead silently omitted from its element, consistent with the consistency contract above.
 
@@ -136,7 +136,7 @@ Invoke-RestMethod -Method Post http://localhost:8080/bulk/import `
 
 Because the file is plain JSONL, `grep`/`jq` slice it directly, just drop the meta line so its counts cannot go stale: `tail -n +2 graph.jsonl | grep '"label":"member"' > members.jsonl`.
 
-F8 Studio drives both endpoints from the **interchange (jsonl)** block on the Save games screen, with the same label and edge-type filters on export ([studio](/fallen-8-core/studio/)).
+F8 Studio drives both endpoints from the **interchange (jsonl)** block on the Save games screen, with the same label and edge-type filters on export ([studio](/studio/)).
 
 ## Configuration
 
@@ -154,17 +154,17 @@ Non-positive `ImportBatchSize`/`MaxLineBytes` values reset to their defaults.
 
 The file carries graph **elements only**: vertices, edges, and their properties. Indexes, subgraph definitions, stored queries, and save-game metadata are not exported, recreate them through their own endpoints after import.
 
-Two details make that more than a formality on the index side. A restore normally starts from zero indexes, because `HEAD /tabularasa` drops every index *definition*, not just its entries. And re-creating a key-based index (dictionary, single-value, range, regex) does not restore its content: it comes up empty and has to be refilled with `PUT /index/{indexId}`, one element and key at a time ([indexes](/fallen-8-core/indexes/)). The one index that needs nothing is a `VectorIndex` bound to an embedding name: it projects itself from the imported `$embedding:<name>` properties at creation time.
+Two details make that more than a formality on the index side. A restore normally starts from zero indexes, because `HEAD /tabularasa` drops every index *definition*, not just its entries. And re-creating a key-based index (dictionary, single-value, range, regex) does not restore its content: it comes up empty and has to be refilled with `PUT /index/{indexId}`, one element and key at a time ([indexes](/indexes/)). The one index that needs nothing is a `VectorIndex` bound to an embedding name: it projects itself from the imported `$embedding:<name>` properties at creation time.
 
-For durable point-in-time backups of a running instance, use checkpoints instead ([save games](/fallen-8-core/save-games/)).
+For durable point-in-time backups of a running instance, use checkpoints instead ([save games](/save-games/)).
 
 ## See also
 
-- [Graph model](/fallen-8-core/graph-model/): elements, properties, and the property type allow-list
-- [Namespaces](/fallen-8-core/namespaces/): the `/ns/{name}/…` routing these endpoints follow
-- [Save games](/fallen-8-core/save-games/): checkpoints, the write-ahead log, the other durability path
-- [Indexes](/fallen-8-core/indexes/): what an import does *not* rebuild, and how to refill it
-- [Studio](/fallen-8-core/studio/): the interchange (jsonl) block that drives both endpoints from the UI
-- [Semantic traversal](/fallen-8-core/semantic-traversal/): element embeddings, carried here as `System.Single[]`
-- [Security](/fallen-8-core/security/): the API key that gates both endpoints
-- [Samples](/fallen-8-core/samples/): the bundled sample datasets ship in this format
+- [Graph model](/graph-model/): elements, properties, and the property type allow-list
+- [Namespaces](/namespaces/): the `/ns/{name}/…` routing these endpoints follow
+- [Save games](/save-games/): checkpoints, the write-ahead log, the other durability path
+- [Indexes](/indexes/): what an import does *not* rebuild, and how to refill it
+- [Studio](/studio/): the interchange (jsonl) block that drives both endpoints from the UI
+- [Semantic traversal](/semantic-traversal/): element embeddings, carried here as `System.Single[]`
+- [Security](/security/): the API key that gates both endpoints
+- [Samples](/samples/): the bundled sample datasets ship in this format

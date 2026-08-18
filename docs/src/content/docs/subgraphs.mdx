@@ -5,13 +5,13 @@ description: "Extract a pattern-matched subset as a standalone graph, recalculat
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-A subgraph is a pattern-matched subset of a graph, extracted into a new, **standalone Fallen-8 graph** (its own engine instance) that you read, analyze, nest, and persist independently of its source. You give it optional vertex/edge pre-filters and an ordered, alternating vertex ↔ edge pattern; the engine keeps only the elements that lie on a matching path and prunes everything else. As everywhere in Fallen-8, there is no query language: every filter is a C# delegate ([delegates](/fallen-8-core/delegates/)), a code-free semantic threshold, or a stored template.
+A subgraph is a pattern-matched subset of a graph, extracted into a new, **standalone Fallen-8 graph** (its own engine instance) that you read, analyze, nest, and persist independently of its source. You give it optional vertex/edge pre-filters and an ordered, alternating vertex ↔ edge pattern; the engine keeps only the elements that lie on a matching path and prunes everything else. As everywhere in Fallen-8, there is no query language: every filter is a C# delegate ([delegates](/delegates/)), a code-free semantic threshold, or a stored template.
 
 ![A subgraph extracted from a source graph by matching a person-knows-person pattern; the company vertex and works_at edge are pruned.](../../assets/pics/subgraph-illustration.svg)
 
 ## How extraction works
 
-Extraction runs the `Breadth First Search Subgraph Algorithm` plugin ([plugins](/fallen-8-core/plugins/)). `PUT /subgraph` carries no algorithm parameter, so it is the only subgraph algorithm reachable over REST; picking a different `ISubGraphAlgorithm` needs the embedded engine. The run has three phases:
+Extraction runs the `Breadth First Search Subgraph Algorithm` plugin ([plugins](/plugins/)). `PUT /subgraph` carries no algorithm parameter, so it is the only subgraph algorithm reachable over REST; picking a different `ISubGraphAlgorithm` needs the embedded engine. The run has three phases:
 
 1. **Copy vertices** matching the top-level `vertexFilter` (or all vertices, if omitted) into a fresh graph.
 2. **Copy edges** matching the top-level `edgeFilter` (or all), but only where *both* endpoints were copied in phase 1.
@@ -21,7 +21,7 @@ If `patterns` is empty, the copied elements (phases 1 to 2) are the result, unpr
 
 ## REST surface
 
-The bare paths below target the `default` namespace and also answer under `/ns/{ns}/…` ([namespaces](/fallen-8-core/namespaces/)).
+The bare paths below target the `default` namespace and also answer under `/ns/{ns}/…` ([namespaces](/namespaces/)).
 
 | Route | Effect | Notable responses |
 |---|---|---|
@@ -32,7 +32,7 @@ The bare paths below target the `default` namespace and also answer under `/ns/{
 | `POST /subgraph/{name}/recalculate` | Re-extract against the current source | `200` summary · `404` · `409` not recalculable |
 | `DELETE /subgraph/{name}` | Deregister | `204` · `404` · `500` |
 
-**Gating:** dynamic code execution is always on, so a request carrying inline fragments just needs the credential when a key is configured ([security](/fallen-8-core/security/)); a stored-query reference and the pure-data `semantic` block introduce no code either way.
+**Gating:** dynamic code execution is always on, so a request carrying inline fragments just needs the credential when a key is configured ([security](/security/)); a stored-query reference and the pure-data `semantic` block introduce no code either way.
 
 **Top-level body fields:** `name` (required, the name it is registered under), the optional `vertexFilter` / `edgeFilter` pre-filters, `patterns`, and the code-free `storedQuery` / `semantic` alternatives (all four described below), plus `additionalInformation`, a string→string metadata map stored on the definition, persisted in the recipe, and echoed on every summary.
 
@@ -51,7 +51,7 @@ The bare paths below target the `default` namespace and also answer under `/ns/{
 | `edgeFilter` | edge | Fragment over the edge |
 | `minLength` / `maxLength` | `VariableLengthEdge` | Hop range, inclusive (both default 1). A `maxLength` above 100, or a `minLength` greater than `maxLength`, is `400` |
 
-The filter slots (plus the top-level `vertexFilter` / `edgeFilter` pre-filters) compile to these delegate types. Each fragment is a `return` statement over a single-parameter lambda; the full contract (parameter members, property access, the semantic `context`) lives in [delegates](/fallen-8-core/delegates/).
+The filter slots (plus the top-level `vertexFilter` / `edgeFilter` pre-filters) compile to these delegate types. Each fragment is a `return` statement over a single-parameter lambda; the full contract (parameter members, property access, the semantic `context`) lives in [delegates](/delegates/).
 
 | Slot | Delegate | Fragment |
 |---|---|---|
@@ -63,7 +63,7 @@ An omitted or empty fragment matches everything.
 
 **Variable-length semantics:** the edge filters apply to *every* hop, but the vertex pattern following a variable-length edge constrains only the **terminal** vertex of the matched path, intermediate vertices are unconstrained. Model an intermediate-vertex constraint with explicit fixed-length edge/vertex pairs instead.
 
-**Code-free alternatives:** invoke a registered subgraph template with `"storedQuery": "<name>"` in place of all inline fragments ([stored queries](/fallen-8-core/stored-queries/)); or add a `semantic` block that scores vertices by embedding similarity, `minScore` is a code-free top-level vertex pre-filter and per-step `semanticMinScore` is its pattern-level twin ([semantic traversal](/fallen-8-core/semantic-traversal/)). Each is mutually exclusive with the fragments it replaces, and the two are mutually exclusive with each other: a `semantic` block on a `storedQuery` invocation is `400`, because a stored template's delegates are pinned at registration. Inline the filters when you need a fresh query vector.
+**Code-free alternatives:** invoke a registered subgraph template with `"storedQuery": "<name>"` in place of all inline fragments ([stored queries](/stored-queries/)); or add a `semantic` block that scores vertices by embedding similarity, `minScore` is a code-free top-level vertex pre-filter and per-step `semanticMinScore` is its pattern-level twin ([semantic traversal](/semantic-traversal/)). Each is mutually exclusive with the fragments it replaces, and the two are mutually exclusive with each other: a `semantic` block on a `storedQuery` invocation is `400`, because a stored template's delegates are pinned at registration. Inline the filters when you need a fresh query vector.
 
 ## Worked example
 
@@ -145,18 +145,18 @@ Ids are the subgraph's own, not the source's.
 
 - **Recalculate** (`POST …/recalculate`) re-runs the extraction against the **current** state of the source and swaps in the fresh result; the subgraph's id and name are preserved, its contents fully replaced. Only a subgraph that retains its source and algorithm (`canRecalculate: true`: every subgraph created over REST) can be recalculated; a subgraph registered directly from delegates in the embedded engine cannot (`409`).
 - **Nesting**: with `?fromSubGraph=<parent>` the source is another subgraph, so the pattern runs over the parent's extracted graph. The dependency is tracked, so the whole tree rebuilds in dependency order on load. `POST …/recalculate` does **not** cascade: it refreshes only the named subgraph. Recalculating a parent therefore leaves its children's contents untouched, but a child is re-bound to the parent's new extraction, so recalculating the child afterwards reads the parent's current contents rather than a discarded instance.
-- **Persistence**: every REST-created subgraph attaches a recipe (its materialized specification) that survives `PUT /save`/load and write-ahead-log crash recovery, rebuilt against the current graph in dependency order ([save games](/fallen-8-core/save-games/)). Subgraphs created directly from delegates have no recipe and are not persisted.
+- **Persistence**: every REST-created subgraph attaches a recipe (its materialized specification) that survives `PUT /save`/load and write-ahead-log crash recovery, rebuilt against the current graph in dependency order ([save games](/save-games/)). Subgraphs created directly from delegates have no recipe and are not persisted.
 
 **Limits** (per namespace, fixed): 1024 subgraphs, 10,000,000 elements per subgraph, and 25,000,000 elements summed across all subgraphs. A breach answers `409`. All three are checked when a subgraph is created, when a recipe is rehydrated on load, and on `POST …/recalculate`: a refresh whose fresh extraction would breach a ceiling answers `409` and the subgraph keeps its previous, in-quota contents, so it goes stale rather than over budget.
 
 ## See also
 
-- [Delegates](/fallen-8-core/delegates/): the no-query-language model, fragment shape, compilation, validation
-- [Stored queries](/fallen-8-core/stored-queries/): register a subgraph template once, invoke by name with no code
-- [Semantic traversal](/fallen-8-core/semantic-traversal/): the `semantic` block and score thresholds
-- [Security](/fallen-8-core/security/): the API key that gates access to these always-on code endpoints
-- [Save games](/fallen-8-core/save-games/): checkpoints, the write-ahead log, and rebuild-on-load
-- [Namespaces](/fallen-8-core/namespaces/): per-namespace isolation and the `/ns/{ns}/…` route twins
-- [Graph model](/fallen-8-core/graph-model/): vertices, edges, properties, and transactions
-- [Plugins](/fallen-8-core/plugins/): the subgraph algorithm plugin system
-- [REST API](/fallen-8-core/rest-api/): the OpenAPI document and Scalar reference
+- [Delegates](/delegates/): the no-query-language model, fragment shape, compilation, validation
+- [Stored queries](/stored-queries/): register a subgraph template once, invoke by name with no code
+- [Semantic traversal](/semantic-traversal/): the `semantic` block and score thresholds
+- [Security](/security/): the API key that gates access to these always-on code endpoints
+- [Save games](/save-games/): checkpoints, the write-ahead log, and rebuild-on-load
+- [Namespaces](/namespaces/): per-namespace isolation and the `/ns/{ns}/…` route twins
+- [Graph model](/graph-model/): vertices, edges, properties, and transactions
+- [Plugins](/plugins/): the subgraph algorithm plugin system
+- [REST API](/rest-api/): the OpenAPI document and Scalar reference

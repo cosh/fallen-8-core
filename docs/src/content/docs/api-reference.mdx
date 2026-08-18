@@ -8,13 +8,13 @@ import ScalarApiReference from '../../components/ScalarApiReference.astro';
 Every operation Fallen-8's controllers expose, rendered from its OpenAPI document. The health
 probes and the Prometheus scrape endpoint (`GET /healthz`, `GET /readyz`, `GET /metrics`) are
 mapped outside MVC and so never enter that document; they are documented on
-[Observability](/fallen-8-core/observability/). For the versioning scheme, authentication, and an
-endpoint map with prose, see [REST API](/fallen-8-core/rest-api/).
+[Observability](/observability/). For the versioning scheme, authentication, and an
+endpoint map with prose, see [REST API](/rest-api/).
 
 The document is exported while this site is built, so it describes the contract rather than a
 reachable instance: its server list records the export host, and the default deny-all CORS policy blocks a browser call
-from this site to your own server ([Security](/fallen-8-core/security/)). To send real requests,
+from this site to your own server ([Security](/security/)). To send real requests,
 run the app and use its bundled Scalar UI at `/scalar/v0.1` (Development only). The raw document
-is published at [openapi/v0.1.json](https://cosh.github.io/fallen-8-core/openapi/v0.1.json).
+is published at [openapi/v0.1.json](https://docs.fallen-8.com/openapi/v0.1.json).
 
 <ScalarApiReference />

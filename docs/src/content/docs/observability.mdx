@@ -7,7 +7,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 Observability in Fallen-8 has two sides, and this page covers both. The **producer side** makes one process observable: the engine and app emit metrics and traces, expose a graph-shape snapshot and health probes, and can push everything over OTLP. The **[fleet side](#fleet-observability)** (further down) is the consumer that collects what many instances push into a single Grafana pane.
 
-Fallen-8 emits metrics and traces through BCL instruments (`System.Diagnostics.Metrics` meters and an `ActivitySource`), so the engine carries **no OpenTelemetry dependency**. The server wires OpenTelemetry only when you configure an exporter: a default configuration runs **zero OTel code paths**, and with no listener attached every hot-path clock read and `StartActivity` call is skipped. Three surfaces are always available regardless of that wiring: `GET /statistics` (a graph-shape snapshot), `GET /status` (a cheap discovery probe), and the `GET /healthz` / `GET /readyz` health probes. Two more are opt-in: the Prometheus scrape endpoint `GET /metrics` and OTLP export of metrics, traces and logs. [F8 Studio](/fallen-8-core/studio/) surfaces the configured posture read-only in its Connect **Configuration** section: whether OTLP/Prometheus are on and the OTLP endpoint telemetry is pushed to (sourced from `GET /config`).
+Fallen-8 emits metrics and traces through BCL instruments (`System.Diagnostics.Metrics` meters and an `ActivitySource`), so the engine carries **no OpenTelemetry dependency**. The server wires OpenTelemetry only when you configure an exporter: a default configuration runs **zero OTel code paths**, and with no listener attached every hot-path clock read and `StartActivity` call is skipped. Three surfaces are always available regardless of that wiring: `GET /statistics` (a graph-shape snapshot), `GET /status` (a cheap discovery probe), and the `GET /healthz` / `GET /readyz` health probes. Two more are opt-in: the Prometheus scrape endpoint `GET /metrics` and OTLP export of metrics, traces and logs. [F8 Studio](/studio/) surfaces the configured posture read-only in its Connect **Configuration** section: whether OTLP/Prometheus are on and the OTLP endpoint telemetry is pushed to (sourced from `GET /config`).
 
 ## Turning it on
 
@@ -28,7 +28,7 @@ An OTel pipeline is registered only when `Prometheus:Enabled` is true **or** `Ot
 
 ## GET /metrics (Prometheus)
 
-Mapped only when `Prometheus:Enabled=true`. **Anonymous by default**: the inventory carries aggregate operational numbers only (no user-supplied strings), the same sensitivity as `/status`. Set `Prometheus:RequireApiKey=true` to gate it with the API key; note that requirement only bites when `Fallen8:Security:ApiKey` is actually configured (see [security](/fallen-8-core/security/)). The exporter mangles instrument names to Prometheus conventions: dots become underscores, the instrument's unit is appended (`s` becomes `_seconds`, `By` becomes `_bytes`; a brace annotation such as `{transaction}` is not a real unit and adds nothing), and counters gain `_total`. So `fallen8.transaction.commit.duration` is scraped as `fallen8_transaction_commit_duration_seconds`, `fallen8.wal.size` as `fallen8_wal_size_bytes`, and `fallen8.transaction.rollbacks` as `fallen8_transaction_rollbacks_total`. The [fleet](#fleet-observability) collector deliberately switches the suffixes off (`add_metric_suffixes: false`), so PromQL against the fleet Prometheus, including the provisioned dashboards, uses the unsuffixed names instead.
+Mapped only when `Prometheus:Enabled=true`. **Anonymous by default**: the inventory carries aggregate operational numbers only (no user-supplied strings), the same sensitivity as `/status`. Set `Prometheus:RequireApiKey=true` to gate it with the API key; note that requirement only bites when `Fallen8:Security:ApiKey` is actually configured (see [security](/security/)). The exporter mangles instrument names to Prometheus conventions: dots become underscores, the instrument's unit is appended (`s` becomes `_seconds`, `By` becomes `_bytes`; a brace annotation such as `{transaction}` is not a real unit and adds nothing), and counters gain `_total`. So `fallen8.transaction.commit.duration` is scraped as `fallen8_transaction_commit_duration_seconds`, `fallen8.wal.size` as `fallen8_wal_size_bytes`, and `fallen8.transaction.rollbacks` as `fallen8_transaction_rollbacks_total`. The [fleet](#fleet-observability) collector deliberately switches the suffixes off (`add_metric_suffixes: false`), so PromQL against the fleet Prometheus, including the provisioned dashboards, uses the unsuffixed names instead.
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -47,7 +47,7 @@ Invoke-RestMethod -Uri http://localhost:8080/metrics
 </TabItem>
 </Tabs>
 
-**Engine meter `NoSQL.GraphDB.Core`** (per-engine; a host-assigned `fallen8.scope.id` tag carries the namespace id so several namespaces stay distinguishable; durations in seconds, sizes in bytes). Per-engine means per **loaded** namespace: one the boot did not load has no engine and therefore emits none of these instruments, while still appearing in `GET /ns` ([namespaces](/fallen-8-core/namespaces/#startup-load)):
+**Engine meter `NoSQL.GraphDB.Core`** (per-engine; a host-assigned `fallen8.scope.id` tag carries the namespace id so several namespaces stay distinguishable; durations in seconds, sizes in bytes). Per-engine means per **loaded** namespace: one the boot did not load has no engine and therefore emits none of these instruments, while still appearing in `GET /ns` ([namespaces](/namespaces/#startup-load)):
 
 | Instrument | Type | Meaning |
 |---|---|---|
@@ -66,7 +66,7 @@ Invoke-RestMethod -Uri http://localhost:8080/metrics
 | `fallen8.graph.vertices` / `.edges` | Gauge | Live element counts. |
 | `fallen8.index.count` / `.entries` | Gauge | Registered indices; total keys across all indices (aggregate; per-index detail is `/statistics`' job). |
 
-**App meter `NoSQL.GraphDB.App`** (process-wide; the Roslyn codegen signals, see [delegates](/fallen-8-core/delegates/)):
+**App meter `NoSQL.GraphDB.App`** (process-wide; the Roslyn codegen signals, see [delegates](/delegates/)):
 
 | Instrument | Type | Meaning |
 |---|---|---|
@@ -112,7 +112,7 @@ Spans exist only when `Otlp:Endpoint` is set: with no endpoint no sampler listen
 
 An **advisory**, lock-free graph-shape snapshot: reads run concurrent with the writer, so it is not transactionally consistent. Always available (no OTel wiring required). Requires the API key when one is configured (it exposes schema-shaped names) and sits under the sensitive fixed-window rate limiter so a runaway scrape loop cannot turn an O(V+E) pass into a DoS.
 
-It describes the addressed namespace and also answers under `/ns/{ns}/statistics` ([namespaces](/fallen-8-core/namespaces/)), so the bare URL below is the reserved `default` graph. A namespace this process did not load refuses it with `503`, like every namespace-scoped route except `/status`. Counts, cardinalities and the index inventory are per-namespace; the `memory` block is process-wide.
+It describes the addressed namespace and also answers under `/ns/{ns}/statistics` ([namespaces](/namespaces/)), so the bare URL below is the reserved `default` graph. A namespace this process did not load refuses it with `503`, like every namespace-scoped route except `/status`. Counts, cardinalities and the index inventory are per-namespace; the `memory` block is process-wide.
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -147,16 +147,16 @@ Invoke-RestMethod -Uri http://localhost:8080/statistics -Headers @{ "X-Api-Key" 
 
 ## GET /status
 
-The cheap discovery probe: config and O(1) count reads plus, only when the ingestion / NLP capabilities are on, a `GET /health` probe of each sidecar (cached for 30s, 5s budget). Never a graph pass. Anonymous even when an API key is set, so it doubles as the connection check. Like `/statistics` it describes the addressed namespace and answers under `/ns/{ns}/status` too ([namespaces](/fallen-8-core/namespaces/)): the counts and the index inventory are per-namespace, `usedMemory` is the whole process's working set. Reports:
+The cheap discovery probe: config and O(1) count reads plus, only when the ingestion / NLP capabilities are on, a `GET /health` probe of each sidecar (cached for 30s, 5s budget). Never a graph pass. Anonymous even when an API key is set, so it doubles as the connection check. Like `/statistics` it describes the addressed namespace and answers under `/ns/{ns}/status` too ([namespaces](/namespaces/)): the counts and the index inventory are per-namespace, `usedMemory` is the whole process's working set. Reports:
 
 - `usedMemory`, `vertexCount`, `edgeCount`.
-- `namespaceState`: the addressed namespace's residency, `ready` or `notLoaded`. This is the **only** namespace-scoped route that still answers for a namespace this process did not load ([namespaces](/fallen-8-core/namespaces/#startup-load)); every other one refuses with `503`. In that state every engine-derived field below is absent (`null`) rather than zero or empty, counts and index inventory included, because a zero count reads as "healthy and empty" both to a first-run walkthrough and to a client that deletes what nothing asserts any more. The host-level half (memory, `apiKeyRequired`/`authenticated`, the provider blocks) is reported as usual, which is what keeps the probe usable.
+- `namespaceState`: the addressed namespace's residency, `ready` or `notLoaded`. This is the **only** namespace-scoped route that still answers for a namespace this process did not load ([namespaces](/namespaces/#startup-load)); every other one refuses with `503`. In that state every engine-derived field below is absent (`null`) rather than zero or empty, counts and index inventory included, because a zero count reads as "healthy and empty" both to a first-run walkthrough and to a client that deletes what nothing asserts any more. The host-level half (memory, `apiKeyRequired`/`authenticated`, the provider blocks) is reported as usual, which is what keeps the probe usable.
 - `indices`: the live index inventory (id, plugin type, capabilities, key/value counts; a count is `null` when the index does not support counting).
-- `availableIndexPlugins`, `availablePathPlugins`, `availableSubGraphPlugins`, `availableAnalyticsPlugins`, `availableServicePlugins`: the discovered [plugins](/fallen-8-core/plugins/). The path, subgraph and analytics lists also carry this namespace's runtime-registered plugins, so a registered algorithm is discoverable here even where it is not invocable: what each contract can actually be called with is in [plugin registration](/fallen-8-core/plugin-registration/).
-- `apiKeyRequired` (server config) and `authenticated` (this request): a client is authorized iff `!apiKeyRequired || authenticated` (see [security](/fallen-8-core/security/)).
-- `embedding`: the embedding provider state; reading it never triggers the lazy model load. `chat` is the chat gateway's state. Both: see [semantic traversal](/fallen-8-core/semantic-traversal/).
-- `ingestion` and `nlp`: the document-ingestion and entity-enrichment capability state (flags, accepted formats, sidecar reachability, enforced limits), the block Studio gates its upload UI on. Field by field in [unstructured ingestion](/fallen-8-core/unstructured-ingestion/).
-- `durability`: `walEnabled`, `degraded`, `recoveryRan`, `lastRecoveryTruncated`, `lastRecoveryReplayedEntries`, `lastCheckpointDroppedIndices`. This is the same degraded state as the `fallen8.wal.degraded` gauge above, plus the two facts no gauge carries (a truncated replay and a checkpoint that dropped indexes) - and it needs no OTel wiring, so an anonymous probe can ask "is what I just wrote actually durable" with nothing configured. What each field means: [save games](/fallen-8-core/save-games/).
+- `availableIndexPlugins`, `availablePathPlugins`, `availableSubGraphPlugins`, `availableAnalyticsPlugins`, `availableServicePlugins`: the discovered [plugins](/plugins/). The path, subgraph and analytics lists also carry this namespace's runtime-registered plugins, so a registered algorithm is discoverable here even where it is not invocable: what each contract can actually be called with is in [plugin registration](/plugin-registration/).
+- `apiKeyRequired` (server config) and `authenticated` (this request): a client is authorized iff `!apiKeyRequired || authenticated` (see [security](/security/)).
+- `embedding`: the embedding provider state; reading it never triggers the lazy model load. `chat` is the chat gateway's state. Both: see [semantic traversal](/semantic-traversal/).
+- `ingestion` and `nlp`: the document-ingestion and entity-enrichment capability state (flags, accepted formats, sidecar reachability, enforced limits), the block Studio gates its upload UI on. Field by field in [unstructured ingestion](/unstructured-ingestion/).
+- `durability`: `walEnabled`, `degraded`, `recoveryRan`, `lastRecoveryTruncated`, `lastRecoveryReplayedEntries`, `lastCheckpointDroppedIndices`. This is the same degraded state as the `fallen8.wal.degraded` gauge above, plus the two facts no gauge carries (a truncated replay and a checkpoint that dropped indexes) - and it needs no OTel wiring, so an anonymous probe can ask "is what I just wrote actually durable" with nothing configured. What each field means: [save games](/save-games/).
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -194,7 +194,7 @@ When an exporter is enabled the cost is noise-level: recording a handful of coun
 
 Everything above makes one Fallen-8 process observable. Fleet observability is the **consumer** side: one place that collects the OpenTelemetry data many Fallen-8 instances push, keyed by tenant, instance, and namespace, and presents it in a single Grafana pane. It comes up with `npm run env:up`, so a first-time user sees metrics, traces, and logs immediately.
 
-Fleet observability itself spans both roles. On the **producer** side each apiApp and [MCP server](/fallen-8-core/mcp-server/) stamps a fleet identity on every signal and adds the per-action signals a fleet dashboard needs. On the **consumer** side a small stack (OpenTelemetry Collector, Prometheus, Tempo, Loki, Grafana) ingests the push and renders it.
+Fleet observability itself spans both roles. On the **producer** side each apiApp and [MCP server](/mcp-server/) stamps a fleet identity on every signal and adds the per-action signals a fleet dashboard needs. On the **consumer** side a small stack (OpenTelemetry Collector, Prometheus, Tempo, Loki, Grafana) ingests the push and renders it.
 
 ### The identity model
 
@@ -272,12 +272,12 @@ Reconfiguration is environment config applied on `env:up` (the pipeline wires at
 
 ## See also
 
-- [Security](/fallen-8-core/security/): whether `/metrics` and `/statistics` require the API key, the rate limiter that guards `/statistics`, and the deployment postures
-- [Save games](/fallen-8-core/save-games/): what the WAL / checkpoint / degraded-durability metrics mean
-- [Delegates](/fallen-8-core/delegates/): the codegen cache the `fallen8.codegen.*` metrics track
-- [Semantic traversal](/fallen-8-core/semantic-traversal/): the `embedding` block on `/status` and `/statistics`
-- [MCP server](/fallen-8-core/mcp-server/): the per-tool telemetry source for the fleet
-- [Running Fallen-8](/fallen-8-core/running/): configuring the server and compose, and the one-command fleet environment
-- [REST API](/fallen-8-core/rest-api/): the full endpoint surface
-- [Studio](/fallen-8-core/studio/): the dashboard that reads `/status` and `/statistics`
-- [Architecture](/fallen-8-core/architecture/): how the observability stack fits the whole
+- [Security](/security/): whether `/metrics` and `/statistics` require the API key, the rate limiter that guards `/statistics`, and the deployment postures
+- [Save games](/save-games/): what the WAL / checkpoint / degraded-durability metrics mean
+- [Delegates](/delegates/): the codegen cache the `fallen8.codegen.*` metrics track
+- [Semantic traversal](/semantic-traversal/): the `embedding` block on `/status` and `/statistics`
+- [MCP server](/mcp-server/): the per-tool telemetry source for the fleet
+- [Running Fallen-8](/running/): configuring the server and compose, and the one-command fleet environment
+- [REST API](/rest-api/): the full endpoint surface
+- [Studio](/studio/): the dashboard that reads `/status` and `/statistics`
+- [Architecture](/architecture/): how the observability stack fits the whole

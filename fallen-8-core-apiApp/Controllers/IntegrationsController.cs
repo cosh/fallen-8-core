@@ -115,7 +115,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// data, so adding an integration needs no client change.
         /// <para>The response body is the RUNTIME's own contract and is deliberately untyped here, so
         /// there is exactly one definition of it: see
-        /// https://cosh.github.io/fallen-8-core/integrations/. A provider is C# compiled into the
+        /// https://docs.fallen-8.com/integrations/. A provider is C# compiled into the
         /// runtime, so this list changes only when that deployable does.</para></remarks>
         /// <response code="200">The provider catalog, as the runtime describes it</response>
         /// <response code="400">The runtime refused the request, its own message saying why</response>
@@ -152,7 +152,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// is the runtime's 400 or its 409 (one job at a time per identity).
         /// <para>The request and response bodies are the RUNTIME's own contract and are deliberately
         /// untyped here, so there is exactly one definition of them:
-        /// https://cosh.github.io/fallen-8-core/integrations/. The caller owns the stability of the
+        /// https://docs.fallen-8.com/integrations/. The caller owns the stability of the
         /// integration instance id, which nothing can validate: a run under an identity that
         /// integration has not always used withdraws and deletes what the real one claimed.</para></remarks>
         /// <response code="200">The job report, including a run that failed</response>
@@ -185,7 +185,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// rather than mounted, so a deployment cannot silently change whether a claim resolves.
         /// <para>The response body is the RUNTIME's own contract and is deliberately untyped here, so
         /// there is exactly one definition of it: see
-        /// https://cosh.github.io/fallen-8-core/integrations/.</para></remarks>
+        /// https://docs.fallen-8.com/integrations/.</para></remarks>
         /// <response code="200">The vocabulary, as the runtime describes it</response>
         /// <response code="400">The runtime refused the request, its own message saying why</response>
         /// <response code="401">No valid credential was supplied</response>
@@ -216,7 +216,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// and no source is read.
         /// <para>The request and response bodies are the RUNTIME's own contract and are deliberately
         /// untyped here, so there is exactly one definition of them:
-        /// https://cosh.github.io/fallen-8-core/integrations/.</para></remarks>
+        /// https://docs.fallen-8.com/integrations/.</para></remarks>
         /// <response code="200">The validation verdict and its diagnostics</response>
         /// <response code="400">The runtime refused the request, its own message saying why</response>
         /// <response code="401">No valid credential was supplied</response>

@@ -5,7 +5,7 @@ description: "Register a vetted, compiled query once and invoke it by name, with
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Fallen-8 has no query language, queries are C# delegates ([delegates](/fallen-8-core/delegates/)). A stored query is the precompiled flavor of that: a named, compile-validated definition, either a **path** filter/cost set or a **subgraph** pattern template, registered once and afterwards invoked by name from the path and subgraph endpoints, with nothing compiled per request. Each namespace has its own library ([namespaces](/fallen-8-core/namespaces/)); like every namespace-scoped route, `/storedquery` also answers under `/ns/{ns}/…`.
+Fallen-8 has no query language, queries are C# delegates ([delegates](/delegates/)). A stored query is the precompiled flavor of that: a named, compile-validated definition, either a **path** filter/cost set or a **subgraph** pattern template, registered once and afterwards invoked by name from the path and subgraph endpoints, with nothing compiled per request. Each namespace has its own library ([namespaces](/namespaces/)); like every namespace-scoped route, `/storedquery` also answers under `/ns/{ns}/…`.
 
 ```mermaid
 flowchart LR
@@ -32,8 +32,8 @@ Entries are immutable: to change one, delete and re-register.
 | `name` | yes | `^[A-Za-z0-9_-]{1,128}$`, case-sensitive, unique per namespace |
 | `kind` | yes | Exactly `Path` or `SubGraph` |
 | `description` | no | Free text, shown in list/detail |
-| `path` | iff `kind` = `Path` | The `filter` / `cost` blocks of a [path request](/fallen-8-core/path-finding/) |
-| `subGraph` | iff `kind` = `SubGraph` | The `vertexFilter` / `edgeFilter` / `patterns` of a [subgraph request](/fallen-8-core/subgraphs/) |
+| `path` | iff `kind` = `Path` | The `filter` / `cost` blocks of a [path request](/path-finding/) |
+| `subGraph` | iff `kind` = `SubGraph` | The `vertexFilter` / `edgeFilter` / `patterns` of a [subgraph request](/subgraphs/) |
 
 Exactly one of `path` / `subGraph` must be present and must match `kind`. The fragments inside are the same C# fragments the inline endpoints accept, compiled with the same bounds. Deliberately **not** stored: these stay per invocation:
 
@@ -48,7 +48,7 @@ List and detail responses carry `name`, `kind`, `description`, `createdAt` (UTC)
 
 Reference the entry with `"storedQuery": "<name>"` instead of inline fragments, mutually exclusive with them (`400` when mixed):
 
-- `POST /path/{from}/to/{to}` accepts a stored query of kind `Path`; bounds and algorithm come from the request. The `semantic` block still works: stored fragments read the query vector via their `context` parameter ([semantic traversal](/fallen-8-core/semantic-traversal/)).
+- `POST /path/{from}/to/{to}` accepts a stored query of kind `Path`; bounds and algorithm come from the request. The `semantic` block still works: stored fragments read the query vector via their `context` parameter ([semantic traversal](/semantic-traversal/)).
 - `PUT /subgraph` accepts a stored query of kind `SubGraph` and instantiates the template under the request's `name`. The created subgraph is self-contained: deleting the stored query later does not affect it. `semantic` is **not** available on a stored-template invocation (`400`); inline the filters instead.
 
 Invocation errors: `404` unknown name, `400` wrong kind, `409` not invocable (`Failed`/`SourceOnly` compile state).
@@ -93,7 +93,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/storedquery -ContentTy
 </TabItem>
 </Tabs>
 
-Invoke it: the request carries no code, only the name plus the per-request algorithm and bounds. The stored `edgeCost` is only consumed by a weighted algorithm, so ask for `DIJKSTRA` (the default `BLS` counts hops and ignores costs, see [path finding](/fallen-8-core/path-finding/)):
+Invoke it: the request carries no code, only the name plus the per-request algorithm and bounds. The stored `edgeCost` is only consumed by a weighted algorithm, so ask for `DIJKSTRA` (the default `BLS` counts hops and ignores costs, see [path finding](/path-finding/)):
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -148,11 +148,11 @@ PUT /subgraph
 
 Every `/storedquery` route needs the credential when an API key is configured (`401` without it), and so does invoking one by name. There is no code capability to grant or revoke on top of that: `/path`, `/subgraph` and `/storedquery` are never gated off, and the inline-versus-stored check those endpoints perform exists only to keep the two request shapes mutually exclusive (`400` when mixed).
 
-Stated honestly: dynamic code execution is always on (there is no switch to lock the engine down to stored-queries-only), and an invoked stored query still runs in-process with full trust. The library is a reuse and curation convenience, **not** a sandbox. The API key is documented in [security](/fallen-8-core/security/).
+Stated honestly: dynamic code execution is always on (there is no switch to lock the engine down to stored-queries-only), and an invoked stored query still runs in-process with full trust. The library is a reuse and curation convenience, **not** a sandbox. The API key is documented in [security](/security/).
 
 ## Durability and limits
 
-Registrations and removals are transactions: they survive `PUT /save` / load and crash recovery via the write-ahead log, with sources recompiled on load ([save games](/fallen-8-core/save-games/)).
+Registrations and removals are transactions: they survive `PUT /save` / load and crash recovery via the write-ahead log, with sources recompiled on load ([save games](/save-games/)).
 
 | Limit | Value |
 |---|---|
@@ -162,12 +162,12 @@ Registrations and removals are transactions: they survive `PUT /save` / load and
 
 ## See also
 
-- [Delegates](/fallen-8-core/delegates/): the no-query-language philosophy, fragment shape, compilation, `/delegates/validate`
-- [Security](/fallen-8-core/security/): the API key that gates access to the code endpoints
-- [Path finding](/fallen-8-core/path-finding/) · [Subgraphs](/fallen-8-core/subgraphs/): the endpoints that accept `storedQuery`
-- [Studio](/fallen-8-core/studio/): the Path and Subgraph screens capture the fragments you authored with "Save as stored query…" and manage the matching entries in a **Stored path queries** / **Stored subgraph queries** panel
-- [MCP server](/fallen-8-core/mcp-server/): agents invoke by name via `f8_paths` / `f8_subgraph`; registering and listing stay operator work over REST
-- [Semantic traversal](/fallen-8-core/semantic-traversal/): the `semantic` block stored path queries can combine with
-- [Save games](/fallen-8-core/save-games/): checkpoints and the write-ahead log
-- [Namespaces](/fallen-8-core/namespaces/): per-namespace isolation and the `/ns/{ns}/…` route twins
-- [REST API](/fallen-8-core/rest-api/): OpenAPI document and Scalar reference
+- [Delegates](/delegates/): the no-query-language philosophy, fragment shape, compilation, `/delegates/validate`
+- [Security](/security/): the API key that gates access to the code endpoints
+- [Path finding](/path-finding/) · [Subgraphs](/subgraphs/): the endpoints that accept `storedQuery`
+- [Studio](/studio/): the Path and Subgraph screens capture the fragments you authored with "Save as stored query…" and manage the matching entries in a **Stored path queries** / **Stored subgraph queries** panel
+- [MCP server](/mcp-server/): agents invoke by name via `f8_paths` / `f8_subgraph`; registering and listing stay operator work over REST
+- [Semantic traversal](/semantic-traversal/): the `semantic` block stored path queries can combine with
+- [Save games](/save-games/): checkpoints and the write-ahead log
+- [Namespaces](/namespaces/): per-namespace isolation and the `/ns/{ns}/…` route twins
+- [REST API](/rest-api/): OpenAPI document and Scalar reference

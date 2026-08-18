@@ -3,10 +3,10 @@ title: "Benchmark"
 description: "Measure raw edge-traversal throughput over whatever graph is loaded: generate a graph or point it at a sample, then run timed passes that follow every out-edge."
 ---
 
-The **Benchmark** section of [F8 Studio](/fallen-8-core/studio/) measures one thing: how fast
+The **Benchmark** section of [F8 Studio](/studio/) measures one thing: how fast
 Fallen-8 traverses edges in memory. It follows every outgoing edge of every vertex in the
 currently loaded graph, regardless of edge type
-([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)), and reports edges traversed
+([edge type vs label](/graph-model/#edge-type-vs-label)), and reports edges traversed
 per second (TPS). This is raw traversal throughput, not query latency and not analytics timing.
 
 The screen (route `/q/{namespace}/benchmarks`) is **namespace-scoped**: it generates into, and
@@ -16,10 +16,10 @@ and redirects to the active namespace's screen.
 
 ## Running a benchmark
 
-1. Pick the [namespace](/fallen-8-core/namespaces/) you want to measure in the top bar, then open
+1. Pick the [namespace](/namespaces/) you want to measure in the top bar, then open
    **Benchmark** in the left rail. The screen header names the instance and that namespace.
 2. (Optional) Give it a graph to measure. You can point the benchmark at anything already
-   loaded, a [sample](/fallen-8-core/samples/), a restored [save game](/fallen-8-core/save-games/),
+   loaded, a [sample](/samples/), a restored [save game](/save-games/),
    or your own data, so this step is only needed when the graph is empty. To conjure one, use the
    **Graph generation** panel: set `vertices`, `edges / vertex`, and a `distribution`, or click a
    preset, then **Generate**. The result reports what was created and, as **into namespace**, the
@@ -65,7 +65,7 @@ The generation panel is a convenience for producing a graph to measure. A few th
   and real memory use.
 - **distribution:** `uniform` spreads edges evenly (no hubs); `preferential` uses
   Barabasi-Albert-style attachment, so heavy-tailed hubs emerge and analytics such as
-  [PageRank](/fallen-8-core/graph-analytics/) show real structure at scale.
+  [PageRank](/graph-analytics/) show real structure at scale.
 
 Generated vertices and edges carry no label at all; the generated edges' type (`edgePropertyId`) is
 `A`. That type is a generation detail only, and the benchmark traverses every edge whatever its
@@ -75,7 +75,7 @@ type, but it is the value to query a generated graph by, as in `GET /vertex/{id}
 
 The benchmark is a CPU-parallel, in-memory traversal (a partitioned parallel scan sized to the
 processor count). Throughput scales with CPU cores and memory bandwidth. There is no GPU code
-path here: [GPU acceleration](/fallen-8-core/running/#gpu-acceleration) in Fallen-8 reaches only
+path here: [GPU acceleration](/running/#gpu-acceleration) in Fallen-8 reaches only
 the model sidecars (Ollama and the NLP enrichment tier), never graph traversal.
 
 One call does `iterations x edges` traversals inside a single synchronous request, using every
@@ -133,12 +133,12 @@ out-edges per vertex, and `uniform`. A non-numeric or negative count, or a distr
 `averageTps`, `medianTps`, and `standardDeviationTps`. `iterations` also defaults to 1000 when
 omitted. It answers `400` on a graph with no vertices, and on a non-numeric or non-positive
 iteration count. An unknown namespace is a `404`, and one this process did not load is a `503`.
-See the full contract in the [API reference](/fallen-8-core/api-reference/).
+See the full contract in the [API reference](/api-reference/).
 
 ## See also
 
-- [Namespaces](/fallen-8-core/namespaces/) explains the `/ns/{name}/…` addressing this screen uses.
-- [F8 Studio](/fallen-8-core/studio/) is the workbench this screen lives in.
-- [Running Fallen-8](/fallen-8-core/running/) covers launch options and configuration that affect
+- [Namespaces](/namespaces/) explains the `/ns/{name}/…` addressing this screen uses.
+- [F8 Studio](/studio/) is the workbench this screen lives in.
+- [Running Fallen-8](/running/) covers launch options and configuration that affect
   performance.
-- [Architecture](/fallen-8-core/architecture/) shows how the engine and REST API fit together.
+- [Architecture](/architecture/) shows how the engine and REST API fit together.

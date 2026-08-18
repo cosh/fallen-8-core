@@ -3,7 +3,7 @@ title: "Sample gallery"
 description: "One-click curated demo graphs, each a guided tour of a different feature, with screenshots and example queries."
 ---
 
-[F8 Studio](/fallen-8-core/studio/)'s **Samples** screen ships a gallery of curated graphs that load in one
+[F8 Studio](/studio/)'s **Samples** screen ships a gallery of curated graphs that load in one
 click. Each comes styled for the canvas, indexed where it helps, and paired with example
 queries, so every card is a short guided tour of a different Fallen-8 capability, analytics,
 weighted paths, semantic search, visualization. A tag bar at the top filters the gallery by
@@ -23,7 +23,7 @@ is built. A prebuilt Studio image cannot be repointed at runtime (its only runti
 `F8_API_URL`).
 
 One sample is different: **Wind Farm Fleet Integrity** additionally ingests three synthetic documents
-through the live [semantic layer](/fallen-8-core/unstructured-ingestion/) after the graph is
+through the live [semantic layer](/unstructured-ingestion/) after the graph is
 imported, so it adds three steps (seeding the asset index, binding the layer, ingesting) and it
 does compute embeddings at load time. It therefore needs more of the environment than the others,
 and its card checks four things: ingestion enabled (`F8_INGESTION`), the embedding provider
@@ -35,15 +35,15 @@ entity network, so steps 3 and 6 of the walkthrough below need `F8_NLP` on.
 
 - **Import needs an empty graph** (a non-empty graph answers `409`, whatever its ids). Loading into
   an instance that still holds elements or indices is gated behind a typed-name confirm that erases
-  first, save a checkpoint ([save games](/fallen-8-core/save-games/)) if you need the current data,
-  or switch to a fresh [namespace](/fallen-8-core/namespaces/).
-- **The datasets are `fallen8-jsonl`**: the same format [bulk import/export](/fallen-8-core/bulk-import-export/)
+  first, save a checkpoint ([save games](/save-games/)) if you need the current data,
+  or switch to a fresh [namespace](/namespaces/).
+- **The datasets are `fallen8-jsonl`**: the same format [bulk import/export](/bulk-import-export/)
   uses, fetched and streamed through `POST /bulk/import`.
 - **Bring-your-own-vector always works.** The embedded samples carry their vectors in the
   file, so vector scans work even with no embedding provider. The **text-in** features
   (semantic search by typed text) additionally need a provider whose model identity matches
   the baked vectors: each card tells you whether that works on the current instance. See
-  [semantic traversal](/fallen-8-core/semantic-traversal/).
+  [semantic traversal](/semantic-traversal/).
 
 ## The samples
 
@@ -54,7 +54,7 @@ entity network, so steps 3 and 6 of the walkthrough below need `F8_NLP` on.
 A tiny, story-driven graph: a nation-state actor weaponizes a compromised software supply-chain
 tool to deliver a payload to two targets (critical infrastructure and a government agency), while
 a SOC and its analyst investigate. Six entities, five directed relationships, emoji nodes, and
-labelled edges. It is the same graph the [first-run walkthrough](/fallen-8-core/studio/) animates. The point:
+labelled edges. It is the same graph the [first-run walkthrough](/studio/) animates. The point:
 the full blast radius of a compromise is a single native traversal here, versus the brittle
 multi-table joins a relational store forces.
 
@@ -64,11 +64,11 @@ The same graph in the 3D renderer with a force layout:
 
 Try it:
 
-- **[Path](/fallen-8-core/path-finding/)** from the Nation State Actor to the Critical Infrastructure to see
+- **[Path](/path-finding/)** from the Nation State Actor to the Critical Infrastructure to see
   the blast radius of a supply-chain compromise (look ids up on the Browser screen).
-- **[Subgraph](/fallen-8-core/subgraphs/)** capturing the Software Supply Chain Tool and everything it
+- **[Subgraph](/subgraphs/)** capturing the Software Supply Chain Tool and everything it
   delivers to, then recalculate it as the graph changes.
-- **[Analytics](/fallen-8-core/graph-analytics/) → `PAGERANK`**, then color the canvas by the score: the
+- **[Analytics](/graph-analytics/) → `PAGERANK`**, then color the canvas by the score: the
   compromised tool and the critical target rank highest.
 
 ### 🥋 Zachary's Karate Club, 34 vertices, 78 edges
@@ -81,11 +81,11 @@ split. Nodes are colored by `faction` and sized by degree, so the two camps and 
 
 Try it:
 
-- **[Analytics](/fallen-8-core/graph-analytics/) → `LABELPROPAGATION`** with write-back, then color the
+- **[Analytics](/graph-analytics/) → `LABELPROPAGATION`** with write-back, then color the
   canvas by the computed community: it reproduces the club's real split (compare with color
   by `faction`).
 - **`TRIANGLECOUNT`** and **`WCC`** on the textbook graph.
-- **[Path](/fallen-8-core/path-finding/)** from Mr. Hi to the Officer (look their ids up on the Browser
+- **[Path](/path-finding/)** from Mr. Hi to the Officer (look their ids up on the Browser
   screen).
 
 ### 🛡️ AD Attack Surface, 117 vertices, 142 edges
@@ -94,16 +94,16 @@ Try it:
 
 A synthetic Active-Directory estate: users, workstations, servers, and groups. The scenario
 is a red-team classic, phish an intern, then find the cheapest path to Domain Admins. Ships
-with a bound [vector index](/fallen-8-core/vector-search/) for semantic search.
+with a bound [vector index](/vector-search/) for semantic search.
 
 Try it:
 
-- **[Path](/fallen-8-core/path-finding/) → Dijkstra** from the phished `finance.intern` workstation to the
+- **[Path](/path-finding/) → Dijkstra** from the phished `finance.intern` workstation to the
   `DOMAIN ADMINS` group, using cost property `exploitCost`: the result is the cheapest attack
   chain.
-- **[Semantic search](/fallen-8-core/semantic-traversal/):** "where do the financial documents live"
+- **[Semantic search](/semantic-traversal/):** "where do the financial documents live"
   surfaces the Finance file server.
-- **[Analytics](/fallen-8-core/graph-analytics/) → `DEGREE` / `PAGERANK`** to spot lateral-movement
+- **[Analytics](/graph-analytics/) → `DEGREE` / `PAGERANK`** to spot lateral-movement
   choke points.
 
 ### 🎬 Movie Night, 191 vertices, 1,697 edges
@@ -115,12 +115,12 @@ and rating-weighted edges. The richest sample for semantic and recommendation wo
 
 Try it:
 
-- **[Semantic search](/fallen-8-core/semantic-traversal/):** "mind-bending sci-fi about dreams" surfaces
+- **[Semantic search](/semantic-traversal/):** "mind-bending sci-fi about dreams" surfaces
   Inception; "a haunted hotel" finds The Shining (see the [worked example](#semantic-search)
   below).
-- **[Path](/fallen-8-core/path-finding/):** a 2-hop viewer → movie → viewer → movie chain is a
+- **[Path](/path-finding/):** a 2-hop viewer → movie → viewer → movie chain is a
   recommendation.
-- **[Analytics](/fallen-8-core/graph-analytics/) → `PAGERANK`** ranks the canon; **`LABELPROPAGATION`**
+- **[Analytics](/graph-analytics/) → `PAGERANK`** ranks the canon; **`LABELPROPAGATION`**
   recovers the taste communities.
 
 ### ✈️ World Air Routes, 250 vertices, 5,702 edges
@@ -134,11 +134,11 @@ code, as in the shot above.
 
 Try it:
 
-- **[Path](/fallen-8-core/path-finding/) → Dijkstra** on cost property `km` between two airports: a real
+- **[Path](/path-finding/) → Dijkstra** on cost property `km` between two airports: a real
   minimum-distance itinerary.
-- **[Semantic search](/fallen-8-core/semantic-traversal/):** "major airports in Japan" or "busiest hubs in
+- **[Semantic search](/semantic-traversal/):** "major airports in Japan" or "busiest hubs in
   the Middle East".
-- **[Analytics](/fallen-8-core/graph-analytics/) → `PAGERANK` / `DEGREE`** to rank the global hubs.
+- **[Analytics](/graph-analytics/) → `PAGERANK` / `DEGREE`** to rank the global hubs.
 
 ### 📦 Fallen-8 Dependencies, roughly 1,000 vertices, 1,800 edges
 
@@ -152,7 +152,7 @@ current ones.
 
 Try it:
 
-- **[Analytics](/fallen-8-core/graph-analytics/) → `PAGERANK`** for the most-depended-on packages;
+- **[Analytics](/graph-analytics/) → `PAGERANK`** for the most-depended-on packages;
   **`WCC`** to see each ecosystem fall out as its own component.
 - **Canvas** → color by `license` or `ecosystem`.
 
@@ -167,7 +167,7 @@ engineering standard. Nothing about the knowledge graph is baked; docling conver
 spaCy enrichment and exact-match linking all actually run, which is why this card needs the
 sidecars.
 
-It is the sample that shows the [semantic layer](/fallen-8-core/unstructured-ingestion/)'s real
+It is the sample that shows the [semantic layer](/unstructured-ingestion/)'s real
 thesis: a Chunk is an ordinary vertex, so the text you searched and the assets you operate are
 **one graph**. Each document reaches the graph a different way, and one chunk ends up bridging
 both worlds:
@@ -222,7 +222,7 @@ count shown, around 90, depends on the spaCy model and tier, so expect it to dif
 your machine; the asset links do not vary, because exact matching is deterministic.)
 
 The pipeline itself (chunking, the binding, fused retrieval, linking) is documented in
-[semantic layer](/fallen-8-core/unstructured-ingestion/).
+[semantic layer](/unstructured-ingestion/).
 
 ### 📈 Scale: 100k × 1M and 🐙 Any GitHub repo
 
@@ -230,7 +230,7 @@ Two more cards round out the gallery:
 
 - **Scale: 100k × 1M**: a 100,000-vertex, ~1M-edge graph generated server-side on the
   **Benchmark** tab (not fetched); use it to feel ingest speed, memory footprint, and
-  analytics at scale. See [Benchmark](/fallen-8-core/benchmark/) for the presets (`scale` is the
+  analytics at scale. See [Benchmark](/benchmark/) for the presets (`scale` is the
   one this card means).
 - **Any GitHub repo**: paste `owner/repo` to fetch any public repository's dependency graph
   from GitHub just-in-time and ingest it: the dynamic twin of the Fallen-8 Dependencies
@@ -248,7 +248,7 @@ run as exact kNN.
 ![Semantic search on Movie Night returning Inception as the top hit.](../../assets/images/query-semantic-search.png)
 
 The mechanics (element embeddings, bound indices, the model-identity contract) are in
-[semantic traversal](/fallen-8-core/semantic-traversal/); the kNN scan itself in [vector search](/fallen-8-core/vector-search/).
+[semantic traversal](/semantic-traversal/); the kNN scan itself in [vector search](/vector-search/).
 
 ### An interesting path
 
@@ -258,8 +258,8 @@ route; the default BLS finds fewest-hop paths.
 
 ![A path result on the Path screen.](../../assets/images/path-result.png)
 
-Filters and cost functions are C# [delegates](/fallen-8-core/delegates/); the full path contract is in
-[path finding](/fallen-8-core/path-finding/).
+Filters and cost functions are C# [delegates](/delegates/); the full path contract is in
+[path finding](/path-finding/).
 
 ### A subgraph
 
@@ -270,7 +270,7 @@ matching path into a new standalone graph.
 
 ![A created subgraph.](../../assets/images/subgraph-result.png)
 
-The pattern model and REST lifecycle are in [subgraphs](/fallen-8-core/subgraphs/).
+The pattern model and REST lifecycle are in [subgraphs](/subgraphs/).
 
 ## Rebuilding and adding samples
 
@@ -313,7 +313,7 @@ The output is byte-reproducible, so a run with unchanged inputs leaves `git stat
 
 ## See also
 
-- [Studio](/fallen-8-core/studio/): the UI that hosts the gallery
-- [Bulk import/export](/fallen-8-core/bulk-import-export/): the `fallen8-jsonl` format the samples use
-- [Semantic traversal](/fallen-8-core/semantic-traversal/) / [Vector search](/fallen-8-core/vector-search/): the embedding features the samples exercise
-- [Graph analytics](/fallen-8-core/graph-analytics/) · [Path finding](/fallen-8-core/path-finding/) · [Subgraphs](/fallen-8-core/subgraphs/): the algorithms the "try it" steps drive
+- [Studio](/studio/): the UI that hosts the gallery
+- [Bulk import/export](/bulk-import-export/): the `fallen8-jsonl` format the samples use
+- [Semantic traversal](/semantic-traversal/) / [Vector search](/vector-search/): the embedding features the samples exercise
+- [Graph analytics](/graph-analytics/) · [Path finding](/path-finding/) · [Subgraphs](/subgraphs/): the algorithms the "try it" steps drive

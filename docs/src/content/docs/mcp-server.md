@@ -39,7 +39,7 @@ F8_MCP_AUTH_MODE=StaticToken F8_MCP_ENABLE_WRITE=true npm run env:up
 ```
 
 `F8_MCP_ENABLE_ADMIN` and `F8_MCP_ENABLE_CODE` open the other two tiers the same way (the full
-list of compose variables is in [Running Fallen-8](/fallen-8-core/running/)).
+list of compose variables is in [Running Fallen-8](/running/)).
 
 Or run the image standalone against a Fallen-8 on another host, fully credentialed. No registry
 publishes it yet, so build it first (the Dockerfile's context is the repo root):
@@ -102,12 +102,12 @@ names its target directly instead, and `f8_admin`'s `list_savegames`/`load` are 
 | read | `f8_search` | Find elements: `mode` = `index` \| `property` (un-indexed, one named key) \| `properties` (un-indexed contains scan across every property value) \| `fulltext` \| `vector` \| `semantic`. `kind` and `label` restrict the hits (ignored by fulltext). Returns ids (+score); `fields` enriches with properties. Paginated (`limit`/`cursor`). |
 | read | `f8_paths` | Find paths between two vertices, unfiltered or by a registered stored query. Knobs: `algorithm` (free-form: `BLS` by default, `DIJKSTRA`, or any registered `Path` plugin the overview reports), `maxDepth` (default 7), `maxResults`. An empty result can also mean an internal traversal limit was hit, so it is not proof no path exists. |
 | read | `f8_analytics` | Run a whole-graph algorithm (PageRank, WCC, communities, centrality, triangle-count), or omit `algorithm` to list them. Optional per-run knobs: `vertexLabel`, `edgePropertyId`, `direction`, `maxResults` (default 25), `maxIterations`, and a numeric `parameters` map (e.g. `{"DampingFactor": 0.85}`). |
-| read | `f8_plugins` | The per-namespace [plugin registry](/fallen-8-core/plugin-registration/): `list`/`get`/`invoke` (a graph function by name); `delete` needs the write capability; `register_algorithm`/`register_function` (from C# source) need the code capability. An agent can run every registered plugin category: a graph function through `invoke` here, and a registered algorithm by naming it in the `algorithm` knob of `f8_paths`, `f8_subgraph` or `f8_analytics`. |
-| read | `f8_documents` | [Unstructured ingestion](/fallen-8-core/unstructured-ingestion/): `search` (fused dense+lexical chunk retrieval; hits are vertex ids), `list`, `get`, `binding` (the index-binding state), `entities` (the deduplicated entity network); `ingest_text`/`delete`/`bind` need the write capability. Binary file upload stays REST-only (base64 through tool calls wastes tokens). |
+| read | `f8_plugins` | The per-namespace [plugin registry](/plugin-registration/): `list`/`get`/`invoke` (a graph function by name); `delete` needs the write capability; `register_algorithm`/`register_function` (from C# source) need the code capability. An agent can run every registered plugin category: a graph function through `invoke` here, and a registered algorithm by naming it in the `algorithm` knob of `f8_paths`, `f8_subgraph` or `f8_analytics`. |
+| read | `f8_documents` | [Unstructured ingestion](/unstructured-ingestion/): `search` (fused dense+lexical chunk retrieval; hits are vertex ids), `list`, `get`, `binding` (the index-binding state), `entities` (the deduplicated entity network); `ingest_text`/`delete`/`bind` need the write capability. Binary file upload stays REST-only (base64 through tool calls wastes tokens). |
 | write | `f8_mutate` | One transactional mutation: `create_vertex`, `create_edge`, `create_vertices`, `create_edges` (atomic batch creates), `set_property`, `remove_property`, `remove_element`, `set_embedding`. Property values are JSON-native. Success means the transaction applied. The batch creates **return the assigned ids**; the single creates do not (find them with `f8_search`), and `set_property`/`remove_property`/`remove_element` are no-ops for an absent id, so success does not prove the element existed. |
 | write | `f8_subgraph` | Define a subgraph from a stored template (or inline filters when the code capability is on). |
 | write | `f8_namespace` | Create, rename, or drop a namespace. |
-| admin | `f8_admin` | Durability & maintenance: `save`, `list_savegames`, `load` (by save-game id, optionally restoring a single `restoreNamespace` member), `activate` (load a namespace this process skipped at startup, see [namespaces](/fallen-8-core/namespaces/#startup-load); it needs an explicit `namespace`, since activating `default` is always a no-op), `trim`, `tabula_rasa`. `trim`/`tabula_rasa` are fire-and-forget: they report "enqueued", never "applied". |
+| admin | `f8_admin` | Durability & maintenance: `save`, `list_savegames`, `load` (by save-game id, optionally restoring a single `restoreNamespace` member), `activate` (load a namespace this process skipped at startup, see [namespaces](/namespaces/#startup-load); it needs an explicit `namespace`, since activating `default` is always a no-op), `trim`, `tabula_rasa`. `trim`/`tabula_rasa` are fire-and-forget: they report "enqueued", never "applied". |
 
 Tools carry MCP annotations so clients can surface the right confirmation UX. The five purely-read
 tools (`f8_overview`, `f8_get`, `f8_search`, `f8_paths`, `f8_analytics`) are `readOnlyHint`;
@@ -208,7 +208,7 @@ capability (which runs C# fragments as the Fallen-8 process) as a trusted, delib
 | `Mcp:Auth:StaticToken` | the shared bearer secret used when `Mode=StaticToken` (env / user-secrets only, never checked in) |
 | `Mcp:Auth:Issuer` / `Audience` | the OAuth authorization server's issuer + this server's resource identifier (the token's `aud`; mandatory under OAuth) |
 | `Mcp:Auth:SigningKey` | lab-only: validate tokens against this symmetric HMAC key instead of discovering the issuer's JWKS |
-| `Mcp:Observability:Otlp:Endpoint`, `Mcp:Identity:*` | OTLP push + fleet identity; see [Observability](/fallen-8-core/observability/) |
+| `Mcp:Observability:Otlp:Endpoint`, `Mcp:Identity:*` | OTLP push + fleet identity; see [Observability](/observability/) |
 | `Fallen8Target:BaseUrl` | the Fallen-8 REST base URL this server bridges to (default `http://localhost:8080`) |
 | `Fallen8Target:ApiKey` / `ApiKeyHeader` | the server's single downstream credential (header default `X-Api-Key`) |
 | `Fallen8Target:TlsInsecure` | lab-only: skip downstream TLS validation (loudly logged) |

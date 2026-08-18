@@ -10,107 +10,107 @@ Fallen-8 is an in-memory [graph database](http://en.wikipedia.org/wiki/Graph_dat
 written in C# (.NET 10), built for raw speed on heavy graph algorithms.
 
 It has **no query language** — no Cypher, no Gremlin, and none is planned. Queries are C#:
-small [delegate fragments](https://cosh.github.io/fallen-8-core/delegates/) compiled at runtime, or precompiled stored
+small [delegate fragments](https://docs.fallen-8.com/delegates/) compiled at runtime, or precompiled stored
 queries. That is a deliberate choice for the era of code-generating agents — an agent emits a
 C# fragment, the engine compiles and runs it in-process at full speed, with no query-language
 layer in between. This is the .NET Core evolution of the original
 [fallen-8](https://github.com/cosh/fallen-8).
 
-> 📚 **Full documentation: <https://cosh.github.io/fallen-8-core/>** — a fast, searchable site
+> 📚 **Full documentation: <https://docs.fallen-8.com/>** — a fast, searchable site
 > with a deep dive per feature and the interactive API reference.
 
 ### Key features
 
 Each feature has a deep-dive doc — follow the link.
 
-- **[Graph model](https://cosh.github.io/fallen-8-core/graph-model/)** — a directed property graph; typed properties on
+- **[Graph model](https://docs.fallen-8.com/graph-model/)** — a directed property graph; typed properties on
   vertices and edges, all mutation through a serialized transaction queue.
-- **[Delegates, not a query language](https://cosh.github.io/fallen-8-core/delegates/)** — filters and cost functions are
+- **[Delegates, not a query language](https://docs.fallen-8.com/delegates/)** — filters and cost functions are
   runtime-compiled C# fragments; the defining design decision.
-- **[Path finding](https://cosh.github.io/fallen-8-core/path-finding/)** — shortest/weighted paths with delegate filter and
+- **[Path finding](https://docs.fallen-8.com/path-finding/)** — shortest/weighted paths with delegate filter and
   cost functions (BLS, Dijkstra).
-- **[Subgraphs](https://cosh.github.io/fallen-8-core/subgraphs/)** — extract a pattern-matched subset as a standalone graph,
+- **[Subgraphs](https://docs.fallen-8.com/subgraphs/)** — extract a pattern-matched subset as a standalone graph,
   recalculate it when the source changes, nest and persist it.
-- **[Graph analytics](https://cosh.github.io/fallen-8-core/graph-analytics/)** — PageRank, connected components,
+- **[Graph analytics](https://docs.fallen-8.com/graph-analytics/)** — PageRank, connected components,
   communities, degree centrality, triangle counting, with optional property write-back.
-- **[Stored queries](https://cosh.github.io/fallen-8-core/stored-queries/)** — register a vetted, compiled query once and
+- **[Stored queries](https://docs.fallen-8.com/stored-queries/)** — register a vetted, compiled query once and
   invoke it by name — no dynamic code at call time.
-- **[Indexes](https://cosh.github.io/fallen-8-core/indexes/)** — dictionary, range, fulltext, spatial R-Tree, and vector kNN,
+- **[Indexes](https://docs.fallen-8.com/indexes/)** — dictionary, range, fulltext, spatial R-Tree, and vector kNN,
   all as plugins.
-- **[Vector search](https://cosh.github.io/fallen-8-core/vector-search/)** — exact k-nearest-neighbour over `float[]`
+- **[Vector search](https://docs.fallen-8.com/vector-search/)** — exact k-nearest-neighbour over `float[]`
   embeddings (cosine, dot product, L2).
-- **[Semantic traversal](https://cosh.github.io/fallen-8-core/semantic-traversal/)** — embeddings as element state; a
+- **[Semantic traversal](https://docs.fallen-8.com/semantic-traversal/)** — embeddings as element state; a
   code-free `semantic` block steers paths and subgraphs by similarity.
-- **[Semantic layer](https://cosh.github.io/fallen-8-core/unstructured-ingestion/)**: documents in, graph out:
+- **[Semantic layer](https://docs.fallen-8.com/unstructured-ingestion/)**: documents in, graph out:
   PDFs/Office/markdown become Document, Chunk and deduplicated Entity vertices with embedded
   text, enriched with named entities and key terms, found again by fused semantic + exact-token
   search and traversable like everything else.
-- **[Bulk import/export](https://cosh.github.io/fallen-8-core/bulk-import-export/)** — stream whole graphs as newline-delimited
+- **[Bulk import/export](https://docs.fallen-8.com/bulk-import-export/)** — stream whole graphs as newline-delimited
   JSON that round-trips exactly.
-- **[Integrations](https://cosh.github.io/fallen-8-core/integrations/)**: a sidecar that reads a system on
+- **[Integrations](https://docs.fallen-8.com/integrations/)**: a sidecar that reads a system on
   your own network (a CSV inventory, a UniFi console, a Fronius inverter) and writes what it saw into a
   namespace, with credentials that are held for one run and never stored, and exact-match identity.
-- **[Live change feed](https://cosh.github.io/fallen-8-core/change-feed/)** — committed mutations as Server-Sent Events, in
+- **[Live change feed](https://docs.fallen-8.com/change-feed/)** — committed mutations as Server-Sent Events, in
   commit order, with in-band resync.
-- **[Save games](https://cosh.github.io/fallen-8-core/save-games/)** — checkpoints tracked by a registry that drives startup,
+- **[Save games](https://docs.fallen-8.com/save-games/)** — checkpoints tracked by a registry that drives startup,
   on top of a write-ahead log.
-- **[Namespaces](https://cosh.github.io/fallen-8-core/namespaces/)** — many isolated graphs in one Fallen-8, addressable under
+- **[Namespaces](https://docs.fallen-8.com/namespaces/)** — many isolated graphs in one Fallen-8, addressable under
   `/ns/{name}/…`, each choosing whether a boot loads it (a skipped one stays cataloged, answers `503`,
   and is never written to) and loadable into a running process on demand.
-- **[Observability](https://cosh.github.io/fallen-8-core/observability/)**: opt-in Prometheus/OTLP metrics and traces, a
+- **[Observability](https://docs.fallen-8.com/observability/)**: opt-in Prometheus/OTLP metrics and traces, a
   graph-shape snapshot, and health probes for one instance, plus a multi-tenant consumer stack
   (Collector, Prometheus, Tempo, Loki, Grafana) that collects what many instances push into one
   Grafana pane, keyed by tenant/instance/namespace; on by default with `npm run env:up`.
-- **[REST API](https://cosh.github.io/fallen-8-core/rest-api/)** — a versioned HTTP surface with an OpenAPI document and an
+- **[REST API](https://docs.fallen-8.com/rest-api/)** — a versioned HTTP surface with an OpenAPI document and an
   interactive Scalar reference.
-- **[Plugins](https://cosh.github.io/fallen-8-core/plugins/)** — indices, algorithms, and services are all discovered plugins.
-- **[Plugin registration](https://cosh.github.io/fallen-8-core/plugin-registration/)** — add runtime algorithm and graph-function
+- **[Plugins](https://docs.fallen-8.com/plugins/)** — indices, algorithms, and services are all discovered plugins.
+- **[Plugin registration](https://docs.fallen-8.com/plugin-registration/)** — add runtime algorithm and graph-function
   plugins by authoring C# source (compiled, contract-validated, namespace-scoped) instead of
   uploading a DLL.
-- **[F8 Studio](https://cosh.github.io/fallen-8-core/studio/)** — a browser UI to browse, query, visualize, and author the C#
+- **[F8 Studio](https://docs.fallen-8.com/studio/)** — a browser UI to browse, query, visualize, and author the C#
   delegates, with a natural-language assist that runs through your instance by default (or a
   browser-direct custom model backend).
-- **[Standalone F8 Studio](https://cosh.github.io/fallen-8-core/standalone-ui/)** — deploy the browser UI as its own
+- **[Standalone F8 Studio](https://docs.fallen-8.com/standalone-ui/)** — deploy the browser UI as its own
   container, decoupled from the data plane and pointed at any Fallen-8 REST endpoint at container start.
-- **[Embed F8 Studio](https://cosh.github.io/fallen-8-core/embed-studio/)**: mount the whole Studio (or just its graph
+- **[Embed F8 Studio](https://docs.fallen-8.com/embed-studio/)**: mount the whole Studio (or just its graph
   canvas) inside a host application's own shell via a library artifact - one config object carries the
   instances, credentials (bearer tokens included), namespace pin, theme tokens and storage namespace.
-- **[Embed scenarios](https://cosh.github.io/fallen-8-core/embed-scenarios/)**: the staged path for building Fallen-8
+- **[Embed scenarios](https://docs.fallen-8.com/embed-scenarios/)**: the staged path for building Fallen-8
   into your own product - a WASM graph running entirely in the page, the canvas component rendering it, and
   the full embedded Studio against a hosted instance, with the boundary between them stated plainly.
-- **[Benchmark](https://cosh.github.io/fallen-8-core/benchmark/)**: measure raw edge-traversal throughput over the
+- **[Benchmark](https://docs.fallen-8.com/benchmark/)**: measure raw edge-traversal throughput over the
   loaded graph (generated, a sample, or your own data) in the Studio Benchmark screen - per namespace,
   and generation reports what it created and where.
-- **[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/)** — a Model Context Protocol surface so AI agents call
+- **[MCP server](https://docs.fallen-8.com/mcp-server/)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
   writes and three auth modes up to OAuth 2.1.
-- **[NL assist and fine-tuning](https://cosh.github.io/fallen-8-core/nl-assist/)**: draft C# fragments from a
+- **[NL assist and fine-tuning](https://docs.fallen-8.com/nl-assist/)**: draft C# fragments from a
   sentence, and an offline pipeline (compile-gated dataset, QLoRA training, held-out eval,
   feedback loop) to train, evaluate and publish your own model.
-- **[Use as a library](https://cosh.github.io/fallen-8-core/library/)**: reference the engine in-process via the
+- **[Use as a library](https://docs.fallen-8.com/library/)**: reference the engine in-process via the
   `Fallen-8` NuGet package, with no HTTP and no server to operate - including on a single-threaded host
   such as browser WebAssembly, where transactions are applied inline on the calling thread. The package is
   trim-compatible, so a fully trimmed client keeps only what it uses, and a host that registers its plugin
   types gets name-based lookup, index creation and vector search even where assembly scanning finds nothing.
-- **[Capacity and performance](https://cosh.github.io/fallen-8-core/capacity-and-performance/)**: measured bytes per
+- **[Capacity and performance](https://docs.fallen-8.com/capacity-and-performance/)**: measured bytes per
   vertex and edge, write throughput, what a save game costs the writer, and what booting a namespace costs.
-- **[Security](https://cosh.github.io/fallen-8-core/security/)** — optional all-or-nothing API key; dynamic code execution is
+- **[Security](https://docs.fallen-8.com/security/)** — optional all-or-nothing API key; dynamic code execution is
   always on (queries are C#), so set a key before exposing the service off-box.
 
 ## Architecture
 
 An in-memory engine with a thin REST app around it. **AI agents** reach it through the
-[MCP server](https://cosh.github.io/fallen-8-core/mcp-server/); **F8 Studio** (the browser UI) and **your own services** call
-the [REST API](https://cosh.github.io/fallen-8-core/rest-api/) directly. Under the hood the engine (`fallen-8-core`) holds the
+[MCP server](https://docs.fallen-8.com/mcp-server/); **F8 Studio** (the browser UI) and **your own services** call
+the [REST API](https://docs.fallen-8.com/rest-api/) directly. Under the hood the engine (`fallen-8-core`) holds the
 graph in RAM, serializes every write through one writer thread, and runs the algorithms, while
 the app (`fallen-8-core-apiApp`) is the thin HTTP layer that can serve F8 Studio itself. The
 all-in-one image (engine + API + UI) still ships and runs with a bare `docker compose up`, but the
 default `npm run env:up` now runs F8 Studio as its own
-[standalone](https://cosh.github.io/fallen-8-core/standalone-ui/) nginx container talking to the REST API cross-origin, so
+[standalone](https://docs.fallen-8.com/standalone-ui/) nginx container talking to the REST API cross-origin, so
 the UI and the data plane deploy apart, alongside a model sidecar. F8 Studio also ships as an
-[embeddable library](https://cosh.github.io/fallen-8-core/embed-studio/) a host portal can mount inside its own shell,
+[embeddable library](https://docs.fallen-8.com/embed-studio/) a host portal can mount inside its own shell,
 calling the same REST API. A third deployable, the
-[integrations runtime](https://cosh.github.io/fallen-8-core/integrations/), reads systems on your own network and
+[integrations runtime](https://docs.fallen-8.com/integrations/), reads systems on your own network and
 writes what it saw in through the same REST API.
 
 ```mermaid
@@ -165,7 +165,7 @@ flowchart TB
 
 Full details, the writer thread, plugin system, durability, the model sidecar and the
 integrations runtime, are in
-[docs/architecture.md](https://cosh.github.io/fallen-8-core/architecture/).
+[docs/architecture.md](https://docs.fallen-8.com/architecture/).
 
 ## Running it
 
@@ -212,7 +212,7 @@ This is the developer path: it builds the first-party images from source, and on
 host it also upgrades the NLP sidecar to its transformer tier, a build-only variant that the
 published images deliberately leave out. Every other way to run it (a bare `dotnet run`, the
 configuration keys, the security switches, GPU acceleration, offline model pre-seeding) is
-in [docs/running.md](https://cosh.github.io/fallen-8-core/running/).
+in [docs/running.md](https://docs.fallen-8.com/running/).
 
 ### Use the engine as a library
 
@@ -224,7 +224,7 @@ version always gets the newest release; pin `--version X.Y.Z` for reproducible b
 dotnet add package Fallen-8
 ```
 
-The in-process guide is in [docs/library.md](https://cosh.github.io/fallen-8-core/library/).
+The in-process guide is in [docs/library.md](https://docs.fallen-8.com/library/).
 
 ## Samples
 
@@ -233,12 +233,12 @@ Active-Directory attack surface, a movie-recommendation graph, world air routes,
 own dependency graph) that load in a click and come styled, indexed, and ready to explore.
 Each one is a guided tour of a different feature — analytics, weighted paths, semantic search,
 canvas visualization. See the gallery walkthrough, with screenshots and example queries, in
-[docs/samples.md](https://cosh.github.io/fallen-8-core/samples/).
+[docs/samples.md](https://docs.fallen-8.com/samples/).
 
 **Wind Farm Fleet Integrity** goes a step further: it imports an offshore asset graph and then
 ingests three synthetic documents (a PDF root-cause analysis with a figure, an XLSX maintenance
 register, a markdown engineering standard) through the live
-[semantic layer](https://cosh.github.io/fallen-8-core/unstructured-ingestion/). Ask *why did the
+[semantic layer](https://docs.fallen-8.com/unstructured-ingestion/). Ask *why did the
 bearing fail*, land on the paragraph that explains it, and follow that chunk into the fleet to
 find the turbines at risk that no document names.
 
@@ -256,17 +256,17 @@ claude mcp add --transport http fallen8 http://localhost:8090
 ```
 
 For a real (off-box) deployment, set a token and enable the tiers you need — full guide in
-[docs/mcp-server.md](https://cosh.github.io/fallen-8-core/mcp-server/).
+[docs/mcp-server.md](https://docs.fallen-8.com/mcp-server/).
 
 ## Troubleshooting
 
 Common snags — first-start model pulls, the embedding provider, missing-key 401s, GPU
-detection — and their fixes are in [docs/troubleshooting.md](https://cosh.github.io/fallen-8-core/troubleshooting/).
+detection — and their fixes are in [docs/troubleshooting.md](https://docs.fallen-8.com/troubleshooting/).
 
 ## Documentation
 
 The full documentation set is the searchable site at
-**<https://cosh.github.io/fallen-8-core/>**. Its sources live in `docs/` (a Starlight site) and
+**<https://docs.fallen-8.com/>**. Its sources live in `docs/` (a Starlight site) and
 deploy on every push to `main`.
 
 ## Additional information

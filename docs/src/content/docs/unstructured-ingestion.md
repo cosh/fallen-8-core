@@ -9,15 +9,15 @@ vertex**, its content as **Chunk vertices** carrying the text and an embedding, 
 deduplicated network of **Entity vertices** the text mentions, and typed edges between them.
 From there everything you already know applies, because nothing about these vertices is
 special: fused search finds a chunk by describing it, and the hit is a vertex id you can feed
-straight into [path finding](/fallen-8-core/path-finding/) or
-[subgraphs](/fallen-8-core/subgraphs/).
+straight into [path finding](/path-finding/) or
+[subgraphs](/subgraphs/).
 
 The scenario this serves: you keep describing knowledge in documents. Ingest them, then type
 *"the server that terminates TLS for the shop"*, land on the matching chunk, and walk the
 graph from there, through the entities it mentions.
 
 **Want to see it rather than read it?** The
-[Wind Farm Fleet Integrity sample](/fallen-8-core/samples/) loads an asset graph and ingests
+[Wind Farm Fleet Integrity sample](/samples/) loads an asset graph and ingests
 three synthetic documents (a PDF with a figure, a spreadsheet, a markdown standard) through this exact
 pipeline in one click, then walks you to the payoff: a chunk whose `mentions` edges reach both
 the entity network and the real equipment, and a fleet-wide risk that no document states.
@@ -26,7 +26,7 @@ the entity network and the real equipment, and a fleet-wide risk that no documen
 
 ## Quick start
 
-In the [compose environment](/fallen-8-core/running/) ingestion is on by default: the
+In the [compose environment](/running/) ingestion is on by default: the
 `docling` sidecar (document conversion) and the `nlp` sidecar (entity/term extraction) start
 with everything else, and F8 Studio's **Knowledge** screen (last in the rail, after Benchmark)
 offers upload, drag-and-drop, raw-text ingest, the entity view and search. Opt out of the
@@ -68,7 +68,7 @@ no entity network). `GET /status` carries the whole capability state (`ingestion
 accepted formats, sidecar reachability, enforced limits; `nlp`: enabled/configured/reachable),
 which is exactly what the Studio gates its UI on. Both ingest routes and `/document/search` sit
 behind the sensitive-endpoint rate limiter, so a burst answers 429
-(see [security](/fallen-8-core/security/)).
+(see [security](/security/)).
 
 ### Ingest options
 
@@ -97,7 +97,7 @@ Accepted` immediately; the heavy work (convert, chunk, embed, enrich, write) run
 request thread on a **single global FIFO queue** shared by every namespace, drained in arrival
 order by one worker. A large scanned PDF never blocks the caller or holds a connection open;
 its Document row simply shows `processing` and flips to `indexed` when the worker finishes,
-live over the [change feed](/fallen-8-core/change-feed/).
+live over the [change feed](/change-feed/).
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'fontFamily':'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace','lineColor':'#666666'}}}%%
@@ -151,7 +151,7 @@ Step by step, and the order matters:
    6 characters, or `0x…` hex. Lowercase (`edge_tls_01`), hyphenated (`edge-tls-01`) and short
    tokens never extract, and `MaxIdentifiersPerChunk` bounds how many a chunk keeps (first
    occurrence wins).
-4. **Embed.** Chunk texts embed through the [embedding provider](/fallen-8-core/vector-search/)
+4. **Embed.** Chunk texts embed through the [embedding provider](/vector-search/)
    in batches. With the provider off, pass `"embed": false` to ingest text-only; ingestion
    never silently skips embedding.
 5. **Write the chunks.** Chunk vertices (`Chunk`), `contains` edges from the document, `next`
@@ -264,7 +264,7 @@ A hit is a live Chunk vertex. Three ways to keep going:
   ask for the `window` in the search call.
 - **Traverse the domain graph**: follow `mentions` to the entities the chunk names, or to your
   own domain vertices when you [linked](#linking-chunks-to-your-graph) them;
-  `POST /path/{chunkId}/to/{target}` and [semantic traversal](/fallen-8-core/semantic-traversal/)
+  `POST /path/{chunkId}/to/{target}` and [semantic traversal](/semantic-traversal/)
   work unchanged.
 - **In the Studio**: "Send hits to canvas" on the Knowledge screen puts the chunk vertices on
   the canvas, where neighbor expansion and path seeding are one click.
@@ -297,7 +297,7 @@ tags (see the extraction shapes in step 3 above).
 Two things bite here. An allowlisted index that does not exist, or that cannot do equality
 lookups, is rejected with 400 before anything is written. But an index that exists and is simply
 **empty** is not: indices are created empty and filled one element at a time with
-`PUT /index/{indexId}` ([indexes](/fallen-8-core/indexes/)), so linking against an index created
+`PUT /index/{indexId}` ([indexes](/indexes/)), so linking against an index created
 after the domain data was imported silently produces no edges and reports no error. Seed the
 index first, then ingest.
 
@@ -341,7 +341,7 @@ re-ingesting or via the bulk `/embedding/elements` endpoint with the chunk texts
 
 ## AI agents
 
-The [MCP server](/fallen-8-core/mcp-server/) bridges this surface as the `f8_documents` tool,
+The [MCP server](/mcp-server/) bridges this surface as the `f8_documents` tool,
 so an agent binds the layer, writes its findings into the graph as searchable, linkable
 documents, and reads back the entity network - the natural memory loop. Binary file upload
 stays REST-only by design (base64 through tool calls wastes tokens).

@@ -13,8 +13,8 @@ The machine-readable contract is an OpenAPI **3.1** document named `v0.1` (the .
 
 This site publishes both, exported from the app while the site is built:
 
-- Rendered reference: [API Reference](/fallen-8-core/api-reference/)
-- Raw document: `https://cosh.github.io/fallen-8-core/openapi/v0.1.json`
+- Rendered reference: [API Reference](/api-reference/)
+- Raw document: `https://docs.fallen-8.com/openapi/v0.1.json`
 
 The app serves both itself too, but **only in the Development environment** (`Program.cs` maps them behind `app.Environment.IsDevelopment()`). A local `dotnet run --project fallen-8-core-apiApp` runs in Development, and the bundled launch profile binds `http://localhost:5000`:
 
@@ -78,11 +78,11 @@ These hold across the whole surface; each topic's own page carries the detail.
 | JSON casing | `camelCase` in both directions (Web defaults, source-generated). |
 | Errors | Every error response is RFC 7807 `application/problem+json`, a consistent `title`/`status`/`detail` shape for a validation `400`, a `404`, a `409`, and a server fault alike. The status codes are unchanged; only the body is uniform. |
 | Not found / invalid | The engine follows `Try*(out …) : bool`, so an expected miss is a status code, never an exception/`500`. Which code depends on the shape: reads of one element by id (`GET /vertex/{id}`, `/edge/{id}`, `/graphelement/{id}`, `/savegames/{id}`) answer `204 No Content` with no body, while named-resource routes (`/subgraph/{name}`, `/storedquery/{name}`, `/plugins/{name}`, an unknown namespace) answer `404` with a problem body. |
-| Boolean results | Two families report the outcome as a bare `true`/`false` body with `200` instead of a status code: the `/index…` routes and `POST /service` / `DELETE /service/{key}`. There, `false` means it did not happen (unknown index, element, or plugin) and is never signalled as an HTTP error. See [indexes](/fallen-8-core/indexes/) and [plugins](/fallen-8-core/plugins/). |
-| Mutations | Element writes are enqueued on the single writer thread and answer `202 Accepted`; pass `?waitForCompletion=true` to block until the commit lands. Not every mutating route is waitable: `POST /index` and the `HEAD` maintenance routes take no such parameter. See [graph model](/fallen-8-core/graph-model/). |
+| Boolean results | Two families report the outcome as a bare `true`/`false` body with `200` instead of a status code: the `/index…` routes and `POST /service` / `DELETE /service/{key}`. There, `false` means it did not happen (unknown index, element, or plugin) and is never signalled as an HTTP error. See [indexes](/indexes/) and [plugins](/plugins/). |
+| Mutations | Element writes are enqueued on the single writer thread and answer `202 Accepted`; pass `?waitForCompletion=true` to block until the commit lands. Not every mutating route is waitable: `POST /index` and the `HEAD` maintenance routes take no such parameter. See [graph model](/graph-model/). |
 | Status codes | Each action is annotated with `[ProducesResponseType]`, so the exact codes and DTOs live in the OpenAPI document / Scalar, not here. |
-| Namespaces | Every namespace-scoped route also answers under `/ns/{name}/…`; bare URLs address the reserved `default` namespace, except `GET /generate` and `GET /benchmark`, which have no bare alias and answer `400` naming the scoped URL. A namespace that exists but was not loaded by this process refuses every one of them with `503` before the action runs (`namespaceState: "notLoaded"`); `GET /status` is the single exception and reports that state instead. See [namespaces](/fallen-8-core/namespaces/#startup-load). |
-| Authentication | When configured, the API key travels in the `X-Api-Key` header (name configurable), the header name and key configuration are owned by [security](/fallen-8-core/security/). |
+| Namespaces | Every namespace-scoped route also answers under `/ns/{name}/…`; bare URLs address the reserved `default` namespace, except `GET /generate` and `GET /benchmark`, which have no bare alias and answer `400` naming the scoped URL. A namespace that exists but was not loaded by this process refuses every one of them with `503` before the action runs (`namespaceState: "notLoaded"`); `GET /status` is the single exception and reports that state instead. See [namespaces](/namespaces/#startup-load). |
+| Authentication | When configured, the API key travels in the `X-Api-Key` header (name configurable), the header name and key configuration are owned by [security](/security/). |
 
 ## Endpoint directory
 
@@ -90,39 +90,39 @@ Every endpoint group and the page that documents it. Routes shown bare; each als
 
 | Group | Routes | Doc |
 |---|---|---|
-| Vertices, edges, elements & property scans | `PUT /vertex`, `PUT /vertices` (batch), `GET /vertex/{id}`, `/vertex/{id}/edges/…`, `PUT /edge`, `PUT /edges` (batch), `GET /edge/{id}`, `/edge/{id}/{source,target}`, `GET/DELETE /graphelement/{id}`, `PUT/DELETE /graphelement/{id}/{propertyId}`, `POST /graphelements/get` (batch read), `PUT /graphelements/properties` (atomic multi-element property replace), `DELETE /graphelements`, `GET /graph`, `GET /vertex/count`, `/edge/count`, `POST /scan/graph/property/{id}`, `POST /scan/graph/properties` | [graph-model.md](/fallen-8-core/graph-model/) |
-| Indexes & index scans | `POST /index`, `PUT/DELETE /index/{id}`, `DELETE /index/{id}/propertyValue`, `DELETE /index/{id}/{elementId}`, `POST /index/backfill/{id}` (rebuild from element state), `POST /scan/index/{all,range,fulltext,spatial}` | [indexes.md](/fallen-8-core/indexes/) |
-| Vector search | `PUT /index/vector/{id}`, `POST /scan/index/vector` | [vector-search.md](/fallen-8-core/vector-search/) |
-| Path finding | `POST /path/{from}/to/{to}` | [path-finding.md](/fallen-8-core/path-finding/) |
-| Subgraphs | `PUT/GET /subgraph`, `GET/DELETE /subgraph/{name}`, `GET /subgraph/{name}/graph`, `POST /subgraph/{name}/recalculate` | [subgraphs.md](/fallen-8-core/subgraphs/) |
-| Stored queries | `POST/GET /storedquery`, `GET/DELETE /storedquery/{name}` | [stored-queries.md](/fallen-8-core/stored-queries/) |
-| Graph analytics | `GET /analytics/algorithms`, `POST /analytics/{name}`, `/analytics/{name}/partition/{id}` | [graph-analytics.md](/fallen-8-core/graph-analytics/) |
-| Embeddings & semantics | `PUT/GET/DELETE /graphelement/{id}/embedding/{name}`, `POST /embedding/{element,elements,search,text}` | [semantic-traversal.md](/fallen-8-core/semantic-traversal/) |
-| Semantic layer (documents) | `POST/GET /document`, `POST /document/text`, `GET/DELETE /document/{id}`, `POST /document/search`, `GET /document/binding`, `POST /document/binding/ensure`, `GET /document/entities`. The whole group answers `403` while `Fallen8:Ingestion:Enabled` is off. | [unstructured-ingestion.md](/fallen-8-core/unstructured-ingestion/) |
-| Chat gateway **(Fallen-8-level)** | `POST /chat` (`403` while `Fallen8:Chat:Enabled` is off) | [semantic-traversal.md](/fallen-8-core/semantic-traversal/) |
-| Namespaces **(Fallen-8-level)** | `GET /ns`, `GET/PUT/PATCH/DELETE /ns/{name}`, `POST /ns/{name}/activate` | [namespaces.md](/fallen-8-core/namespaces/) |
-| Bulk import/export | `GET /bulk/export`, `POST /bulk/import` | [bulk-import-export.md](/fallen-8-core/bulk-import-export/) |
-| Change feed | `GET /changefeed` (Server-Sent Events) | [change-feed.md](/fallen-8-core/change-feed/) |
-| Save games | `PUT /save`, `PUT /load`; then, all **(Fallen-8-level)**: `PUT /save/all`, `GET /savegames`, `GET/DELETE /savegames/{id}`, `PUT /savegames/{id}/load` | [save-games.md](/fallen-8-core/save-games/) |
-| Delegate validation **(Fallen-8-level)** | `POST /delegates/validate` | [delegates.md](/fallen-8-core/delegates/) |
-| Plugin registration | `POST /plugins/{algorithm,function}`, `POST /plugins/{algorithm,function}/validate`, `POST /plugins/function/{name}/invoke`, `GET /plugins`, `GET/DELETE /plugins/{name}` | [plugin-registration.md](/fallen-8-core/plugin-registration/) |
-| Services | `POST /service`, `DELETE /service/{key}` | [plugins.md](/fallen-8-core/plugins/) |
-| Observability | `GET /status`, `GET /statistics`, `GET /config` **(Fallen-8-level)**; plus `/healthz`, `/readyz` and `/metrics`, which are mapped outside MVC (no `/ns` twin, absent from the OpenAPI document, and `/metrics` only when the Prometheus exporter is on) | [observability.md](/fallen-8-core/observability/) |
-| Sample graph | `PUT /unittest` (the canned test graph; for real datasets use the [sample gallery](/fallen-8-core/samples/)) | [path-finding.md](/fallen-8-core/path-finding/) |
-| Benchmark **(namespace required)** | `GET /ns/{name}/generate`, `GET /ns/{name}/benchmark` - the only two scoped routes whose bare form is refused with `400` instead of aliasing `default` | [benchmark.md](/fallen-8-core/benchmark/) |
-| Maintenance | `HEAD /trim`, `HEAD /tabularasa` (clear graph), `HEAD /tabularasa/all` **(Fallen-8-level)** | [graph-model.md](/fallen-8-core/graph-model/) |
+| Vertices, edges, elements & property scans | `PUT /vertex`, `PUT /vertices` (batch), `GET /vertex/{id}`, `/vertex/{id}/edges/…`, `PUT /edge`, `PUT /edges` (batch), `GET /edge/{id}`, `/edge/{id}/{source,target}`, `GET/DELETE /graphelement/{id}`, `PUT/DELETE /graphelement/{id}/{propertyId}`, `POST /graphelements/get` (batch read), `PUT /graphelements/properties` (atomic multi-element property replace), `DELETE /graphelements`, `GET /graph`, `GET /vertex/count`, `/edge/count`, `POST /scan/graph/property/{id}`, `POST /scan/graph/properties` | [graph-model.md](/graph-model/) |
+| Indexes & index scans | `POST /index`, `PUT/DELETE /index/{id}`, `DELETE /index/{id}/propertyValue`, `DELETE /index/{id}/{elementId}`, `POST /index/backfill/{id}` (rebuild from element state), `POST /scan/index/{all,range,fulltext,spatial}` | [indexes.md](/indexes/) |
+| Vector search | `PUT /index/vector/{id}`, `POST /scan/index/vector` | [vector-search.md](/vector-search/) |
+| Path finding | `POST /path/{from}/to/{to}` | [path-finding.md](/path-finding/) |
+| Subgraphs | `PUT/GET /subgraph`, `GET/DELETE /subgraph/{name}`, `GET /subgraph/{name}/graph`, `POST /subgraph/{name}/recalculate` | [subgraphs.md](/subgraphs/) |
+| Stored queries | `POST/GET /storedquery`, `GET/DELETE /storedquery/{name}` | [stored-queries.md](/stored-queries/) |
+| Graph analytics | `GET /analytics/algorithms`, `POST /analytics/{name}`, `/analytics/{name}/partition/{id}` | [graph-analytics.md](/graph-analytics/) |
+| Embeddings & semantics | `PUT/GET/DELETE /graphelement/{id}/embedding/{name}`, `POST /embedding/{element,elements,search,text}` | [semantic-traversal.md](/semantic-traversal/) |
+| Semantic layer (documents) | `POST/GET /document`, `POST /document/text`, `GET/DELETE /document/{id}`, `POST /document/search`, `GET /document/binding`, `POST /document/binding/ensure`, `GET /document/entities`. The whole group answers `403` while `Fallen8:Ingestion:Enabled` is off. | [unstructured-ingestion.md](/unstructured-ingestion/) |
+| Chat gateway **(Fallen-8-level)** | `POST /chat` (`403` while `Fallen8:Chat:Enabled` is off) | [semantic-traversal.md](/semantic-traversal/) |
+| Namespaces **(Fallen-8-level)** | `GET /ns`, `GET/PUT/PATCH/DELETE /ns/{name}`, `POST /ns/{name}/activate` | [namespaces.md](/namespaces/) |
+| Bulk import/export | `GET /bulk/export`, `POST /bulk/import` | [bulk-import-export.md](/bulk-import-export/) |
+| Change feed | `GET /changefeed` (Server-Sent Events) | [change-feed.md](/change-feed/) |
+| Save games | `PUT /save`, `PUT /load`; then, all **(Fallen-8-level)**: `PUT /save/all`, `GET /savegames`, `GET/DELETE /savegames/{id}`, `PUT /savegames/{id}/load` | [save-games.md](/save-games/) |
+| Delegate validation **(Fallen-8-level)** | `POST /delegates/validate` | [delegates.md](/delegates/) |
+| Plugin registration | `POST /plugins/{algorithm,function}`, `POST /plugins/{algorithm,function}/validate`, `POST /plugins/function/{name}/invoke`, `GET /plugins`, `GET/DELETE /plugins/{name}` | [plugin-registration.md](/plugin-registration/) |
+| Services | `POST /service`, `DELETE /service/{key}` | [plugins.md](/plugins/) |
+| Observability | `GET /status`, `GET /statistics`, `GET /config` **(Fallen-8-level)**; plus `/healthz`, `/readyz` and `/metrics`, which are mapped outside MVC (no `/ns` twin, absent from the OpenAPI document, and `/metrics` only when the Prometheus exporter is on) | [observability.md](/observability/) |
+| Sample graph | `PUT /unittest` (the canned test graph; for real datasets use the [sample gallery](/samples/)) | [path-finding.md](/path-finding/) |
+| Benchmark **(namespace required)** | `GET /ns/{name}/generate`, `GET /ns/{name}/benchmark` - the only two scoped routes whose bare form is refused with `400` instead of aliasing `default` | [benchmark.md](/benchmark/) |
+| Maintenance | `HEAD /trim`, `HEAD /tabularasa` (clear graph), `HEAD /tabularasa/all` **(Fallen-8-level)** | [graph-model.md](/graph-model/) |
 
 ## Generating a client
 
 The document is OpenAPI **3.1** (so, JSON Schema 2020-12), which the generator has to support: check that first for [`openapi-generator`](https://openapi-generator.tech/), [NSwag](https://github.com/RicoSuter/NSwag) or [Kiota](https://learn.microsoft.com/openapi/kiota/). A tool stuck on 3.0 needs the document emitted as 3.0 instead (`AddOpenApi`'s `OpenApiVersion` option, in `Program.cs`).
 
-Point the tool at the published `https://cosh.github.io/fallen-8-core/openapi/v0.1.json`, or at `http://localhost:5000/openapi/v0.1.json` from a Development `dotnet run`, or save either and generate offline in CI. The document declares an `ApiKey` security scheme (the `X-Api-Key` header) and requires it document-wide except on the handful of anonymous operations, so a generated client gets a credential field wired up; whether an instance actually enforces it depends on `Fallen8:Security:ApiKey`. One thing a generated client still needs by hand: its `servers` entry records the host the document was exported from, not your instance.
+Point the tool at the published `https://docs.fallen-8.com/openapi/v0.1.json`, or at `http://localhost:5000/openapi/v0.1.json` from a Development `dotnet run`, or save either and generate offline in CI. The document declares an `ApiKey` security scheme (the `X-Api-Key` header) and requires it document-wide except on the handful of anonymous operations, so a generated client gets a credential field wired up; whether an instance actually enforces it depends on `Fallen8:Security:ApiKey`. One thing a generated client still needs by hand: its `servers` entry records the host the document was exported from, not your instance.
 
 ## See also
 
-- [API Reference](/fallen-8-core/api-reference/): every operation, rendered from the exported OpenAPI document
-- [Running Fallen-8](/fallen-8-core/running/): launching the server for `dotnet run` (Development) vs. Docker (Production)
-- [Namespaces](/fallen-8-core/namespaces/): the `/ns/{name}/…` routing scheme and management API
-- [Security](/fallen-8-core/security/): the API key header and key configuration (dynamic code is always on)
-- [Graph model](/fallen-8-core/graph-model/): elements, properties, and the `waitForCompletion` transaction contract
-- [Observability](/fallen-8-core/observability/): `/status`, `/statistics`, `/metrics`, and the health probes
+- [API Reference](/api-reference/): every operation, rendered from the exported OpenAPI document
+- [Running Fallen-8](/running/): launching the server for `dotnet run` (Development) vs. Docker (Production)
+- [Namespaces](/namespaces/): the `/ns/{name}/…` routing scheme and management API
+- [Security](/security/): the API key header and key configuration (dynamic code is always on)
+- [Graph model](/graph-model/): elements, properties, and the `waitForCompletion` transaction contract
+- [Observability](/observability/): `/status`, `/statistics`, `/metrics`, and the health probes

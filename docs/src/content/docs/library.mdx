@@ -6,14 +6,14 @@ description: "Consume the engine in-process: install the Fallen-8 NuGet package,
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
 There are two ways to use Fallen-8. Most of this site describes the first: run it as a service and talk
-to it over [REST](/fallen-8-core/rest-api/). The second is to reference the engine as a .NET library and
+to it over [REST](/rest-api/). The second is to reference the engine as a .NET library and
 hold the graph inside your own process, with no HTTP, no serialization, and no server to operate. That
 is what this page covers.
 
 The library is the same engine the service runs. Everything in
-[graph model](/fallen-8-core/graph-model/), [path finding](/fallen-8-core/path-finding/),
-[subgraphs](/fallen-8-core/subgraphs/), [indexes](/fallen-8-core/indexes/),
-[analytics](/fallen-8-core/graph-analytics/) and [save games](/fallen-8-core/save-games/) is reachable
+[graph model](/graph-model/), [path finding](/path-finding/),
+[subgraphs](/subgraphs/), [indexes](/indexes/),
+[analytics](/graph-analytics/) and [save games](/save-games/) is reachable
 in-process; the REST layer is a thin projection on top of it.
 
 ## Install
@@ -53,11 +53,11 @@ workload Server GC is built for. A non-web host would otherwise default to Works
 | In the engine (this package)                                                        | Not in the engine                                                                      |
 | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | Graph model, transactions, indexes, path and subgraph algorithms, analytics          | The REST API, its versioning, and the OpenAPI document                                 |
-| Persistence: checkpoints, the write-ahead log, save games                            | The API key and every other perimeter control ([security](/fallen-8-core/security/))   |
+| Persistence: checkpoints, the write-ahead log, save games                            | The API key and every other perimeter control ([security](/security/))   |
 | Element embeddings and the vector index                                              | The text-in embedding provider and the chat gateway, which are apiApp-only              |
 | The change feed                                                                      | Document ingestion and the NLP sidecar                                                 |
 | Plugin discovery and the `IPlugin` contracts                                         | The Roslyn compilers behind dynamic fragments (see below)                               |
-| One graph per `Fallen8` instance                                                     | [Namespaces](/fallen-8-core/namespaces/), which are an apiApp-level collection          |
+| One graph per `Fallen8` instance                                                     | [Namespaces](/namespaces/), which are an apiApp-level collection          |
 
 Dynamic C# is a good illustration of the split. The engine declares the abstractions
 `ISubGraphRecipeCompiler`, `IStoredQueryCompiler` and `IPluginCompiler`, and takes them as constructor
@@ -101,7 +101,7 @@ Console.WriteLine($"{fallen8.VertexCount} vertices, {fallen8.EdgeCount} edges");
 
 `AddEdge` takes the edge **type** (`"connects"`) before the target and the **label** (`"link"`) after
 the creation date. They are different things and the argument order does not warn you:
-[edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label).
+[edge type vs label](/graph-model/#edge-type-vs-label).
 
 Note that the created vertices come back from the **transaction object**
 (`verticesTx.GetCreatedVertices()`), not from the engine. The transaction is the record of what it did.
@@ -209,7 +209,7 @@ anywhere.
 
 To put a face on an in-browser graph, Studio's canvas component renders it straight from your
 interop layer; the walk-through from a WASM engine to the canvas to the full embedded Studio is
-[Embed scenarios](/fallen-8-core/embed-scenarios/).
+[Embed scenarios](/embed-scenarios/).
 
 **Checkpoints work here too.** A save fans its sidecar writes out across the thread pool and then waits
 for them, and a load reads its partitions in parallel, neither of which a single-threaded host can do,
@@ -283,8 +283,8 @@ The constructor you pick decides what the instance carries:
 | ---------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `new Fallen8(loggerFactory)`                                           | A pure in-memory graph: no WAL, no change feed, nothing on disk               |
 | `new Fallen8(path, loggerFactory)`                                     | An instance loaded from an existing checkpoint at `path`                       |
-| `new Fallen8(loggerFactory, changeFeedOptions)`                        | The [change feed](/fallen-8-core/change-feed/) as an in-order event stream     |
-| `new Fallen8(loggerFactory, writeAheadLogOptions, ...)`                | A [write-ahead log](/fallen-8-core/save-games/) plus the optional compilers    |
+| `new Fallen8(loggerFactory, changeFeedOptions)`                        | The [change feed](/change-feed/) as an in-order event stream     |
+| `new Fallen8(loggerFactory, writeAheadLogOptions, ...)`                | A [write-ahead log](/save-games/) plus the optional compilers    |
 
 The widest overload also takes `ISubGraphRecipeCompiler`, `IStoredQueryCompiler`, `IPluginCompiler`, a
 `ChangeFeedOptions`, a metrics scope id and a `TransactionExecutionMode`, so a host can opt into exactly
@@ -351,8 +351,8 @@ specific to the immutable collections were lost.
 
 ## See also
 
-- [Graph model](/fallen-8-core/graph-model/): the vertex, edge, property and label semantics the API exposes
-- [Capacity and performance](/fallen-8-core/capacity-and-performance/): what a graph costs in memory and how fast writes go
-- [Plugin registration](/fallen-8-core/plugin-registration/): the `IPlugin` contracts you implement in-process
-- [Save games](/fallen-8-core/save-games/): the checkpoint format, the WAL, and what survives a crash
-- [Architecture](/fallen-8-core/architecture/): where the engine sits relative to the REST API and the UI
+- [Graph model](/graph-model/): the vertex, edge, property and label semantics the API exposes
+- [Capacity and performance](/capacity-and-performance/): what a graph costs in memory and how fast writes go
+- [Plugin registration](/plugin-registration/): the `IPlugin` contracts you implement in-process
+- [Save games](/save-games/): the checkpoint format, the WAL, and what survives a crash
+- [Architecture](/architecture/): where the engine sits relative to the REST API and the UI

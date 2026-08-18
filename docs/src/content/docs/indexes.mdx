@@ -7,12 +7,12 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 An index is an optional acceleration structure that maps keys to graph elements so a lookup
 does not have to walk the graph. Indexes are a complement to Fallen-8's primary query path:
-C# delegate predicates ([delegates.md](/fallen-8-core/delegates/)) and full-graph scans
-([graph-model.md](/fallen-8-core/graph-model/)), not a replacement for it. Each index is a plugin keyed
+C# delegate predicates ([delegates.md](/delegates/)) and full-graph scans
+([graph-model.md](/graph-model/)), not a replacement for it. Each index is a plugin keyed
 by a `uniqueId`; the built-in types are discovered through the plugin system
-([plugins.md](/fallen-8-core/plugins/)), and third-party index plugins are picked up the same way. Every
+([plugins.md](/plugins/)), and third-party index plugins are picked up the same way. Every
 route below also answers under `/ns/{ns}/…` for a specific namespace
-([namespaces.md](/fallen-8-core/namespaces/)); each namespace owns its own set of indexes.
+([namespaces.md](/namespaces/)); each namespace owns its own set of indexes.
 
 ## Built-in index types
 
@@ -51,7 +51,7 @@ where the value is parsed via a closed primitive allow-list (string, the integer
 - **`DictionaryIndex`, `SingleValueIndex`, `RangeIndex`, `RegExIndex`** take **no** options: they
   ignore `pluginOptions` entirely and are populated per element (see below).
 - **`VectorIndex`** takes `dimension` (required), `metric`, `embeddingName`, `model`: see
-  [vector-search.md](/fallen-8-core/vector-search/).
+  [vector-search.md](/vector-search/).
 - **`SpatialIndex` is not creatable over REST**: it needs .NET-object options (a metric, a
   dimension list) that the primitive allow-list cannot express, so `POST /index` returns
   `false` for it. It is created in-process against the engine.
@@ -62,7 +62,7 @@ where the value is parsed via a closed primitive allow-list (string, the integer
 |---|---|---|---|
 | Create an index | `POST /index` | `PluginSpecification` (`uniqueId`, `pluginType`, `pluginOptions`) | `true`/`false` |
 | Add an element under a key | `PUT /index/{indexId}` | `IndexAddToSpecification` (`graphElementId`, `key`) | `true`/`false` |
-| Add a vector (vector family) | `PUT /index/vector/{indexId}` | see [vector-search.md](/fallen-8-core/vector-search/) | `true`, or `400`/`404` |
+| Add a vector (vector family) | `PUT /index/vector/{indexId}` | see [vector-search.md](/vector-search/) | `true`, or `400`/`404` |
 | Remove one element from an index | `DELETE /index/{indexId}/{graphElementId}` | *(none)* | `true`/`false` |
 | Remove a key | `DELETE /index/{indexId}/propertyValue` | `PropertySpecification` (the key) | `true`/`false` |
 | Delete an index | `DELETE /index/{indexId}` | *(none)* | `true`/`false` |
@@ -82,7 +82,7 @@ the response, for an unknown index, a missing `propertyId`, or an index it refus
 
 An index is derived state: everything in it can be recomputed from the elements' own properties. So
 when one goes missing or comes back empty - a checkpoint that could not write it (watch
-`lastCheckpointDroppedIndices` on [`GET /status`](/fallen-8-core/save-games/)), a truncated recovery,
+`lastCheckpointDroppedIndices` on [`GET /status`](/save-games/)), a truncated recovery,
 or an index created after the elements were already there - `POST /index/backfill/{indexId}` walks the
 live elements and writes an entry for every one carrying the named property. Give it a single property
 key, or a **prefix** to catch a family of keys written with an ordinal suffix.
@@ -110,7 +110,7 @@ can spot having named the wrong property (scanned many, indexed none):
 | `indexedElements` | Entries written; in prefix mode one element can contribute several |
 | `skippedUnindexableValues` | Elements whose value cannot be an index key (not comparable, for example a vector written through the raw property surface), counted so the skip is not silent |
 
-Listing and per-index counts are part of the status surface ([observability.md](/fallen-8-core/observability/)).
+Listing and per-index counts are part of the status surface ([observability.md](/observability/)).
 Index definitions are immutable: there is no update; delete and recreate. Populating a
 bucket or fulltext index is explicit: created empty, then filled with `PUT /index/{indexId}`,
 one element and key at a time. Removing a graph element (through a transaction) purges it from
@@ -118,29 +118,29 @@ every index automatically. A `VectorIndex` bound to an embedding name maintains 
 every explicit content write is refused with `400`: the add, and both removals above
 (`DELETE /index/{indexId}/{graphElementId}`, `DELETE /index/{indexId}/propertyValue`). Remove the
 element's embedding instead and the projection follows
-([semantic-traversal.md](/fallen-8-core/semantic-traversal/) owns the binding story).
+([semantic-traversal.md](/semantic-traversal/) owns the binding story).
 `HEAD /tabularasa` drops every index **definition**, not just its entries, and loading a
 checkpoint replaces the live index set with the checkpoint's, so recreate your indexes afterwards
-([save-games.md](/fallen-8-core/save-games/)). A `Trim` keeps them.
+([save-games.md](/save-games/)). A `Trim` keeps them.
 
 `POST /index` is not the only route that creates one: the semantic layer's explicit bind
 `POST /document/binding/ensure` creates the vector, fulltext and entity indexes ingestion needs
 (default ids `documents`, `documents-text`, `documents-entities`) if they do not exist yet. They
 show up in the `GET /status` inventory like any other index, and deleting one makes ingestion
 answer `428` until the bind runs again
-([unstructured-ingestion.md](/fallen-8-core/unstructured-ingestion/)).
+([unstructured-ingestion.md](/unstructured-ingestion/)).
 
 Watch the two key shapes: an index **add** key uses `propertyValue` (a `PropertySpecification`),
 while a **scan** literal uses `value` (a `LiteralSpecification`); both carry
 `fullQualifiedTypeName`. `POST /scan/index/all` also honours the scan body's optional `label`
-field: an exact-match restrictor on the hits, same as the [property scan's](/fallen-8-core/graph-model/#full-graph-property-scans).
+field: an exact-match restrictor on the hits, same as the [property scan's](/graph-model/#full-graph-property-scans).
 
 ## Worked example: a dictionary index
 
 Create a dictionary index, index element `42` under the key `"Alice"`, then look it up. The example
 assumes vertex `42` already exists: create one with `PUT /vertices?waitForCompletion=true`, which
 returns the assigned ids, and substitute the id you get
-([graph-model.md](/fallen-8-core/graph-model/#rest-crud)). A miss here is silent rather than an
+([graph-model.md](/graph-model/#rest-crud)). A miss here is silent rather than an
 error: if the element or the index does not exist, step 2 answers `200` with `false` and step 3
 then returns `[]`. `resultType: "Vertices"` in step 3 also drops a hit that is an edge; use
 `"Both"` to see every hit.
@@ -204,7 +204,7 @@ return a richer object). `resultType` is a string enum, `Vertices`, `Edges`, or 
 | `POST /scan/index/range` | `indexId`, `leftLimit`, `rightLimit`, `fullQualifiedTypeName`, `includeLeft`, `includeRight`, `resultType` | Bounded range on a `RangeIndex` |
 | `POST /scan/index/fulltext` | `indexId`, `requestString` | Regex search on a `RegExIndex`; returns matched elements with highlights and a score |
 | `POST /scan/index/spatial` | `indexId`, `graphElementId`, `distance` | Elements within `distance` of a reference element in a `SpatialIndex` |
-| `POST /scan/index/vector` | `indexId`, `query`, `k`, `kind`, `label` | Exact kNN: see [vector-search.md](/fallen-8-core/vector-search/) |
+| `POST /scan/index/vector` | `indexId`, `query`, `k`, `kind`, `label` | Exact kNN: see [vector-search.md](/vector-search/) |
 
 The four scans do not report a miss the same way, so do not write one client branch for all of
 them: `all` and `range` return an empty `200` for an unknown index; `fulltext` and `spatial` return
@@ -224,10 +224,10 @@ string on the wire):
 
 An index scan hits only the keys you added to that index. To scan every element's live properties
 without an index, use `POST /scan/graph/property/{propertyId}` for one named key with a typed
-operator ([graph-model.md](/fallen-8-core/graph-model/#full-graph-property-scans)),
+operator ([graph-model.md](/graph-model/#full-graph-property-scans)),
 `POST /scan/graph/properties` for a case-insensitive contains match across every property value
-([graph-model.md](/fallen-8-core/graph-model/#across-every-property-discovery-search)), or a
-compiled delegate ([delegates.md](/fallen-8-core/delegates/)).
+([graph-model.md](/graph-model/#across-every-property-discovery-search)), or a
+compiled delegate ([delegates.md](/delegates/)).
 
 ## Vector indexes
 
@@ -236,8 +236,8 @@ and its hits are graph elements, so similarity search is a graph entry point. It
 index surface above (create with `pluginType: "VectorIndex"`, delete, list) but has its own
 typed add (`PUT /index/vector/{indexId}`) and query (`POST /scan/index/vector`). The full
 contract (metrics, ordering, options, bound embeddings, memory) lives in
-[vector-search.md](/fallen-8-core/vector-search/); embedding-driven population is covered in
-[semantic-traversal.md](/fallen-8-core/semantic-traversal/).
+[vector-search.md](/vector-search/); embedding-driven population is covered in
+[semantic-traversal.md](/semantic-traversal/).
 
 ## Persistence
 
@@ -248,17 +248,17 @@ creation nor index writes are WAL-logged, so after a crash replay an index creat
 checkpoint is gone entirely, and an older index is back at its checkpointed contents. Save a
 checkpoint once you have built an index. The exception is a bound vector index that was already in
 the checkpoint: its contents rebuild from the WAL-covered element embeddings. See
-[save-games.md](/fallen-8-core/save-games/).
+[save-games.md](/save-games/).
 
 ## See also
 
-- [vector-search.md](/fallen-8-core/vector-search/): the `VectorIndex` kNN deep dive
-- [semantic-traversal.md](/fallen-8-core/semantic-traversal/): element embeddings and bound vector indexes
-- [graph-model.md](/fallen-8-core/graph-model/): vertices, edges, properties, transactions, full-graph scans
-- [delegates.md](/fallen-8-core/delegates/): why there is no query language, and how queries become compiled C# delegates
-- [plugins.md](/fallen-8-core/plugins/): the plugin system indexes are discovered through
-- [observability.md](/fallen-8-core/observability/): `GET /status` index inventory and counts
-- [studio.md](/fallen-8-core/studio/): the F8 Studio Indexes screen
-- [save-games.md](/fallen-8-core/save-games/): checkpoints and durability
-- [namespaces.md](/fallen-8-core/namespaces/): per-namespace routing (`/ns/{ns}/…`)
-- [rest-api.md](/fallen-8-core/rest-api/): OpenAPI document and Scalar UI
+- [vector-search.md](/vector-search/): the `VectorIndex` kNN deep dive
+- [semantic-traversal.md](/semantic-traversal/): element embeddings and bound vector indexes
+- [graph-model.md](/graph-model/): vertices, edges, properties, transactions, full-graph scans
+- [delegates.md](/delegates/): why there is no query language, and how queries become compiled C# delegates
+- [plugins.md](/plugins/): the plugin system indexes are discovered through
+- [observability.md](/observability/): `GET /status` index inventory and counts
+- [studio.md](/studio/): the F8 Studio Indexes screen
+- [save-games.md](/save-games/): checkpoints and durability
+- [namespaces.md](/namespaces/): per-namespace routing (`/ns/{ns}/…`)
+- [rest-api.md](/rest-api/): OpenAPI document and Scalar UI

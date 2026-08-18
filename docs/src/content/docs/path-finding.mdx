@@ -5,7 +5,7 @@ description: "Shortest and weighted paths with delegate filter and cost function
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Fallen-8 finds shortest paths between two vertices with `POST /path/{from}/to/{to}`. Two algorithms ship in the box (an unweighted hop-count search (`BLS`, the default) and a weighted Dijkstra (`DIJKSTRA`)) and both accept optional C# filter and cost fragments that decide which vertices and edges are traversable and how much each step weighs. There is no query language: those fragments are runtime-compiled delegates ([delegates.md](/fallen-8-core/delegates/)). A path query is a read, so no transaction is involved; every route also answers under `/ns/{ns}/…` for a specific graph ([namespaces.md](/fallen-8-core/namespaces/)).
+Fallen-8 finds shortest paths between two vertices with `POST /path/{from}/to/{to}`. Two algorithms ship in the box (an unweighted hop-count search (`BLS`, the default) and a weighted Dijkstra (`DIJKSTRA`)) and both accept optional C# filter and cost fragments that decide which vertices and edges are traversable and how much each step weighs. There is no query language: those fragments are runtime-compiled delegates ([delegates.md](/delegates/)). A path query is a read, so no transaction is involved; every route also answers under `/ns/{ns}/…` for a specific graph ([namespaces.md](/namespaces/)).
 
 ## The request
 
@@ -13,19 +13,19 @@ Fallen-8 finds shortest paths between two vertices with `POST /path/{from}/to/{t
 
 | Field | Type | Default | Meaning |
 |---|---|---|---|
-| `pathAlgorithmName` | string | `BLS` | `BLS`, `DIJKSTRA` (below), or the name of a registered `Path` algorithm plugin ([plugin-registration.md](/fallen-8-core/plugin-registration/)). Matched case-sensitively; an unknown or mis-cased name yields an empty result, not an error. |
+| `pathAlgorithmName` | string | `BLS` | `BLS`, `DIJKSTRA` (below), or the name of a registered `Path` algorithm plugin ([plugin-registration.md](/plugin-registration/)). Matched case-sensitively; an unknown or mis-cased name yields an empty result, not an error. |
 | `maxDepth` | uint16 | `7` | Maximum number of edges on a returned path. `0` returns `[]` immediately. |
 | `maxResults` | uint16 | `65535` | Maximum paths to return. For `DIJKSTRA` this is the `K` of K-shortest, set it to `1` for just the cheapest. |
 | `maxPathWeight` | double | unbounded | Inclusive cumulative-weight cap; honoured by `DIJKSTRA`, ignored by `BLS`. |
 | `filter` | object | (none) | `vertexFilter` / `edgeFilter` / `edgePropertyFilter` fragments (below). |
 | `cost` | object | (none) | `vertexCost` / `edgeCost` fragments (below). |
-| `storedQuery` | string | (none) | Invoke a registered `Path` query by name instead of inline fragments, mutually exclusive with `filter`/`cost` ([stored-queries.md](/fallen-8-core/stored-queries/)). |
-| `semantic` | object | (none) | Code-free similarity filter/cost block ([semantic-traversal.md](/fallen-8-core/semantic-traversal/)). |
-| `timeBudgetSeconds` | double | unbounded | Cooperative deadline for the traversal; `408` when it is exhausted, and the request is always bound to the client's abort as well. Checked between filter and cost invocations, so it bounds an expensive traversal but cannot interrupt a single fragment that never returns ([security](/fallen-8-core/security/#dynamic-code-execution-always-on)). |
+| `storedQuery` | string | (none) | Invoke a registered `Path` query by name instead of inline fragments, mutually exclusive with `filter`/`cost` ([stored-queries.md](/stored-queries/)). |
+| `semantic` | object | (none) | Code-free similarity filter/cost block ([semantic-traversal.md](/semantic-traversal/)). |
+| `timeBudgetSeconds` | double | unbounded | Cooperative deadline for the traversal; `408` when it is exhausted, and the request is always bound to the client's abort as well. Checked between filter and cost invocations, so it bounds an expensive traversal but cannot interrupt a single fragment that never returns ([security](/security/#dynamic-code-execution-always-on)). |
 
 ## Algorithms
 
-Both traverse edges in **both directions** (undirected reachability over directed edges); each step records the direction it actually used. Both are discovered as plugins ([plugins.md](/fallen-8-core/plugins/)); `GET /status` → `availablePathPlugins` reports the invocable set, which is the two built-ins plus any `Path` algorithm plugin registered in this namespace.
+Both traverse edges in **both directions** (undirected reachability over directed edges); each step records the direction it actually used. Both are discovered as plugins ([plugins.md](/plugins/)); `GET /status` → `availablePathPlugins` reports the invocable set, which is the two built-ins plus any `Path` algorithm plugin registered in this namespace.
 
 | | `BLS` (default) | `DIJKSTRA` |
 |---|---|---|
@@ -34,7 +34,7 @@ Both traverse edges in **both directions** (undirected reachability over directe
 | `maxPathWeight` | ignored | enforced (inclusive) |
 | Multiple results | all fewest-hop paths (≤ `maxResults`) | `K` least-weight **loop-free** paths, non-decreasing weight (Yen's algorithm) |
 
-Pick **`BLS`** for reachability and degrees-of-separation questions where every edge counts the same. Pick **`DIJKSTRA`** when edges or vertices carry a cost to minimise, e.g. the air-routes sample's `km` for the shortest flight distance, or the attack-surface sample's `exploitCost` for the least-effort attack path ([samples.md](/fallen-8-core/samples/)).
+Pick **`BLS`** for reachability and degrees-of-separation questions where every edge counts the same. Pick **`DIJKSTRA`** when edges or vertices carry a cost to minimise, e.g. the air-routes sample's `km` for the shortest flight distance, or the attack-surface sample's `exploitCost` for the least-effort attack path ([samples.md](/samples/)).
 
 ## Filters and costs
 
@@ -48,7 +48,7 @@ Each slot is a one-statement C# fragment of the form `return (<param>) => <expr>
 | `cost.vertexCost` | `VertexModel` | `double` | `return (v) => 0.0;` |
 | `cost.edgeCost` | `EdgeModel` | `double` | `return (e) => e.TryGetProperty<double>(out var w, "weight") ? w : 1.0;` |
 
-These fragments are compiled at runtime with Roslyn and run in-process; the full contract, the accessor surface, and the `POST /delegates/validate` compile-check live in [delegates.md](/fallen-8-core/delegates/). Dynamic code execution is always on, so a request carrying inline fragments just needs the credential when a key is configured ([security.md](/fallen-8-core/security/)). Two code-free alternatives exist for callers that never compile C#: a `storedQuery` reference ([stored-queries.md](/fallen-8-core/stored-queries/)) and the `semantic` block ([semantic-traversal.md](/fallen-8-core/semantic-traversal/)).
+These fragments are compiled at runtime with Roslyn and run in-process; the full contract, the accessor surface, and the `POST /delegates/validate` compile-check live in [delegates.md](/delegates/). Dynamic code execution is always on, so a request carrying inline fragments just needs the credential when a key is configured ([security.md](/security/)). Two code-free alternatives exist for callers that never compile C#: a `storedQuery` reference ([stored-queries.md](/stored-queries/)) and the `semantic` block ([semantic-traversal.md](/semantic-traversal/)).
 
 ## Cost model (DIJKSTRA)
 
@@ -72,7 +72,7 @@ Costs must be non-negative; a negative step cost is clamped to `0` (logged once 
 |---|---|---|
 | `sourceVertexId` / `targetVertexId` | int | The hop's from / to vertex |
 | `edgeId` | int | The edge traversed on this hop |
-| `edgePropertyId` | string | The edge's type: the adjacency group it sits under ([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)) |
+| `edgePropertyId` | string | The edge's type: the adjacency group it sits under ([edge type vs label](/graph-model/#edge-type-vs-label)) |
 | `direction` | int | `0` = traversed against the edge's stored direction, `1` = with it (`2` = undirected; path traversal emits only `0`/`1`) |
 | `weight` | double | This step's cost (`0` for `BLS`) |
 
@@ -117,7 +117,7 @@ Two two-hop paths come back (`Trent → Alice → Mallory` and `Trent → Bob �
 
 ## Example: cheapest weighted path (DIJKSTRA)
 
-Given three vertices where `A → B` weighs 10 while `A → C` and `C → B` each weigh 1, the cheapest `A → B` route is the two-hop `A → C → B` (total 2), not the direct weight-10 edge. That graph needs building first. Store `weight` as `System.Double`, because `TryGetProperty<double>` treats a value of any other CLR type as absent and the fragment below would then fall back to `1.0` for every edge ([delegates.md](/fallen-8-core/delegates/)). The two waited-on batch calls return the assigned ids; continuing in the graph from the example above they come out as `[11, 12, 13]` for `A`, `B`, `C` and `[14, 15, 16]` for the three roads:
+Given three vertices where `A → B` weighs 10 while `A → C` and `C → B` each weigh 1, the cheapest `A → B` route is the two-hop `A → C → B` (total 2), not the direct weight-10 edge. That graph needs building first. Store `weight` as `System.Double`, because `TryGetProperty<double>` treats a value of any other CLR type as absent and the fragment below would then fall back to `1.0` for every edge ([delegates.md](/delegates/)). The two waited-on batch calls return the assigned ids; continuing in the graph from the example above they come out as `[11, 12, 13]` for `A`, `B`, `C` and `[14, 15, 16]` for the three roads:
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -210,23 +210,23 @@ Leaving `maxResults` at its default would instead return every loop-free `A → 
 |---|---|
 | `200` | Paths found, or none (`[]`); a missing/removed `from`/`to` vertex, `from == to`, `maxResults: 0`, or an unknown algorithm also returns `[]` |
 | `400` | Missing or malformed body, a fragment that fails to compile (Roslyn diagnostics in the body), `storedQuery` mixed with inline fragments, or a `storedQuery` that exists but is not of kind `Path` |
-| `401` | No credential supplied while a key is configured ([security.md](/fallen-8-core/security/)) |
+| `401` | No credential supplied while a key is configured ([security.md](/security/)) |
 | `404` | The referenced `storedQuery` name does not exist |
 | `409` | The referenced `storedQuery` is not invocable (its recompile-on-load failed) |
 | `413` / `429` | Body over 1 MiB / sensitive-endpoint rate limit exceeded |
 | `500` | The traversal or a compiled filter/cost fragment threw at runtime; a genuine no-path stays `200` with `[]` |
 
-A request that carries `semantic.queryText` can additionally answer `403` or `503` when the embedding provider is off or unavailable ([semantic-traversal.md](/fallen-8-core/semantic-traversal/)).
+A request that carries `semantic.queryText` can additionally answer `403` or `503` when the embedding provider is off or unavailable ([semantic-traversal.md](/semantic-traversal/)).
 
 ## See also
 
-- [Delegates](/fallen-8-core/delegates/): the no-query-language philosophy, the fragment contract, compilation, and `/delegates/validate`
-- [Stored queries](/fallen-8-core/stored-queries/): precompiled `Path` queries invoked by name, no dynamic code required
-- [Semantic traversal](/fallen-8-core/semantic-traversal/): the code-free `semantic` similarity block carried on `/path`
-- [Security](/fallen-8-core/security/): the API key that gates access to these always-on code endpoints
-- [Graph model](/fallen-8-core/graph-model/): vertices, edges, properties, and the transactions that build a graph
-- [Samples](/fallen-8-core/samples/): weighted datasets to traverse (air-routes `km`, attack-surface `exploitCost`)
-- [Plugins](/fallen-8-core/plugins/): how path algorithms are discovered
-- [Plugin registration](/fallen-8-core/plugin-registration/): adding your own `Path` algorithm, invocable by name through `pathAlgorithmName`
-- [Namespaces](/fallen-8-core/namespaces/): per-namespace routing (`/ns/{ns}/…`)
+- [Delegates](/delegates/): the no-query-language philosophy, the fragment contract, compilation, and `/delegates/validate`
+- [Stored queries](/stored-queries/): precompiled `Path` queries invoked by name, no dynamic code required
+- [Semantic traversal](/semantic-traversal/): the code-free `semantic` similarity block carried on `/path`
+- [Security](/security/): the API key that gates access to these always-on code endpoints
+- [Graph model](/graph-model/): vertices, edges, properties, and the transactions that build a graph
+- [Samples](/samples/): weighted datasets to traverse (air-routes `km`, attack-surface `exploitCost`)
+- [Plugins](/plugins/): how path algorithms are discovered
+- [Plugin registration](/plugin-registration/): adding your own `Path` algorithm, invocable by name through `pathAlgorithmName`
+- [Namespaces](/namespaces/): per-namespace routing (`/ns/{ns}/…`)
 - Source: [`Algorithms/Path/`](https://github.com/cosh/fallen-8-core/tree/main/fallen-8-core/Algorithms/Path/), [`Delegates.cs`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Algorithms/Delegates.cs)

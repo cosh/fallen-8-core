@@ -9,11 +9,11 @@ hero:
     light: ../../assets/F8Black.svg
   actions:
     - text: Get Started
-      link: /fallen-8-core/running/
+      link: /running/
       icon: right-arrow
       variant: primary
     - text: API Reference
-      link: /fallen-8-core/api-reference/
+      link: /api-reference/
       icon: open-book
       variant: secondary
     - text: View on GitHub
@@ -24,7 +24,7 @@ hero:
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-Queries are C#: small [delegate fragments](/fallen-8-core/delegates/) compiled at runtime, or
+Queries are C#: small [delegate fragments](/delegates/) compiled at runtime, or
 precompiled stored queries. That is a deliberate choice for the era of code-generating agents:
 an agent emits a C# fragment, the engine compiles and runs it in-process at full speed, with no
 query-language layer in between.
@@ -32,33 +32,33 @@ query-language layer in between.
 ## Key features
 
 <CardGrid>
-	<LinkCard title="Graph model" href="/fallen-8-core/graph-model/" description="A directed property graph; typed properties on vertices and edges, all mutation through a serialized transaction queue." />
-	<LinkCard title="Delegates, not a query language" href="/fallen-8-core/delegates/" description="Filters and cost functions are runtime-compiled C# fragments; the defining design decision." />
-	<LinkCard title="Path finding" href="/fallen-8-core/path-finding/" description="Shortest and weighted paths with delegate filter and cost functions (BLS, Dijkstra)." />
-	<LinkCard title="Subgraphs" href="/fallen-8-core/subgraphs/" description="Extract a pattern-matched subset as a standalone graph, recalculate it when the source changes, nest and persist it." />
-	<LinkCard title="Graph analytics" href="/fallen-8-core/graph-analytics/" description="PageRank, connected components, communities, degree centrality, triangle counting, with optional property write-back." />
-	<LinkCard title="Stored queries" href="/fallen-8-core/stored-queries/" description="Register a vetted, compiled query once and invoke it by name; no dynamic code at call time." />
-	<LinkCard title="Indexes" href="/fallen-8-core/indexes/" description="Dictionary, range, fulltext, spatial R-Tree, and vector kNN, all as plugins." />
-	<LinkCard title="Vector search" href="/fallen-8-core/vector-search/" description="Exact k-nearest-neighbour over float[] embeddings (cosine, dot product, L2)." />
-	<LinkCard title="Semantic traversal" href="/fallen-8-core/semantic-traversal/" description="Embeddings as element state; a code-free semantic block steers paths and subgraphs by similarity." />
-	<LinkCard title="Semantic layer" href="/fallen-8-core/unstructured-ingestion/" description="Documents in, graph out: PDFs, Office files and markdown become Document, Chunk and deduplicated Entity vertices, found by fused semantic plus exact-token search and traversable like everything else." />
-	<LinkCard title="Bulk import/export" href="/fallen-8-core/bulk-import-export/" description="Stream whole graphs as newline-delimited JSON that round-trips exactly." />
-	<LinkCard title="Live change feed" href="/fallen-8-core/change-feed/" description="Committed mutations as Server-Sent Events, in commit order, with in-band resync." />
-	<LinkCard title="Save games" href="/fallen-8-core/save-games/" description="Checkpoints tracked by a registry that drives startup, on top of a write-ahead log." />
-	<LinkCard title="Namespaces" href="/fallen-8-core/namespaces/" description="Many isolated graphs in one Fallen-8, addressable under /ns/{name}/." />
-	<LinkCard title="Observability" href="/fallen-8-core/observability/" description="Opt-in Prometheus and OTLP metrics and traces, a graph-shape snapshot, and health probes, plus a multi-tenant consumer stack." />
-	<LinkCard title="REST API" href="/fallen-8-core/rest-api/" description="A versioned HTTP surface with an OpenAPI document and an interactive Scalar reference." />
-	<LinkCard title="Plugins" href="/fallen-8-core/plugins/" description="Indices, algorithms, and services are all discovered plugins." />
-	<LinkCard title="Plugin registration" href="/fallen-8-core/plugin-registration/" description="Add runtime algorithm and graph-function plugins by authoring C# source instead of uploading a DLL." />
-	<LinkCard title="F8 Studio" href="/fallen-8-core/studio/" description="A browser UI to browse, query, visualize, and author the C# delegates, with a natural-language assist." />
-	<LinkCard title="Standalone F8 Studio" href="/fallen-8-core/standalone-ui/" description="Deploy the browser UI as its own container, decoupled from the data plane and pointed at any Fallen-8 REST endpoint at container start." />
-	<LinkCard title="Benchmark" href="/fallen-8-core/benchmark/" description="Measure raw edge-traversal throughput over whatever graph is loaded: generate a graph or point it at a sample, then run timed passes that follow every out-edge." />
-	<LinkCard title="MCP server" href="/fallen-8-core/mcp-server/" description="A Model Context Protocol surface so AI agents call Fallen-8 as typed tools; read-only by default, tiered writes, three auth modes." />
-	<LinkCard title="NL assist and fine-tuning" href="/fallen-8-core/nl-assist/" description="Draft C# fragments from a sentence, and an offline pipeline to train, evaluate and publish your own model." />
-	<LinkCard title="Use as a library" href="/fallen-8-core/library/" description="Reference the engine in-process via the Fallen-8 NuGet package, with no HTTP and no server to operate." />
-	<LinkCard title="Capacity and performance" href="/fallen-8-core/capacity-and-performance/" description="Measured bytes per vertex and edge, write throughput, and what a save game costs the writer." />
-	<LinkCard title="Security" href="/fallen-8-core/security/" description="Optional all-or-nothing API key; dynamic code execution is always on, so set a key before exposing the service off-box." />
+	<LinkCard title="Graph model" href="/graph-model/" description="A directed property graph; typed properties on vertices and edges, all mutation through a serialized transaction queue." />
+	<LinkCard title="Delegates, not a query language" href="/delegates/" description="Filters and cost functions are runtime-compiled C# fragments; the defining design decision." />
+	<LinkCard title="Path finding" href="/path-finding/" description="Shortest and weighted paths with delegate filter and cost functions (BLS, Dijkstra)." />
+	<LinkCard title="Subgraphs" href="/subgraphs/" description="Extract a pattern-matched subset as a standalone graph, recalculate it when the source changes, nest and persist it." />
+	<LinkCard title="Graph analytics" href="/graph-analytics/" description="PageRank, connected components, communities, degree centrality, triangle counting, with optional property write-back." />
+	<LinkCard title="Stored queries" href="/stored-queries/" description="Register a vetted, compiled query once and invoke it by name; no dynamic code at call time." />
+	<LinkCard title="Indexes" href="/indexes/" description="Dictionary, range, fulltext, spatial R-Tree, and vector kNN, all as plugins." />
+	<LinkCard title="Vector search" href="/vector-search/" description="Exact k-nearest-neighbour over float[] embeddings (cosine, dot product, L2)." />
+	<LinkCard title="Semantic traversal" href="/semantic-traversal/" description="Embeddings as element state; a code-free semantic block steers paths and subgraphs by similarity." />
+	<LinkCard title="Semantic layer" href="/unstructured-ingestion/" description="Documents in, graph out: PDFs, Office files and markdown become Document, Chunk and deduplicated Entity vertices, found by fused semantic plus exact-token search and traversable like everything else." />
+	<LinkCard title="Bulk import/export" href="/bulk-import-export/" description="Stream whole graphs as newline-delimited JSON that round-trips exactly." />
+	<LinkCard title="Live change feed" href="/change-feed/" description="Committed mutations as Server-Sent Events, in commit order, with in-band resync." />
+	<LinkCard title="Save games" href="/save-games/" description="Checkpoints tracked by a registry that drives startup, on top of a write-ahead log." />
+	<LinkCard title="Namespaces" href="/namespaces/" description="Many isolated graphs in one Fallen-8, addressable under /ns/{name}/." />
+	<LinkCard title="Observability" href="/observability/" description="Opt-in Prometheus and OTLP metrics and traces, a graph-shape snapshot, and health probes, plus a multi-tenant consumer stack." />
+	<LinkCard title="REST API" href="/rest-api/" description="A versioned HTTP surface with an OpenAPI document and an interactive Scalar reference." />
+	<LinkCard title="Plugins" href="/plugins/" description="Indices, algorithms, and services are all discovered plugins." />
+	<LinkCard title="Plugin registration" href="/plugin-registration/" description="Add runtime algorithm and graph-function plugins by authoring C# source instead of uploading a DLL." />
+	<LinkCard title="F8 Studio" href="/studio/" description="A browser UI to browse, query, visualize, and author the C# delegates, with a natural-language assist." />
+	<LinkCard title="Standalone F8 Studio" href="/standalone-ui/" description="Deploy the browser UI as its own container, decoupled from the data plane and pointed at any Fallen-8 REST endpoint at container start." />
+	<LinkCard title="Benchmark" href="/benchmark/" description="Measure raw edge-traversal throughput over whatever graph is loaded: generate a graph or point it at a sample, then run timed passes that follow every out-edge." />
+	<LinkCard title="MCP server" href="/mcp-server/" description="A Model Context Protocol surface so AI agents call Fallen-8 as typed tools; read-only by default, tiered writes, three auth modes." />
+	<LinkCard title="NL assist and fine-tuning" href="/nl-assist/" description="Draft C# fragments from a sentence, and an offline pipeline to train, evaluate and publish your own model." />
+	<LinkCard title="Use as a library" href="/library/" description="Reference the engine in-process via the Fallen-8 NuGet package, with no HTTP and no server to operate." />
+	<LinkCard title="Capacity and performance" href="/capacity-and-performance/" description="Measured bytes per vertex and edge, write throughput, and what a save game costs the writer." />
+	<LinkCard title="Security" href="/security/" description="Optional all-or-nothing API key; dynamic code execution is always on, so set a key before exposing the service off-box." />
 </CardGrid>
 
-New here? [Run it](/fallen-8-core/running/), open [F8 Studio](/fallen-8-core/studio/), and load a
-[sample graph](/fallen-8-core/samples/).
+New here? [Run it](/running/), open [F8 Studio](/studio/), and load a
+[sample graph](/samples/).

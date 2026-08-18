@@ -7,7 +7,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 `GET /changefeed` streams every committed graph mutation as [Server-Sent Events](https://developer.mozilla.org/docs/Web/API/Server-sent_events), in commit order, over one long-lived `text/event-stream` connection. Each event is metadata about one mutation (ids, labels, the edge type, and property *keys*, never property values) with declarative server-side filtering and a bounded in-memory catch-up buffer. The whole client contract is: **fetch the state you display, then stream; on any `resync` event, re-fetch.**
 
-In F8 Studio the feed is visible as the [Events panel](/fallen-8-core/studio/#events): a bell in the top bar that counts filtered events live, opening onto the newest 100 with the same filter grammar.
+In F8 Studio the feed is visible as the [Events panel](/studio/#events): a bell in the top bar that counts filtered events live, opening onto the newest 100 with the same filter grammar.
 
 ## Endpoint
 
@@ -15,13 +15,13 @@ In F8 Studio the feed is visible as the [Events panel](/fallen-8-core/studio/#ev
 |---|---|
 | Route | `GET /changefeed` (default namespace) · `GET /ns/{ns}/changefeed` (named namespace) |
 | Content type | `text/event-stream`; the stream stays open until the client disconnects or the server ends it (see [catch-up and resync](#catch-up-and-resync)) |
-| Auth | The same fallback policy as every route: no credential is required until `Fallen8:Security:ApiKey` is set, after which every request needs one. Nothing is loopback-only, so an unauthenticated instance is open to anyone who can reach the port (see [security](/fallen-8-core/security/)) |
+| Auth | The same fallback policy as every route: no credential is required until `Fallen8:Security:ApiKey` is set, after which every request needs one. Nothing is loopback-only, so an unauthenticated instance is open to anyone who can reach the port (see [security](/security/)) |
 | `200` | The SSE stream |
 | `400` | Unknown `kinds`/`elements` value or a malformed `since` |
 | `401` | A credential is required and none was supplied |
 | `503` | Feed disabled (`Fallen8:ChangeFeed:Enabled=false`), the per-namespace subscriber limit is reached, or the feed is gone because its namespace was dropped or the server is shutting down. The `title` distinguishes them, so a full subscriber table (retry later) is never confused with a vanished namespace (retrying the same URL never succeeds) |
 
-Each namespace owns an independent feed: its own epoch, catch-up buffer, and subscriber limit; see [namespaces](/fallen-8-core/namespaces/). Filters are plain query parameters, never compiled code (see [security](/fallen-8-core/security/)).
+Each namespace owns an independent feed: its own epoch, catch-up buffer, and subscriber limit; see [namespaces](/namespaces/). Filters are plain query parameters, never compiled code (see [security](/security/)).
 
 ## Filter grammar
 
@@ -39,7 +39,7 @@ An unknown `kinds`/`elements` value or a malformed `since` is a `400` problem+js
 
 ## Event schema
 
-One JSON object per `data:` line. Fields are **absent** (not null) when they do not apply to the kind. Payloads never contain property values, re-fetch the element when you need a value (see [graph model](/fallen-8-core/graph-model/)).
+One JSON object per `data:` line. Fields are **absent** (not null) when they do not apply to the kind. Payloads never contain property values, re-fetch the element when you need a value (see [graph model](/graph-model/)).
 
 | Field | Type | Present for |
 |---|---|---|
@@ -49,7 +49,7 @@ One JSON object per `data:` line. Fields are **absent** (not null) when they do 
 | `element` | `vertex`/`edge` | element events |
 | `id` | int32 | element events |
 | `label` | string | element events with a label |
-| `edgePropertyId` | string | `edgeCreated`: the edge's type ([edge type vs label](/fallen-8-core/graph-model/#edge-type-vs-label)) |
+| `edgePropertyId` | string | `edgeCreated`: the edge's type ([edge type vs label](/graph-model/#edge-type-vs-label)) |
 | `key` | string | `propertySet` / `propertyRemoved` |
 | `source`, `target` | int32 | `edgeCreated` |
 | `reason` | string | `resync` |
@@ -61,7 +61,7 @@ One JSON object per `data:` line. Fields are **absent** (not null) when they do 
 Removing a vertex also emits one `edgeRemoved` per cascade-removed edge, in the same transaction (so with the same `ts`) and carrying that edge's own label.
 
 Embedding writes ride the feed as property events on the reserved keys `$embedding:<name>` and
-`$embeddingModel:<name>` (see [graph model](/fallen-8-core/graph-model/)). Removing an embedding is a
+`$embeddingModel:<name>` (see [graph model](/graph-model/)). Removing an embedding is a
 `propertySet` on those keys too, never a `propertyRemoved`, so track embedding changes through
 `keys`, not through `kinds`.
 
@@ -100,7 +100,7 @@ When continuity **cannot** be preserved, the stream says so in-band with a `resy
 | `trim` | Tombstone compaction renumbered elements | yes |
 | `tabulaRasa` | The graph was cleared | yes |
 | `load` | The graph was loaded/restored from disk | yes |
-| `delegateWrite` | A committed delegate (plugin write) transaction, whose effect the feed cannot express as element deltas. Emitted for every such commit whatever the body touched, so an [analytics](/fallen-8-core/graph-analytics/) run with a write-back property costs one per 50 000-vertex chunk | no |
+| `delegateWrite` | A committed delegate (plugin write) transaction, whose effect the feed cannot express as element deltas. Emitted for every such commit whatever the body touched, so an [analytics](/graph-analytics/) run with a write-back property costs one per 50 000-vertex chunk | no |
 
 ```mermaid
 sequenceDiagram
@@ -131,7 +131,7 @@ Bound from the `Fallen8:ChangeFeed` section (enabled by default in the hosted AP
 
 ## Behind a proxy
 
-The server sets `Cache-Control: no-cache`, disables its own response buffering, and heartbeats every `KeepAliveSeconds`. An intermediary has to cooperate: turn response buffering off for `/changefeed` (nginx: `proxy_buffering off;`) and give it a read timeout above `KeepAliveSeconds`, or the stream stalls or is killed mid-flight. This applies to the recommended exposed posture, which puts a TLS-terminating reverse proxy in front of Fallen-8 (see [security](/fallen-8-core/security/)).
+The server sets `Cache-Control: no-cache`, disables its own response buffering, and heartbeats every `KeepAliveSeconds`. An intermediary has to cooperate: turn response buffering off for `/changefeed` (nginx: `proxy_buffering off;`) and give it a read timeout above `KeepAliveSeconds`, or the stream stalls or is killed mid-flight. This applies to the recommended exposed posture, which puts a TLS-terminating reverse proxy in front of Fallen-8 (see [security](/security/)).
 
 ## Worked example
 
@@ -171,7 +171,7 @@ An `EventSource` in the browser cannot set headers, so consume the same wire for
 
 ## See also
 
-- [Graph model](/fallen-8-core/graph-model/): the elements, properties, and transactions whose commits the feed reports
-- [Namespaces](/fallen-8-core/namespaces/): the per-namespace feed and `/ns/{ns}/…` routing
-- [Security](/fallen-8-core/security/): the API key and why the feed needs no dynamic code
-- [REST API](/fallen-8-core/rest-api/): REST conventions, problem+json, and the OpenAPI document
+- [Graph model](/graph-model/): the elements, properties, and transactions whose commits the feed reports
+- [Namespaces](/namespaces/): the per-namespace feed and `/ns/{ns}/…` routing
+- [Security](/security/): the API key and why the feed needs no dynamic code
+- [REST API](/rest-api/): REST conventions, problem+json, and the OpenAPI document

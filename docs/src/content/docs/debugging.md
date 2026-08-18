@@ -18,7 +18,7 @@ For breakpoints, run the pieces **locally** and let VS Code attach its debuggers
 engine (`fallen-8-core`) runs in-process with the API, so one backend debugger covers both.
 The MCP server (`fallen-8-mcp`) is a fourth project and a separate process that no launch config
 covers; run it against your local API as described in
-[MCP server](/fallen-8-core/mcp-server/).
+[MCP server](/mcp-server/).
 
 Prerequisites (all in the workspace's recommended extensions):
 - `ms-dotnettools.csharp`: the C# / `coreclr` debugger
@@ -64,7 +64,7 @@ The dev proxy is a **prefix allowlist**, not a catch-all: `API_PREFIXES` in
 that list never reaches the API, and the failure is quiet: a `GET` falls through to Vite's SPA
 handling and comes back as `index.html` with status 200, so the screen reports a JSON parse
 error instead of a clean 404. Note that every namespace-scoped call leaves the browser as
-`/ns/{namespace}/…` ([Namespaces](/fallen-8-core/namespaces/)), so `/ns` has to be on the list
+`/ns/{namespace}/…` ([Namespaces](/namespaces/)), so `/ns` has to be on the list
 for the namespace-scoped screens to work at all. If a call fails only under `npm run dev` but
 succeeds against `:5000` directly, add its prefix.
 
@@ -81,7 +81,7 @@ and serves it from `:5000`.
 
 The default compose topology is the other one. `npm run env:up` always layers
 `docker-compose.split.yml`, so Studio runs in its own container and reaches the API
-**cross-origin** ([Standalone F8 Studio](/fallen-8-core/standalone-ui/)), which has its own
+**cross-origin** ([Standalone F8 Studio](/standalone-ui/)), which has its own
 failure class. To reproduce it locally, register a personal Studio instance whose base URL is
 the API's origin (rather than the same-origin default) and allow the UI's origin on the API by
 adding `"Fallen8__Security__AllowedCorsOrigins__0": "http://localhost:5173"` to the launch
@@ -168,7 +168,7 @@ attach configuration. For everything else, local debugging is faster.
   situation is. Those flags are absent from `appsettings.json` (off) and the gate is independent
   of authentication, so Studio's Knowledge screen, the embeddings tab and NL assist are all dead
   until you switch them on in the launch config's `env`
-  ([Configuration keys](/fallen-8-core/running/#configuration-keys) has the defaults):
+  ([Configuration keys](/running/#configuration-keys) has the defaults):
 
   ```json
   "env": {

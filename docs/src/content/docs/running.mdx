@@ -5,11 +5,11 @@ description: "Every way to launch it: the one-command default, a bare dotnet run
 
 import { Tabs, TabItem } from "@astrojs/starlight/components";
 
-One command brings up the whole thing: engine, REST API, [F8 Studio](/fallen-8-core/studio/), the model
-sidecar behind [semantic traversal](/fallen-8-core/semantic-traversal/) and Studio's natural-language
-assist, the document and NLP sidecars behind the [semantic layer](/fallen-8-core/unstructured-ingestion/),
-the [MCP server](/fallen-8-core/mcp-server/) that AI agents connect to, and the full
-[observability](/fallen-8-core/observability/) stack. Every feature is on and nothing asks for
+One command brings up the whole thing: engine, REST API, [F8 Studio](/studio/), the model
+sidecar behind [semantic traversal](/semantic-traversal/) and Studio's natural-language
+assist, the document and NLP sidecars behind the [semantic layer](/unstructured-ingestion/),
+the [MCP server](/mcp-server/) that AI agents connect to, and the full
+[observability](/observability/) stack. Every feature is on and nothing asks for
 authentication. That is the default and it just works. This doc then covers every other way to run it
 and every knob you can turn.
 
@@ -41,10 +41,10 @@ overlay when a GPU is detected. Eight containers publish a host port:
 | F8 Studio (UI)                | http://localhost:8081                 | The browser UI, in its own container (`F8_UI_PORT`)                                                                                 |
 | F8 REST API                   | http://localhost:8080                 | The engine plus the REST surface: the data plane (`F8_PORT`)                                                                        |
 | Model sidecar (Ollama)        | http://localhost:11434                | Serves `bge-m3` for embeddings and the assist models for NL assist                                                                  |
-| MCP server                    | http://localhost:8090                 | The [AI-agent surface](/fallen-8-core/mcp-server/), anonymous and read-only in this environment (`F8_MCP_PORT`)                     |
-| Document conversion (docling) | http://localhost:5001                 | Converts PDF, Office and HTML uploads for [ingestion](/fallen-8-core/unstructured-ingestion/) (`F8_DOCLING_PORT`)                   |
+| MCP server                    | http://localhost:8090                 | The [AI-agent surface](/mcp-server/), anonymous and read-only in this environment (`F8_MCP_PORT`)                     |
+| Document conversion (docling) | http://localhost:5001                 | Converts PDF, Office and HTML uploads for [ingestion](/unstructured-ingestion/) (`F8_DOCLING_PORT`)                   |
 | NLP enrichment (spaCy)        | http://localhost:8100                 | Named entities and key terms per chunk, folded into the entity graph (`F8_NLP_PORT`)                                                |
-| Observability (Grafana)       | http://localhost:3000                 | The single pane for [metrics, traces and logs](/fallen-8-core/observability/) (`F8_GRAFANA_PORT`)                                   |
+| Observability (Grafana)       | http://localhost:3000                 | The single pane for [metrics, traces and logs](/observability/) (`F8_GRAFANA_PORT`)                                   |
 | OTLP ingest                   | localhost:4317 (gRPC) / :4318 (HTTP)  | Where Fallen-8 instances outside this compose push telemetry                                                                        |
 
 Prometheus, Tempo and Loki run too, reachable only inside the `f8-net` network; Grafana is the way
@@ -84,7 +84,7 @@ The environment is **open** (no API key) and has **text-in embeddings on** (sema
 GraphRAG work out of the box). Dynamic C# code execution is **always on**: there is no switch for
 it, because compiled filter and cost fragments are Fallen-8's query model. They run in-process with
 full trust, so the API key is the only boundary. Set one before exposing the service off-box, and
-harden the MCP server separately (see [Security](/fallen-8-core/security/)).
+harden the MCP server separately (see [Security](/security/)).
 
 ### First start pulls models
 
@@ -111,7 +111,7 @@ and started offline has a model behind every capability it advertises.
 
 If a pull fails the sidecar still comes up with whatever is present (it does not
 crash-loop); fix the network and re-run. The 404-in-Studio case is in
-[Troubleshooting](/fallen-8-core/troubleshooting/).
+[Troubleshooting](/troubleshooting/).
 
 ## Environment variables (compose)
 
@@ -122,21 +122,21 @@ for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 | ---------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `F8_PORT`                                                  | `8080`                           | Host port for the REST API, the data plane (the container always listens on 8080)                                                                          |
 | `F8_UI_PORT`                                               | `8081`                           | Host port for the F8 Studio container; the data plane allow-lists exactly this origin for CORS                                                             |
-| `F8_API_KEY`                                               | _(unset)_                        | Set it and the **entire data plane** requires the key; unset = open. The MCP bridge receives it for its own downstream calls but keeps its own caller auth (`F8_MCP_AUTH_MODE`) ([Security](/fallen-8-core/security/)) |
+| `F8_API_KEY`                                               | _(unset)_                        | Set it and the **entire data plane** requires the key; unset = open. The MCP bridge receives it for its own downstream calls but keeps its own caller auth (`F8_MCP_AUTH_MODE`) ([Security](/security/)) |
 | `F8_EMBEDDINGS`                                            | `true`                           | Text-in embeddings via the sidecar's `bge-m3`; `false` disables the provider (bring-your-own-vector still works)                                          |
 | `F8_CHAT`                                                  | `true`                           | The chat gateway (`POST /chat` to the sidecar's assist model), the default NL-assist path. `false` answers 403 (custom browser-direct backends still work) |
-| `F8_INGESTION`                                             | `true`                           | [Document ingestion](/fallen-8-core/unstructured-ingestion/). `false` skips the docling sidecar (a ~4.4 GB image) **and** answers 403 on the document endpoints, including txt/md |
+| `F8_INGESTION`                                             | `true`                           | [Document ingestion](/unstructured-ingestion/). `false` skips the docling sidecar (a ~4.4 GB image) **and** answers 403 on the document endpoints, including txt/md |
 | `F8_NLP`                                                   | `true`                           | NLP enrichment. `false` skips the spaCy sidecar; ingestion still writes Document and Chunk vertices, just without the entity graph                         |
-| `F8_INTEGRATIONS`                                          | `true`                           | The [integrations](/fallen-8-core/integrations/) runtime, on its own profile and with no host port. `false` skips the sidecar and the four `/integrations/*` routes then refuse the capability |
+| `F8_INTEGRATIONS`                                          | `true`                           | The [integrations](/integrations/) runtime, on its own profile and with no host port. `false` skips the sidecar and the four `/integrations/*` routes then refuse the capability |
 | `F8_INTEGRATIONS_ALLOWED_HOSTS`                            | _(unset)_                        | Comma-separated hosts a run **holding a credential** may contact, enforced as the request leaves. Unset means no restriction, and `env:up` says so: a source address arrives in a job from whoever can reach the API |
 | `F8_INTEGRATIONS_SELF_SIGNED_HOSTS`                        | _(unset)_                        | Comma-separated hosts whose TLS certificate is not validated. The one place this feature reduces trust, and what a UniFi console or Fronius inverter on a private address needs to be reachable at all |
 | `F8_GPU`                                                   | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
 | `F8_IMAGE_TAG`                                             | `latest`                         | Which published image version `env:up:published` runs (mirrors the release tags, e.g. `0.0.28`); ignored by the building `env:up`                          |
 | `F8_PULL_PHI4F8`                                           | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |
 | `F8_DELEGATE_REPO`                                         | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`); `F8_PHI4F8_REPO` is the same for `phi4-f8`                                     |
-| `F8_MCP_AUTH_MODE`                                         | `None`                           | Caller auth for the [MCP server](/fallen-8-core/mcp-server/). Anything reachable off-box wants `StaticToken` plus `F8_MCP_TOKEN`                           |
+| `F8_MCP_AUTH_MODE`                                         | `None`                           | Caller auth for the [MCP server](/mcp-server/). Anything reachable off-box wants `StaticToken` plus `F8_MCP_TOKEN`                           |
 | `F8_MCP_ENABLE_WRITE` / `F8_MCP_ENABLE_ADMIN` / `F8_MCP_ENABLE_CODE` | `false`                | Opt individual MCP tool tiers in; agents get read-only tools by default                                                                                   |
-| `F8_TENANT_ID` / `F8_INSTANCE_ID`                          | `local` / `f8-local`             | This instance's [fleet identity](/fallen-8-core/observability/) in the dashboards (`F8_TENANT_NAME` and `F8_INSTANCE_NAME` set the display names)           |
+| `F8_TENANT_ID` / `F8_INSTANCE_ID`                          | `local` / `f8-local`             | This instance's [fleet identity](/observability/) in the dashboards (`F8_TENANT_NAME` and `F8_INSTANCE_NAME` set the display names)           |
 | `F8_GRAFANA_PASSWORD`                                      | `admin`                          | Locks the Grafana admin account; anonymous editor access is on by default for the trusted network                                                          |
 
 Every published port has an override: `F8_PORT` (8080), `F8_UI_PORT` (8081), `F8_MCP_PORT` (8090),
@@ -189,12 +189,12 @@ Without the observability overlay there is also nothing behind the base file's
 `Fallen8__Observability__Otlp__Endpoint`, so the exporter has no collector to push to: add
 `-f docker-compose.observability.yml` (what `env:up` does) or set that variable to empty. The
 runtime `config.js` seam, the image, and the CORS rules are in
-[Standalone F8 Studio](/fallen-8-core/standalone-ui/).
+[Standalone F8 Studio](/standalone-ui/).
 
 ## Running the engine + API without Docker
 
 A bare run needs only the .NET 10 SDK. It starts in the **Development** environment, which is
-the only environment that serves the [OpenAPI document and Scalar reference](/fallen-8-core/rest-api/):
+the only environment that serves the [OpenAPI document and Scalar reference](/rest-api/):
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -220,7 +220,7 @@ ingestion, and NLP enrichment all answer 403 until you enable them and point the
 your own (txt/md ingestion needs only the flag, since docling converts binary formats only).
 Bring-your-own-vector, analytics, paths, indexes and every other feature work regardless. The MCP
 server is its own deployable and is likewise absent from a bare run
-([how to run it](/fallen-8-core/mcp-server/)).
+([how to run it](/mcp-server/)).
 
 ### With F8 Studio built in
 
@@ -235,7 +235,7 @@ dotnet run --project fallen-8-core-apiApp
 
 To develop the UI against a running API with hot reload, use `npm run dev` (Vite dev server)
 instead of `build:apiapp`. Debugging the whole stack in VS Code is covered in
-[Debugging in VS Code](/fallen-8-core/debugging/).
+[Debugging in VS Code](/debugging/).
 
 ## Configuration keys
 
@@ -245,26 +245,26 @@ form, or the command line). The defaults:
 
 | Key                                           | Default                                 | Owner doc                                                  |
 | --------------------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
-| `Fallen8:Durability:StorageDirectory`         | app base dir (`/data` in the container) | [Save games](/fallen-8-core/save-games/)                   |
-| `Fallen8:Durability:Volatile`                 | `false`                                 | [Save games](/fallen-8-core/save-games/)                   |
-| `Fallen8:Durability:SaveOnShutdown`           | `true`                                  | [Save games](/fallen-8-core/save-games/)                   |
-| `Fallen8:Metadata:Directory`                  | `<app base>/metadata`                   | [Save games](/fallen-8-core/save-games/)                   |
-| `Fallen8:Namespaces:MaxNamespaces`            | `10000`                                 | [Namespaces](/fallen-8-core/namespaces/)                   |
-| `Fallen8:Namespaces:LoadOnStartup`            | `true` (per-namespace overridable)      | [Namespaces](/fallen-8-core/namespaces/#startup-load)      |
-| `Fallen8:Namespaces:StartupLoadMode`          | `Catalog` (`All`, `DefaultOnly`)        | [Namespaces](/fallen-8-core/namespaces/#startup-load)      |
-| `Fallen8:Security:ApiKey`                     | `null` (open)                           | [Security](/fallen-8-core/security/)                       |
-| `Fallen8:Security:EnableDynamicPluginLoading` | `true` (per-namespace overridable)      | [Plugin registration](/fallen-8-core/plugin-registration/) |
-| `Fallen8:Security:AllowedCorsOrigins`         | `[]` (deny all cross-origin)            | [Standalone F8 Studio](/fallen-8-core/standalone-ui/)      |
-| `Fallen8:Security:BenchmarkMaxIterations`     | `10000`                                 | [Benchmark](/fallen-8-core/benchmark/)                     |
-| `Fallen8:Embedding:Enabled`                   | `false` (bare run)                      | [Semantic traversal](/fallen-8-core/semantic-traversal/)   |
-| `Fallen8:Chat:Enabled`                        | `false` (bare run)                      | [F8 Studio](/fallen-8-core/studio/)                        |
-| `Fallen8:Ingestion:Enabled`                   | `false` (bare run)                      | [Semantic layer](/fallen-8-core/unstructured-ingestion/)   |
-| `Fallen8:Nlp:Enabled`                         | `false` (bare run)                      | [Semantic layer](/fallen-8-core/unstructured-ingestion/)   |
-| `Fallen8:ChangeFeed:Enabled`                  | `true`                                  | [Change feed](/fallen-8-core/change-feed/)                 |
-| `Fallen8:BulkIO:ImportBatchSize`              | `10000`                                 | [Bulk import/export](/fallen-8-core/bulk-import-export/)   |
-| `Fallen8:Analytics:DefaultTimeBudgetSeconds`  | `30` (max `300`)                        | [Graph analytics](/fallen-8-core/graph-analytics/)         |
-| `Fallen8:Observability:Prometheus:Enabled`    | `false`                                 | [Observability](/fallen-8-core/observability/)             |
-| `Fallen8:Observability:Otlp:Endpoint`         | `null` (no push)                        | [Observability](/fallen-8-core/observability/)             |
+| `Fallen8:Durability:StorageDirectory`         | app base dir (`/data` in the container) | [Save games](/save-games/)                   |
+| `Fallen8:Durability:Volatile`                 | `false`                                 | [Save games](/save-games/)                   |
+| `Fallen8:Durability:SaveOnShutdown`           | `true`                                  | [Save games](/save-games/)                   |
+| `Fallen8:Metadata:Directory`                  | `<app base>/metadata`                   | [Save games](/save-games/)                   |
+| `Fallen8:Namespaces:MaxNamespaces`            | `10000`                                 | [Namespaces](/namespaces/)                   |
+| `Fallen8:Namespaces:LoadOnStartup`            | `true` (per-namespace overridable)      | [Namespaces](/namespaces/#startup-load)      |
+| `Fallen8:Namespaces:StartupLoadMode`          | `Catalog` (`All`, `DefaultOnly`)        | [Namespaces](/namespaces/#startup-load)      |
+| `Fallen8:Security:ApiKey`                     | `null` (open)                           | [Security](/security/)                       |
+| `Fallen8:Security:EnableDynamicPluginLoading` | `true` (per-namespace overridable)      | [Plugin registration](/plugin-registration/) |
+| `Fallen8:Security:AllowedCorsOrigins`         | `[]` (deny all cross-origin)            | [Standalone F8 Studio](/standalone-ui/)      |
+| `Fallen8:Security:BenchmarkMaxIterations`     | `10000`                                 | [Benchmark](/benchmark/)                     |
+| `Fallen8:Embedding:Enabled`                   | `false` (bare run)                      | [Semantic traversal](/semantic-traversal/)   |
+| `Fallen8:Chat:Enabled`                        | `false` (bare run)                      | [F8 Studio](/studio/)                        |
+| `Fallen8:Ingestion:Enabled`                   | `false` (bare run)                      | [Semantic layer](/unstructured-ingestion/)   |
+| `Fallen8:Nlp:Enabled`                         | `false` (bare run)                      | [Semantic layer](/unstructured-ingestion/)   |
+| `Fallen8:ChangeFeed:Enabled`                  | `true`                                  | [Change feed](/change-feed/)                 |
+| `Fallen8:BulkIO:ImportBatchSize`              | `10000`                                 | [Bulk import/export](/bulk-import-export/)   |
+| `Fallen8:Analytics:DefaultTimeBudgetSeconds`  | `30` (max `300`)                        | [Graph analytics](/graph-analytics/)         |
+| `Fallen8:Observability:Prometheus:Enabled`    | `false`                                 | [Observability](/observability/)             |
+| `Fallen8:Observability:Otlp:Endpoint`         | `null` (no push)                        | [Observability](/observability/)             |
 
 `Volatile=true` disables all disk writes (no WAL, no checkpoints): the fastest way to run a
 throwaway instance for a demo or a test.
@@ -272,7 +272,7 @@ throwaway instance for a demo or a test.
 `Fallen8__Namespaces__StartupLoadMode=All` overrides every per-namespace exclusion for a boot, which
 is the way back from an exclusion you regret without hand-editing the catalog; `DefaultOnly` loads
 nothing but `default`, for when the selection itself is what is broken
-([namespaces](/fallen-8-core/namespaces/#startup-load)).
+([namespaces](/namespaces/#startup-load)).
 
 These are the defaults a bare run gets. The compose environment overrides several of them:
 `Metadata:Directory` becomes `/data/metadata` (it does not follow `StorageDirectory`, so both are
@@ -315,11 +315,11 @@ model.
 
 ## See also
 
-- [Architecture](/fallen-8-core/architecture/): how the containers, engine and sidecars fit together
-- [Security](/fallen-8-core/security/): the API key you set at launch
-- [Studio](/fallen-8-core/studio/): the browser UI this serves
-- [MCP server](/fallen-8-core/mcp-server/): the agent surface on `:8090` and how to secure it
-- [Observability](/fallen-8-core/observability/): the Grafana pane and the fleet identity knobs
-- [Save games](/fallen-8-core/save-games/): where durable data lives and how startup loads it
-- [REST API](/fallen-8-core/rest-api/): OpenAPI/Scalar (Development only) and the endpoint map
-- [Troubleshooting](/fallen-8-core/troubleshooting/): first-start model pulls, GPU, and other snags
+- [Architecture](/architecture/): how the containers, engine and sidecars fit together
+- [Security](/security/): the API key you set at launch
+- [Studio](/studio/): the browser UI this serves
+- [MCP server](/mcp-server/): the agent surface on `:8090` and how to secure it
+- [Observability](/observability/): the Grafana pane and the fleet identity knobs
+- [Save games](/save-games/): where durable data lives and how startup loads it
+- [REST API](/rest-api/): OpenAPI/Scalar (Development only) and the endpoint map
+- [Troubleshooting](/troubleshooting/): first-start model pulls, GPU, and other snags

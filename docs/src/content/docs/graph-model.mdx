@@ -10,8 +10,8 @@ Fallen-8 is a directed property graph held entirely in memory. A graph is a set 
 optional label, timestamps, and typed key/value properties. Every change goes through a single
 transaction queue (one writer thread; readers never block); reads and full-graph property scans
 run straight against the live graph. This page covers the model, the REST CRUD surface, and
-`POST /scan/graph/property/...`. Index-backed scans live in [Indexes](/fallen-8-core/indexes/); C# query
-delegates in [Delegates](/fallen-8-core/delegates/).
+`POST /scan/graph/property/...`. Index-backed scans live in [Indexes](/indexes/); C# query
+delegates in [Delegates](/delegates/).
 
 ## Vertices, edges, and properties
 
@@ -31,7 +31,7 @@ order, so an id names exactly one element of either kind (hence the kind-agnosti
 `/graphelement/{id}` routes, and `GET /vertex/{id}` on an edge id answering `204`), and edge ids
 interleave with vertex ids.
 Property keys beginning with `$embedding:` / `$embeddingModel:` are reserved for engine-managed
-vector state; see [Semantic traversal](/fallen-8-core/semantic-traversal/). They are not filtered
+vector state; see [Semantic traversal](/semantic-traversal/). They are not filtered
 out of reads: an embedded element's `properties` array lists `$embedding:<name>` with
 `fullQualifiedTypeName` `System.Single[]` and a bracketed component list as its value.
 
@@ -90,12 +90,12 @@ the `PUT`/`DELETE /graphelement/...` routes). The maintenance routes below have 
 The single-element creates return no body: the new id is not echoed back. When you need the
 assigned ids, use the batch creates `PUT /vertices` / `PUT /edges` with `waitForCompletion=true`;
 otherwise locate a just-created element with a property scan (below) or `GET /graph`.
-Writer/commit internals are in [Architecture](/fallen-8-core/architecture/).
+Writer/commit internals are in [Architecture](/architecture/).
 
 ## REST CRUD
 
 Base URL `http://localhost:8080`. These are the bare (default-namespace) paths; every route also
-answers under `/ns/{name}/...`; see [Namespaces](/fallen-8-core/namespaces/).
+answers under `/ns/{name}/...`; see [Namespaces](/namespaces/).
 
 | Method & path | Purpose |
 | --- | --- |
@@ -112,7 +112,7 @@ answers under `/ns/{name}/...`; see [Namespaces](/fallen-8-core/namespaces/).
 | `PUT /graphelements/properties` | Set and remove properties across MANY elements in ONE atomic transaction, with **replace** semantics. Either every change applies or none does; a missing element rolls the whole batch back. This is the route to use when a client is reconciling a set of elements against a source, instead of one call per property. |
 | `DELETE /graphelement/{id}` | Remove a vertex or edge. Removing a vertex **cascades** to every incident edge. |
 | `DELETE /graphelements` | Remove many elements in one atomic transaction. Body: an array of ids. Each vertex removal cascades to its incident edges as above. |
-| `HEAD /tabularasa` | Erase all data in the addressed namespace (it stays registered, empty). Every index **definition** goes with it, not just its entries ([Indexes](/fallen-8-core/indexes/)). |
+| `HEAD /tabularasa` | Erase all data in the addressed namespace (it stays registered, empty). Every index **definition** goes with it, not just its entries ([Indexes](/indexes/)). |
 | `HEAD /tabularasa/all` | Fallen-8-level factory reset: drops every non-`default` namespace and erases `default`. Irreversible, and rate-limited (`429`). |
 | `HEAD /trim` | Enqueue a memory trim (releases unused memory). Changes no data. |
 | `GET /vertex/count` · `GET /edge/count` | Element counts. |
@@ -120,13 +120,13 @@ answers under `/ns/{name}/...`; see [Namespaces](/fallen-8-core/namespaces/).
 Two of those rows have consequences worth spelling out:
 
 - **Removing a vertex removes its edges.** The cascade deletes every incident edge, so
-  `GET /edge/count` drops with it, and the [change feed](/fallen-8-core/change-feed/) reports one
+  `GET /edge/count` drops with it, and the [change feed](/change-feed/) reports one
   `edgeRemoved` per cascaded edge next to the `vertexRemoved`. There is no detach-only option.
 - **`GET /graph` bounds vertices and edges independently.** `maxElements` is applied to each of the
   two reads separately (and a negative value yields an empty page), so a truncated page can contain
   edges whose `sourceVertex`/`targetVertex` are not in its own `vertices` array. Resolve those with
   `GET /vertex/{id}`, raise the bound, or take an internally consistent dump with
-  `GET /bulk/export` ([Bulk import/export](/fallen-8-core/bulk-import-export/)).
+  `GET /bulk/export` ([Bulk import/export](/bulk-import-export/)).
 
 A read returns the system fields, the properties as an array, and, for a vertex, its full adjacency
 as edge type -> edge ids. That adjacency often saves the per-group traversal calls below
@@ -216,13 +216,13 @@ minimal edge sets only its type: see [Edge type vs label](#edge-type-vs-label)):
 `PUT /vertices` and `PUT /edges` take a JSON **array** of the same bodies and commit it as one
 transaction. Because edges reference ids that already exist, the usual sequence is: post the
 vertices with `waitForCompletion=true`, read the returned ids, then post the edges. File-based
-loading and dumping are covered in [Bulk import/export](/fallen-8-core/bulk-import-export/).
+loading and dumping are covered in [Bulk import/export](/bulk-import-export/).
 
 ## Full-graph property scans
 
 `POST /scan/graph/property/{propertyId}` walks **every** element and returns the ids of those
 whose `{propertyId}` value satisfies the comparison. It is a linear O(n) scan with no index, for
-indexed lookups use [Indexes](/fallen-8-core/indexes/). Request body:
+indexed lookups use [Indexes](/indexes/). Request body:
 
 | Field | Value |
 | --- | --- |
@@ -235,7 +235,7 @@ The response is a `200` with a JSON array of matching ids (empty when nothing ma
 `literal` or an unknown/unconvertible type is a `400`.
 
 Worked example against the built-in sample graph (create it with `PUT /unittest`; the graph it
-builds is listed under [Path finding](/fallen-8-core/path-finding/)), which stores each person's
+builds is listed under [Path finding](/path-finding/)), which stores each person's
 name under `name`. Find "Trent":
 
 <Tabs syncKey="shell">
@@ -341,10 +341,10 @@ rollback.
 
 ## See also
 
-- [Indexes](/fallen-8-core/indexes/): index types and `POST /scan/index/...`.
-- [Delegates](/fallen-8-core/delegates/): why there is no query language; C# predicates over the graph.
-- [Path finding](/fallen-8-core/path-finding/): traversals between vertices.
-- [Namespaces](/fallen-8-core/namespaces/): isolated graphs and `/ns/{name}` routing.
-- [Semantic traversal](/fallen-8-core/semantic-traversal/): element embeddings and reserved property keys.
-- [Bulk import/export](/fallen-8-core/bulk-import-export/): creating and dumping graphs in bulk.
-- [REST API](/fallen-8-core/rest-api/): versioning, OpenAPI, and shared conventions.
+- [Indexes](/indexes/): index types and `POST /scan/index/...`.
+- [Delegates](/delegates/): why there is no query language; C# predicates over the graph.
+- [Path finding](/path-finding/): traversals between vertices.
+- [Namespaces](/namespaces/): isolated graphs and `/ns/{name}` routing.
+- [Semantic traversal](/semantic-traversal/): element embeddings and reserved property keys.
+- [Bulk import/export](/bulk-import-export/): creating and dumping graphs in bulk.
+- [REST API](/rest-api/): versioning, OpenAPI, and shared conventions.

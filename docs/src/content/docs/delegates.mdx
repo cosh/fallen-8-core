@@ -77,7 +77,7 @@ Some public engine members are **not** usable in a fragment, because the compile
 
 ## The `context` parameter
 
-`context` is a `TraversalContext`: the per-request semantic state, embedded once before the traversal starts. It is empty (`HasQueryVector == false`) unless the request carries a `semantic` block; that block is the code-free way to supply a query vector and is owned by [semantic-traversal.md](/fallen-8-core/semantic-traversal/). A fragment reads it to blend similarity into a filter or cost:
+`context` is a `TraversalContext`: the per-request semantic state, embedded once before the traversal starts. It is empty (`HasQueryVector == false`) unless the request carries a `semantic` block; that block is the code-free way to supply a query vector and is owned by [semantic-traversal.md](/semantic-traversal/). A fragment reads it to blend similarity into a filter or cost:
 
 | Member | Purpose |
 |---|---|
@@ -98,27 +98,27 @@ Fragments are wrapped into a provider class and compiled with **Roslyn** (`CodeG
 | Path filters/costs | `GeneratedCodeCache` (process-wide, static) | the `(filter, cost)` pair, by value equality: numeric bounds (`maxDepth`/`maxResults`/`maxPathWeight`) and `pathAlgorithmName` are applied at traversal time and **excluded** from the key | 1024 entries | 60 s sliding; collectible context unloads on eviction |
 | Subgraph filters | provider cache in `CodeGenerationHelper` | the generated provider source string | 256 entries | 60 s sliding; collectible context unloads on eviction |
 
-So repeating the same fragment set reuses one compiled artifact, and two path requests that differ only in a numeric bound share the same cached traverser. Compile timings and cache hit/miss counters are exported as metrics; see [observability.md](/fallen-8-core/observability/).
+So repeating the same fragment set reuses one compiled artifact, and two path requests that differ only in a numeric bound share the same cached traverser. Compile timings and cache hit/miss counters are exported as metrics; see [observability.md](/observability/).
 
-There is no sandbox: compiled code runs in-process with full trust. That is exactly why the code endpoints sit behind authentication; [security.md](/fallen-8-core/security/) owns that posture (dynamic code execution itself is always on; the API key controls *access*). These runtime-compiled delegates are not [plugins](/fallen-8-core/plugins/): that is a separate discovery mechanism.
+There is no sandbox: compiled code runs in-process with full trust. That is exactly why the code endpoints sit behind authentication; [security.md](/security/) owns that posture (dynamic code execution itself is always on; the API key controls *access*). These runtime-compiled delegates are not [plugins](/plugins/): that is a separate discovery mechanism.
 
 The compile environment is narrow, and that narrowness is the de-facto type allowlist. It imports a fixed set of usings (`System`, `System.Linq`, `NoSQL.GraphDB.Core.Model`, `NoSQL.GraphDB.Core.Index.Vector`; subgraph fragments also get `NoSQL.GraphDB.Core.Algorithms`), so `TraversalContext` resolves by simple name, and it references only the runtime core (`System.Private.CoreLib` plus the `mscorlib` / `System` / `System.Core` / `System.Runtime` facades), `System.Linq` and the engine assembly. A type from any other assembly is out of reach even fully qualified: `System.Text.RegularExpressions.Regex` fails with `CS1069`, and an engine member whose signature names `List<>` or `ImmutableDictionary<,>` fails with `CS0012` (see [accessor surface](#accessor-surface)).
 
-Size caps are the first structural guard and they are uniform: every generator rejects a fragment longer than 100,000 characters before Roslyn runs and a generated source over 1,000,000 characters, so `POST /path`, `POST /delegates/validate`, `PUT /subgraph` and the stored queries that go through the same generators all inherit both, on top of the 1 MiB request-size limit every code endpoint carries (`413` beyond it). There is still no compile timeout. Execution is bounded only cooperatively, and only on `/path` ([security](/fallen-8-core/security/#dynamic-code-execution-always-on)): a fragment that loops forever occupies its request thread.
+Size caps are the first structural guard and they are uniform: every generator rejects a fragment longer than 100,000 characters before Roslyn runs and a generated source over 1,000,000 characters, so `POST /path`, `POST /delegates/validate`, `PUT /subgraph` and the stored queries that go through the same generators all inherit both, on top of the 1 MiB request-size limit every code endpoint carries (`413` beyond it). There is still no compile timeout. Execution is bounded only cooperatively, and only on `/path` ([security](/security/#dynamic-code-execution-always-on)): a fragment that loops forever occupies its request thread.
 
 ## Where fragments are accepted
 
 | Surface | Fragment slots | Doc |
 |---|---|---|
-| `POST /path/{from}/to/{to}` | `filter.vertexFilter` / `edgeFilter` / `edgePropertyFilter`, `cost.vertexCost` / `edgeCost` | [path-finding.md](/fallen-8-core/path-finding/) |
-| `PUT /subgraph` | top-level `vertexFilter` / `edgeFilter` plus per-pattern filters | [subgraphs.md](/fallen-8-core/subgraphs/) |
-| `POST /storedquery` | the same fragments, compiled once and invoked by name | [stored-queries.md](/fallen-8-core/stored-queries/) |
+| `POST /path/{from}/to/{to}` | `filter.vertexFilter` / `edgeFilter` / `edgePropertyFilter`, `cost.vertexCost` / `edgeCost` | [path-finding.md](/path-finding/) |
+| `PUT /subgraph` | top-level `vertexFilter` / `edgeFilter` plus per-pattern filters | [subgraphs.md](/subgraphs/) |
+| `POST /storedquery` | the same fragments, compiled once and invoked by name | [stored-queries.md](/stored-queries/) |
 | `POST /delegates/validate` | compile-check a single fragment (below) | this doc |
-| MCP `f8_paths` / `f8_subgraph` | `vertexFilter` / `edgeFilter` / `edgePropertyFilter` / `vertexCost` / `edgeCost` on `f8_paths`, `vertexFilter` / `edgeFilter` on `f8_subgraph`, bridged to `POST /path` and `PUT /subgraph`; offered only with the `code` capability | [MCP server](/fallen-8-core/mcp-server/) |
+| MCP `f8_paths` / `f8_subgraph` | `vertexFilter` / `edgeFilter` / `edgePropertyFilter` / `vertexCost` / `edgeCost` on `f8_paths`, `vertexFilter` / `edgeFilter` on `f8_subgraph`, bridged to `POST /path` and `PUT /subgraph`; offered only with the `code` capability | [MCP server](/mcp-server/) |
 
 ## Validating a fragment: `POST /delegates/validate`
 
-Compile-checks one fragment without running it: nothing is emitted, loaded, or executed. Use it to give an editor or agent instant feedback before submitting a query. It carries the same authentication as the query endpoints ([security.md](/fallen-8-core/security/)): `401` without a credential when a key is configured, `429` when rate-limited, `400` for a missing body or an unknown `delegateKind`.
+Compile-checks one fragment without running it: nothing is emitted, loaded, or executed. Use it to give an editor or agent instant feedback before submitting a query. It carries the same authentication as the query endpoints ([security.md](/security/)): `401` without a credential when a key is configured, `429` when rate-limited, `400` for a missing body or an unknown `delegateKind`.
 
 Request: `{ "delegateKind": "<kind>", "fragment": "<C#>" }`. `delegateKind` is case-insensitive and must be one of `VertexFilter`, `EdgeFilter`, `EdgePropertyFilter`, `VertexCost`, `EdgeCost`, `GraphElementFilter`; `LabelFilter` is not accepted. Response:
 
@@ -175,13 +175,13 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/delegates/validate `
 
 ## See also
 
-- [Path finding](/fallen-8-core/path-finding/): the path request and its filter/cost slots
-- [Subgraphs](/fallen-8-core/subgraphs/): subgraph pattern filters
-- [Stored queries](/fallen-8-core/stored-queries/): named, precompiled fragment sets
-- [Semantic traversal](/fallen-8-core/semantic-traversal/): the code-free `semantic` block that populates `context`
-- [Security](/fallen-8-core/security/): the API key that gates access to these always-on code endpoints
-- [Observability](/fallen-8-core/observability/): codegen compile and cache metrics
-- [Studio](/fallen-8-core/studio/): the browser delegate editor and NL-assist UI
-- [MCP server](/fallen-8-core/mcp-server/): the agent channel that forwards inline fragments on `f8_paths` / `f8_subgraph`
-- [Graph model](/fallen-8-core/graph-model/): elements, properties, and transactions the fragments read
-- [REST API](/fallen-8-core/rest-api/): OpenAPI document and Scalar reference
+- [Path finding](/path-finding/): the path request and its filter/cost slots
+- [Subgraphs](/subgraphs/): subgraph pattern filters
+- [Stored queries](/stored-queries/): named, precompiled fragment sets
+- [Semantic traversal](/semantic-traversal/): the code-free `semantic` block that populates `context`
+- [Security](/security/): the API key that gates access to these always-on code endpoints
+- [Observability](/observability/): codegen compile and cache metrics
+- [Studio](/studio/): the browser delegate editor and NL-assist UI
+- [MCP server](/mcp-server/): the agent channel that forwards inline fragments on `f8_paths` / `f8_subgraph`
+- [Graph model](/graph-model/): elements, properties, and transactions the fragments read
+- [REST API](/rest-api/): OpenAPI document and Scalar reference

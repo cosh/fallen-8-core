@@ -10,7 +10,7 @@ demand. This page is the contract for the plugin model and for writing your own;
 *using* each built-in are linked in the family table.
 
 > Runtime-compiled filter/cost fragments (`IPathTraverser`, the `Delegates.*` types) are **not**
-> plugins: they are a separate, Roslyn-based mechanism owned by [delegates.md](/fallen-8-core/delegates/).
+> plugins: they are a separate, Roslyn-based mechanism owned by [delegates.md](/delegates/).
 
 ## The `IPlugin` contract
 
@@ -32,11 +32,11 @@ Each family is an interface deriving from `IPlugin`. Built-ins are listed by the
 
 | Family | Interface | Built-in `PluginName`s | Doc |
 | --- | --- | --- | --- |
-| Index | [`IIndex`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Index/IIndex.cs) | `DictionaryIndex`, `RangeIndex`, `RegExIndex`, `SpatialIndex`, `SingleValueIndex`, `VectorIndex` | [indexes.md](/fallen-8-core/indexes/), [vector-search.md](/fallen-8-core/vector-search/) |
-| Shortest path | [`IShortestPathAlgorithm`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Algorithms/Path/IShortestPathAlgorithm.cs) | `DIJKSTRA`, `BLS` | [path-finding.md](/fallen-8-core/path-finding/) |
-| Subgraph | [`ISubGraphAlgorithm`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Algorithms/SubGraph/ISubGraphAlgorithm.cs) | `Breadth First Search Subgraph Algorithm` | [subgraphs.md](/fallen-8-core/subgraphs/) |
-| Analytics | [`IGraphAnalyticsAlgorithm`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Algorithms/Analytics/IGraphAnalyticsAlgorithm.cs) | `DEGREE`, `WCC`, `TRIANGLECOUNT`, `PAGERANK`, `LABELPROPAGATION` | [graph-analytics.md](/fallen-8-core/graph-analytics/) |
-| Graph function | [`IGraphFunction`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Plugins/IGraphFunction.cs) | *(none built in)* | [plugin-registration.md](/fallen-8-core/plugin-registration/) |
+| Index | [`IIndex`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Index/IIndex.cs) | `DictionaryIndex`, `RangeIndex`, `RegExIndex`, `SpatialIndex`, `SingleValueIndex`, `VectorIndex` | [indexes.md](/indexes/), [vector-search.md](/vector-search/) |
+| Shortest path | [`IShortestPathAlgorithm`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Algorithms/Path/IShortestPathAlgorithm.cs) | `DIJKSTRA`, `BLS` | [path-finding.md](/path-finding/) |
+| Subgraph | [`ISubGraphAlgorithm`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Algorithms/SubGraph/ISubGraphAlgorithm.cs) | `Breadth First Search Subgraph Algorithm` | [subgraphs.md](/subgraphs/) |
+| Analytics | [`IGraphAnalyticsAlgorithm`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Algorithms/Analytics/IGraphAnalyticsAlgorithm.cs) | `DEGREE`, `WCC`, `TRIANGLECOUNT`, `PAGERANK`, `LABELPROPAGATION` | [graph-analytics.md](/graph-analytics/) |
+| Graph function | [`IGraphFunction`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Plugins/IGraphFunction.cs) | *(none built in)* | [plugin-registration.md](/plugin-registration/) |
 | Service | [`IService`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-core/Service/IService.cs) | *(none built in)* | *(this page)* |
 
 `IIndex` and `IService` also extend `IFallen8Serializable` (`Save`/`Load`), so their instances are
@@ -130,7 +130,7 @@ directory (`fallen-8-core` itself or a referenced assembly), and it is addressed
 runtime, so a new assembly is picked up on the **next process start**, not by dropping it next to a
 running instance. As a **runtime plugin**, submit its C# source to the typed registration API and it
 is compiled, contract-validated, and stored scoped to a namespace; see
-[plugin-registration.md](/fallen-8-core/plugin-registration/).
+[plugin-registration.md](/plugin-registration/).
 
 The two paths do not admit the same families. Runtime registration is a closed set of two
 categories covering four contracts: path, subgraph and analytics algorithms, plus graph functions.
@@ -144,9 +144,9 @@ instantiated over REST:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /status` | Lists available index / path / subgraph / analytics / service plugin names alongside the live index inventory, see [observability.md](/fallen-8-core/observability/). It is the only listing that carries the subgraph plugin names. |
-| `GET /analytics/algorithms` | Lists analytics plugins with descriptions: see [graph-analytics.md](/fallen-8-core/graph-analytics/). |
-| `POST /plugins/{algorithm,function}`, `POST /plugins/{algorithm,function}/validate`, `GET/DELETE /plugins[/{name}]`, `POST /plugins/function/{name}/invoke` | Register (from C# source), compile-check without registering, list, get, delete, and invoke **runtime** plugins, scoped per namespace, see [plugin-registration.md](/fallen-8-core/plugin-registration/). This replaces the former `PUT /plugin` DLL upload, which has been removed. |
+| `GET /status` | Lists available index / path / subgraph / analytics / service plugin names alongside the live index inventory, see [observability.md](/observability/). It is the only listing that carries the subgraph plugin names. |
+| `GET /analytics/algorithms` | Lists analytics plugins with descriptions: see [graph-analytics.md](/graph-analytics/). |
+| `POST /plugins/{algorithm,function}`, `POST /plugins/{algorithm,function}/validate`, `GET/DELETE /plugins[/{name}]`, `POST /plugins/function/{name}/invoke` | Register (from C# source), compile-check without registering, list, get, delete, and invoke **runtime** plugins, scoped per namespace, see [plugin-registration.md](/plugin-registration/). This replaces the former `PUT /plugin` DLL upload, which has been removed. |
 | `POST /service`, `DELETE /service/{key}` | Instantiate a service plugin by `PluginName` (body below) and remove one by its instance key. Both return a bare boolean with **200**: `false` means the plugin type is unknown, the instance key is already taken, or the key was not found. It is never signalled as an HTTP error status. |
 
 `POST /service` is the service family's only REST surface. It resolves `pluginType` against `IService`
@@ -171,8 +171,8 @@ string, converted with `InvariantCulture` before it reaches `Initialize`.
 
 ## See also
 
-- [indexes.md](/fallen-8-core/indexes/): built-in index types and their creation options.
-- [path-finding.md](/fallen-8-core/path-finding/) · [subgraphs.md](/fallen-8-core/subgraphs/) · [graph-analytics.md](/fallen-8-core/graph-analytics/): the built-in algorithm plugins.
-- [plugin-registration.md](/fallen-8-core/plugin-registration/): registering runtime plugins from C# source.
-- [delegates.md](/fallen-8-core/delegates/): runtime-compiled filter/cost fragments (a different mechanism).
-- [security.md](/fallen-8-core/security/): gating for the full-trust dynamic-code and plugin-registration surfaces.
+- [indexes.md](/indexes/): built-in index types and their creation options.
+- [path-finding.md](/path-finding/) · [subgraphs.md](/subgraphs/) · [graph-analytics.md](/graph-analytics/): the built-in algorithm plugins.
+- [plugin-registration.md](/plugin-registration/): registering runtime plugins from C# source.
+- [delegates.md](/delegates/): runtime-compiled filter/cost fragments (a different mechanism).
+- [security.md](/security/): gating for the full-trust dynamic-code and plugin-registration surfaces.

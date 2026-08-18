@@ -5,7 +5,7 @@ description: "Checkpoints tracked by a registry that drives startup, on top of a
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-Fallen-8 is durable by default. Every committed transaction is appended to a per-namespace **write-ahead log (WAL)** and fsync'd before the call returns; on demand (via `PUT /save` or a clean shutdown) the engine writes a **save game**, a full checkpoint of the graph. A single **registry** at `<deployment>/metadata/savegames.json` records every save game with its KPIs and file facts and is the sole authority for what loads on startup. Between checkpoints the WAL closes the gap, so a crash recovers every committed transaction by replaying the log on top of the last checkpoint. Volatile mode (opt-in) turns all of this off. Save games are for full point-in-time restore points; to move data as portable text instead, see [bulk import/export](/fallen-8-core/bulk-import-export/).
+Fallen-8 is durable by default. Every committed transaction is appended to a per-namespace **write-ahead log (WAL)** and fsync'd before the call returns; on demand (via `PUT /save` or a clean shutdown) the engine writes a **save game**, a full checkpoint of the graph. A single **registry** at `<deployment>/metadata/savegames.json` records every save game with its KPIs and file facts and is the sole authority for what loads on startup. Between checkpoints the WAL closes the gap, so a crash recovers every committed transaction by replaying the log on top of the last checkpoint. Volatile mode (opt-in) turns all of this off. Save games are for full point-in-time restore points; to move data as portable text instead, see [bulk import/export](/bulk-import-export/).
 
 ```mermaid
 flowchart LR
@@ -29,27 +29,27 @@ flowchart LR
 | Content | Persisted | On load |
 |---|---|---|
 | Vertices & edges + their properties | Yes: id-partitioned element files | Restored |
-| Element embeddings | Yes: element state, travels with the elements | Restored ([semantic traversal](/fallen-8-core/semantic-traversal/)) |
-| Indices | Yes: one file per index | Restored; a load **replaces** the live index set with the checkpoint's (indices created since it are dropped), and a bound vector index is rebuilt as a derived projection ([indexes](/fallen-8-core/indexes/), [vector search](/fallen-8-core/vector-search/)) |
+| Element embeddings | Yes: element state, travels with the elements | Restored ([semantic traversal](/semantic-traversal/)) |
+| Indices | Yes: one file per index | Restored; a load **replaces** the live index set with the checkpoint's (indices created since it are dropped), and a bound vector index is rebuilt as a derived projection ([indexes](/indexes/), [vector search](/vector-search/)) |
 | Services | Yes | Restored, but **not started** by the startup load (no configuration key changes that); started by `PUT /savegames/{id}/load`, and by `PUT /load` unless you send `startServices: false` |
-| Subgraph recipes | Yes: one manifest | Recompiled ([subgraphs](/fallen-8-core/subgraphs/)) |
-| Stored queries | Yes: source only, one manifest | Recompiled ([stored queries](/fallen-8-core/stored-queries/)) |
-| Registered plugins | Yes, source only (one manifest) | Recompiled ([plugin registration](/fallen-8-core/plugin-registration/)) |
+| Subgraph recipes | Yes: one manifest | Recompiled ([subgraphs](/subgraphs/)) |
+| Stored queries | Yes: source only, one manifest | Recompiled ([stored queries](/stored-queries/)) |
+| Registered plugins | Yes, source only (one manifest) | Recompiled ([plugin registration](/plugin-registration/)) |
 
 Between checkpoints the WAL records the same data mutations plus id-space markers (`Trim`, `TabulaRasa`) and the subgraph, stored-query and plugin registrations committed since the last save, so crash recovery loses nothing committed.
 
 ## Startup
 
-Two decisions, in this order: the [namespace catalog](/fallen-8-core/namespaces/#startup-load) decides **which namespaces** this boot loads at all, and then, for each of those, the registry (never the files on disk) decides **what loads into it**. Each namespace is resolved by its immutable id (a rename keeps its history; a drop + recreate does not inherit the old one's saves):
+Two decisions, in this order: the [namespace catalog](/namespaces/#startup-load) decides **which namespaces** this boot loads at all, and then, for each of those, the registry (never the files on disk) decides **what loads into it**. Each namespace is resolved by its immutable id (a rename keeps its history; a drop + recreate does not inherit the old one's saves):
 
 | Namespace and registry state | What loads |
 |---|---|
 | Loaded, and an entry contains it | Its newest such entry's checkpoint is loaded, then the WAL tail is replayed |
 | Loaded, and no entry contains it | Nothing is loaded; the namespace keeps its WAL-replayed construction state, an empty graph on a fresh deployment |
-| Its [startup-load policy](/fallen-8-core/namespaces/#startup-load) excludes it | Nothing at all: no engine is constructed, so no checkpoint is read and no WAL replayed. It stays cataloged and answers `503` until it is loaded |
+| Its [startup-load policy](/namespaces/#startup-load) excludes it | Nothing at all: no engine is constructed, so no checkpoint is read and no WAL replayed. It stays cataloged and answers `503` until it is loaded |
 
 - A checkpoint file merely sitting in the storage directory is **not** auto-loaded. (Exception: a checkpoint strictly newer than the newest registered entry is adopted: it is a durable save whose registry write did not complete before a crash.)
-- To **adopt an unregistered checkpoint**, load it once with `PUT /load`; it is then registered permanently and boots normally thereafter. A namespace that is *not loaded* and has only unregistered checkpoint files refuses [activation](/fallen-8-core/namespaces/#loading-one-now) with `409` rather than coming up empty beside them, and its detail names the adoption path.
+- To **adopt an unregistered checkpoint**, load it once with `PUT /load`; it is then registered permanently and boots normally thereafter. A namespace that is *not loaded* and has only unregistered checkpoint files refuses [activation](/namespaces/#loading-one-now) with `409` rather than coming up empty beside them, and its detail names the adoption path.
 - A registered entry whose checkpoint file is missing aborts startup loudly rather than serving an empty graph: restore the file, or delete the entry (`DELETE /savegames/{id}`) and restart. That abort covers the namespaces this boot **selected**: broken files under a namespace nobody asked to load cannot keep the server down, and they are still exactly as broken when you do load it.
 - A corrupt `savegames.json` is a loud failure too, never silently overwritten: fix the JSON, or move the file aside and re-adopt the checkpoints with `PUT /load` (you lose the history, not the data).
 
@@ -64,11 +64,11 @@ Two decisions, in this order: the [namespace catalog](/fallen-8-core/namespaces/
 | `Fallen8:Durability:SaveOnShutdown` | `true` | `true` = final checkpoint on clean shutdown; `false` = rely on the per-commit WAL (committed work still survives; the next boot replays a longer log) |
 | `Fallen8:Metadata:Directory` | `<app base>/metadata` | Directory holding `savegames.json` |
 
-In the compose environment these bind from environment variables (`Fallen8__Durability__StorageDirectory=/data`, `Fallen8__Metadata__Directory=/data/metadata`) so the graph data and the registry share one named volume; see [running](/fallen-8-core/running/). A bare `PUT /save` writes to the addressed namespace's default checkpoint path (`CheckpointBaseName` inside its directory); pass `saveGameLocation` to write somewhere else explicitly.
+In the compose environment these bind from environment variables (`Fallen8__Durability__StorageDirectory=/data`, `Fallen8__Metadata__Directory=/data/metadata`) so the graph data and the registry share one named volume; see [running](/running/). A bare `PUT /save` writes to the addressed namespace's default checkpoint path (`CheckpointBaseName` inside its directory); pass `saveGameLocation` to write somewhere else explicitly.
 
 ## REST surface
 
-Base URL `http://localhost:8080`. `PUT /save` and `PUT /load` target the addressed namespace (bare URLs alias the `default` namespace; every one also answers under `/ns/{ns}/…`). The `/savegames` registry routes and `PUT /save/all` are Fallen-8-level (one registry per deployment), so they are not namespace-twinned. See [namespaces](/fallen-8-core/namespaces/).
+Base URL `http://localhost:8080`. `PUT /save` and `PUT /load` target the addressed namespace (bare URLs alias the `default` namespace; every one also answers under `/ns/{ns}/…`). The `/savegames` registry routes and `PUT /save/all` are Fallen-8-level (one registry per deployment), so they are not namespace-twinned. See [namespaces](/namespaces/).
 
 ### Saving
 
@@ -77,7 +77,7 @@ Base URL `http://localhost:8080`. `PUT /save` and `PUT /load` target the address
 | `PUT /save` | namespace | `SaveSpecification` (all optional) | `200` created entry · `400` · `500` rolled back · `503` the addressed namespace is not loaded |
 | `PUT /save/all` | Fallen-8 | (none) | `200` one entry spanning every **loaded** namespace · `429` rate-limited · `500` (body names failed namespaces; successful ones are still registered) |
 
-**A namespace with no engine in this process is never a member of a save**, so what a spanning entry covers depends on what the boot loaded. `PUT /save/all` skips such a namespace and names it in a `skippedNamespaces` member (on the `200`, and as a problem extension on the `500`); the clean-shutdown save skips it with an informational log line; a `PUT /save` addressed at it refuses with `503`. Its checkpoint files and its WAL are left untouched, which is the point: an empty save of a namespace that holds data would both bury the real checkpoint under a newer entry and reset that namespace's WAL to a bare header. The consequence to keep in mind is that "the newest entry is my whole Fallen-8" holds only while every namespace is loaded. See [namespaces](/fallen-8-core/namespaces/#startup-load).
+**A namespace with no engine in this process is never a member of a save**, so what a spanning entry covers depends on what the boot loaded. `PUT /save/all` skips such a namespace and names it in a `skippedNamespaces` member (on the `200`, and as a problem extension on the `500`); the clean-shutdown save skips it with an informational log line; a `PUT /save` addressed at it refuses with `503`. Its checkpoint files and its WAL are left untouched, which is the point: an empty save of a namespace that holds data would both bury the real checkpoint under a newer entry and reset that namespace's WAL to a bare header. The consequence to keep in mind is that "the newest entry is my whole Fallen-8" holds only while every namespace is loaded. See [namespaces](/namespaces/#startup-load).
 
 `SaveSpecification`: `saveGameLocation` (path; defaults to `CheckpointBaseName` in the addressed namespace's directory), `savePartitions` (defaults to the optimal count for the CPU). Both `PUT /save` and `PUT /save/all` wait for the save to finish before responding.
 
@@ -100,12 +100,12 @@ difference between "the graph is complete" and "the graph is what survived":
 The block is read as a group, so its fields always describe one outcome rather than a half-finished
 replay. Why it exists: a client that reconciles against the graph and then **deletes what nothing
 asserts any more** would otherwise draw that conclusion from truncated history with no way to know.
-The [integrations runtime](/fallen-8-core/integrations/) does exactly that, and defers its deletions
+The [integrations runtime](/integrations/) does exactly that, and defers its deletions
 unless this block says writes are reaching disk, the last recovery was not truncated, and the last
 checkpoint dropped no indexes.
 
 `lastCheckpointDroppedIndices` above zero is the other case worth acting on: a derived index you own
-is gone after the next load, and [rebuilding it](/fallen-8-core/indexes/) from element state is one
+is gone after the next load, and [rebuilding it](/indexes/) from element state is one
 call.
 
 ### Registry and restore
@@ -204,19 +204,19 @@ Invoke-RestMethod -Method Put -Uri http://localhost:8080/load -ContentType "appl
 
 ## Namespaces
 
-`PUT /save/all` checkpoints every **loaded** namespace into **one** save-game entry: a single consistent restore point for as much of the Fallen-8 as this process holds (all of it, unless a [startup-load policy](/fallen-8-core/namespaces/#startup-load) excluded something, in which case the response names what it skipped); the clean-shutdown save produces the same shape. Restore the whole entry, or a single member with `?namespace={name}`, via `PUT /savegames/{id}/load`. Each namespace keeps its own checkpoint files and WAL under its own directory (`default` uses the storage directory itself, every other namespace a `namespaces/<id>/` subdirectory of it), while the registry is shared. The namespace model itself lives in [namespaces](/fallen-8-core/namespaces/).
+`PUT /save/all` checkpoints every **loaded** namespace into **one** save-game entry: a single consistent restore point for as much of the Fallen-8 as this process holds (all of it, unless a [startup-load policy](/namespaces/#startup-load) excluded something, in which case the response names what it skipped); the clean-shutdown save produces the same shape. Restore the whole entry, or a single member with `?namespace={name}`, via `PUT /savegames/{id}/load`. Each namespace keeps its own checkpoint files and WAL under its own directory (`default` uses the storage directory itself, every other namespace a `namespaces/<id>/` subdirectory of it), while the registry is shared. The namespace model itself lives in [namespaces](/namespaces/).
 
 ## Studio
 
-F8 Studio has a Save games screen that lists entries and drives save, restore, and delete; see [studio](/fallen-8-core/studio/).
+F8 Studio has a Save games screen that lists entries and drives save, restore, and delete; see [studio](/studio/).
 
 ## See also
 
-- [Indexes](/fallen-8-core/indexes/): how indices are captured and restored/rebuilt on load
-- [Namespaces](/fallen-8-core/namespaces/): the namespace model and `/ns/{ns}/…` route twins
-- [Bulk import/export](/fallen-8-core/bulk-import-export/): the portable-text alternative for moving data
-- [Stored queries](/fallen-8-core/stored-queries/) · [Subgraphs](/fallen-8-core/subgraphs/): assets recompiled from a save game
-- [Semantic traversal](/fallen-8-core/semantic-traversal/) · [Vector search](/fallen-8-core/vector-search/): embedding and vector-index durability
-- [Running](/fallen-8-core/running/): storage-directory configuration in the compose environment
-- [REST API](/fallen-8-core/rest-api/): OpenAPI document and Scalar reference
-- [Troubleshooting](/fallen-8-core/troubleshooting/): common API, NL-assist and sidecar failure modes
+- [Indexes](/indexes/): how indices are captured and restored/rebuilt on load
+- [Namespaces](/namespaces/): the namespace model and `/ns/{ns}/…` route twins
+- [Bulk import/export](/bulk-import-export/): the portable-text alternative for moving data
+- [Stored queries](/stored-queries/) · [Subgraphs](/subgraphs/): assets recompiled from a save game
+- [Semantic traversal](/semantic-traversal/) · [Vector search](/vector-search/): embedding and vector-index durability
+- [Running](/running/): storage-directory configuration in the compose environment
+- [REST API](/rest-api/): OpenAPI document and Scalar reference
+- [Troubleshooting](/troubleshooting/): common API, NL-assist and sidecar failure modes

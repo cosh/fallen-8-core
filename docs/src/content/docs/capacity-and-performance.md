@@ -78,7 +78,7 @@ For rough planning, take the per-edge figure at your expected degree, add the pe
 your properties. A vertex whose out-degree changes constantly can transiently hold spare capacity in its
 group array (bounded at roughly twice the group), so a heavy-churn graph sits slightly above the table.
 
-[Vector](/fallen-8-core/vector-search/) indexes are the one component with a formula rather than a
+[Vector](/vector-search/) indexes are the one component with a formula rather than a
 measurement. Vectors are held in one flat `float[]`, so the cost is roughly `4 x dimensions` bytes per
 indexed element plus about 64 bytes of bookkeeping: `bge-m3` at 1024 dimensions costs about 4.1 KB per
 indexed element, an order of magnitude more than the vertex it hangs off. Index only what you will search.
@@ -104,7 +104,7 @@ That is roughly 19.9x from group commit alone, on single-element writes with the
 <!-- /capacity:writes -->
 
 If you control the shape of your writes, prefer `CreateVerticesTransaction` and `CreateEdgesTransaction`
-over per-element calls, or use [bulk import](/fallen-8-core/bulk-import-export/), which batches for you.
+over per-element calls, or use [bulk import](/bulk-import-export/), which batches for you.
 
 **A batch is all or nothing.** Ten thousand vertices in one transaction either all commit or none do, so
 batching costs you nothing in atomicity.
@@ -150,7 +150,7 @@ the smallest row carries that one-off cost and reads as a worse per-element rate
 Two things follow that need no figure of their own. A fleet's slowest namespace sits on the critical
 path of every start, because the selected namespaces load one after another; and a namespace that
 nobody reads still pays for its residency, in load time and in retained heap. That is what the
-per-namespace [startup-load policy](/fallen-8-core/namespaces/#startup-load) is for. Excluding a
+per-namespace [startup-load policy](/namespaces/#startup-load) is for. Excluding a
 namespace saves exactly those two things and close to nothing else: no namespace holds an open
 write-ahead-log handle (every append opens, fsyncs and closes), and its writer thread is cheap.
 How a restore compares with checkpointing the same graph is a comparison of two measured rows, so it
@@ -161,13 +161,13 @@ is stated inside the table above, when there are rows to state it from.
 | Operation | Cost |
 | --- | --- |
 | Element by id, degree, adjacency walk | O(1), lock-free against a published snapshot |
-| [Index](/fallen-8-core/indexes/) point lookup | O(1) for a dictionary index |
+| [Index](/indexes/) point lookup | O(1) for a dictionary index |
 | Range index scan | O(log n + k) against a cached ascending key array, rebuilt lazily after a key-set change |
 | Fulltext index scan | Index-bounded, with scores |
-| [Vector](/fallen-8-core/vector-search/) index scan | **Exact** SIMD brute force over every indexed element: linear in indexed elements, memory-bandwidth bound at roughly `4 x dimensions` bytes per candidate |
+| [Vector](/vector-search/) index scan | **Exact** SIMD brute force over every indexed element: linear in indexed elements, memory-bandwidth bound at roughly `4 x dimensions` bytes per candidate |
 | `POST /scan/graph/property/{id}` and the all-property scan | **O(n) full scan, no index**, and deliberately sequential: the per-element predicate is too cheap to pay for partition and merge |
-| [Analytics](/fallen-8-core/graph-analytics/) | Whole-graph, time-budgeted (default 30 s, max 300 s, one run at a time) |
-| [Path finding](/fallen-8-core/path-finding/) | Frontier-bounded, and dominated by your filter fragments |
+| [Analytics](/graph-analytics/) | Whole-graph, time-budgeted (default 30 s, max 300 s, one run at a time) |
+| [Path finding](/path-finding/) | Frontier-bounded, and dominated by your filter fragments |
 
 Readers never block writers and writers never block readers: the graph is published copy-on-write, so a
 reader holds a consistent snapshot for the whole operation.
@@ -198,7 +198,7 @@ neighbour dereference, which is inherent to traversing a graph whose edges are f
 Making that materially cheaper would mean maintaining a parallel array of neighbour ids per group, which
 is the CSR-style overlay this project assessed and rejected (below).
 
-The [Benchmark](/fallen-8-core/benchmark/) screen runs the same sweep against whatever graph you have
+The [Benchmark](/benchmark/) screen runs the same sweep against whatever graph you have
 loaded, so you can compare your own data against these shapes.
 
 ## Knobs that actually move the numbers
@@ -208,14 +208,14 @@ loaded, so you can compare your own data against these shapes.
 | Batch your transactions | The single biggest write-throughput lever, worth the multiple measured above |
 | `Fallen8:Durability:Volatile=true` | No WAL, no checkpoints, no boot load: the fastest possible writes, and a restart loses everything |
 | `Fallen8:Durability:SaveOnShutdown` | `false` skips the final checkpoint and relies on WAL replay, trading a longer boot for a faster stop |
-| A namespace's [startup-load policy](/fallen-8-core/namespaces/#startup-load) | Keeps a namespace out of the boot entirely: saves its load time (above) and its retained heap, and nothing else |
+| A namespace's [startup-load policy](/namespaces/#startup-load) | Keeps a namespace out of the boot entirely: saves its load time (above) and its retained heap, and nothing else |
 | Save frequency | Each save costs the stall measured above; the WAL is what makes rare saves safe |
 | Server GC | On by default in the engine package, the service and the benchmark tool, and the right choice for a resident graph |
 | `Fallen8:Analytics:MaxConcurrentRuns` | Defaults to 1, so a heavy analytics run cannot be stacked on itself |
 | `Fallen8:BulkIO:ImportBatchSize` | Defaults to 10,000 elements per committed batch on import |
 
 Configuration keys and their environment-variable forms are in
-[Running Fallen-8](/fallen-8-core/running/#configuration-keys).
+[Running Fallen-8](/running/#configuration-keys).
 
 ## What is deliberately not optimised
 
@@ -224,7 +224,7 @@ Honest limits, so you can plan around them rather than discover them:
 - **The save stalls the writer** (above). Revisit territory is tens of millions of elements saved
   frequently.
 - **Property scans are linear.** They are a discovery tool. Anything on a hot path wants an
-  [index](/fallen-8-core/indexes/).
+  [index](/indexes/).
 - **The startup load is sequential**, one namespace after another (above). The lever today is loading
   fewer of them, not loading them concurrently.
 - **There is no compressed adjacency structure.** A CSR-style representation was assessed and
@@ -236,9 +236,9 @@ Honest limits, so you can plan around them rather than discover them:
 
 ## See also
 
-- [Benchmark](/fallen-8-core/benchmark/): measure traversal throughput against a loaded graph from Studio
-- [Save games](/fallen-8-core/save-games/): the WAL, checkpoints, and what survives a crash
-- [Namespaces](/fallen-8-core/namespaces/): the startup-load policy, and what a not-loaded namespace costs (nothing) and answers (`503`)
-- [Use as a library](/fallen-8-core/library/): in-process consumption, where you control GC and batching
-- [Observability](/fallen-8-core/observability/): the metrics that show these costs on a live instance
-- [Bulk import/export](/fallen-8-core/bulk-import-export/): the batched path for loading large datasets
+- [Benchmark](/benchmark/): measure traversal throughput against a loaded graph from Studio
+- [Save games](/save-games/): the WAL, checkpoints, and what survives a crash
+- [Namespaces](/namespaces/): the startup-load policy, and what a not-loaded namespace costs (nothing) and answers (`503`)
+- [Use as a library](/library/): in-process consumption, where you control GC and batching
+- [Observability](/observability/): the metrics that show these costs on a live instance
+- [Bulk import/export](/bulk-import-export/): the batched path for loading large datasets

@@ -528,7 +528,7 @@ test("per-section help opens the docs for the current screen", async ({ page }) 
   const firstLink = page.getByTestId("section-help-link").first();
   await expect(firstLink).toHaveAttribute(
     "href",
-    "https://cosh.github.io/fallen-8-core/path-finding/",
+    "https://docs.fallen-8.com/path-finding/",
   );
   await expect(firstLink).toHaveAttribute("target", "_blank");
 

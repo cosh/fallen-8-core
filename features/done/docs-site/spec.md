@@ -7,6 +7,10 @@ site built with [Starlight](https://starlight.astro.build/) (Astro 5), and deplo
 continuously to GitHub Pages at `https://cosh.github.io/fallen-8-core/` via a new,
 separate GitHub Actions workflow.
 
+> Historical record. The site later moved to the custom domain `https://docs.fallen-8.com/`,
+> which serves it from the root, so the `base` this spec describes is gone. The live hosting
+> contract is `docs/astro.config.mjs` plus `docs/public/CNAME`.
+
 This is a presentation layer over the docs we already have; it does not invent product
 behaviour and does not touch the engine, the apiApp, F8 Studio, or the Docker configs.
 

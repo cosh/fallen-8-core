@@ -15,7 +15,7 @@ unvalidated assembly in-process and has been removed.
 > binary, and every registration is typed, gated, logged, and per-namespace. It is **not** a
 > sandbox. Registering a plugin is a trust decision equivalent to deploying code.
 
-This is the same idea as [stored queries](/fallen-8-core/stored-queries/), lifted from a *fragment* (a
+This is the same idea as [stored queries](/stored-queries/), lifted from a *fragment* (a
 filter/cost body the server wraps in a fixed class) to a **whole plugin type** you author in full,
 because a plugin's contract carries real logic a fragment can't express.
 
@@ -119,7 +119,7 @@ authentication. The capability is **on by default**: `Fallen8:Security:EnableDyn
 the addressed namespace's override first, then the global default. Everything else (invoking a
 registered plugin, listing, getting, and deleting) requires only the standard authentication, never
 the capability. So you can leave registration on everywhere, or disable it on a specific
-(e.g. shared/untrusted) namespace while others keep authoring. See [security.md](/fallen-8-core/security/).
+(e.g. shared/untrusted) namespace while others keep authoring. See [security.md](/security/).
 
 Default-on is deliberate and consistent with the always-on dynamic-code model (inline path/subgraph
 C# fragments already compile unconditionally); it is **not** a sandbox: a registered plugin runs
@@ -138,7 +138,7 @@ only cross-namespace plugins.
 The registry is namespace **checkpoint state**: plugin definitions (source + metadata, never
 compiled bytes) are written to a manifest sidecar on save and recompiled on load, and
 registration/removal are written to the write-ahead log and replayed on crash recovery: the same
-mechanism [stored queries](/fallen-8-core/stored-queries/) and subgraph recipes use. If a plugin's source fails
+mechanism [stored queries](/stored-queries/) and subgraph recipes use. If a plugin's source fails
 to recompile after an engine upgrade, the entry is kept in a `Failed` state with its diagnostics
 (visible via `GET /plugins/{name}`) rather than silently dropped; delete and re-register to
 recover. `GET /plugins/{name}` returns the full source, which also covers manual migration between
@@ -172,7 +172,7 @@ Entries are **immutable** and there is no update route: editing a plugin means
 | Registry size | 64 per namespace, `Fallen8:Plugins:MaxCount` | `409` |
 
 The 1 MiB body cap (`413`) and the sensitive-endpoint rate limit (`429`) are the ones shared by every
-code endpoint: see [security.md](/fallen-8-core/security/).
+code endpoint: see [security.md](/security/).
 
 ## AI agents (MCP)
 
@@ -182,10 +182,10 @@ capability (the same gate as inline C# fragments). A registered graph function i
 `f8_plugins` `invoke`. A registered *algorithm* is selectable from the traversal tools too: `f8_paths`,
 `f8_subgraph` and `f8_analytics` each take a free-form `algorithm` name and reach the addressed
 namespace's registry, so an agent has the same reach as REST.
-See [mcp-server.md](/fallen-8-core/mcp-server/).
+See [mcp-server.md](/mcp-server/).
 
 ## See also
 
-- [plugins.md](/fallen-8-core/plugins/): the plugin model, families, and the built-ins.
-- [stored-queries.md](/fallen-8-core/stored-queries/): the fragment-shaped sibling this generalizes.
-- [security.md](/fallen-8-core/security/): the dynamic-code / plugin-registration trust boundary.
+- [plugins.md](/plugins/): the plugin model, families, and the built-ins.
+- [stored-queries.md](/stored-queries/): the fragment-shaped sibling this generalizes.
+- [security.md](/security/): the dynamic-code / plugin-registration trust boundary.

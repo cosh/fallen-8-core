@@ -282,7 +282,7 @@ deliberately broken integration in the test suite that fails exactly that one.
 
 ## See also
 
-- [Architecture](/fallen-8-core/architecture/) for where the runtime sits among the deployables.
-- [Running Fallen-8](/fallen-8-core/running/) for the compose variables.
-- [Semantic layer](/fallen-8-core/unstructured-ingestion/) for the other way data arrives:
+- [Architecture](/architecture/) for where the runtime sits among the deployables.
+- [Running Fallen-8](/running/) for the compose variables.
+- [Semantic layer](/unstructured-ingestion/) for the other way data arrives:
   documents in, entities out.

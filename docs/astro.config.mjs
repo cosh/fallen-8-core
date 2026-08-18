@@ -6,10 +6,11 @@ import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightLinksValidator from 'starlight-links-validator';
 
 // Fallen-8 documentation site.
-// GitHub Project Pages: served under https://cosh.github.io/fallen-8-core/
+// GitHub Pages behind the custom domain https://docs.fallen-8.com/, which serves the site from
+// the root: there is deliberately no Astro `base`, so internal links are written root-relative
+// as `/<page>/`. The hostname is pinned in `public/CNAME` so a redeploy cannot drop it.
 export default defineConfig({
-	site: 'https://cosh.github.io',
-	base: '/fallen-8-core',
+	site: 'https://docs.fallen-8.com',
 	integrations: [
 		// astro-mermaid renders ```mermaid fences client-side; it must run before Starlight
 		// so its rehype step claims those code blocks ahead of Expressive Code.

@@ -4,14 +4,14 @@ description: "Mount F8 Studio inside a host application's own shell: the library
 ---
 
 There are two ways to put F8 Studio in front of your users. The first needs no code at all:
-deploy the [standalone container](/fallen-8-core/standalone-ui/) at its own origin and link to
+deploy the [standalone container](/standalone-ui/) at its own origin and link to
 it, with a runtime `config.js` pointing it at the right instance. The second is this page:
 your application (a host portal, an internal tool, an admin console) renders Studio **inside
 its own shell** - its routing, its auth, its chrome - through a library artifact and one
 config object. Everything here is opt-in: every `StudioConfig` field has a default that
 reproduces the standalone app exactly. (This page is the embed CONTRACT; the staged journey -
 an in-browser WASM engine, the canvas over it, then the full Studio - is walked end to end in
-[Embed scenarios](/fallen-8-core/embed-scenarios/).)
+[Embed scenarios](/embed-scenarios/).)
 
 ## The artifact
 
@@ -97,7 +97,7 @@ unchanged.
 
 The embed calls the REST API cross-origin exactly like the standalone container, so the data
 plane's `AllowedCorsOrigins` must include the host's origin, and the usual
-[security rules](/fallen-8-core/security/) apply unchanged.
+[security rules](/security/) apply unchanged.
 
 ### What the locks are, honestly
 
@@ -152,6 +152,6 @@ fills what it is given.
 - **Verified end to end in CI**: a bare host application consumes the built package (exports
   map, peer resolution, scoped styles, editor, canvas, unmount) on every push.
 
-How the embed fits the topology is on the [architecture page](/fallen-8-core/architecture/);
-the Studio feature set itself is documented at [F8 Studio](/fallen-8-core/studio/) and applies
+How the embed fits the topology is on the [architecture page](/architecture/);
+the Studio feature set itself is documented at [F8 Studio](/studio/) and applies
 unchanged inside an embed.

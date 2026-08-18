@@ -4315,7 +4315,7 @@
           "Integrations"
         ],
         "summary": "Runs one integration job and returns its report (feature integrations)",
-        "description": "A job carries everything one run needs: which provider, the identity it asserts\r\n    as, the namespace to write into, the provider's settings, and its credentials as VALUES in\r\n    credentialValues. The runtime stores none of them: it holds a credential for the run that\r\n    needs it and drops it when the run ends, keeps no job history, and no route reads a job\r\n    back. Those values travel through here in the request body, so serve this API over TLS.\r\n    The call is synchronous: the source is read, what it\r\n    said is written, the report comes back, and the runtime keeps nothing. A job that ran and\r\n    failed still answers 200 with the failure on its report; one that could not be run at all\r\n    is the runtime's 400 or its 409 (one job at a time per identity).\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://cosh.github.io/fallen-8-core/integrations/. The caller owns the stability of the\r\n    integration instance id, which nothing can validate: a run under an identity that\r\n    integration has not always used withdraws and deletes what the real one claimed.",
+        "description": "A job carries everything one run needs: which provider, the identity it asserts\r\n    as, the namespace to write into, the provider's settings, and its credentials as VALUES in\r\n    credentialValues. The runtime stores none of them: it holds a credential for the run that\r\n    needs it and drops it when the run ends, keeps no job history, and no route reads a job\r\n    back. Those values travel through here in the request body, so serve this API over TLS.\r\n    The call is synchronous: the source is read, what it\r\n    said is written, the report comes back, and the runtime keeps nothing. A job that ran and\r\n    failed still answers 200 with the failure on its report; one that could not be run at all\r\n    is the runtime's 400 or its 409 (one job at a time per identity).\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://docs.fallen-8.com/integrations/. The caller owns the stability of the\r\n    integration instance id, which nothing can validate: a run under an identity that\r\n    integration has not always used withdraws and deletes what the real one claimed.",
         "parameters": [
           {
             "name": "api-version",
@@ -4414,7 +4414,7 @@
           "Integrations"
         ],
         "summary": "Lists the integrations this instance's runtime can run (feature integrations)",
-        "description": "Each entry is a provider descriptor: its id, what it reads, its settings as data\r\n    (key, label, kind, required, help), the entity kinds, claim types and relation types it\r\n    produces, and whether it can observe complete state. A settings form renders from that\r\n    data, so adding an integration needs no client change.\r\n    The response body is the RUNTIME's own contract and is deliberately untyped here, so\r\n    there is exactly one definition of it: see\r\n    https://cosh.github.io/fallen-8-core/integrations/. A provider is C# compiled into the\r\n    runtime, so this list changes only when that deployable does.",
+        "description": "Each entry is a provider descriptor: its id, what it reads, its settings as data\r\n    (key, label, kind, required, help), the entity kinds, claim types and relation types it\r\n    produces, and whether it can observe complete state. A settings form renders from that\r\n    data, so adding an integration needs no client change.\r\n    The response body is the RUNTIME's own contract and is deliberately untyped here, so\r\n    there is exactly one definition of it: see\r\n    https://docs.fallen-8.com/integrations/. A provider is C# compiled into the\r\n    runtime, so this list changes only when that deployable does.",
         "parameters": [
           {
             "name": "api-version",
@@ -4497,7 +4497,7 @@
           "Integrations"
         ],
         "summary": "Validates a snapshot document without running anything (feature integrations)",
-        "description": "An authoring aid: it says which envelope errors would refuse the whole document\r\n    and which entities would be skipped, with the diagnostic code for each, so somebody writing\r\n    a provider gets the verdict on a document before wiring a source to it. Nothing is written\r\n    and no source is read.\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://cosh.github.io/fallen-8-core/integrations/.",
+        "description": "An authoring aid: it says which envelope errors would refuse the whole document\r\n    and which entities would be skipped, with the diagnostic code for each, so somebody writing\r\n    a provider gets the verdict on a document before wiring a source to it. Nothing is written\r\n    and no source is read.\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://docs.fallen-8.com/integrations/.",
         "parameters": [
           {
             "name": "api-version",
@@ -4596,7 +4596,7 @@
           "Integrations"
         ],
         "summary": "Returns the identifier vocabulary the runtime resolves claims against (feature integrations)",
-        "description": "One entry per identifier type: its strength (only a strong one may resolve), its\r\n    uniqueness scope, how a value is canonicalised and what values are accepted. It is data a\r\n    provider author reads before declaring a claim type, and it is embedded in the runtime\r\n    rather than mounted, so a deployment cannot silently change whether a claim resolves.\r\n    The response body is the RUNTIME's own contract and is deliberately untyped here, so\r\n    there is exactly one definition of it: see\r\n    https://cosh.github.io/fallen-8-core/integrations/.",
+        "description": "One entry per identifier type: its strength (only a strong one may resolve), its\r\n    uniqueness scope, how a value is canonicalised and what values are accepted. It is data a\r\n    provider author reads before declaring a claim type, and it is embedded in the runtime\r\n    rather than mounted, so a deployment cannot silently change whether a claim resolves.\r\n    The response body is the RUNTIME's own contract and is deliberately untyped here, so\r\n    there is exactly one definition of it: see\r\n    https://docs.fallen-8.com/integrations/.",
         "parameters": [
           {
             "name": "api-version",

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://cosh.github.io/fallen-8-core/schemas/capacity-report-1.json",
+  "$id": "https://docs.fallen-8.com/schemas/capacity-report-1.json",
   "title": "Fallen-8 capacity report",
   "description": "The result file fallen-8-bench writes. It carries measured capacity and throughput numbers together with the environment that produced them, so a number is never published without the machine it belongs to. scripts/update-capacity-doc.mjs renders it into the Capacity and performance page.",
   "type": "object",

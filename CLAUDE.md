@@ -20,7 +20,7 @@ have an architecture note below. **`fallen-8-bench`** is the throughput harness 
 the engine, because it measures it in process.
 
 **User-facing documentation is a [Starlight](https://starlight.astro.build/) site rooted at
-[`docs/`](docs/), published to <https://cosh.github.io/fallen-8-core/>.** The pages are
+[`docs/`](docs/), published to <https://docs.fallen-8.com/>.** The pages are
 Markdown/MDX in `docs/src/content/docs/`, one deep-dive per user-facing feature, deliberately
 decoupled from `features/` (no spec/plan/phase language, no links into `features/`). That site
 is the home users read; `features/<name>/` remains the historical spec/plan record and the
@@ -28,13 +28,14 @@ contributor "living doc".
 
 **Where a new doc goes.** Add `docs/src/content/docs/<name>.md` with `title` and `description`
 frontmatter (use `.mdx` if it needs components such as `<Tabs>`), then register it in the
-`sidebar` in `docs/astro.config.mjs`. Conventions: internal links are base-aware and
-root-relative (`/fallen-8-core/<name>/`), images live in `docs/src/assets/`, and links into the
-repo tree point at GitHub. Build locally with `npm --prefix docs ci && npm --prefix docs run
-build`; the build fails on any broken internal link. When a feature changes user-visible
+`sidebar` in `docs/astro.config.mjs`. Conventions: the site is served from the root of its
+custom domain (there is no Astro `base`), so internal links are root-relative (`/<name>/`);
+images live in `docs/src/assets/`; and links into the repo tree point at GitHub. Build locally
+with `npm --prefix docs ci && npm --prefix docs run build`; the build fails on any broken
+internal link. When a feature changes user-visible
 behaviour, update its page, and **every user-facing key feature earns a one-line entry in the
 root `README.md` "Key features" list**, linking its live page at
-`https://cosh.github.io/fallen-8-core/<name>/`. A feature is not "done" until it is discoverable
+`https://docs.fallen-8.com/<name>/`. A feature is not "done" until it is discoverable
 from the README and has a page on the docs site.
 
 ## Build & test
@@ -115,7 +116,7 @@ dotnet run --project fallen-8-core-apiApp
   descriptor plus one `ObserveAsync`, judged by a conformance suite that observes a candidate rather
   than believing it. Living doc:
   [`docs/src/content/docs/integrations.md`](docs/src/content/docs/integrations.md) (published at
-  <https://cosh.github.io/fallen-8-core/integrations/>); the feature record is
+  <https://docs.fallen-8.com/integrations/>); the feature record is
   [features/done/integrations/](features/done/integrations/).
 - **AI agents reach Fallen-8 through the MCP server — a separate deployable.** `fallen-8-mcp`
   bridges the Model Context Protocol to the REST API over HTTP (it never references the engine
@@ -125,7 +126,7 @@ dotnet run --project fallen-8-core-apiApp
   REST surface MUST also be surfaced to agents as an MCP tool — or be a conscious, reasoned
   deferral. This is enforced (see Quality gates), not just documented. Living doc:
   [`docs/src/content/docs/mcp-server.md`](docs/src/content/docs/mcp-server.md) (published at
-  <https://cosh.github.io/fallen-8-core/mcp-server/>); the feature record is under
+  <https://docs.fallen-8.com/mcp-server/>); the feature record is under
   `features/*/mcp-server/`.
 
 ## Quality gates (enforced, feature code-quality)
@@ -220,7 +221,7 @@ Every non-trivial feature follows the same lifecycle so work is visible and revi
 6. **Architecture-doc freshness (mandatory)** — the architecture story lives in exactly two
    places: the diagram + prose in the root [`README.md`](README.md) (the simple view) and
    [`docs/src/content/docs/architecture.md`](docs/src/content/docs/architecture.md) (the full
-   view, published at <https://cosh.github.io/fallen-8-core/architecture/>, its mermaid diagram the
+   view, published at <https://docs.fallen-8.com/architecture/>, its mermaid diagram the
    single source — there is deliberately no duplicate hand-drawn image). If a feature changes
    how clients reach Fallen-8 (a new channel or deployable), how the layers fit, or what ships
    in the deployable, update **both** diagrams in the same PR. A stale architecture diagram is

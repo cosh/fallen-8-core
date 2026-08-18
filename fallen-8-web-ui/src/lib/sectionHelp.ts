@@ -37,7 +37,7 @@
 
 /** Published Starlight docs origin. The single home for the docs URL, shared with the
  *  top-bar "docs" pill in AppShell so there is one origin constant, not two. */
-export const DOCS_BASE = "https://cosh.github.io/fallen-8-core/";
+export const DOCS_BASE = "https://docs.fallen-8.com/";
 
 /** Absolute URL of a docs page from its slug (e.g. "path-finding" -> ".../path-finding/"). */
 export const docUrl = (slug: string): string => `${DOCS_BASE}${slug}/`;

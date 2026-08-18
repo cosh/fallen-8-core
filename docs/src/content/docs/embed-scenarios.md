@@ -19,7 +19,7 @@ The engine ships as the `Fallen-8` NuGet package and runs on a single-threaded b
 runtime: transactions apply inline on the calling thread, checkpoints save into and load from
 the Emscripten virtual filesystem, and a host that registers its plugin types gets indexes and
 vector search even though a browser has no assemblies to scan. All of that is the
-[library page's](/fallen-8-core/library/#single-threaded-hosts-such-as-browser-webassembly)
+[library page's](/library/#single-threaded-hosts-such-as-browser-webassembly)
 story, and it is not aspirational: a trimmed browser-wasm probe
 ([`tools/browser-probe`](https://github.com/cosh/fallen-8-core/tree/main/tools/browser-probe))
 runs the engine on that runtime in CI on every push.
@@ -82,7 +82,7 @@ a download, or your own API is yours.
 ## Stage 2: see it (the canvas component over your data)
 
 Studio's graph canvas ships as a standalone component in the same
-[library artifact](/fallen-8-core/embed-studio/) the full Studio embed uses - data in,
+[library artifact](/embed-studio/) the full Studio embed uses - data in,
 selection callbacks out, no app shell, no server dependency. The snapshot from stage 1 is
 already in its prop shape:
 
@@ -102,7 +102,7 @@ Re-call `Snapshot()` (or expose finer-grained reads) whenever your bridge report
 feed the new objects in; the component re-renders from props. It styles only its own subtree
 and takes your theme tokens, so it sits inside your design system rather than beside it. How
 the artifact is built and consumed - exports map, peer dependencies, the scoped stylesheet -
-is on [Embed F8 Studio](/fallen-8-core/embed-studio/).
+is on [Embed F8 Studio](/embed-studio/).
 
 At this point you have a real graph database and an interactive visualization running entirely
 inside your page. No container, no network, no credential.
@@ -110,11 +110,11 @@ inside your page. No container, no network, no credential.
 ## Stage 3: work on it (the full Studio against a hosted instance)
 
 When browsing and querying outgrow a canvas - delegates, path finding, indexes, save games,
-the whole [Studio feature set](/fallen-8-core/studio/) - mount the full embedded Studio. It
+the whole [Studio feature set](/studio/) - mount the full embedded Studio. It
 needs one thing the in-page engine does not have: a **REST origin**. Run one
-([all-in-one image or compose](/fallen-8-core/running/), or any Fallen-8 deployment your
+([all-in-one image or compose](/running/), or any Fallen-8 deployment your
 product operates), allow your product's origin in
-[`AllowedCorsOrigins`](/fallen-8-core/security/), and hand Studio the instance:
+[`AllowedCorsOrigins`](/security/), and hand Studio the instance:
 
 ```ts
 import { mountStudio } from "fallen-8-web-ui";
@@ -135,10 +135,10 @@ mountStudio(document.getElementById("studio")!, {
 ```
 
 The full config contract - locks, namespace pinning, theme tokens, the NL-assist policy - is
-on [Embed F8 Studio](/fallen-8-core/embed-studio/).
+on [Embed F8 Studio](/embed-studio/).
 
 **Bringing the stage 1 graph along.** The wire format is the documented
-[`fallen8-jsonl`](/fallen-8-core/bulk-import-export/) interchange: walk `GetAllVertices()` /
+[`fallen8-jsonl`](/bulk-import-export/) interchange: walk `GetAllVertices()` /
 `GetAllEdges()` in your bridge, emit one JSON line per element in that shape (the meta line is
 optional - drop it), and `POST` the lines to the hosted instance's `/bulk/import` (into an
 empty namespace). From then on the hosted instance is the system of record, and the in-page
@@ -160,6 +160,6 @@ transport seam with declared capability degradation), not a configuration you ca
 
 | Stage | You run | You import | Deep dive |
 | --- | --- | --- | --- |
-| Graph in the page | the `Fallen-8` NuGet package on browser-wasm | your own `[JSExport]` bridge | [Use as a library](/fallen-8-core/library/) |
-| See it | nothing new | `F8GraphCanvas` + `styles.css` | [Embed F8 Studio](/fallen-8-core/embed-studio/) |
-| Work on it | a Fallen-8 REST deployment | `mountStudio` | [Embed F8 Studio](/fallen-8-core/embed-studio/), [Running](/fallen-8-core/running/), [Security](/fallen-8-core/security/) |
+| Graph in the page | the `Fallen-8` NuGet package on browser-wasm | your own `[JSExport]` bridge | [Use as a library](/library/) |
+| See it | nothing new | `F8GraphCanvas` + `styles.css` | [Embed F8 Studio](/embed-studio/) |
+| Work on it | a Fallen-8 REST deployment | `mountStudio` | [Embed F8 Studio](/embed-studio/), [Running](/running/), [Security](/security/) |

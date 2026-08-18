@@ -10,8 +10,8 @@ to a query** instead of (or alongside) labels and properties. The query is embed
 before traversal starts**; each candidate element is then scored against its own stored
 embedding. Because the query rides a pure-data `semantic` block, similarity-driven traversal
 is how Fallen-8 answers "no query language": it runs **code-free** (it compiles no C#; that
-philosophy lives in [delegates.md](/fallen-8-core/delegates/)). Every graph-scoped route
-here also answers under `/ns/{ns}/…` for a specific graph ([namespaces.md](/fallen-8-core/namespaces/));
+philosophy lives in [delegates.md](/delegates/)). Every graph-scoped route
+here also answers under `/ns/{ns}/…` for a specific graph ([namespaces.md](/namespaces/));
 the chat gateway (`POST /chat`) and the configuration view (`GET /config`) are Fallen-8-level and
 have no namespace twin.
 
@@ -34,14 +34,14 @@ Three rules define the whole feature:
    missing embedding, a wrong dimension, or a non-finite score **never matches** (stated, not
    silent).
 3. **Scores are the kNN scores.** The same `VectorMath` backs both, so a traversal score is
-   bit-identical to [`/scan/index/vector`](/fallen-8-core/vector-search/). Traversal needs **no** vector
+   bit-identical to [`/scan/index/vector`](/vector-search/). Traversal needs **no** vector
    index, scoring reads the element directly; a bound index (below) is only for kNN search.
 
 ## Element embeddings
 
 A named embedding is a `float[]` stored **on** the graph element behind one accessor
 (`AGraphElementModel.TryGetEmbedding`). It is WAL-durable element state
-([save-games.md](/fallen-8-core/save-games/)): one current vector per (element, name); a write replaces,
+([save-games.md](/save-games/)): one current vector per (element, name); a write replaces,
 `DELETE` removes.
 
 | Route | Body / result | Notes |
@@ -60,7 +60,7 @@ A named embedding is a `float[]` stored **on** the graph element behind one acce
   (`GET /vertex/{id}`, `GET /edge/{id}`, `GET /graphelement/{id}`, `GET /graph`), so an embedded
   element's payload inlines the whole vector: 1024 floats with the compose default.
 - On the JSONL wire the embedding travels as its reserved typed property: see
-  [bulk-import-export.md](/fallen-8-core/bulk-import-export/).
+  [bulk-import-export.md](/bulk-import-export/).
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -83,7 +83,7 @@ Invoke-RestMethod -Method Put -Uri "http://localhost:8080/graphelement/42/embedd
 
 ## Bound vector indices
 
-A `VectorIndex` created with the `embeddingName` option ([vector-search.md](/fallen-8-core/vector-search/)
+A `VectorIndex` created with the `embeddingName` option ([vector-search.md](/vector-search/)
 owns the kNN mechanics) becomes a **derived projection** of element state:
 
 - Membership = every live element carrying that named embedding at the index's dimension,
@@ -122,7 +122,7 @@ Carried by `POST /path/{from}/to/{to}` and `PUT /subgraph` as the `semantic` fie
 `costBySimilarity` needs a weighted algorithm (`DIJKSTRA`; the hop-count `BLS` ignores costs)
 and rejects `DotProduct` (no honest non-negative mapping). Compiled C# fragments can instead
 read the query off the `context` parameter (`context.TrySimilarity(element, out score)`); see
-[delegates.md](/fallen-8-core/delegates/).
+[delegates.md](/delegates/).
 
 **One owner per delegate slot.** Common 400s (all carry a reason):
 
@@ -161,7 +161,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/path/1/to/9 -ContentTy
 semantic block binds **once, at registration**: the vector is captured, recalculation reuses
 it, and no inference ever runs on the writer thread. With `queryText`, the *resolved* vector
 persists in the subgraph recipe, so a semantic subgraph survives restart and WAL replay without
-the provider present ([subgraphs.md](/fallen-8-core/subgraphs/)).
+the provider present ([subgraphs.md](/subgraphs/)).
 
 - `semantic.minScore` fills the top-level vertex pre-filter slot.
 - A vertex pattern step's `semanticMinScore` fills **that step's** filter slot, so a fully
@@ -169,7 +169,7 @@ the provider present ([subgraphs.md](/fallen-8-core/subgraphs/)).
   Setting it together with the step's `vertexFilter`, on an edge step, non-finite, or without a
   request-level `semantic` block is a 400. `costBySimilarity` is rejected (a path concept).
 - Stored templates carry no semantics: a `semantic` block on a stored-template invocation is a 400
-  ([stored-queries.md](/fallen-8-core/stored-queries/)), and `semanticMinScore` inside a stored
+  ([stored-queries.md](/stored-queries/)), and `semanticMinScore` inside a stored
   `SubGraph` template is rejected already at registration (`POST /storedquery`), because a
   template's delegates bind before any query vector exists. Inline the filters instead.
 
@@ -194,7 +194,7 @@ Configure it under `Fallen8:Embedding` (off unless `Enabled`):
 | `QueryPrefix` | `""` | Retrieval prefix applied to **query-time** embeddings only |
 | `Onnx.{ModelPath,VocabPath,…}`, `LLamaSharp.ModelPath`, `Ollama.{Endpoint,Model}` | (none) | Backend-specific settings |
 
-The provider's biggest consumer is [unstructured ingestion](/fallen-8-core/unstructured-ingestion/):
+The provider's biggest consumer is [unstructured ingestion](/unstructured-ingestion/):
 document chunks embed through it on the way into the graph.
 
 ## The chat gateway (its sibling)
@@ -202,7 +202,7 @@ document chunks embed through it on the way into the graph.
 The embedding provider has a sibling under the same "semantic gateway" idea: a **chat
 gateway**, `POST /chat`, that proxies a chat completion to the
 same model backend so a client reaches an SLM/LLM *through* the instance. It is the default
-NL-assist transport in [F8 Studio](/fallen-8-core/studio/), also apiApp-only and capability-gated, and the
+NL-assist transport in [F8 Studio](/studio/), also apiApp-only and capability-gated, and the
 model is server-owned. Configure it under `Fallen8:Chat` (off unless `Enabled` /
 `F8_CHAT`): `Backend` (`Ollama`), `Ollama.{Endpoint,Model}` (default `phi4-f8-mini`),
 `TimeoutSeconds`. Both providers' state, plus whether the backend runs on GPU when Ollama
@@ -218,7 +218,7 @@ Weights are **never downloaded by Fallen-8**: paths point at operator-provided f
 
 In the compose environment the provider is **on by default**: the shipped Ollama sidecar serves
 **bge-m3** (MIT, 1024-dim, Cosine) and the `fallen8` service is wired to it; opt out with
-`F8_EMBEDDINGS=false` ([running.md](/fallen-8-core/running/)).
+`F8_EMBEDDINGS=false` ([running.md](/running/)).
 
 Endpoints (all 403 while disabled; 413 over 1 MiB; 429 on the sensitive-endpoint rate limit;
 502 for bad backend output; 503 when the backend is unavailable):
@@ -239,8 +239,8 @@ provider's declared name, dimension, and metric must match the stored vectors.
 
 Clients read provider state from `GET /status` -> `embedding: { enabled, backend, modelName,
 modelVersion, dimension, intendedMetric, loaded }` (a config read that never triggers the lazy
-load; [observability.md](/fallen-8-core/observability/)). F8 Studio gates its text-in controls on it
-([studio.md](/fallen-8-core/studio/)).
+load; [observability.md](/observability/)). F8 Studio gates its text-in controls on it
+([studio.md](/studio/)).
 
 <Tabs syncKey="shell">
 <TabItem label="Bash">
@@ -265,10 +265,10 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/path/1/to/9 -ContentTy
 
 ## See also
 
-- [vector-search.md](/fallen-8-core/vector-search/): VectorIndex kNN mechanics (metrics, brute force, `/scan/index/vector`)
-- [delegates.md](/fallen-8-core/delegates/): the no-query-language philosophy and the `context` parameter for compiled fragments
-- [path-finding.md](/fallen-8-core/path-finding/) / [subgraphs.md](/fallen-8-core/subgraphs/): the traversal surfaces the block rides
-- [security.md](/fallen-8-core/security/): the API key (dynamic code is always on)
-- [stored-queries.md](/fallen-8-core/stored-queries/): pre-compiled fragments that can read `context`
-- [samples.md](/fallen-8-core/samples/): embedded datasets to try semantic queries against
-- [namespaces.md](/fallen-8-core/namespaces/): per-namespace routing (`/ns/{ns}/…`)
+- [vector-search.md](/vector-search/): VectorIndex kNN mechanics (metrics, brute force, `/scan/index/vector`)
+- [delegates.md](/delegates/): the no-query-language philosophy and the `context` parameter for compiled fragments
+- [path-finding.md](/path-finding/) / [subgraphs.md](/subgraphs/): the traversal surfaces the block rides
+- [security.md](/security/): the API key (dynamic code is always on)
+- [stored-queries.md](/stored-queries/): pre-compiled fragments that can read `context`
+- [samples.md](/samples/): embedded datasets to try semantic queries against
+- [namespaces.md](/namespaces/): per-namespace routing (`/ns/{ns}/…`)
