@@ -38,8 +38,10 @@ namespace NoSQL.GraphDB.App.Chat
     ///   is the default model gateway. Unlike the embedding provider it carries NO model-identity
     ///   stamp or fatal-validation latch: a chat completion is not stored or indexed and has no
     ///   dimension/metric contract, so there is nothing fatal to latch. The backend resolves LAZILY
-    ///   (nothing is constructed while the capability is off), the model is SERVER-owned, and a
-    ///   per-call timeout bounds the proxy.
+    ///   (nothing is constructed while the capability is off), the model is SERVER-owned, and
+    ///   <c>Fallen8:Chat:TimeoutSeconds</c> is the SINGLE deadline on the call: the transport is
+    ///   built without one so the configured value cannot be pre-empted by a shorter, undocumented
+    ///   bound (see <see cref="Helper.OllamaHttpClientFactory" /> for the deadline rule).
     /// </summary>
     public sealed class Fallen8ChatProvider
     {
@@ -79,7 +81,8 @@ namespace NoSQL.GraphDB.App.Chat
         /// <summary>
         ///   Runs one chat completion, bounded by <c>Fallen8:Chat:TimeoutSeconds</c>. Faults map to:
         ///   <see cref="ChatProviderUnavailableException" /> (503, backend down/init failure),
-        ///   <see cref="ChatProviderTimeoutException" /> (504, the proxy timeout fired), or
+        ///   <see cref="ChatProviderTimeoutException" /> (504, ANY cancellation that is not the
+        ///   caller's - our budget or a transport-originated one), or
         ///   <see cref="ChatProviderOutputException" /> (502, the backend returned no content). A
         ///   caller-driven cancellation propagates as <see cref="OperationCanceledException" />.
         /// </summary>
@@ -112,8 +115,15 @@ namespace NoSQL.GraphDB.App.Chat
             {
                 result = await backend.ChatAsync(messages, options, timeoutCts.Token);
             }
-            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
+                // Every cancellation that is NOT the caller's means "the backend did not answer in
+                // time" -> 504. The filter deliberately does not test timeoutCts: when it did, a
+                // cancellation raised by the transport itself (rather than by our budget) matched
+                // neither this filter nor the type-excluding one below, and escaped the provider as
+                // an unhandled TaskCanceledException -> HTTP 500. The transport now carries no
+                // deadline of its own, so in practice this IS our budget; the widened filter keeps
+                // any future inner deadline from re-opening that hole.
                 throw new ChatProviderTimeoutException(String.Format(
                     "The chat backend did not respond within Fallen8:Chat:TimeoutSeconds ({0}s).", _options.TimeoutSeconds));
             }

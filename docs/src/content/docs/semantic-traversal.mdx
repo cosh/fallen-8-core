@@ -205,8 +205,15 @@ same model backend so a client reaches an SLM/LLM *through* the instance. It is 
 NL-assist transport in [F8 Studio](/studio/), also apiApp-only and capability-gated, and the
 model is server-owned. Configure it under `Fallen8:Chat` (off unless `Enabled` /
 `F8_CHAT`): `Backend` (`Ollama`), `Ollama.{Endpoint,Model}` (default `phi4-f8-mini`),
-`TimeoutSeconds`. Both providers' state, plus whether the backend runs on GPU when Ollama
-reports it, is shown read-only in Studio's Connect **Configuration** section (`GET /config`).
+`TimeoutSeconds` (the single deadline on a completion; exceeded calls answer `504`). Both
+providers' state, plus whether the backend runs on GPU when Ollama reports it, is shown read-only
+in Studio's Connect **Configuration** section (`GET /config`).
+
+The embedding provider has the same knob, `Fallen8:Embedding:TimeoutSeconds`, defaulting higher
+because one call embeds a batch of texts; an exceeded batch answers `503`, like any other
+"backend not usable right now". On a CPU-only host both defaults are generous and still may not be
+enough: see [NL assist spins on "generating"](/troubleshooting/#nl-assist-spins-on-generating-then-gives-up-504)
+for what CPU inference actually costs.
 
 Weights are **never downloaded by Fallen-8**: paths point at operator-provided files.
 

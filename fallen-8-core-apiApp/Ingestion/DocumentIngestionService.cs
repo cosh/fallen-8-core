@@ -359,12 +359,18 @@ namespace NoSQL.GraphDB.App.Ingestion
                     await CleanupAndFail(job.DocumentId, writtenChunkIds, fulltextIndex, ex.Message);
                     _logger.LogWarning("Ingestion of document {DocumentId} failed: {Reason}", job.DocumentId, ex.Message);
                 }
-                catch (Exception ex) when (!(ex is OperationCanceledException))
+                catch (Exception ex) when (!(ex is OperationCanceledException)
+                    || !cancellationToken.IsCancellationRequested)
                 {
                     // An UNEXPECTED fault still honors FR-2 (no orphan chunks under a non-indexed
-                    // document): remove any committed chunks and record the failure. A shutdown
+                    // document): remove any committed chunks and record the failure. A SHUTDOWN
                     // OperationCanceledException is deliberately left to propagate - the stub stays
                     // `processing` and the next boot's sweep reclaims it and its chunks.
+                    // The filter tests the token rather than the type alone, because "cancelled"
+                    // did not imply "shutting down": a backend transport timeout also arrived as an
+                    // OperationCanceledException, skipped this cleanup, and left the stub
+                    // `processing` under THIS process's boot id - which the sweep skips, so the
+                    // document reported `processing` for the life of the process.
                     await CleanupAndFail(job.DocumentId, writtenChunkIds, fulltextIndex, "unexpected error: " + ex.Message);
                     _logger.LogError(ex, "Unexpected failure ingesting document {DocumentId}", job.DocumentId);
                 }

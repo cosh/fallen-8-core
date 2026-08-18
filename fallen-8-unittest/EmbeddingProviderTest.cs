@@ -464,6 +464,113 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Wrapper_BackendOwnTransportTimeout_IsUnavailable_NotAnEscapingCancellation()
+        {
+            // The embedding twin of the chat gateway's 100s-transport defect. The Ollama generator was
+            // built by the OllamaApiClient(Uri, model) ctor, whose HttpClient carries the .NET default
+            // 100s timeout, and the provider had NO budget of its own at all. The
+            // TaskCanceledException it raises does not observe the caller token, so the sole filter
+            // here (`when (!(ex is OperationCanceledException))`) missed it: it escaped as an
+            // unhandled 500, and on the ingestion path it skipped the failure cleanup and left the
+            // Document stuck at "processing" for the life of the process.
+            var options = new Fallen8EmbeddingOptions { Enabled = true, ModelName = "m", Dimension = 2 };
+            var provider = Provider(options, new TransportTimeoutGenerator());
+
+            var ex = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
+                () => provider.EmbedAsync(new[] { "x" }, default));
+            StringAssert.Contains(ex.Message, "Fallen8:Embedding:TimeoutSeconds",
+                "a backend timeout must name the budget that governs it");
+            Assert.IsTrue(provider.IsLoaded,
+                "a slow batch says nothing about model identity, so it must not latch (IsLoaded "
+                + "goes false only once a fatal failure is latched)");
+        }
+
+        [TestMethod]
+        public async Task Wrapper_OwnBudget_ExpiresAsUnavailable()
+        {
+            // Fallen8:Embedding:TimeoutSeconds is the single deadline and it actually governs: a
+            // generator that honours the token but never finishes is cut off by our budget.
+            var options = new Fallen8EmbeddingOptions
+            {
+                Enabled = true, ModelName = "m", Dimension = 2, TimeoutSeconds = 1
+            };
+            var provider = Provider(options, new NeverFinishingGenerator());
+
+            var ex = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
+                () => provider.EmbedAsync(new[] { "x" }, default));
+            StringAssert.Contains(ex.Message, "Fallen8:Embedding:TimeoutSeconds");
+        }
+
+        [TestMethod]
+        public async Task Wrapper_CallerCancellation_PropagatesInsteadOfBecomingAFault()
+        {
+            // The caller half: a client that goes away propagates rather than being reported as a
+            // backend fault, which is why the timeout filter keys off the caller's token.
+            var options = new Fallen8EmbeddingOptions { Enabled = true, ModelName = "m", Dimension = 2 };
+            using var callerCts = new CancellationTokenSource();
+            var provider = Provider(options, new NeverFinishingGenerator(callerCts));
+
+            Exception caught = null;
+            try
+            {
+                await provider.EmbedAsync(new[] { "x" }, callerCts.Token);
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+
+            Assert.IsInstanceOfType(caught, typeof(OperationCanceledException));
+            Assert.IsNotInstanceOfType(caught, typeof(EmbeddingProviderUnavailableException));
+        }
+
+        /// <summary>Raises the exception shape HttpClient uses for its OWN timeout: a
+        /// TaskCanceledException with an inner TimeoutException, on a token nobody cancelled.</summary>
+        private sealed class TransportTimeoutGenerator : IEmbeddingGenerator<string, Embedding<float>>
+        {
+            public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(IEnumerable<string> values,
+                EmbeddingGenerationOptions options = null, CancellationToken cancellationToken = default)
+            {
+                return Task.FromException<GeneratedEmbeddings<Embedding<float>>>(
+                    new TaskCanceledException(
+                        "The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.",
+                        new TimeoutException()));
+            }
+
+            public object GetService(Type serviceType, object serviceKey = null) => null;
+
+            public void Dispose()
+            {
+            }
+        }
+
+        /// <summary>Honours the token but never completes, so the provider's own budget is what ends
+        /// the call. Optionally cancels a caller source first, to exercise the caller half.</summary>
+        private sealed class NeverFinishingGenerator : IEmbeddingGenerator<string, Embedding<float>>
+        {
+            private readonly CancellationTokenSource _cancelCallerFirst;
+
+            internal NeverFinishingGenerator(CancellationTokenSource cancelCallerFirst = null)
+            {
+                _cancelCallerFirst = cancelCallerFirst;
+            }
+
+            public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(IEnumerable<string> values,
+                EmbeddingGenerationOptions options = null, CancellationToken cancellationToken = default)
+            {
+                _cancelCallerFirst?.Cancel();
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+                throw new InvalidOperationException("unreachable");
+            }
+
+            public object GetService(Type serviceType, object serviceKey = null) => null;
+
+            public void Dispose()
+            {
+            }
+        }
+
+        [TestMethod]
         public async Task Wrapper_Disabled_ThrowsUnavailable_WithoutTouchingTheBackend()
         {
             var fake = new FakeEmbeddingGenerator(2);

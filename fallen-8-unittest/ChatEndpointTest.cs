@@ -193,7 +193,9 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Chat_Timeout_504()
         {
-            // The backend honours the cancellation token; the provider's 1s timeout fires first.
+            // OUR budget fires: the backend honours the cancellation token and the provider's 1s
+            // timeout wins. This covers only the token-honouring half; a backend whose OWN
+            // transport deadline fires is a different shape, pinned by the sibling test below.
             var backend = new FakeChatBackend(async (_, _, ct) =>
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), ct);
@@ -204,6 +206,61 @@ namespace NoSQL.GraphDB.Tests
 
             using var response = await client.PostAsync("/chat", Json("{ \"messages\": [ { \"role\": \"user\", \"content\": \"hi\" } ] }"));
             Assert.AreEqual(HttpStatusCode.GatewayTimeout, response.StatusCode);
+        }
+
+        [TestMethod]
+        public async Task Chat_BackendOwnTransportTimeout_Is504_NotAnUnhandled500()
+        {
+            // THE REGRESSION THIS PINS. OllamaSharp's OllamaApiClient(Uri, model) ctor built its own
+            // HttpClient and left Timeout at the .NET default of 100s - shorter than the shipped
+            // Fallen8:Chat:TimeoutSeconds of 120, and not configurable. It therefore always fired
+            // first, and the TaskCanceledException it raises does NOT observe our token: the old
+            // filters (one requiring the provider's own CTS to have fired, one excluding
+            // OperationCanceledException) both missed it, so it escaped the provider AND the
+            // controller and became an unhandled 500. The fake reproduces exactly that shape - the
+            // transport's own-timeout exception, raised while the 120s proxy budget is nowhere near
+            // expiry and the caller is still connected.
+            var backend = new FakeChatBackend((_, _, _) => Task.FromException<ChatBackendResult>(
+                new TaskCanceledException(
+                    "The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.",
+                    new TimeoutException())));
+            using var factory = new ChatFactory(enabled: true, backend: backend, timeoutSeconds: 120);
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync("/chat", Json("{ \"messages\": [ { \"role\": \"user\", \"content\": \"hi\" } ] }"));
+            Assert.AreEqual(HttpStatusCode.GatewayTimeout, response.StatusCode);
+        }
+
+        [TestMethod]
+        public async Task ChatProvider_CallerCancellation_PropagatesInsteadOfBecomingATimeout()
+        {
+            // The other half of the widened filter: it keys off the CALLER's token, so a client that
+            // goes away still propagates instead of being reported as a backend timeout. Asserted at
+            // the provider (a disconnect has no status code to observe over HTTP).
+            using var callerCts = new CancellationTokenSource();
+            var backend = new FakeChatBackend((_, _, ct) =>
+            {
+                callerCts.Cancel();
+                ct.ThrowIfCancellationRequested();
+                return Task.FromResult(new ChatBackendResult { Content = "unreachable", Model = "fake-model" });
+            });
+            var provider = new Fallen8ChatProvider(
+                Options.Create(new Fallen8ChatOptions { Enabled = true, TimeoutSeconds = 120 }),
+                new Lazy<IChatBackend>(() => backend));
+
+            Exception caught = null;
+            try
+            {
+                await provider.ChatAsync(new[] { new ChatTurn("user", "hi") }, null, callerCts.Token);
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+
+            Assert.IsInstanceOfType(caught, typeof(OperationCanceledException),
+                "a caller cancellation must propagate, not be remapped to a 504 timeout fault");
+            Assert.IsNotInstanceOfType(caught, typeof(ChatProviderTimeoutException));
         }
 
         [TestMethod]

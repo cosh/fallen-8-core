@@ -53,7 +53,16 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>The backend: <c>Ollama</c> (the only backend in v1).</summary>
         public String Backend { get; set; } = "Ollama";
 
-        /// <summary>The per-request proxy timeout; exceeded requests answer 504.</summary>
+        /// <summary>The per-request proxy timeout; exceeded requests answer 504. It is the SINGLE
+        /// deadline on a chat call at any value: the Ollama transport is built without one, so this
+        /// is never pre-empted by a shorter undocumented bound (it once was - OllamaSharp's default
+        /// 100s client timeout fired first and surfaced as an unhandled 500).
+        /// <para>
+        ///   The default is generous because a local model on CPU is SLOW: measured on a 16-core
+        ///   laptop, a fine-tuned phi4-mini answers a Studio NL-assist prompt in minutes, not
+        ///   seconds. Raising this does not make such a host usable; it only decides how long a
+        ///   caller waits before the honest 504. See the NL-assist troubleshooting page.
+        /// </para></summary>
         public Int32 TimeoutSeconds { get; set; } = 120;
 
         /// <summary>Ollama backend settings (reuses the sidecar the embedding provider uses).</summary>

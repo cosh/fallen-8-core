@@ -24,8 +24,10 @@
 // SOFTWARE.
 
 using System;
+using System.Threading;
 using Microsoft.Extensions.AI;
 using NoSQL.GraphDB.App.Configuration;
+using NoSQL.GraphDB.App.Helper;
 using OllamaSharp;
 
 namespace NoSQL.GraphDB.App.Embedding
@@ -53,7 +55,13 @@ namespace NoSQL.GraphDB.App.Embedding
                     // OllamaSharp implements the abstraction natively; this couples embedding
                     // availability to the (compose-shipped) Ollama container - stated in the
                     // spec, surfaced as 503 while it is down.
-                    return new OllamaApiClient(new Uri(options.Ollama.Endpoint), options.Ollama.Model);
+                    // The transport carries no deadline: Fallen8:Embedding:TimeoutSeconds, applied
+                    // by Fallen8EmbeddingProvider as a linked token, is the single budget (see
+                    // OllamaHttpClientFactory for the rule). The client is process-lifetime, held
+                    // by the returned DI singleton, so it is not disposed here.
+                    return new OllamaApiClient(
+                        OllamaHttpClientFactory.Create(options.Ollama.Endpoint, Timeout.InfiniteTimeSpan),
+                        options.Ollama.Model);
 
                 default:
                     throw new InvalidOperationException(String.Format(

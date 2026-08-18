@@ -26,10 +26,12 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using NoSQL.GraphDB.App.Configuration;
+using NoSQL.GraphDB.App.Helper;
 using OllamaSharp;
 using OllamaSharp.Models;
 using OllamaSharp.Models.Chat;
@@ -42,16 +44,32 @@ namespace NoSQL.GraphDB.App.Chat
     ///   generation stats (token counts, durations) that the NL-assist UX renders - stats the
     ///   generic <c>Microsoft.Extensions.AI</c> chat abstraction does not expose. The GPU probe
     ///   reads <c>/api/ps</c> and matches the configured model's VRAM residency.
+    ///   <para>
+    ///     The transport carries NO deadline of its own
+    ///     (<see cref="Timeout.InfiniteTimeSpan" />): <c>Fallen8:Chat:TimeoutSeconds</c>, applied by
+    ///     <see cref="Fallen8ChatProvider" /> as a linked token, is the single authoritative budget.
+    ///     See <see cref="OllamaHttpClientFactory" /> for why (the deadline rule lives there).
+    ///   </para>
     /// </summary>
-    internal sealed class OllamaChatBackend : IChatBackend
+    internal sealed class OllamaChatBackend : IChatBackend, IDisposable
     {
         private readonly IOllamaApiClient _client;
+        private readonly HttpClient _http;
         private readonly String _model;
 
         internal OllamaChatBackend(Fallen8ChatOptions.OllamaOptions options)
         {
-            _client = new OllamaApiClient(new Uri(options.Endpoint), options.Model);
+            _http = OllamaHttpClientFactory.Create(options.Endpoint, Timeout.InfiniteTimeSpan);
+            _client = new OllamaApiClient(_http, options.Model);
             _model = options.Model;
+        }
+
+        /// <summary>Releases the owned transport. OllamaSharp does NOT dispose an injected
+        /// <see cref="HttpClient" />, so this type owns it; the DI singleton is disposed at
+        /// shutdown.</summary>
+        public void Dispose()
+        {
+            _http.Dispose();
         }
 
         public async Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages,

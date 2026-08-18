@@ -57,6 +57,33 @@ npm run env:logs          # is the pull still running, or did it error?
 
 The model set and pre-seeding are covered in [Running](/running/).
 
+## NL assist spins on "generating", then gives up (504)
+
+**Symptom.** The delegate editor's assist panel sits on **generating&hellip;** for a long time and
+then reports a gateway timeout. Nothing is misconfigured: the model is pulled, `/status` shows the
+chat gateway on, and a `504` names `Fallen8:Chat:TimeoutSeconds`.
+
+**Cause.** The model is running on **CPU**, and a local SLM on CPU is far slower than most people
+expect. Measured on a 16-core laptop with `phi4-f8-mini` already resident, generation ran between
+**0.07 and 0.18 tokens per second** across runs, i.e. roughly **5 to 15 seconds per generated
+token**, with prompt evaluation around 7 to 9 tokens/second. An assist prompt is not small (it
+carries the slot's member surface and few-shot examples, on the order of 1,800 tokens), so
+prompt evaluation alone can outlast a 105-second budget, and one draft needs **minutes**, not
+seconds. `ollama ps` showing `100% CPU` in the `PROCESSOR` column is the confirmation.
+
+**Fix.** Give the sidecar a GPU: that is the only change that moves this from minutes to seconds.
+See [GPU not detected](#gpu-not-detected--the-sidecars-run-on-cpu) below and
+[Running](/running/#gpu-acceleration).
+
+Raising `Fallen8:Chat:TimeoutSeconds` does **not** make a CPU host usable; it only decides how long
+the editor waits before telling you the truth. It is worth raising only if you are content to wait
+minutes per draft. Two things that do help a little on CPU: keep the prompt short (a terse intent
+beats a paragraph), and prefer `phi4-f8-mini` over the ~9 GB `phi4-f8`, which is GPU-oriented.
+
+The timeout is honest either way: `Fallen8:Chat:TimeoutSeconds` is the single deadline on the call,
+so the wait you configure is the wait you get. (It once was not: an undocumented 100-second
+transport timeout pre-empted it and surfaced as a `500`.)
+
 ## Semantic search says the provider is off, or returns 409
 
 **Symptom.** A sample's text-in semantic search is disabled in Studio, or `POST

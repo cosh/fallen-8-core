@@ -26,6 +26,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using NoSQL.GraphDB.App.Helper;
 using OllamaSharp;
 
 namespace NoSQL.GraphDB.App.Chat
@@ -46,10 +47,16 @@ namespace NoSQL.GraphDB.App.Chat
     ///   holds VRAM. Deliberately uses a TRANSIENT client so a config read never touches a
     ///   provider's lazy backend state (probing must not flip a provider's "loaded" flag), and
     ///   swallows every failure to <c>null</c> ("unknown") so a hung or absent sidecar can never
-    ///   stall or fail the read.
+    ///   stall or fail the read. Both halves of that guarantee are owned HERE: the swallow below,
+    ///   and <see cref="ProbeTimeout" /> on the transport. A caller cancellation is the one thing
+    ///   that is NOT swallowed - it propagates, so a disconnected client's config read stops.
     /// </summary>
     internal static class OllamaModelProbe
     {
+        /// <summary>The probe's own stall bound. A residency answer is a nice-to-have on a config
+        /// read, so it is deliberately short: better "unknown" than a slow config page.</summary>
+        private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(3);
+
         /// <summary>
         ///   Resident + GPU when the <c>/api/ps</c> call succeeds (Resident=false when the call
         ///   answers but the model is not loaded right now — Ollama loads on demand and unloads when
@@ -64,7 +71,13 @@ namespace NoSQL.GraphDB.App.Chat
 
             try
             {
-                var client = new OllamaApiClient(new Uri(endpoint), model);
+                // The probe owns its stall bound rather than borrowing the caller's: the
+                // "can never stall" guarantee above is stated here, so a second caller (or one
+                // passing CancellationToken.None) gets it too. Disposed per call because
+                // OllamaSharp does NOT dispose an injected client - the previous transient
+                // OllamaApiClient leaked one HttpClient and connection pool on every GET /config.
+                using var http = OllamaHttpClientFactory.Create(endpoint, ProbeTimeout);
+                var client = new OllamaApiClient(http, model);
                 var running = await client.ListRunningModelsAsync(cancellationToken);
                 if (running == null)
                 {
@@ -84,8 +97,9 @@ namespace NoSQL.GraphDB.App.Chat
                 // The call answered and the model is NOT loaded right now (definitively not resident).
                 return new OllamaModelState { Resident = false, Gpu = false };
             }
-            catch
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
+                // "Unknown" for every backend failure, including this probe's own 3s bound.
                 return null;
             }
         }

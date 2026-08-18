@@ -143,10 +143,29 @@ namespace NoSQL.GraphDB.App.Embedding
                     String.Format("The embedding backend '{0}' failed to initialize: {1}", _options.Backend, ex.Message), ex);
             }
 
+            // Fallen8:Embedding:TimeoutSeconds is the single deadline on the call (the Ollama
+            // transport is built without one). Before this budget existed, the backend's own
+            // undocumented 100s transport timeout was the only bound, and the TaskCanceledException
+            // it raised matched neither catch below - it escaped as an unhandled HTTP 500 and, on
+            // the ingestion path, left the Document stuck at "processing" forever.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(_options.TimeoutSeconds));
+
             GeneratedEmbeddings<Embedding<Single>> generated;
             try
             {
-                generated = await generator.GenerateAsync(texts, options: null, cancellationToken);
+                generated = await generator.GenerateAsync(texts, options: null, timeoutCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Any cancellation that is not the CALLER's is a backend timeout. 503 like every
+                // other "not usable right now": the embedding contract deliberately has no 504
+                // (EmbeddingProviderProblem.Map is the single home for that decision), so widening
+                // it would ripple through /embedding, /path, /subgraph and /documents/search for no
+                // caller benefit. Never latched - a slow batch says nothing about model identity.
+                throw new EmbeddingProviderUnavailableException(String.Format(
+                    "The embedding backend '{0}' did not respond within Fallen8:Embedding:TimeoutSeconds ({1}s).",
+                    _options.Backend, _options.TimeoutSeconds));
             }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {

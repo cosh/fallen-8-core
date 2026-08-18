@@ -52,6 +52,13 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>The backend: <c>Onnx</c>, <c>LLamaSharp</c> or <c>Ollama</c>.</summary>
         public String Backend { get; set; } = "Onnx";
 
+        /// <summary>The per-call budget for one generate (which embeds a BATCH of texts, hence the
+        /// larger default than the chat gateway's single completion). It is the SINGLE deadline on
+        /// the call: the Ollama transport is built without one, so this value cannot be pre-empted
+        /// by a shorter undocumented bound. Exceeded calls answer 503, like any other
+        /// "backend not usable right now" - the embedding contract has no 504.</summary>
+        public Int32 TimeoutSeconds { get; set; } = 300;
+
         /// <summary>The model name of the identity (FR-8); required when enabled.</summary>
         public String ModelName
         {
