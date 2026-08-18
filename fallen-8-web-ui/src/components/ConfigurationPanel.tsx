@@ -243,18 +243,11 @@ export function ConfigurationPanel() {
   );
 }
 
-function EnvRow({
-  label,
-  value,
-  envKey,
-  testId,
-}: {
-  label: string;
-  value: string;
-  envKey: string;
-  /** Set where a docs capture has to assert this row is configured, not "off". */
-  testId?: string;
-}) {
+function EnvRow({ label, value, envKey }: { label: string; value: string; envKey: string }) {
+  // Every row gets a stable handle derived from its label (the shape DelegateSlot.tsx already uses),
+  // so a docs capture can assert that the row it photographs is actually configured without this
+  // component growing one prop per screenshot. "OTLP endpoint" -> config-otlp-endpoint.
+  const testId = `config-${label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
   return (
     <div className="border-line grid grid-cols-[10rem_1fr] items-baseline gap-2 border-b py-1.5 text-[12px] last:border-b-0">
       <span className="text-fg-dim">{label}</span>
@@ -310,7 +303,6 @@ function ObservabilityOverlay({
                 label="OTLP endpoint"
                 value={observability.otlpEnabled ? (observability.otlpEndpoint ?? "(set)") : "off"}
                 envKey="Fallen8__Observability__Otlp__Endpoint"
-                testId="config-otlp-endpoint"
               />
               <EnvRow
                 label="trace sampling"

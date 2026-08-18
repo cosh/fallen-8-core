@@ -304,8 +304,8 @@ describe("entities view (FR-6)", () => {
     const hint = screen.getByText(/Type filter/);
     expect(hint.textContent).toContain("PERSON");
     expect(hint.textContent).toContain("GPE");
-    expect(hint.textContent).not.toMatch(/PER/);
-    expect(hint.textContent).not.toMatch(/LOC/);
+    expect(hint.textContent).not.toMatch(/\bPER\b/);
+    expect(hint.textContent).not.toMatch(/\bLOC\b/);
   });
 
   it("sends an entity to the canvas", async () => {

@@ -117,8 +117,11 @@ test("capture the delegate editor with IntelliSense open on a VertexFilter slot"
   await expect(
     page.locator(".suggest-widget .monaco-list-row", { hasText: "AnyPropertyValueMatches" }),
   ).toBeVisible();
-  // Re-typing the dot restarts the 600ms validation debounce; wait for green again or the badge
-  // photographs as "validating…" with Use fragment disabled.
+  // Re-typing the dot restarts the 600ms validation debounce (DelegateEditor.tsx), and until it
+  // fires the PRE-EDIT badge is still mounted and Use fragment still enabled. Asserting green here
+  // alone would pass instantly on that stale badge, and the shot could still catch "validating…".
+  // Sit out the debounce first, then require green.
+  await page.waitForTimeout(900);
   await expect(page.getByTestId("validation-valid")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("commit-fragment")).toBeEnabled();
 

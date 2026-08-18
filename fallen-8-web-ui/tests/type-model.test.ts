@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 import { describe, expect, it } from "vitest";
-import { membersForType, memberByName } from "../src/delegate/providers";
+import { membersForType, memberByName, registerDelegateProviders } from "../src/delegate/providers";
 import { buildGenerationPrompt } from "../src/delegate/nl/prompt";
 import { snippetCodeFor, snippetsForKind } from "../src/delegate/snippets";
 
@@ -129,5 +129,78 @@ describe("snippet library", () => {
       (s) => s.title === "Label match",
     )!;
     expect(snippetCodeFor(labelMatch, "ge")).toBe('return (ge) => ge.Label == "person";');
+  });
+});
+
+/**
+ * The completion ITEMS, not just the member list. Nothing else in CI reaches this mapping: every
+ * component test mocks monacoSetup and @monaco-editor/react, so `handleMount` never registers a
+ * provider, and the only other exerciser is an F8_SCREENSHOT-gated capture spec. So the flag that
+ * decides whether a member is struck through, sorted last and labelled CS0012, and the branch that
+ * decides whether accepting a TryGet* writes an empty string literal into an optional parameter,
+ * would otherwise ship unverified.
+ */
+describe("delegate completion items", () => {
+  function completionsFor(kind: "VertexFilter" | "EdgePropertyFilter", line: string) {
+    let provider: { provideCompletionItems: (m: unknown, p: unknown) => { suggestions: Array<Record<string, unknown>> } } | undefined;
+    const monaco = {
+      languages: {
+        CompletionItemKind: { Method: 0, Property: 1, Field: 2, Variable: 3, Snippet: 4 },
+        CompletionItemTag: { Deprecated: 1 },
+        CompletionItemInsertTextRule: { InsertAsSnippet: 4 },
+        registerCompletionItemProvider: (_lang: string, p: typeof provider) => {
+          provider = p;
+          return { dispose: () => {} };
+        },
+        registerHoverProvider: () => ({ dispose: () => {} }),
+        registerSignatureHelpProvider: () => ({ dispose: () => {} }),
+      },
+    };
+    const dispose = registerDelegateProviders(monaco as never, kind);
+    const model = {
+      getLineContent: () => line,
+      getWordUntilPosition: () => ({ startColumn: line.length + 1, endColumn: line.length + 1 }),
+    };
+    const items = provider!.provideCompletionItems(model, {
+      lineNumber: 1,
+      column: line.length + 1,
+    }).suggestions;
+    dispose();
+    return items;
+  }
+
+  it("strikes through, sinks and labels the members a fragment cannot call", () => {
+    const items = completionsFor("VertexFilter", "return (v) => v.");
+    const flagged = items.filter((i) => i.label === "GetAllNeighbors")[0];
+    expect(flagged).toBeDefined();
+    expect(flagged.tags).toEqual([1]); // CompletionItemTag.Deprecated
+    expect(String(flagged.sortText)).toBe("zz_GetAllNeighbors");
+    expect(String(flagged.detail)).toContain("CS0012");
+
+    const ok = items.filter((i) => i.label === "GetOutDegree")[0];
+    expect(ok.tags).toBeUndefined();
+    expect(String(ok.sortText)).toBe("GetOutDegree");
+    expect(String(ok.detail)).not.toContain("CS0012");
+  });
+
+  it("does not force a string literal into an optional TryGet parameter", () => {
+    const items = completionsFor("VertexFilter", "return (v) => v.");
+    const byName = (name: string) => String(items.filter((i) => i.label === name)[0].insertText);
+    // name defaults to "default": accepting it must not write TryGetEmbedding(out x, "").
+    expect(byName("TryGetEmbedding")).toBe("TryGetEmbedding(out $1)$0");
+    expect(byName("TryGetEmbeddingModelStamp")).toBe("TryGetEmbeddingModelStamp(out $1)$0");
+    // propertyId is required, so the second placeholder belongs there.
+    expect(byName("TryGetProperty")).toBe('TryGetProperty(out $1, "$2")$0');
+    expect(byName("TryGetOutEdgesSpan")).toBe('TryGetOutEdgesSpan(out $1, "$2")$0');
+  });
+
+  it("offers nothing for an identifier that is not the slot parameter", () => {
+    expect(completionsFor("VertexFilter", "return (v) => other.")).toEqual([]);
+  });
+
+  it("offers the string surface, and no graph model, for an EdgePropertyFilter", () => {
+    const labels = completionsFor("EdgePropertyFilter", "return (p) => p.").map((i) => i.label);
+    expect(labels).toContain("StartsWith");
+    expect(labels).not.toContain("TryGetProperty");
   });
 });

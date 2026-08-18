@@ -41,11 +41,8 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class DelegateAccessorSurfaceTest
     {
-        // These members EXIST on the engine model types but cannot be CALLED from a fragment: their
-        // signatures name List<> / ImmutableDictionary<,>, whose assemblies (System.Collections,
-        // System.Collections.Immutable) CodeGenerationHelper does not reference. Comparing the
-        // result to null is enough to trigger it - the failure is signature binding, not any use
-        // made of the result.
+        // Comparing the result to null is enough to trigger the failure: it is signature binding,
+        // not any use made of the result.
         private static readonly (String Member, String Fragment)[] _uncompilable =
         {
             ("AGraphElementModel.GetAllProperties", "return (v) => v.GetAllProperties() != null;"),
@@ -56,27 +53,32 @@ namespace NoSQL.GraphDB.Tests
 
         // Every member the completion list offers WITHOUT the flag, plus each substitute the warning
         // text points a user at. If one of these stops compiling, the editor is advertising a lie.
-        private static readonly (String Member, String Fragment)[] _compilable =
+        private static readonly (String Kind, String Member, String Fragment)[] _compilable =
         {
-            ("Id / Label", "return (v) => v.Id > 0 && v.Label == \"person\";"),
-            ("timestamps / count", "return (v) => v.GetPropertyCount() > 0 && v.GetCreationDate() <= v.GetModificationDate();"),
-            ("TryGetProperty", "return (v) => v.TryGetProperty(out int age, \"age\") && age > 30;"),
-            ("AnyPropertyValueMatches", "return (v) => v.AnyPropertyValueMatches(s => s.Contains(\"Tech\", StringComparison.OrdinalIgnoreCase));"),
-            ("degrees", "return (v) => v.GetInDegree() + v.GetOutDegree() > 2;"),
-            ("OutEdges / InEdges", "return (v) => v.OutEdges != null && v.OutEdges.Count > 0 && v.InEdges == null;"),
-            ("TryGetOutEdge", "return (v) => v.TryGetOutEdge(out var g, \"knows\") && g.Count > 0;"),
-            ("TryGetInEdge", "return (v) => v.TryGetInEdge(out var g, \"knows\") && g.Count > 0;"),
-            ("TryGetOutEdgesSpan", "return (v) => v.TryGetOutEdgesSpan(out var es, \"knows\") && es.Length > 0;"),
-            ("TryGetInEdgesSpan", "return (v) => v.TryGetInEdgesSpan(out var es, \"knows\") && es.Length > 0;"),
-            ("TryGetEmbedding", "return (v) => v.TryGetEmbedding(out var vec) && vec.Length > 0;"),
-            ("TryGetEmbedding(name)", "return (v) => v.TryGetEmbedding(out var vec, \"title\") && vec.Length > 0;"),
-            ("TryGetEmbeddingModelStamp", "return (v) => v.TryGetEmbeddingModelStamp(out var st) && st != null;"),
-            // The substitutes the CS0012 warning text names. These are the promise the editor makes
-            // to somebody who just hit CS0012, so they are load-bearing, not decoration.
-            ("substitute for GetOutgoingEdgeIds", "return (v) => v.OutEdges != null && v.OutEdges.Keys.Any(k => k == \"knows\");"),
-            ("substitute for GetIncomingEdgeIds", "return (v) => v.InEdges != null && v.InEdges.Keys.Contains(\"knows\");"),
-            ("substitute for GetAllNeighbors", "return (v) => v.OutEdges != null && v.OutEdges.SelectMany(kv => kv.Value).Any(e => e.TargetVertex.Label == \"person\");"),
-            ("substitute for GetAllProperties", "return (v) => v.GetPropertyCount() > 0 && v.TryGetProperty(out String n, \"name\") && n != null;"),
+            ("VertexFilter", "Id / Label", "return (v) => v.Id > 0 && v.Label == \"person\";"),
+            ("VertexFilter", "timestamps / count", "return (v) => v.GetPropertyCount() > 0 && v.GetCreationDate() <= v.GetModificationDate();"),
+            ("VertexFilter", "TryGetProperty", "return (v) => v.TryGetProperty(out int age, \"age\") && age > 30;"),
+            ("VertexFilter", "AnyPropertyValueMatches", "return (v) => v.AnyPropertyValueMatches(s => s.Contains(\"Tech\", StringComparison.OrdinalIgnoreCase));"),
+            ("VertexFilter", "degrees", "return (v) => v.GetInDegree() + v.GetOutDegree() > 2;"),
+            ("VertexFilter", "OutEdges / InEdges", "return (v) => v.OutEdges != null && v.OutEdges.Count > 0 && v.InEdges == null;"),
+            ("VertexFilter", "TryGetOutEdge", "return (v) => v.TryGetOutEdge(out var g, \"knows\") && g.Count > 0;"),
+            ("VertexFilter", "TryGetInEdge", "return (v) => v.TryGetInEdge(out var g, \"knows\") && g.Count > 0;"),
+            ("VertexFilter", "TryGetOutEdgesSpan", "return (v) => v.TryGetOutEdgesSpan(out var es, \"knows\") && es.Length > 0;"),
+            ("VertexFilter", "TryGetInEdgesSpan", "return (v) => v.TryGetInEdgesSpan(out var es, \"knows\") && es.Length > 0;"),
+            ("VertexFilter", "TryGetEmbedding", "return (v) => v.TryGetEmbedding(out var vec) && vec.Length > 0;"),
+            ("VertexFilter", "TryGetEmbedding(name)", "return (v) => v.TryGetEmbedding(out var vec, \"title\") && vec.Length > 0;"),
+            ("VertexFilter", "TryGetEmbeddingModelStamp", "return (v) => v.TryGetEmbeddingModelStamp(out var st) && st != null;"),
+            // --- the substitutes the CS0012 warning text names: they are the promise the editor makes to
+            //     somebody who just hit CS0012, so they are load-bearing, not decoration ---
+            ("VertexFilter", "substitute for GetOutgoingEdgeIds", "return (v) => v.OutEdges != null && v.OutEdges.Keys.Any(k => k == \"knows\");"),
+            ("VertexFilter", "substitute for GetIncomingEdgeIds", "return (v) => v.InEdges != null && v.InEdges.Keys.Contains(\"knows\");"),
+            ("VertexFilter", "substitute for GetAllNeighbors", "return (v) => v.OutEdges != null && v.OutEdges.SelectMany(kv => kv.Value).Any(e => e.TargetVertex.Label == \"person\");"),
+            ("VertexFilter", "substitute for GetAllProperties", "return (v) => v.GetPropertyCount() > 0 && v.TryGetProperty(out String n, \"name\") && n != null;"),
+            // --- EdgeModel, through an EdgeFilter ---
+            ("EdgeFilter", "edge fields + base", "return (e) => e.SourceVertex != null && e.TargetVertex != null && e.EdgePropertyId == \"knows\" && e.Id > 0 && e.Label != null;"),
+            // --- the whole string surface in one fragment, through an EdgePropertyFilter: the only kind
+            //     whose parameter is not a graph element ---
+            ("EdgePropertyFilter", "string surface", "return (p) => p.Length > 3 && p.StartsWith(\"k\") && p.EndsWith(\"s\") && p.Contains(\"now\") && p.Equals(\"knows\") && p.ToLower() != p.ToUpper() && p.Trim() == p && p.IndexOf(\"n\") >= 0;"),
         };
 
         [TestMethod]
@@ -102,12 +104,12 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void UnflaggedAccessorsAndDocumentedSubstitutes_Compile()
         {
-            foreach (var (member, fragment) in _compilable)
+            foreach (var (kind, member, fragment) in _compilable)
             {
                 Assert.IsTrue(
-                    DelegateValidationHelper.TryValidate("VertexFilter", fragment, out var result),
-                    "VertexFilter is a known kind.");
-                Assert.IsTrue(result.Valid, member + " no longer compiles, so the Studio completion "
+                    DelegateValidationHelper.TryValidate(kind, fragment, out var result),
+                    kind + " is a known kind.");
+                Assert.IsTrue(result.Valid, kind + "/" + member + " no longer compiles, so the Studio completion "
                     + "list and the NL-assist prompt are advertising a member a fragment cannot use. "
                     + "Diagnostics: "
                     + String.Join("; ", result.Diagnostics.ConvertAll(d => d.Id + ": " + d.Message)));

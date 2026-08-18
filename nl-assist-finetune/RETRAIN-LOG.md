@@ -303,10 +303,15 @@ against the real validator and asserts they fail, so this is measured, not infer
 out of the member list. Four members that DO compile were also added and so are newly offered to the
 model: `TryGetEmbedding`, `TryGetEmbeddingModelStamp`, `TryGetOutEdgesSpan`, `TryGetInEdgesSpan`.
 
-**Corpus impact:** the 13 rows in `dataset/train.jsonl` and 9 in `captured.jsonl` whose FROZEN
-system prompts embed the old member list are now stale in their prompt half only. No target
-`fragment` in either file calls any of the four (checked every target value), so no row teaches the
-bad member; the contamination is the prompt text, not the labels. The already-recorded baseline
+**Corpus impact (measured over the checked-in dataset, not estimated):** 303 of the 330 rows in
+`dataset/train.jsonl` and 9 of the 14 in `captured.jsonl` embed the old member list in their FROZEN
+system prompt, so almost the whole corpus is stale in its prompt half. That is a regeneration, not a
+touch-up. The LABELS are nearly clean: exactly one target across every `.jsonl` under
+`nl-assist-finetune/` calls a flagged member, `train.jsonl` line 325, and it is a `plugin` target (a
+whole type) rather than a delegate fragment, so whether it compiles is a question about the plugin
+compile path and not evidence of a bad fragment label. One feedback file
+(`feedback/inbox/f8-training-VertexFilter-1785303889527.jsonl`) also mentions the members outside its
+message targets. The already-recorded baseline
 failure in `plan.md` ("GetAllProperties() dictionary misuse (2 rows)") should be re-measured after
 the next generate: withholding the member from the prompt is the cheap fix that analysis predicted,
 and it may close those rows without any new training data.

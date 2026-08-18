@@ -74,7 +74,9 @@ async function loadSample(page: Page, id: string) {
 }
 
 test("capture a path result and a created subgraph on the karate club", async ({ page }) => {
-  test.setTimeout(180_000);
+  // Above the sum of the declared waits below (30 + 120 + 30 + 30 + 60), so a slow-but-working run
+  // fails on the step that is slow rather than on the suite budget.
+  test.setTimeout(330_000);
   // 1440x1000 matches the sibling screen-path.png / screen-subgraph-builder.png frames the same
   // docs page embeds; the orphaned originals were 1600 wide and read as a different application.
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -112,9 +114,6 @@ test("capture a path result and a created subgraph on the karate club", async ({
     headers: { Authorization: `Bearer ${API_KEY}` },
   });
   await page.goto("/subgraphs");
-  // Subgraphs OUTLIVE the sample reload that wipes the graph, so a second run of this spec would
-  // hit a duplicate name and the create would be rejected with no message. Clear it first, which
-  // also makes the frame identical on the first and every later run.
   await page.getByTestId("sg-name").fill("people-net");
   // The alternating vertex, edge, vertex pattern the prose describes. Every filter slot stays on
   // its "match everything" default, so the whole club is extracted.

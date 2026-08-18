@@ -43,11 +43,9 @@ interface ModelMember {
   signature: string;
   doc: string;
   /**
-   * Absent or true = callable in a fragment. False = the member EXISTS on the engine type but a
-   * call fails with CS0012, because the narrow compile does not reference the assembly its
-   * signature names. Kept in the list as a discovery aid (somebody who read the engine source
-   * looks for it, and finding it struck through with its substitute named beats finding nothing),
-   * but sorted last, marked deprecated, and withheld from the NL-assist prompt (see nl/prompt.ts).
+   * False = the member exists on the engine type but a fragment cannot CALL it. Offered anyway as a
+   * discovery aid, sorted last, struck through, and withheld from the NL-assist prompt. Which
+   * members and why: docs/src/content/docs/delegates.mdx, "Accessor surface".
    */
   compilable?: boolean;
 }
@@ -138,7 +136,10 @@ export function registerDelegateProviders(
                 member.compilable === false
                   ? [monaco.languages.CompletionItemTag.Deprecated]
                   : undefined,
-              // Sort them last so a blind Tab never accepts one.
+              // Sort them last so they are not among the first rows offered. This is a nudge, not a
+              // guarantee: Monaco ranks by fuzzy-match score first and only breaks ties with sortText,
+              // so typing `v.GetAll` still selects one. The strikethrough and the CS0012 detail are
+              // what actually tell the reader.
               sortText: member.compilable === false ? `zz_${member.name}` : member.name,
               insertText:
                 member.kind === "method" && member.name.startsWith("TryGet")

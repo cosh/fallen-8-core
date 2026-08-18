@@ -90,6 +90,15 @@ test("capture the Connect screen", async ({ page, request }) => {
     'the Configuration section reads "Off - no exporter configured": set ' +
       "Fallen8__Observability__Otlp__Endpoint on the capture app.",
   ).toContainText("pushing metrics");
+  await expect(
+    page.getByTestId("config-embedding"),
+    "the Embedding card is unconfigured: this shot documents the provider cards, so wire " +
+      "Fallen8__Embedding__* on the capture app.",
+  ).toContainText("Ollama");
+  await expect(
+    page.getByTestId("config-chat"),
+    "the Chat card is unconfigured: wire Fallen8__Chat__* on the capture app.",
+  ).toContainText("Ollama");
 
   await page.screenshot({ path: "../docs/src/assets/images/screen-connect.png" });
 });

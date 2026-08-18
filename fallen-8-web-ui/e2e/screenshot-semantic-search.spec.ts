@@ -69,19 +69,27 @@ async function loadSample(page: Page, id: string) {
   await page.goto("/q/default/samples");
   await expect(page.getByTestId(`sample-card-${id}`)).toBeVisible({ timeout: 30_000 });
   await page.getByTestId(`load-sample-${id}`).click();
+  // Only the WAIT may fail (a fresh graph loads with no wipe confirm). Wrapping the fill and the
+  // click too would report a stuck confirm dialog as "loaded directly", then die much later on the
+  // sample-message timeout naming the wrong cause.
   const typed = page.getByTestId("confirm-typed");
+  let confirmShown = true;
   try {
     await typed.waitFor({ state: "visible", timeout: 2500 });
+  } catch {
+    confirmShown = false; // fresh graph: it loaded directly, no wipe confirm
+  }
+  if (confirmShown) {
     await typed.fill(INSTANCE_NAME);
     await page.getByTestId("confirm-action").click();
-  } catch {
-    // fresh graph: it loaded directly, no wipe confirm
   }
   await expect(page.getByTestId("sample-message")).toContainText("Loaded", { timeout: 180_000 });
 }
 
 test("capture semantic search over the Movie Night embeddings index", async ({ page, request }) => {
-  test.setTimeout(300_000);
+  // Above the sum of the declared waits below (30 + 180 + 30 + 180), so a slow-but-working run
+  // fails on the step that is slow rather than on the suite budget.
+  test.setTimeout(480_000);
   await page.setViewportSize({ width: 1440, height: 1000 });
 
   // Refuse to run, rather than degrade the image, when the instance cannot embed text.
@@ -112,7 +120,14 @@ test("capture semantic search over the Movie Night embeddings index", async ({ p
   await expect(page.getByTestId("vector-legend")).toBeVisible({ timeout: 180_000 });
   // The docs page's actual claim is that this sentence ranks Inception (vertex 0) top by cosine. If
   // the model or the corpus ever changes that, this fails rather than publishing a frame whose
-  // surrounding prose no longer matches.
-  await expect(page.locator("tbody tr").first()).toContainText("0");
+  // surrounding prose no longer matches. Assert the id CELL, not the row: every cosine renders as
+  // "0.xxxx" (ElementTable toFixed(4)), so a row-level check for "0" would pass on ANY ranking.
+  const topRow = page.locator("tbody tr").first();
+  await expect(topRow.locator("td").first()).toHaveText("0");
+  // Vertex 0 IS Inception in movie-night.jsonl, so the exact id cell above is the real rank-1 pin.
+  // The properties cell only corroborates it: do not assert `title=` there, because that cell prints
+  // properties in a nondeterministic order and truncates (one run leads with title=, the next with
+  // icon=), and the film name appears either way.
+  await expect(topRow).toContainText("Inception");
   await page.screenshot({ path: "../docs/src/assets/images/query-semantic-search.png" });
 });
