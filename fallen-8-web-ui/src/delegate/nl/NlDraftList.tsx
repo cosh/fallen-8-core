@@ -56,8 +56,6 @@ export interface NlDraftView {
   loadTitle: string;
   /** Text appended after "draft N" — e.g. " (2 error(s))" or " (invalid)". Omit when valid. */
   labelSuffix?: string;
-  /** Inline content shown after the verdict buttons (the delegate panel's stats line). */
-  trailing?: ReactNode;
   /** Content shown below the row (the delegate panel's collapsible raw stats). */
   below?: ReactNode;
 }
@@ -150,7 +148,6 @@ export function NlDraftList({
                     👎
                   </button>
                 </span>
-                {draft.trailing}
               </div>
               {draft.below}
             </li>

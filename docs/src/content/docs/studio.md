@@ -186,9 +186,15 @@ Namespace-scoped: both panels act on the namespace in the top bar, and the heade
 
 ## The delegate editor
 
+![The delegate editor on a VertexFilter slot: IntelliSense open after typing v., listing the VertexModel members with the focused one's signature](../../assets/images/screen-delegate-editor.png)
+
 Opened from every fragment slot on the Path and Subgraph screens (the Query screen uses no fragments). It is a Monaco C# editor with per-kind snippets for the five slot types, `VertexFilter`, `EdgeFilter`, `EdgePropertyFilter`, `VertexCost`, `EdgeCost`. It validates as you type against the server (`POST /delegates/validate`) and renders diagnostics inline at the returned positions; **Use fragment** is blocked until the exact text on screen has passed validation (an empty fragment means "match everything"). Validation and inline fragment execution are always available; they only need the instance's API key when one is configured ([security.md](/security/)). The compilation model is owned by [delegates.md](/delegates/).
 
+Completions, hovers and signature help come from a static type model that ships inside Studio rather than from a language server, and they are scoped to the slot: after `v.` a `VertexFilter` offers the `VertexModel` surface, after `e.` an `EdgeFilter` offers the edge surface, and an `EdgePropertyFilter`, whose parameter is a plain `string`, offers string members and no graph model at all. Only the slot's own parameter completes; any other identifier gets nothing. Away from a member access the list is the parameter itself plus the same per-kind snippets the **snippets** panel offers as buttons, so an empty slot can reach a working fragment without leaving the editor. Typing `(` opens signature help, which is how the `TryGetProperty(out T result, string propertyId)` idiom most fragments need becomes discoverable instead of something you have to be told. The model is a reading aid and `POST /delegates/validate` stays the only compile authority, so a member can be offered here and still be out of reach in a fragment: that surface, and the members the narrow compile environment cannot reference, are owned by [delegates.md](/delegates/#accessor-surface). The plugin authoring editor shares the C# colorization and the NL panel but has no member completions, because a whole plugin type is not one typed lambda.
+
 ### NL assist
+
+![NL assist: three drafts in the review list, the newest sitting validated in the editor and two still awaiting a verdict](../../assets/images/screen-nl-assist.png)
 
 The editor's side panel drafts a fragment from a natural-language description, calling a model through one of two backends:
 

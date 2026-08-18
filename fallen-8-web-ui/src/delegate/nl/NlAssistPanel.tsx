@@ -306,18 +306,18 @@ function NlAssistPanelInner({
                     loadTitle: attempt.fragment,
                     labelSuffix:
                       attempt.valid === false ? ` (${attempt.errorCount} error(s))` : undefined,
-                    trailing: attempt.stats ? (
-                      <span className="text-fg-faint shrink-0 text-[10px]">
-                        {statsLine(attempt.stats)}
-                      </span>
-                    ) : undefined,
                     below: attempt.stats ? (
-                      <details className="text-fg-faint pl-4 text-[10px]">
-                        <summary className="cursor-pointer">raw stats</summary>
-                        <pre className="overflow-x-auto whitespace-pre-wrap">
-                          {JSON.stringify(attempt.stats.raw, null, 1)}
-                        </pre>
-                      </details>
+                      <>
+                        <div className="text-fg-faint pl-4 text-[10px]">
+                          {statsLine(attempt.stats)}
+                        </div>
+                        <details className="text-fg-faint pl-4 text-[10px]">
+                          <summary className="cursor-pointer">raw stats</summary>
+                          <pre className="overflow-x-auto whitespace-pre-wrap">
+                            {JSON.stringify(attempt.stats.raw, null, 1)}
+                          </pre>
+                        </details>
+                      </>
                     ) : undefined,
                   }),
                 )}

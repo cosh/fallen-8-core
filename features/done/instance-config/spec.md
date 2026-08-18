@@ -227,6 +227,8 @@ remains needed only for the browser-direct *custom* Ollama path.
   `getConfig` + `ConfigREST` type + `useConfig` hook; NL transport change. Tests
   (`dashboard-provider`, new `connect-config`, `nl-*`) + e2e updated; **screenshots redone**
   (Connect, Dashboard, NL-assist panel).
+  > Correction: only Connect and Dashboard were delivered. No NL-assist image was ever committed,
+  > and none existed until `e2e/screenshot-nl-assist.spec.ts` produced `screen-nl-assist.png`.
 - **Architecture diagrams** (mandatory, precise targets):
   - `README.md` mermaid: **only** relabel the `rest -.->|embeddings| sidecar` edge (line ~98) to
     `embeddings + chat`. (README's `studio` already points only at `rest`; there is no browser→sidecar

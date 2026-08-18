@@ -404,6 +404,13 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     expect(screen.getByTestId("nl-attempts")).toHaveTextContent("8.0 tok/s");
     expect(screen.getByText("raw stats")).toBeInTheDocument();
     expect(screen.getByTestId("nl-attempts")).toHaveTextContent("eval_count");
+
+    // Regression: the stats used to render in the label's own flex row with `shrink-0`, which
+    // truncated "draft 1 (in editor)" down to "d…" in the panel's 288px sidebar. They belong
+    // below the label, where they cost the label no width.
+    const label = screen.getByRole("button", { name: /^draft 1/ });
+    expect(label.textContent).toBe("draft 1 (in editor)");
+    expect(label.parentElement?.textContent).not.toContain("tok");
   });
 
   it("shows the leave-notice for non-loopback endpoints before the first send (FR-26.10)", () => {

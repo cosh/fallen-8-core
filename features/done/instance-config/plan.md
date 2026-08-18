@@ -87,6 +87,9 @@ Phased implementation of [spec.md](./spec.md). Feature branch `feature/instance-
 - **Screenshots:** redo Connect (Configuration section), Dashboard (embedding card gone), NL-assist
   panel (instance vs custom), via the built SPA + local apiApp + Playwright harness (same as the
   Studio nav-reorg screenshot flow).
+  > Correction: the NL-assist shot was not taken. `e2e/screenshot-nl-assist.spec.ts` is the one that
+  > eventually captured that panel; it stubs `POST /chat` rather than needing a model, which is
+  > probably why the original attempt stalled.
 
 ## Phase 7 — Cross-feature verification
 

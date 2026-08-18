@@ -101,18 +101,16 @@ describe("NlDraftList", () => {
     expect(list.className).toContain("max-h-64");
   });
 
-  it("renders the host-supplied label suffix, trailing, and below slots", () => {
+  it("renders the host-supplied label suffix and below slot", () => {
     renderList([
       view({
         valid: false,
         labelSuffix: " (invalid)",
-        trailing: <span>42 tok</span>,
         below: <span>raw stats here</span>,
       }),
     ]);
 
     expect(screen.getByRole("button", { name: /draft 1 \(invalid\)/ })).toBeInTheDocument();
-    expect(screen.getByText("42 tok")).toBeInTheDocument();
     expect(screen.getByText("raw stats here")).toBeInTheDocument();
     // Invalid draft shows the ✗ marker, not the ✓ tick.
     expect(screen.getByTestId("drafts")).toHaveTextContent("✗");

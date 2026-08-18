@@ -12,6 +12,8 @@ from, and how to produce a better model than the one that ships.
 The in-editor experience itself, the backend switch, the draft list and the review flow, is documented
 once on [F8 Studio](/studio/#nl-assist). Read that first if you just want to use it.
 
+![The NL assist panel drafting a fragment from a sentence, with the newest draft in the editor awaiting review](../../assets/images/screen-nl-assist.png)
+
 ## The models
 
 Assist is model-agnostic: any Ollama or OpenAI-compatible endpoint works. What ships is a pair of
