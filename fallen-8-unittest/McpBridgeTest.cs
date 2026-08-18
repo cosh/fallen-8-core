@@ -35,6 +35,9 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using NoSQL.GraphDB.Mcp.Hosting;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Mcp.Bridge;
 using NoSQL.GraphDB.Mcp.Configuration;
@@ -281,6 +284,72 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(JsonValueKind.Null, archived.GetProperty("vertexCount").ValueKind);
             var byDefault = namespaces.Single(n => n.GetProperty("name").GetString() == "default");
             Assert.AreEqual(2, byDefault.GetProperty("vertexCount").GetInt32());
+        }
+        // --- downstream deadline (Fallen8Target:TimeoutSeconds) --------------------------------
+
+        [TestMethod]
+        public void Bridge_HttpClient_CarriesAStatedTimeout_NotTheFrameworkDefault()
+        {
+            // The bridge's client used to inherit HttpClient's 100s default: an undocumented bound
+            // no operator could tune. It is now stated, and the default sits ABOVE the longest
+            // synchronous budget the apiApp applies on a bridged route - the embedding provider's
+            // 300s, reached by POST /embedding/search and POST /document/search - so the downstream
+            // error wins instead of being pre-empted by a vague bridge 504.
+            var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<String, String>
+            {
+                ["Fallen8Target:BaseUrl"] = "http://downstream.local",
+            }).Build();
+
+            var services = new ServiceCollection();
+            McpHost.AddFallen8Mcp(services, config, stdio: true);
+            using var provider = services.BuildServiceProvider();
+
+            var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(Fallen8RestClient.HttpClientName);
+            Assert.AreEqual(TimeSpan.FromSeconds(330), client.Timeout);
+            // The bound must clear the server-side embedding budget it would otherwise pre-empt.
+            Assert.IsTrue(client.Timeout > TimeSpan.FromSeconds(300),
+                "a bridged semantic search may legitimately run for the embedding provider's full budget");
+        }
+
+        [TestMethod]
+        public void Bridge_HttpClient_FloorsANonPositiveTimeout_InsteadOfThrowingPerCall()
+        {
+            // HttpClient.Timeout rejects <= 0, and this is applied inside the named client's
+            // configure delegate, which runs per CreateClient: unfloored, a stray 0 would throw on
+            // EVERY bridged tool call and surface as an opaque error naming nothing.
+            foreach (var bad in new[] { "0", "-5" })
+            {
+                var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<String, String>
+                {
+                    ["Fallen8Target:BaseUrl"] = "http://downstream.local",
+                    ["Fallen8Target:TimeoutSeconds"] = bad,
+                }).Build();
+
+                var services = new ServiceCollection();
+                McpHost.AddFallen8Mcp(services, config, stdio: true);
+                using var provider = services.BuildServiceProvider();
+
+                var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(Fallen8RestClient.HttpClientName);
+                Assert.AreEqual(TimeSpan.FromSeconds(1), client.Timeout, "'{0}' must be floored, not thrown on", bad);
+            }
+        }
+
+        [TestMethod]
+        public void Bridge_HttpClient_HonoursTheConfiguredTimeout()
+        {
+            var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<String, String>
+            {
+                ["Fallen8Target:BaseUrl"] = "http://downstream.local",
+                ["Fallen8Target:TimeoutSeconds"] = "7",
+            }).Build();
+
+            var services = new ServiceCollection();
+            McpHost.AddFallen8Mcp(services, config, stdio: true);
+            using var provider = services.BuildServiceProvider();
+
+            var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(Fallen8RestClient.HttpClientName);
+            Assert.AreEqual(TimeSpan.FromSeconds(7), client.Timeout,
+                "the knob must actually reach the transport, or it is dead config");
         }
     }
 }

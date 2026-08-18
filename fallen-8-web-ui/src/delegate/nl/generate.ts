@@ -39,6 +39,22 @@ import type { InstanceConfig } from "../../instances/types";
  * Either path surfaces the provider's generation statistics (nl-assist-ux FR-5).
  */
 
+/**
+ * Studio's own ceiling on ONE model call, and the LAST bound to fire in a normal setup.
+ *
+ * `fetch` has no timeout, so without this a browser-direct custom endpoint (custom mode, which has
+ * no Fallen-8 in front of it) can hang forever, and an instance whose connection wedges without
+ * answering never resolves either. Minutes are the right order of magnitude because a local model
+ * on CPU genuinely needs them.
+ *
+ * It is deliberately generous so that in instance mode `Fallen8:Chat:TimeoutSeconds` stays the
+ * deadline the user actually meets, and they get the server's 504 naming the setting they can
+ * change. Be honest about the consequence though: this is a hard ceiling, so a chat budget raised
+ * ABOVE it is capped here and the editor stops waiting first. That is stated in the give-up message
+ * and on the troubleshooting page rather than left for someone to discover.
+ */
+export const NL_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
+
 export interface ChatTurn {
   role: "system" | "user" | "assistant";
   content: string;
@@ -94,13 +110,54 @@ export async function generateChat(
     throw new Error("NL assist is disabled by the embedding host.");
   }
   const resolved = resolveNlConfig(config);
-  if (resolved.mode === "instance") {
-    if (!instance) {
-      throw new Error("No active instance to route the model call through.");
-    }
-    return chatViaInstance(instance, messages, resolved.temperature, signal);
+
+  // One deadline per call, applied HERE so both transports inherit it from a single place.
+  const deadline = new AbortController();
+  let expired = false;
+  const timer = setTimeout(() => {
+    expired = true;
+    deadline.abort();
+  }, NL_REQUEST_TIMEOUT_MS);
+  const forwardAbort = () => deadline.abort();
+  if (signal?.aborted) {
+    // An ALREADY-aborted caller signal fires no event, so forwarding alone would let the call
+    // proceed uncancelled. Real fetch rejects such a request outright; match that.
+    deadline.abort();
+  } else {
+    signal?.addEventListener("abort", forwardAbort, { once: true });
   }
-  return chatWithModel(effectiveNlConfig(resolved), messages, signal);
+
+  try {
+    if (resolved.mode === "instance") {
+      if (!instance) {
+        throw new Error("No active instance to route the model call through.");
+      }
+      return await chatViaInstance(instance, messages, resolved.temperature, deadline.signal);
+    }
+    return await chatWithModel(effectiveNlConfig(resolved), messages, deadline.signal);
+  } catch (e) {
+    // Only OUR deadline is translated. A caller abort (Cancel, or the panel unmounting) reaches
+    // here as the transport's AbortError and is rethrown untouched, so the panel can recognise it
+    // as its own cancellation and stay quiet.
+    // `expired` alone is not enough: if a real response or error lands in the same tick the timer
+    // fires, relabelling it would replace the server's honest message (a 504 naming its own budget)
+    // with ours. Only an actual cancellation is ours to translate.
+    if (expired && (e as { name?: string })?.name === "AbortError") {
+      // Says only what is true: OUR limit was reached. It deliberately does not claim the request
+      // "never completed", because a chat budget configured above this ceiling would be cut off
+      // here while the server was still legitimately working.
+      throw new Error(
+        `No answer from the model within Studio's ${Math.round(NL_REQUEST_TIMEOUT_MS / 60000)}-minute ` +
+          `limit, so the editor stopped waiting. A local model on CPU can be this slow; a GPU-backed ` +
+          `backend is the fix. Note that raising Fallen8:Chat:TimeoutSeconds beyond this limit has no ` +
+          `effect here, because this limit is reached first.`,
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forwardAbort);
+  }
 }
 
 /** Instance-gateway path: browser -> F8 POST /chat -> the server's model backend. */

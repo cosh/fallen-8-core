@@ -84,6 +84,10 @@ namespace NoSQL.GraphDB.Mcp.Hosting
                 {
                     var target = sp.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value;
                     client.BaseAddress = new Uri(EnsureTrailingSlash(target.BaseUrl));
+                    // Stated, not inherited: the default would be 100s and untunable. Floored at
+                    // 1s because this delegate runs per CreateClient, so a non-positive config value
+                    // would otherwise throw on every bridged call rather than once at startup.
+                    client.Timeout = TimeSpan.FromSeconds(Math.Max(1, target.TimeoutSeconds));
                     if (!String.IsNullOrEmpty(target.ApiKey))
                     {
                         client.DefaultRequestHeaders.TryAddWithoutValidation(target.ApiKeyHeader, target.ApiKey);

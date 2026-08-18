@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   AlgorithmContract,
   PluginAuthoringCategory,
@@ -47,6 +47,7 @@ import {
   type ChatTurn,
   type NlGenerationStats,
 } from "../../delegate/nl/generate";
+import { useElapsedSeconds, useNlRun } from "../../delegate/nl/useNlRun";
 import { useActiveInstance } from "../../instances/registry";
 import {
   buildPluginGenerationPrompt,
@@ -108,7 +109,9 @@ function PluginNlAssistPanelInner({
   const [error, setError] = useState<string | null>(null);
   const [showConfig, setShowConfig] = useState(false);
   const [reachable, setReachable] = useState<boolean | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const run = useNlRun();
+  // Progress feedback; useElapsedSeconds explains why it is load-bearing.
+  const elapsedSeconds = useElapsedSeconds(busy !== null);
 
   const isInstance = config.mode === "instance";
   const effective = effectiveNlConfig(config);
@@ -131,8 +134,7 @@ function PluginNlAssistPanelInner({
 
   const generate = async () => {
     setError(null);
-    const controller = new AbortController();
-    abortRef.current = controller;
+    const controller = run.begin();
     // Own validation for the loop so the editor's debounce cannot abort our in-flight checks.
     drivingRef.current = true;
 
@@ -275,10 +277,10 @@ function PluginNlAssistPanelInner({
                 disabled={!intent.trim() || busy !== null || needsLeaveNotice}
                 onClick={() => void generate()}
               >
-                {busy ?? "Draft plugin"}
+                {busy ? `${busy} ${elapsedSeconds}s` : "Draft plugin"}
               </button>
               {busy && (
-                <button type="button" className="btn" onClick={() => abortRef.current?.abort()}>
+                <button type="button" className="btn" data-testid="nl-cancel" onClick={run.cancel}>
                   Cancel
                 </button>
               )}

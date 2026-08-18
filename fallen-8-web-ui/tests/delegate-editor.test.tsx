@@ -105,8 +105,8 @@ const INVALID: DelegateValidationResult = {
 };
 const VALID: DelegateValidationResult = { valid: true, diagnostics: [] };
 
-function renderEditor(onCommit = vi.fn()) {
-  render(
+function renderEditorHandle(onCommit = vi.fn()) {
+  const utils = render(
     <DelegateEditor
       instance={instance}
       delegateKind="VertexFilter"
@@ -116,7 +116,11 @@ function renderEditor(onCommit = vi.fn()) {
       onCancel={() => {}}
     />,
   );
-  return onCommit;
+  return { ...utils, onCommit };
+}
+
+function renderEditor(onCommit = vi.fn()) {
+  return renderEditorHandle(onCommit).onCommit;
 }
 
 beforeEach(() => {
@@ -519,5 +523,41 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     renderEditor();
     // 100% bigger than the former h-16: the box is now h-32.
     expect(screen.getByTestId("nl-intent").className).toContain("h-32");
+  });
+
+  describe("in-flight model call lifecycle (panel wiring)", () => {
+    /**
+     * These pin the CALL SITES, which the hook's own unit tests cannot reach: with the panel wired
+     * back to a local AbortController, or its Cancel handler stubbed out, useNlRun stays perfectly
+     * correct and the orphaned-request bug returns with a green suite. The mocked transport never
+     * settles, so the run is still in flight when we act.
+     */
+    const startedRun = async () => {
+      const user = userEvent.setup();
+      chatMock.mockImplementation(() => new Promise<NlChatResult>(() => {}));
+      validateMock.mockResolvedValue(VALID);
+      const handle = renderEditorHandle();
+
+      await user.type(screen.getByTestId("nl-intent"), "only users");
+      await user.click(screen.getByTestId("nl-generate"));
+      await waitFor(() => expect(chatMock).toHaveBeenCalledTimes(1));
+
+      // generateChat(config, instance, messages, signal) - the signal is the 4th arg.
+      const signal = chatMock.mock.calls[0][3] as AbortSignal;
+      expect(signal.aborted).toBe(false);
+      return { user, signal, handle };
+    };
+
+    it("aborts the request when the editor closes, so it cannot outlive the panel", async () => {
+      const { signal, handle } = await startedRun();
+      handle.unmount();
+      expect(signal.aborted).toBe(true);
+    });
+
+    it("aborts the request when the panel's Cancel is clicked", async () => {
+      const { user, signal } = await startedRun();
+      await user.click(screen.getByTestId("nl-cancel"));
+      expect(signal.aborted).toBe(true);
+    });
   });
 });

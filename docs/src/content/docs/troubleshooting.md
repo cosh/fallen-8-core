@@ -80,9 +80,22 @@ the editor waits before telling you the truth. It is worth raising only if you a
 minutes per draft. Two things that do help a little on CPU: keep the prompt short (a terse intent
 beats a paragraph), and prefer `phi4-f8-mini` over the ~9 GB `phi4-f8`, which is GPU-oriented.
 
-The timeout is honest either way: `Fallen8:Chat:TimeoutSeconds` is the single deadline on the call,
-so the wait you configure is the wait you get. (It once was not: an undocumented 100-second
-transport timeout pre-empted it and surfaced as a `500`.)
+The timeout is honest on the server side: `Fallen8:Chat:TimeoutSeconds` is the only deadline the
+instance applies, so the wait you configure there is the wait it gives you. (It once was not: an
+undocumented 100-second transport timeout pre-empted it and surfaced as a `500`.)
+
+**Studio adds a ceiling of its own: it stops waiting after 10 minutes.** Below that the instance's
+`504` is what you see, naming the setting you can change. Above it the editor gives up first, so
+raising `Fallen8:Chat:TimeoutSeconds` past 10 minutes has no effect in the editor. That ceiling also
+bounds a **custom** browser-direct backend, which has no Fallen-8 budget in front of it at all.
+
+While a draft is running the editor tells you it is alive rather than leaving you guessing:
+
+- The **Draft fragment** button counts the seconds it has been waiting, so a slow-but-working call
+  looks different from a hung one. It counts the whole run, including any automatic refine attempt,
+  while the 10-minute ceiling applies to each model call separately.
+- **Cancel** aborts the request, and closing the editor does too. An abandoned draft no longer keeps
+  running in the background, which previously meant the next draft queued behind it.
 
 ## Semantic search says the provider is off, or returns 409
 

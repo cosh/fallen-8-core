@@ -52,5 +52,24 @@ namespace NoSQL.GraphDB.Mcp.Configuration
         /// <summary>Lab-only escape hatch that disables downstream TLS validation for a
         /// self-signed Fallen-8. Default false; loudly logged when on.</summary>
         public Boolean TlsInsecure { get; set; }
+
+        /// <summary>
+        ///   The per-request deadline on a bridged REST call. Stated rather than inherited: without
+        ///   it the client kept the .NET default of 100s, an undocumented bound no operator could
+        ///   tune. Values below 1 are floored at 1 second (the repo's convention for a config
+        ///   seconds value, as in <c>DoclingClient</c>), so a stray 0 cannot make every call throw.
+        ///   <para>
+        ///     The default is deliberately ABOVE the longest synchronous budget the apiApp applies on
+        ///     a bridged route, so the downstream error wins and the agent is told which server
+        ///     setting to change. That budget is <c>Fallen8:Embedding:TimeoutSeconds</c> (300s): a
+        ///     bridged <c>POST /embedding/search</c> or <c>POST /document/search</c> embeds the query
+        ///     text in-request, so it can legitimately run for minutes. A shorter bound here would
+        ///     pre-empt it and report the bridge's vague retryable <c>504</c> instead - the same
+        ///     two-competing-deadlines mistake this repo removed from the chat gateway.
+        ///   </para>
+        ///   Exceeding it surfaces as the bridge's retryable <c>504</c> ("Fallen-8 timeout"), which
+        ///   <c>Fallen8RestClient</c> already maps.
+        /// </summary>
+        public Int32 TimeoutSeconds { get; set; } = 330;
     }
 }
