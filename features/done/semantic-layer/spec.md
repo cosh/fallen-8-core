@@ -1,6 +1,6 @@
 # Semantic layer - the Knowledge screen, an entity network, and non-blocking ingestion
 
-An evolution of [unstructured-ingestion](../../done/unstructured-ingestion/README.md) into a
+An evolution of [unstructured-ingestion](../unstructured-ingestion/spec.md) into a
 **semantic layer**: documents become a traversable knowledge graph, not just searchable
 chunks. Named entities and key terms are extracted from chunk text by a local spaCy service
 and become first-class, deduplicated **Entity vertices** that chunks `mentions`; ingestion is

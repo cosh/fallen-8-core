@@ -272,7 +272,7 @@ All Studio work lives in `fallen-8-web-ui/` (in-repo).
 | [multi-instance-host](../multi-instance-host/) | **Superseded** — status updated in its spec; auth would be re-specced from scratch (revisit trigger: untrusted caller). |
 | [save-games](../save-games/) | Registry schema v2 (per-namespace manifest, 1..n members), per-namespace + all saves, entry-driven and single-namespace restore, v1 entries read as default-only. save-games has no README; the registry semantics live in this feature's README (the living doc). |
 | [hosted-durability-lifecycle](../hosted-durability-lifecycle/), [crash-durability-hardening](../crash-durability-hardening/) | Lifecycle service generalizes to the catalog (per-namespace newest-entry boot, `/save/all` on shutdown); per-namespace WAL dirs; `default` keeps legacy paths (zero-migration upgrade). |
-| OpenAPI snapshot (`features/done/web-ui/openapi-v0.1.json`) | ~2× paths (twins) + `/ns` CRUD + `…/all` endpoints; regenerate + review. Consumed by the web-ui contract test and the [mcp-server](../../open/mcp-server/) spec — both flagged. |
+| OpenAPI snapshot (`features/done/web-ui/openapi-v0.1.json`) | ~2× paths (twins) + `/ns` CRUD + `…/all` endpoints; regenerate + review. Consumed by the web-ui contract test and the [mcp-server](../mcp-server/) spec — both flagged. |
 | NL-assist (`nl-assist-finetune/`) | **No retrain.** The harness and dataset use bare relative paths against a base URL; bare URLs keep aliasing `default`. No RETRAIN-LOG entry needed. Targeting a named namespace later is a one-line opt-in prefix in `shared/f8.ts`. |
 | Studio ([web-ui](../web-ui/) + studio-* features) | Switcher, router restructure, per-namespace stores, CRUD panel, save/erase action split, dialog wording (§8). |
 | [stored-query-library](../stored-query-library/) | Already per-engine ⇒ per-namespace for free; `MaxCount` applies per namespace (document). |
@@ -281,7 +281,7 @@ All Studio work lives in `fallen-8-web-ui/` (in-repo).
 | [observability](../observability/) | Meter collision fix: namespace-id tag on `Fallen8Metrics` (§7). |
 | [api-error-envelope](../../done/api-error-envelope/) (done) | New endpoints are problem+json from day one; its 134-site inventory is unaffected. |
 | [studio-embeddable](../../done/studio-embeddable/) (done) | Orthogonal (`storageNamespace` prefixes localStorage keys); its spec carries a one-line "may pin a namespace" future-work note. |
-| [agent-host](../../open/agent-host/), [mcp-server](../../open/mcp-server/) (open) | Both consume the REST contract; their specs get a one-line note that tools/agents address `/ns/{ns}/…`. |
+| [agent-host](../../open/agent-host/), [mcp-server](../mcp-server/) (open) | Both consume the REST contract; their specs get a one-line note that tools/agents address `/ns/{ns}/…`. |
 
 ## 10. Acceptance scenarios
 

@@ -1,6 +1,6 @@
 # Fallen-8 MCP Server — feature README (living doc)
 
-> **Usage docs live in [docs/mcp-server.md](../../../docs/mcp-server.md)** (how to run, connect
+> **Usage docs live in [docs/mcp-server.md](../../../docs/src/content/docs/mcp-server.md)** (how to run, connect
 > a client, the tool table, tiers/auth, config). This README is the contributor living doc:
 > architecture, pinned versions, layout, and the test/gate map. The historical record is
 > [spec.md](./spec.md) + [plan.md](./plan.md) (not rewritten).

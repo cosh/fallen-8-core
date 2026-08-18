@@ -2,10 +2,10 @@
 
 > **Status:** Implemented and merged (branch `feature/mcp-server`, council-reviewed). The
 > project is `fallen-8-mcp`; the living docs are [README.md](./README.md) (contributor) and
-> [docs/mcp-server.md](../../../docs/mcp-server.md) (user). This spec is the historical design
+> [docs/mcp-server.md](../../../docs/src/content/docs/mcp-server.md) (user). This spec is the historical design
 > record — read the living docs for current behaviour.
 >
-> **Companion feature:** [skill-library](../skill-library/spec.md) teaches agents *how* to use
+> **Companion feature:** [skill-library](../../open/skill-library/spec.md) teaches agents *how* to use
 > Fallen-8 well; this feature gives them the *tools* to do it. Neither blocks the other; the
 > skill library gains an MCP-alignment phase once this lands.
 >

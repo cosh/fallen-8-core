@@ -4,7 +4,7 @@ Status: implemented and merged (branch `feature/structural-decomposition`, merge
 after the two-architect design review below; deferred items remain trigger-gated in
 "Non-goals"). Related: [engine-performance](../engine-performance/), [subgraph](../subgraph/),
 [web-ui](../web-ui/), [index-lifecycle](../index-lifecycle/),
-[api-error-envelope](../../open/api-error-envelope/),
+[api-error-envelope](../api-error-envelope/),
 [studio-embeddable](../../done/studio-embeddable/).
 
 Revised 2026-07-22 after two independent architecture reviews (engine side; contracts/UI side)
@@ -153,7 +153,7 @@ acceptable outcome.*
 
 ## Impact on existing features (review sweep, 2026-07-22)
 
-- **[api-error-envelope](../../open/api-error-envelope/)** — its inventory counts 53 error sites in
+- **[api-error-envelope](../api-error-envelope/)** — its inventory counts 53 error sites in
   `GraphController` by location; the split stales that table. Sequenced **after** this
   feature's target 2; regenerate the inventory then. (Noted in that spec.)
 - **[studio-embeddable](../../done/studio-embeddable/)** - the original "alongside" sequencing would

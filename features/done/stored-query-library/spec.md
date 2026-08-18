@@ -3,7 +3,7 @@
 > **Status:** Implemented and merged (branch `feature/stored-query-library`, council-approved
 > 2026-07-15; see [plan.md](./plan.md) for the phase record and council outcome).
 >
-> **Provenance:** [skill-library](../skill-library/spec.md) explicitly carved this out — its
+> **Provenance:** [skill-library](../../open/skill-library/spec.md) explicitly carved this out — its
 > header note reads *"a server-side library of stored, reusable delegate/traversal definitions
 > inside the engine (i.e. stored procedures) — is explicitly **not** this feature; it would be
 > a separate engine feature if wanted."* This is that feature.

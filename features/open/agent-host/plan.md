@@ -4,7 +4,7 @@ Companion to [spec.md](./spec.md). A separate deployable that runs agents (Micro
 Framework, MIT) on a local phi model (Ollama) against Fallen-8 via `fallen-8-mcp`.
 Feature branch: `feature/agent-host` (branch-only workflow — no GitHub issue/PR).
 
-**Hard dependency:** [mcp-server](../mcp-server/plan.md) phases 0–2 must land first — the
+**Hard dependency:** [mcp-server](../../done/mcp-server/plan.md) phases 0–2 must land first — the
 agents' only graph access is that server's tools. Phase 0 here can run before it (the spike
 needs any MCP server or a stub tool, not F8 specifically).
 

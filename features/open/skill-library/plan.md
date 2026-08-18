@@ -83,9 +83,9 @@ Intent: skills teach the MCP path as the preferred agent access, REST as the fal
 
 ## Phase 4b - Integration-authoring skills (revision 2026-08-09a)
 
-Depends on the [integrations](../integrations/spec.md) contract having shipped, so the skills are
+Depends on the [integrations](../../done/integrations/spec.md) contract having shipped, so the skills are
 verified against reality rather than intent. Sequenced within the
-[integrations plan](../integrations/plan.md); listed here so this feature's own catalog and
+[integrations plan](../../done/integrations/plan.md); listed here so this feature's own catalog and
 gates stay in one place. See spec §3.2a and §3.2b.
 
 - [ ] `fallen8-integration-authoring`: provider contract, snapshot schema (incl. `completeness`),

@@ -4,10 +4,10 @@
 > repository root `CLAUDE.md`. Feature branch: `feature/agent-host` (branch-only workflow —
 > no GitHub issue/PR).
 >
-> **Depends on:** [mcp-server](../mcp-server/spec.md) (phases 0–2). Agents reach the graph
+> **Depends on:** [mcp-server](../../done/mcp-server/spec.md) (phases 0–2). Agents reach the graph
 > exclusively through the `fallen-8-mcp` tools; this feature adds **no** second bridge.
 > **Companions:** [skill-library](../skill-library/spec.md) (procedural knowledge the agents
-> can be primed with) and [nl-assist-finetune](../nl-assist-finetune/spec.md) (a specialized
+> can be primed with) and [nl-assist-finetune](../../done/nl-assist-finetune/spec.md) (a specialized
 > local model an operator may point agents at). Neither blocks this feature.
 
 > **Namespaces (feature graph-namespaces, 2026-07-23):** the REST surface this spec
@@ -26,7 +26,7 @@ Requirements fixed up front (user-stated):
 1. **Separate process.** The agent runtime is its own deployable, never in-process with the
    database or the apiApp.
 2. **Local MCP.** Agents use a locally deployed MCP server to operate on Fallen-8 — that is
-   the [mcp-server](../mcp-server/spec.md) feature; this feature is its first in-repo client.
+   the [mcp-server](../../done/mcp-server/spec.md) feature; this feature is its first in-repo client.
 3. **Local phi model.** The default model is **Phi-4-mini via Ollama** — the same MIT-only,
    local-first model posture the NL assist established. Model name and endpoint are config.
 4. **User ↔ agent communication** plus **subscribable events**: a user can send messages to

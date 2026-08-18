@@ -10,7 +10,7 @@ Fallen-8's core "queries are C#" model, so there is no switch for it. Runtime pl
 > uploaded and loaded an external DLL in-process. That endpoint has been **removed** (feature
 > plugin-registration); runtime plugins are now authored as C# **source** and registered under
 > `POST /plugins/*` (compiled, contract-validated, namespace-scoped — see
-> [docs/plugin-registration.md](../../../docs/plugin-registration.md)). The
+> [docs/src/content/docs/plugin-registration.md](../../../docs/src/content/docs/plugin-registration.md)). The
 > `EnableDynamicPluginLoading` switch survives, **repurposed** to gate that source-registration
 > surface; `PluginDirectory` is gone.
 
