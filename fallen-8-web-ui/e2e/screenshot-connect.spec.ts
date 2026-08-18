@@ -82,5 +82,14 @@ test("capture the Connect screen", async ({ page, request }) => {
   // for every one of them to resolve - otherwise the picture catches them mid-"checking…".
   await expect(page.getByText("checking…")).toHaveCount(0, { timeout: 20_000 });
 
+  // GUARD: the Configuration section is part of this shot and is only worth photographing when
+  // the instance actually has its exporter and providers wired. Run the capture app with
+  // Fallen8__Observability__Otlp__Endpoint, Fallen8__Embedding__* and Fallen8__Chat__*.
+  await expect(
+    page.getByTestId("config-observability-summary"),
+    'the Configuration section reads "Off - no exporter configured": set ' +
+      "Fallen8__Observability__Otlp__Endpoint on the capture app.",
+  ).toContainText("pushing metrics");
+
   await page.screenshot({ path: "../docs/src/assets/images/screen-connect.png" });
 });

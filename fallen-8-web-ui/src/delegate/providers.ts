@@ -42,6 +42,14 @@ interface ModelMember {
   kind: string;
   signature: string;
   doc: string;
+  /**
+   * Absent or true = callable in a fragment. False = the member EXISTS on the engine type but a
+   * call fails with CS0012, because the narrow compile does not reference the assembly its
+   * signature names. Kept in the list as a discovery aid (somebody who read the engine source
+   * looks for it, and finding it struck through with its substitute named beats finding nothing),
+   * but sorted last, marked deprecated, and withheld from the NL-assist prompt (see nl/prompt.ts).
+   */
+  compilable?: boolean;
 }
 
 interface ModelType {
@@ -119,11 +127,26 @@ export function registerDelegateProviders(
             suggestions: membersForType(info.parameterType).map((member) => ({
               label: member.name,
               kind: completionKind(monaco, member.kind),
-              detail: member.signature,
+              detail:
+                member.compilable === false
+                  ? `${member.signature}   [not callable in a fragment: CS0012]`
+                  : member.signature,
               documentation: member.doc,
+              // Strikethrough is the only list-level mark Monaco offers, and "do not reach for
+              // this here" is what it has to say.
+              tags:
+                member.compilable === false
+                  ? [monaco.languages.CompletionItemTag.Deprecated]
+                  : undefined,
+              // Sort them last so a blind Tab never accepts one.
+              sortText: member.compilable === false ? `zz_${member.name}` : member.name,
               insertText:
                 member.kind === "method" && member.name.startsWith("TryGet")
-                  ? `${member.name}(out $1, "$2")$0`
+                  ? // An optional trailing parameter (`name = "default"`) must not be forced into
+                    // the snippet, or accepting it writes an empty string literal.
+                    member.signature.includes("= \"")
+                    ? `${member.name}(out $1)$0`
+                    : `${member.name}(out $1, "$2")$0`
                   : member.kind === "method"
                     ? `${member.name}($1)$0`
                     : member.name,

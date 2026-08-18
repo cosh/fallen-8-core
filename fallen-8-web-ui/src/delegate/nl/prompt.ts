@@ -49,7 +49,13 @@ export function buildGenerationPrompt(
 ): NlPrompt {
   const info = KIND_INFO[kind];
 
+  // Uncompilable members stay in IntelliSense, where a human reads the warning and picks the
+  // substitute, but they are withheld from the model. Listed under an instruction not to invent
+  // members that are not listed, a member reads as sanctioned, and small models drop caveats:
+  // the fine-tune baseline in features/done/nl-assist-finetune/plan.md already recorded
+  // GetAllProperties misuse among the failing rows.
   const members = membersForType(info.parameterType)
+    .filter((member) => member.compilable !== false)
     .map((member) => `- ${member.signature}${member.doc ? ` // ${member.doc}` : ""}`)
     .join("\n");
 

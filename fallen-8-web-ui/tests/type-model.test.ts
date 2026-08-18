@@ -25,6 +25,7 @@
 
 import { describe, expect, it } from "vitest";
 import { membersForType, memberByName } from "../src/delegate/providers";
+import { buildGenerationPrompt } from "../src/delegate/nl/prompt";
 import { snippetCodeFor, snippetsForKind } from "../src/delegate/snippets";
 
 /**
@@ -41,6 +42,52 @@ describe("static type model", () => {
     expect(names).toContain("GetAllNeighbors"); // vertex
     expect(names).not.toContain("SourceVertex"); // edge-only
     expect(names).not.toContain("StartsWith"); // string-only
+  });
+
+  // Engine members whose CALL fails with CS0012 in a fragment, because the compile does not
+  // reference the assembly their signature names. fallen-8-unittest/DelegateAccessorSurfaceTest.cs
+  // compiles each of these and asserts it fails, so this list is measured, not assumed.
+  const UNCOMPILABLE = [
+    "GetAllProperties",
+    "GetAllNeighbors",
+    "GetIncomingEdgeIds",
+    "GetOutgoingEdgeIds",
+  ];
+
+  it("flags exactly the members a fragment cannot call, and keeps offering them", () => {
+    const vertex = membersForType("VertexModel");
+    const flagged = vertex.filter((m) => m.compilable === false).map((m) => m.name);
+    expect(flagged.sort()).toEqual([...UNCOMPILABLE].sort());
+
+    // Offered, not deleted: somebody who read the engine source comes looking for these, and
+    // finding one struck through with its substitute named beats finding nothing.
+    for (const name of UNCOMPILABLE) {
+      const member = memberByName(name);
+      expect(member, name).toBeDefined();
+      expect(member?.doc, name).toContain("NOT callable in a fragment");
+      expect(member?.doc, name).toContain("CS0012");
+    }
+  });
+
+  it("offers the compilable members the model used to omit", () => {
+    const vertex = membersForType("VertexModel").map((m) => m.name);
+    // Documented at docs/src/content/docs/delegates.mdx (### Accessor surface) and compile-checked
+    // by DelegateAccessorSurfaceTest, but absent from this model until the drift was reconciled.
+    expect(vertex).toContain("TryGetEmbedding");
+    expect(vertex).toContain("TryGetEmbeddingModelStamp");
+    expect(vertex).toContain("TryGetOutEdgesSpan");
+    expect(vertex).toContain("TryGetInEdgesSpan");
+  });
+
+  it("withholds uncompilable members from the NL-assist prompt (they read as sanctioned)", () => {
+    const { system } = buildGenerationPrompt("VertexFilter", "anything");
+    for (const name of UNCOMPILABLE) {
+      expect(system, name).not.toContain(name);
+    }
+    // The substitutes the model SHOULD reach for are still in front of it.
+    expect(system).toContain("GetPropertyCount");
+    expect(system).toContain("OutEdges");
+    expect(system).toContain("TryGetProperty");
   });
 
   it("EdgeModel members include base + edge members", () => {

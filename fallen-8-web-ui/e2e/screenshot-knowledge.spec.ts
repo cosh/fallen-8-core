@@ -113,5 +113,14 @@ test("capture the Knowledge screen", async ({ page, request }) => {
   await page.getByTestId("search-run").click();
   await expect(page.getByTestId("search-results")).toBeVisible({ timeout: 20_000 });
 
+  // GUARD: the Entities view is one of this shot's subjects, and it reads "No entities yet" when
+  // the NLP sidecar is absent, which no assertion used to catch. Run the capture app with
+  // Fallen8__Nlp__Enabled=true and Fallen8__Nlp__Endpoint pointing at the sidecar.
+  await expect(
+    page.getByTestId("entities"),
+    "the Entities view is empty: the capture app needs the NLP sidecar " +
+      "(Fallen8__Nlp__Enabled=true, Fallen8__Nlp__Endpoint=http://127.0.0.1:8100).",
+  ).not.toContainText("No entities yet");
+
   await page.screenshot({ path: "../docs/src/assets/images/screen-knowledge.png", fullPage: true });
 });

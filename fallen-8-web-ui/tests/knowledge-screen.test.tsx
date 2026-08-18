@@ -293,6 +293,21 @@ describe("entities view (FR-6)", () => {
     );
   });
 
+  it("hints the label set the shipped NLP models actually emit (B17)", async () => {
+    renderScreen();
+
+    // The type filter is an exact, case-insensitive compare against the RAW spaCy label the
+    // sidecar stores verbatim (fallen-8-nlp/app/enrich.py label=ent.label_), and the shipped
+    // en_core_web_lg / en_core_web_trf emit the OntoNotes set. A hint naming PER, which no
+    // shipped model emits, can only ever send somebody to a filter that matches nothing.
+    await waitFor(() => expect(screen.getByTestId("entity-type")).toBeInTheDocument());
+    const hint = screen.getByText(/Type filter/);
+    expect(hint.textContent).toContain("PERSON");
+    expect(hint.textContent).toContain("GPE");
+    expect(hint.textContent).not.toMatch(/PER/);
+    expect(hint.textContent).not.toMatch(/LOC/);
+  });
+
   it("sends an entity to the canvas", async () => {
     listEntitiesMock.mockResolvedValue({
       entities: [{ id: 100, text: "Muster GmbH", type: "ORG", mentionCount: 5 }],

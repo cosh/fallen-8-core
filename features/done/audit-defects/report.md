@@ -28,7 +28,7 @@ cosmetics. The `Status` column is maintained as the fixes land.
 | [B07](#b07) | medium | A second <remarks> block is silently dropped from the OpenAPI description, losing the SECURITY/SEMANTIC notes on all three code en [...] | **fixed** |
 | [B12](#b12) | medium | Path screen lets you build costBySimilarity + an inline vertexFilter, which the server rejects with 400 | **fixed** |
 | [B16](#b16) | medium | POST /document and /document/text declare statuses (413 for MaxPages/MaxChunksPerDocument, 502) that the async pipeline can never [...] | **fixed** |
-| [B17](#b17) | medium | Entity-type examples say PER/ORG/LOC, but the shipped spaCy models emit OntoNotes labels (PERSON/ORG/GPE) | **fixed** |
+| [B17](#b17) | medium | Entity-type examples say PER/ORG/LOC, but the shipped spaCy models emit OntoNotes labels (PERSON/ORG/GPE) | **fixed** (3 of 4 sites then; see the correction) |
 | [B19](#b19) | medium | Unknown or unconvertible property type on the create routes escapes as 500, not the documented 400 | **fixed** |
 | [B24](#b24) | medium | A filterless POST /path still runs Roslyn and loads a collectible assembly (no "nothing to compile" short-circuit) | **fixed** |
 | [B28](#b28) | medium | A runtime-registered ISubGraphAlgorithm is registerable and discoverable but not invocable | **fixed** |
@@ -204,6 +204,7 @@ The `type` filter on GET /document/entities is an exact, case-insensitive string
 - **Impact:** A user or agent that follows the example and asks for `type=PER` gets an empty list with HTTP 200 and no hint that the value is unknown, and can reasonably conclude the corpus mentions no people. Agents are the worst hit: the MCP schema string is the only label guidance they get.
 - **Fix:** Replace the example label set with the real one in the four sites: DocumentController.cs:453 -> "(case-insensitive, e.g. PERSON/ORG/GPE)", DocumentEntityListREST.cs:68 -> "(the NLP label, e.g. PERSON/ORG/GPE)", fallen-8-mcp/Tools/DocumentsTool.cs:106 -> "e.g. PERSON/ORG/GPE (raw spaCy OntoNotes labels)", KnowledgeScreen.tsx:527 -> "Type filter (PERSON/ORG/GPE/...)". Then regenerate the OpenAPI snapshot (pwsh scripts/update-openapi-snapshot.ps1) for the three description strings.
 - **Risk:** Small, but touches four layers: the OpenAPI snapshot must be regenerated (description-only diff, additions/edits, no removals), and KnowledgeScreen.tsx:527 is visible UI text - by the repo's own rule any UI change means the affected docs screenshots are recaptured. No contract or behaviour change;
+- **Correction (2026-08-18):** three of the four named sites landed in 763ca4e; the Studio one did not. `fallen-8-web-ui/src/screens/KnowledgeScreen.tsx:527` still read `Type filter (PER/ORG/LOC/…)` for three weeks after this row was marked fixed, which is exactly what the Risk bullet above predicted. It is corrected now, pinned by a `knowledge-screen.test.tsx` assertion (the REST and MCP halves had tests, the UI string had none, and that asymmetry is what let it survive), and `screen-knowledge.png` recaptured.
 
 ### B19: Unknown or unconvertible property type on the create routes escapes as 500, not the documented 400
 

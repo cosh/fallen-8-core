@@ -243,12 +243,25 @@ export function ConfigurationPanel() {
   );
 }
 
-function EnvRow({ label, value, envKey }: { label: string; value: string; envKey: string }) {
+function EnvRow({
+  label,
+  value,
+  envKey,
+  testId,
+}: {
+  label: string;
+  value: string;
+  envKey: string;
+  /** Set where a docs capture has to assert this row is configured, not "off". */
+  testId?: string;
+}) {
   return (
     <div className="border-line grid grid-cols-[10rem_1fr] items-baseline gap-2 border-b py-1.5 text-[12px] last:border-b-0">
       <span className="text-fg-dim">{label}</span>
       <div className="min-w-0">
-        <div className="text-fg wrap-break-word">{value}</div>
+        <div className="text-fg wrap-break-word" data-testid={testId}>
+          {value}
+        </div>
         <code className="text-fg-faint text-[10px]">{envKey}</code>
       </div>
     </div>
@@ -297,6 +310,7 @@ function ObservabilityOverlay({
                 label="OTLP endpoint"
                 value={observability.otlpEnabled ? (observability.otlpEndpoint ?? "(set)") : "off"}
                 envKey="Fallen8__Observability__Otlp__Endpoint"
+                testId="config-otlp-endpoint"
               />
               <EnvRow
                 label="trace sampling"

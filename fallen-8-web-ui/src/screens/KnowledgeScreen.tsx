@@ -524,7 +524,7 @@ export function KnowledgeScreen() {
         <h2 className="panel-title">Entities</h2>
         <div className="flex flex-wrap items-end gap-2 p-3">
           <label>
-            <span className="text-fg-faint text-[11px]">Type filter (PER/ORG/LOC/…)</span>
+            <span className="text-fg-faint text-[11px]">Type filter (PERSON/ORG/GPE/…)</span>
             <input
               className="input w-40"
               value={entityType}

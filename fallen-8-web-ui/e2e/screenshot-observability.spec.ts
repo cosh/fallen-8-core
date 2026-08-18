@@ -64,5 +64,15 @@ test("capture the observability config overlay", async ({ page }) => {
   await expect(page.getByText("Statistics snapshot")).toBeVisible();
 
   // Capture the overlay over the dimmed Connect screen (matches how a user sees it).
+  // GUARD: this frame exists to show a REAL push endpoint. Without one the row renders "off" and
+  // the capture silently degrades the published image - which happened five times before this
+  // assertion existed. /config echoes the configured string, so no collector has to be listening.
+  await expect(
+    page.getByTestId("config-otlp-endpoint"),
+    'the Push (OTLP) row reads "off": run the capture app with ' +
+      "Fallen8__Observability__Otlp__Endpoint set (a configured string is enough). Do not assert " +
+      'on the whole overlay: the Prometheus scrape row reads "off" by design.',
+  ).not.toHaveText("off");
+
   await page.screenshot({ path: "../docs/src/assets/images/screen-connect-observability.png" });
 });

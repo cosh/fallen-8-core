@@ -287,3 +287,33 @@ existing held-out rows (`ec-weight-default`, `ec-distance` pass); the precedence
 vc-prop-default classes have no dedicated held-out rows and are pinned only by training.
 
 **Closed by:** (open)
+
+## 2026-08-18 - delegate accessor-surface reconciliation (four uncompilable members withheld) - PENDING
+
+**Why:** `type-model.json` is a drift-hash source (`dataset-gen/generate.ts` DELEGATE_SOURCES), and
+this change edits it, so the next generate run regenerates the meta. The substance: four members it
+offered cannot be CALLED from a fragment at all. `GetAllProperties()` names
+`ImmutableDictionary<,>` and `GetAllNeighbors()` / `GetIncomingEdgeIds()` / `GetOutgoingEdgeIds()`
+name `List<>`, whose assemblies the compile does not reference, so every draft using one fails with
+CS0012. They were listed in the generation prompt under an instruction not to invent members that
+are not listed, which reads as sanctioning them. `DelegateAccessorSurfaceTest` now compiles all four
+against the real validator and asserts they fail, so this is measured, not inferred.
+
+**What changed in the prompt surface:** `nl/prompt.ts` now filters `compilable === false` members
+out of the member list. Four members that DO compile were also added and so are newly offered to the
+model: `TryGetEmbedding`, `TryGetEmbeddingModelStamp`, `TryGetOutEdgesSpan`, `TryGetInEdgesSpan`.
+
+**Corpus impact:** the 13 rows in `dataset/train.jsonl` and 9 in `captured.jsonl` whose FROZEN
+system prompts embed the old member list are now stale in their prompt half only. No target
+`fragment` in either file calls any of the four (checked every target value), so no row teaches the
+bad member; the contamination is the prompt text, not the labels. The already-recorded baseline
+failure in `plan.md` ("GetAllProperties() dictionary misuse (2 rows)") should be re-measured after
+the next generate: withholding the member from the prompt is the cheap fix that analysis predicted,
+and it may close those rows without any new training data.
+
+**Suggested held-out rows for the next run:** an intent that invites the dictionary shape ("filter
+vertices that have any property at all") to confirm the model reaches for `GetPropertyCount()`, and
+a neighbour-walking intent ("vertices with a person neighbour") to confirm it walks `OutEdges`
+instead of `GetAllNeighbors()`.
+
+**Closed by:** (open)

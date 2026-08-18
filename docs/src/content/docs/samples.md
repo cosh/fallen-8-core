@@ -256,7 +256,7 @@ The **Path** screen finds routes between two elements. On a weighted sample (air
 `km`, the attack surface by `exploitCost`) a Dijkstra run returns the genuinely cheapest
 route; the default BLS finds fewest-hop paths.
 
-![A path result on the Path screen.](../../assets/images/path-result.png)
+![A BLS path result on the karate club: two hops from Mr. Hi to the Officer, with totalWeight 0 because BLS ignores costs.](../../assets/images/path-result.png)
 
 Filters and cost functions are C# [delegates](/delegates/); the full path contract is in
 [path finding](/path-finding/).
@@ -268,7 +268,7 @@ matching path into a new standalone graph.
 
 ![The subgraph pattern builder.](../../assets/images/screen-subgraph-builder.png)
 
-![A created subgraph.](../../assets/images/subgraph-result.png)
+![The created subgraph people-net, listed with the 34 vertices and 78 edges it extracted.](../../assets/images/subgraph-result.png)
 
 The pattern model and REST lifecycle are in [subgraphs](/subgraphs/).
 

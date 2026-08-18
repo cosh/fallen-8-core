@@ -1,5 +1,5 @@
 {
-  "$comment": "Static IntelliSense model for delegate fragments (FR-22), hand-maintained against features/done/web-ui/spec.md §6.2 which mirrors fallen-8-core/Model/AGraphElementModel.cs, VertexModel.cs, EdgeModel.cs. Regeneration: update this file whenever those public surfaces change; the spec section is the review checklist. Only members a fragment can meaningfully touch are listed.",
+  "$comment": "Static IntelliSense model for delegate fragments (FR-22), hand-maintained against the accessor surface published at docs/src/content/docs/delegates.mdx (### Accessor surface), which is the living record of what a fragment can actually call, and against the engine types it mirrors: fallen-8-core/Model/AGraphElementModel.cs, VertexModel.cs, EdgeModel.cs. Update this file whenever those change. `compilable: false` marks a member that EXISTS on the engine type but whose call fails with CS0012, because the narrow compile does not reference the assembly its signature names; those stay listed as a discovery aid, name their substitute, sort last, and are withheld from the NL-assist prompt. DelegateAccessorSurfaceTest compiles every entry here against the real validator.",
   "types": {
     "AGraphElementModel": {
       "base": null,
@@ -9,9 +9,11 @@
         { "name": "GetCreationDate", "kind": "method", "signature": "DateTime GetCreationDate()", "doc": "The creation timestamp." },
         { "name": "GetModificationDate", "kind": "method", "signature": "DateTime GetModificationDate()", "doc": "The last-modification timestamp." },
         { "name": "GetPropertyCount", "kind": "method", "signature": "int GetPropertyCount()", "doc": "Number of properties on this element." },
-        { "name": "GetAllProperties", "kind": "method", "signature": "ImmutableDictionary<string, object> GetAllProperties()", "doc": "All properties as an immutable dictionary." },
+        { "name": "GetAllProperties", "kind": "method", "compilable": false, "signature": "ImmutableDictionary<string, object> GetAllProperties()", "doc": "NOT callable in a fragment: fails with CS0012, because ImmutableDictionary<,> lives in System.Collections.Immutable and the compile does not reference it. Use GetPropertyCount(), TryGetProperty(out T, id) or AnyPropertyValueMatches(predicate) instead." },
         { "name": "TryGetProperty", "kind": "method", "signature": "bool TryGetProperty<T>(out T result, string propertyId)", "doc": "The canonical typed property access: returns false when the property is missing, not a T, or null - never throws. Example: TryGetProperty(out int age, \"age\") && age > 30" },
-        { "name": "AnyPropertyValueMatches", "kind": "method", "signature": "bool AnyPropertyValueMatches(Func<string, bool> valuePredicate)", "doc": "Whether any string-typed property VALUE satisfies the predicate (property names never reach it; reserved embedding entries are skipped). Example: AnyPropertyValueMatches(s => s.Contains(\"Tech\", StringComparison.OrdinalIgnoreCase))" }
+        { "name": "AnyPropertyValueMatches", "kind": "method", "signature": "bool AnyPropertyValueMatches(Func<string, bool> valuePredicate)", "doc": "Whether any string-typed property VALUE satisfies the predicate (property names never reach it; reserved embedding entries are skipped). Example: AnyPropertyValueMatches(s => s.Contains(\"Tech\", StringComparison.OrdinalIgnoreCase))" },
+        { "name": "TryGetEmbedding", "kind": "method", "signature": "bool TryGetEmbedding(out ReadOnlySpan<float> vector, string name = \"default\")", "doc": "The named embedding, if present. The name argument is optional and defaults to \"default\"." },
+        { "name": "TryGetEmbeddingModelStamp", "kind": "method", "signature": "bool TryGetEmbeddingModelStamp(out string stamp, string name = \"default\")", "doc": "The model stamp stored next to a provider-written embedding (absent for a bring-your-own vector)." }
       ]
     },
     "VertexModel": {
@@ -19,13 +21,15 @@
       "members": [
         { "name": "GetInDegree", "kind": "method", "signature": "uint GetInDegree()", "doc": "Count of incoming edges." },
         { "name": "GetOutDegree", "kind": "method", "signature": "uint GetOutDegree()", "doc": "Count of outgoing edges." },
-        { "name": "GetAllNeighbors", "kind": "method", "signature": "List<VertexModel> GetAllNeighbors()", "doc": "All adjacent vertices (both directions)." },
-        { "name": "GetIncomingEdgeIds", "kind": "method", "signature": "List<string> GetIncomingEdgeIds()", "doc": "The incoming edge-property ids." },
-        { "name": "GetOutgoingEdgeIds", "kind": "method", "signature": "List<string> GetOutgoingEdgeIds()", "doc": "The outgoing edge-property ids." },
-        { "name": "OutEdges", "kind": "property", "signature": "IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>> OutEdges", "doc": "Outgoing edges grouped by edge-property id." },
-        { "name": "InEdges", "kind": "property", "signature": "IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>> InEdges", "doc": "Incoming edges grouped by edge-property id." },
-        { "name": "TryGetOutEdge", "kind": "method", "signature": "bool TryGetOutEdge(out IReadOnlyList<EdgeModel> result, string edgePropertyId)", "doc": "Outgoing edges for one edge-property id." },
-        { "name": "TryGetInEdge", "kind": "method", "signature": "bool TryGetInEdge(out IReadOnlyList<EdgeModel> result, string edgePropertyId)", "doc": "Incoming edges for one edge-property id." }
+        { "name": "GetAllNeighbors", "kind": "method", "compilable": false, "signature": "List<VertexModel> GetAllNeighbors()", "doc": "NOT callable in a fragment: fails with CS0012, because List<> resolves to System.Collections and the compile does not reference it. Walk the adjacency instead, e.g. v.OutEdges != null && v.OutEdges.SelectMany(kv => kv.Value).Any(e => e.TargetVertex.Label == \"person\")." },
+        { "name": "GetIncomingEdgeIds", "kind": "method", "compilable": false, "signature": "List<string> GetIncomingEdgeIds()", "doc": "NOT callable in a fragment: fails with CS0012, because List<> resolves to System.Collections and the compile does not reference it. Use InEdges.Keys (guard InEdges for null), or TryGetInEdge for one id." },
+        { "name": "GetOutgoingEdgeIds", "kind": "method", "compilable": false, "signature": "List<string> GetOutgoingEdgeIds()", "doc": "NOT callable in a fragment: fails with CS0012, because List<> resolves to System.Collections and the compile does not reference it. Use OutEdges.Keys (guard OutEdges for null), or TryGetOutEdge for one id." },
+        { "name": "OutEdges", "kind": "property", "signature": "IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>> OutEdges", "doc": "Outgoing edges grouped by edge-property id, or null when the vertex has none in that direction: guard before dereferencing." },
+        { "name": "InEdges", "kind": "property", "signature": "IReadOnlyDictionary<string, IReadOnlyList<EdgeModel>> InEdges", "doc": "Incoming edges grouped by edge-property id, or null when the vertex has none in that direction: guard before dereferencing." },
+        { "name": "TryGetOutEdge", "kind": "method", "signature": "bool TryGetOutEdge(out IReadOnlyList<EdgeModel> result, string edgePropertyId)", "doc": "Outgoing edges for one edge-property id; false with a null result when the group is absent." },
+        { "name": "TryGetInEdge", "kind": "method", "signature": "bool TryGetInEdge(out IReadOnlyList<EdgeModel> result, string edgePropertyId)", "doc": "Incoming edges for one edge-property id; false with a null result when the group is absent." },
+        { "name": "TryGetOutEdgesSpan", "kind": "method", "signature": "bool TryGetOutEdgesSpan(out ReadOnlySpan<EdgeModel> edges, string edgePropertyId)", "doc": "The same outgoing group, allocation-free. The span is a ref struct, so iterate it in scope." },
+        { "name": "TryGetInEdgesSpan", "kind": "method", "signature": "bool TryGetInEdgesSpan(out ReadOnlySpan<EdgeModel> edges, string edgePropertyId)", "doc": "The same incoming group, allocation-free. The span is a ref struct, so iterate it in scope." }
       ]
     },
     "EdgeModel": {
@@ -33,7 +37,7 @@
       "members": [
         { "name": "SourceVertex", "kind": "field", "signature": "VertexModel SourceVertex", "doc": "The edge's source vertex (readonly)." },
         { "name": "TargetVertex", "kind": "field", "signature": "VertexModel TargetVertex", "doc": "The edge's target vertex (readonly)." },
-        { "name": "EdgePropertyId", "kind": "property", "signature": "string EdgePropertyId", "doc": "The edge-property id this edge belongs to." }
+        { "name": "EdgePropertyId", "kind": "field", "signature": "string EdgePropertyId", "doc": "The edge-property id this edge belongs to." }
       ]
     },
     "string": {
