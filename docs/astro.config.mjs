@@ -46,7 +46,125 @@ export default defineConfig({
 						'http://127.0.0.1:*/**',
 					],
 				}),
-				starlightLlmsTxt(),
+				// llms.txt for agents (https://llmstxt.org/). Left unconfigured this plugin emits a
+				// bare stub and an llms-small.txt only ~16% under the full corpus, giving an agent no
+				// reason to pick the abridged set. So both halves are set explicitly: `description`
+				// and `details` give llms.txt something to say, `customSets` publish the curated
+				// per-topic subsets, and `exclude` plus `minify` are what actually make the abridged
+				// set small. Set labels track the `sidebar` groups below; keep them in step.
+				starlightLlmsTxt({
+					description:
+						'Fallen-8 is an in-memory graph database written in C# (.NET 10). It holds a directed property graph, mutates it only through transactions, and answers path-finding, subgraph-pattern, vector and full-text queries either in process as a library or over a versioned REST API. Traversal filters and costs are small C# delegate fragments compiled at runtime rather than a bespoke query language. One deployment is a collection of namespaces, each an isolated graph owning one engine.',
+					details: `Reading notes:
+
+- Every mutation goes through a transaction: build one (\`CreateVerticesTransaction\`, \`CreateEdgesTransaction\`, ...), enqueue it, then wait for completion. Reads go straight through the read interface and need no transaction.
+- The REST path and subgraph APIs take filter/cost predicates as C# lambda source strings, e.g. \`return (v) => v.Label == "person";\`, compiled with Roslyn at request time. A fragment runs in process with full trust, so authentication is the only boundary. Stored queries are the pre-compiled, invoke-by-name alternative.
+- Every namespace-scoped route also answers under \`/ns/{ns}/...\`; a bare URL targets the reserved \`default\` namespace.
+- The MCP server (for AI agents) and the integrations runtime (for reading systems on the operator's own network) are separate deployables that reach a graph over the public REST API only, never in process.`,
+					customSets: [
+						{
+							label: 'Getting started',
+							description:
+								'run the engine or embed it as a library, and secure what you expose',
+							paths: ['index', 'running', 'library', 'security', 'samples'],
+						},
+						{
+							label: 'Graph model and queries',
+							description:
+								'the property graph, delegate fragments, path finding, subgraph patterns, analytics, stored queries and indexes',
+							paths: [
+								'graph-model',
+								'delegates',
+								'path-finding',
+								'subgraphs',
+								'graph-analytics',
+								'stored-queries',
+								'indexes',
+							],
+						},
+						{
+							label: 'Semantic and vector search',
+							description:
+								'element embeddings, vector indexes, semantic traversal and the semantic layer over unstructured sources',
+							paths: ['vector-search', 'semantic-traversal', 'unstructured-ingestion'],
+						},
+						{
+							label: 'REST API and data movement',
+							description:
+								'the HTTP surface, namespaces, bulk import/export, the change feed, save games and network integrations',
+							paths: [
+								'rest-api',
+								'api-reference',
+								'namespaces',
+								'bulk-import-export',
+								'change-feed',
+								'save-games',
+								'integrations',
+							],
+						},
+						{
+							label: 'AI agents',
+							description: 'the MCP server tool surface and auth modes, plus NL assist and fine-tuning',
+							paths: ['mcp-server', 'nl-assist'],
+						},
+						{
+							label: 'F8 Studio',
+							description:
+								'the browser UI, its standalone deployment, embedding it in a host app, and the benchmark harness',
+							paths: ['studio', 'standalone-ui', 'embed-studio', 'embed-scenarios', 'benchmark'],
+						},
+						{
+							label: 'Operations and architecture',
+							description:
+								'how the layers and deployables fit, plus metrics/tracing, capacity, troubleshooting and local debugging',
+							paths: [
+								'architecture',
+								'observability',
+								'capacity-and-performance',
+								'troubleshooting',
+								'debugging',
+							],
+						},
+						{
+							label: 'Plugins',
+							description: 'writing a path, subgraph or index plugin and registering it',
+							paths: ['plugins', 'plugin-registration'],
+						},
+					],
+					// Dropped from llms-small.txt only (llms-full.txt keeps everything). The abridged
+					// set answers "how do I use this graph database", so the GUI tour, the sample
+					// gallery walkthroughs, the ops/perf pages and the meta pages come out; every
+					// engine, query and REST page stays.
+					exclude: [
+						'studio',
+						'standalone-ui',
+						'embed-studio',
+						'embed-scenarios',
+						'benchmark',
+						'samples',
+						'observability',
+						'capacity-and-performance',
+						'troubleshooting',
+						'debugging',
+						'nl-assist',
+						'license',
+					],
+					// note/tip/details/whitespace already default to true; these two do not.
+					minify: { caution: true, danger: true },
+					optionalLinks: [
+						{
+							label: 'Source repository',
+							url: 'https://github.com/cosh/fallen-8-core',
+							description:
+								'the engine, the REST app, the MCP server, the integrations runtime and the feature record behind each page',
+						},
+						{
+							label: 'MIT license',
+							url: 'https://github.com/cosh/fallen-8-core/blob/main/LICENSE',
+							description: 'the terms the code and these docs ship under',
+						},
+					],
+				}),
 			],
 			sidebar: [
 				{

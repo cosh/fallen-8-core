@@ -1,0 +1,17 @@
+# Fallen-8 documentation: https://docs.fallen-8.com/
+#
+# robots.txt is host-scoped, so this file is the only place the documentation corpus
+# carries a crawl declaration; the repository's LICENSE governs the source, not this host.
+#
+# Content-Signal (https://contentsignals.org/) states, machine-readably, what a crawler
+# may do with what it fetches here. All three signals are "yes" on purpose: these are
+# MIT-licensed public docs, and we want Fallen-8 searchable, quotable by assistants, and
+# present in training corpora.
+#   ai-train: may be used to train a generative model
+#   search:   may be indexed for a search engine result
+#   ai-input: may be retrieved as grounding input at inference time (RAG)
+User-agent: *
+Allow: /
+Content-Signal: ai-train=yes, search=yes, ai-input=yes
+
+Sitemap: https://docs.fallen-8.com/sitemap-index.xml
