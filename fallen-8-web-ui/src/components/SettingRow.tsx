@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // SettingRow.tsx
 //
@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import { memo } from "react";
 import type { SettingREST, ConfigSettingSource } from "../api/types";
 import { RESTART_PENDING_CHIP } from "../lib/restartCopy";
 
@@ -69,7 +70,9 @@ function SourceBadge({ setting }: { setting: SettingREST }) {
   );
 }
 
-export function SettingRow({
+// Memoised, and the callbacks carry the key so the panel can pass ONE stable pair: without that,
+// every keystroke into any field re-renders all ~95 rows because each would get fresh closures.
+export const SettingRow = memo(function SettingRow({
   setting,
   draft,
   onChange,
@@ -79,8 +82,8 @@ export function SettingRow({
   setting: SettingREST;
   /** The unsaved value, or undefined when this row is untouched. */
   draft?: string | null;
-  onChange: (value: string) => void;
-  onClear: () => void;
+  onChange: (key: string, value: string) => void;
+  onClear: (key: string) => void;
   /** True when the whole editable region is gated off (an embed host locked it). */
   disabled?: boolean;
 }) {
@@ -127,7 +130,7 @@ export function SettingRow({
                 className="btn mt-1 normal-case"
                 data-testid={`${testId}-clear`}
                 disabled={disabled}
-                onClick={onClear}
+                onClick={() => onClear(setting.key)}
                 title="Remove the stored value and fall back to whatever this instance is configured with"
               >
                 Clear
@@ -156,7 +159,7 @@ export function SettingRow({
             data-testid={testId}
             disabled={!writable}
             checked={current === "true"}
-            onChange={(event) => onChange(event.target.checked ? "true" : "false")}
+            onChange={(event) => onChange(setting.key, event.target.checked ? "true" : "false")}
           />
           <span className="text-fg-dim text-[12px]">{current === "true" ? "true" : "false"}</span>
         </label>
@@ -168,7 +171,7 @@ export function SettingRow({
         <select
           {...common}
           value={current}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(setting.key, event.target.value)}
         >
           {(setting.allowedValues ?? []).map((allowed) => (
             <option key={allowed} value={allowed}>
@@ -189,15 +192,15 @@ export function SettingRow({
           max={setting.maximum ?? undefined}
           step={setting.kind === "double" ? "any" : 1}
           value={current}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={(event) => onChange(setting.key, event.target.value)}
         />
       );
     }
 
     // string, and array (which the server never marks writable, so it arrives disabled).
     return (
-      <input {...common} type="text" value={current} onChange={(event) => onChange(event.target.value)} />
+      <input {...common} type="text" value={current} onChange={(event) => onChange(setting.key, event.target.value)} />
     );
   }
-}
+});
 

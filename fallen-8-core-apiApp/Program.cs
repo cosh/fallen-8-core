@@ -474,19 +474,20 @@ namespace NoSQL.GraphDB.App
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicPluginLoading));
                 });
 
-                // The configuration-write gate (feature writable-instance-config): the capability half of
-                // the two operator acts a write needs. The other half, that an API key must be
-                // configured at all, is enforced in the action rather than here, and deliberately: a
-                // policy that fails for an UNAUTHENTICATED caller produces a challenge, so a keyless
-                // instance would answer 401 and invite a caller to authenticate with a key that does not
-                // exist. The action answers 403 and says why.
+                // The configuration-write gate (feature writable-instance-config): BOTH operator acts
+                // live in the assertion, so the policy fails closed for any endpoint that ever adopts
+                // it. On a keyless instance the failure surfaces as a challenge (401), because the
+                // caller is unauthenticated; WriteConfig keeps a layered no-key check purely so the
+                // one route that exists today can explain itself with a 403 when the policy is ever
+                // relaxed. A configuration write persists a posture change that outlives the process,
+                // which is why this is stricter than the capability policies below.
                 o.AddPolicy(Fallen8SecurityOptions.ConfigurationWritePolicy, p =>
                 {
                     if (keyConfigured)
                     {
                         p.RequireAuthenticatedUser();
                     }
-                    p.RequireAssertion(_ => security.EnableConfigurationWrite);
+                    p.RequireAssertion(_ => keyConfigured && security.EnableConfigurationWrite);
                 });
 
                 // The embedding provider gate (feature embedding-provider): same shape as the
@@ -672,11 +673,9 @@ namespace NoSQL.GraphDB.App
             // persisted AND WAL-replayed subgraphs rehydrate.
             _ = app.Services.GetRequiredService<Fallen8Namespaces>();
 
-            // Snapshot every catalogued key's effective value NOW (feature writable-instance-config):
-            // the namespace collection has just latched six sections' worth of values into long-lived
-            // state, so this is the moment the process committed to its configuration. A restart-tier
-            // key is "pending" when its effective value later differs from this snapshot, which is why
-            // the pending set needs no marker file and clears exactly when the process restarts.
+            // Construct the configuration read model NOW, so its boot snapshot is taken right after the
+            // namespace collection latched its values (why that ordering matters, and how the
+            // pending-restart signal derives from it, lives on Fallen8ConfigOverrides).
             var overridesReadModel = app.Services.GetRequiredService<Fallen8ConfigOverrides>();
 
             // Register the namespace-info observable gauge now (feature fleet-observability): only

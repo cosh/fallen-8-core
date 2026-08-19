@@ -197,13 +197,18 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     var config = await _bridge.RequestRawAsync(HttpMethod.Get, null, "config", null, cancellationToken)
                         .ConfigureAwait(false);
                     var view = ToolResults.Pass(config) as JsonObject;
-                    var settings = view?["settings"] as JsonArray;
-                    var pending = view?["pendingRestart"] as JsonArray;
 
-                    if (settings != null && ToolArgs.GetBool(arguments, "writableOnly") == true)
+                    // Detach before re-parenting: a JsonNode has exactly one parent, and re-adding a
+                    // node that still hangs off the parsed /config object throws.
+                    JsonNode? settingsNode = view?["settings"];
+                    JsonNode? pendingNode = view?["pendingRestart"];
+                    view?.Remove("settings");
+                    view?.Remove("pendingRestart");
+                    var settings = settingsNode as JsonArray ?? new JsonArray();
+                    var pending = pendingNode as JsonArray ?? new JsonArray();
+
+                    if (ToolArgs.GetBool(arguments, "writableOnly") == true)
                     {
-                        // Backwards, and in place: a JsonNode has one parent, so moving nodes into a new
-                        // array would have to detach them first.
                         for (var index = settings.Count - 1; index >= 0; index--)
                         {
                             if (settings[index] is JsonObject entry
@@ -214,16 +219,15 @@ namespace NoSQL.GraphDB.Mcp.Tools
                         }
                     }
 
-                    var pendingCount = pending?.Count ?? 0;
                     return ToolResults.Ok(
-                        $"{settings?.Count ?? 0} setting(s); {pendingCount} awaiting a server restart."
-                        + (pendingCount > 0
+                        $"{settings.Count} setting(s); {pending.Count} awaiting a server restart."
+                        + (pending.Count > 0
                             ? " A written value only takes effect once an operator restarts the server."
                             : String.Empty),
                         new JsonObject
                         {
-                            ["settings"] = settings ?? new JsonArray(),
-                            ["pendingRestart"] = pending ?? new JsonArray(),
+                            ["settings"] = settings,
+                            ["pendingRestart"] = pending,
                         });
                 }
 
@@ -240,14 +244,60 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     var written = await _bridge.RequestRawAsync(HttpMethod.Patch, null, "config",
                         new JsonObject { ["settings"] = body }, cancellationToken).ConfigureAwait(false);
                     var result = ToolResults.Pass(written) as JsonObject;
-                    var pendingAfter = (result?["pendingRestart"] as JsonArray)?.Count ?? 0;
 
-                    return ToolResults.Ok(
-                        pendingAfter > 0
-                            ? $"settings written; {pendingAfter} now await a server restart. Nothing changes in the "
-                                + "running process until an operator restarts it."
-                            : "settings written and in effect.",
-                        result);
+                    // The summary folds from the per-key results, which carry the truth: a batch-level
+                    // pending count alone would read "in effect" for a live key whose apply failed and
+                    // for a new-work-only cap that existing work still ignores.
+                    var results = result?["results"] as JsonArray;
+                    var needRestart = 0;
+                    var newWorkOnly = 0;
+                    var failures = 0;
+                    if (results != null)
+                    {
+                        foreach (var node in results)
+                        {
+                            if (node is not JsonObject one)
+                            {
+                                continue;
+                            }
+
+                            if (one["applyFailure"] != null)
+                            {
+                                failures++;
+                            }
+                            else if (one["restartPending"]?.GetValue<Boolean>() == true)
+                            {
+                                needRestart++;
+                            }
+                            else if (one["applyMode"]?.GetValue<String>() == "liveForNewWork")
+                            {
+                                newWorkOnly++;
+                            }
+                        }
+                    }
+
+                    var summary = "settings written.";
+                    if (failures > 0)
+                    {
+                        summary += $" {failures} live setting(s) could NOT be applied to the running process "
+                            + "(see applyFailure); their stored values take effect at the next restart.";
+                    }
+                    if (needRestart > 0)
+                    {
+                        summary += $" {needRestart} take effect only when an operator restarts the server; "
+                            + "nothing changes in the running process until then.";
+                    }
+                    if (newWorkOnly > 0)
+                    {
+                        summary += $" {newWorkOnly} are in effect for NEW work only; anything already "
+                            + "running keeps its previous limit.";
+                    }
+                    if (failures == 0 && needRestart == 0 && newWorkOnly == 0)
+                    {
+                        summary = "settings written and in effect.";
+                    }
+
+                    return ToolResults.Ok(summary, result);
                 }
 
                 default:

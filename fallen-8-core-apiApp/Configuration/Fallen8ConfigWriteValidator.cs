@@ -161,6 +161,14 @@ namespace NoSQL.GraphDB.App.Configuration
                         return "'" + entry.Key + "' takes a number, not '" + value + "'.";
                     }
 
+                    // TryParse accepts NaN and the infinities, and every bounds comparison against NaN
+                    // is false, so without this a bounded key would accept a value no comparison can
+                    // refuse and no consumer can use.
+                    if (Double.IsNaN(real) || Double.IsInfinity(real))
+                    {
+                        return "'" + entry.Key + "' takes a finite number, not '" + value + "'.";
+                    }
+
                     return OutOfRange(entry, real);
 
                 case Fallen8SettingKind.Enum:
@@ -217,9 +225,9 @@ namespace NoSQL.GraphDB.App.Configuration
             var failures = new List<String>();
 
             foreach (var section in supplied.Keys
-                .Select(SectionOf)
+                .Select(Fallen8OptionsSections.SectionOf)
                 .Where(section => section != null)
-                .Distinct(StringComparer.Ordinal))
+                .Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 var type = Fallen8OptionsSections.TypeOf(section);
                 if (type == null)
@@ -239,13 +247,6 @@ namespace NoSQL.GraphDB.App.Configuration
 
             refusal = failures.Count == 0 ? null : new Refusal(false, String.Join(" ", failures));
             return refusal == null;
-        }
-
-        /// <summary>The <c>Fallen8:Section</c> prefix a key belongs to, or null when it has none.</summary>
-        private static String SectionOf(String key)
-        {
-            var parts = key.Split(':');
-            return parts.Length >= 3 ? parts[0] + ":" + parts[1] : null;
         }
     }
 }

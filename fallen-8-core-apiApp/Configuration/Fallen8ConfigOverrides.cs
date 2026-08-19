@@ -166,18 +166,14 @@ namespace NoSQL.GraphDB.App.Configuration
                 + "Services.Configure<T> calls in Program.cs.")]
         private String EffectiveValue(String key, Dictionary<String, Object> bound)
         {
-            var parts = key.Split(':');
-            if (parts.Length < 3)
-            {
-                return _configuration[key];
-            }
-
-            var section = parts[0] + ":" + parts[1];
+            var section = Fallen8OptionsSections.SectionOf(key);
             var type = Fallen8OptionsSections.TypeOf(section);
             if (type == null)
             {
                 return _configuration[key];
             }
+
+            var parts = key.Split(':');
 
             if (!bound.TryGetValue(section, out var instance))
             {
@@ -243,21 +239,31 @@ namespace NoSQL.GraphDB.App.Configuration
         ///   Whether a written value is waiting for a restart: the key is writable at restart tier and
         ///   its effective value no longer matches what this process started with. A live-tier key is
         ///   never pending, because applying it is what made it live.
+        ///
+        ///   <para>Pass <paramref name="effectiveValues" /> (one <see cref="EffectiveValues"/> batch)
+        ///   when judging many keys: the fallback binds the key's whole options section per call, which
+        ///   is exactly the per-key bind storm the batch exists to avoid.</para>
         /// </summary>
-        public Boolean IsRestartPending(Fallen8SettingEntry entry)
+        public Boolean IsRestartPending(Fallen8SettingEntry entry,
+            IReadOnlyDictionary<String, String> effectiveValues = null)
         {
             if (entry == null || entry.Tier != Fallen8SettingTier.Restart)
             {
                 return false;
             }
 
-            return !String.Equals(BootValue(entry.Key), CurrentValue(entry.Key), StringComparison.Ordinal);
+            var current = effectiveValues != null && effectiveValues.TryGetValue(entry.Key, out var batched)
+                ? batched
+                : CurrentValue(entry.Key);
+            return !String.Equals(BootValue(entry.Key), current, StringComparison.Ordinal);
         }
 
         /// <summary>Every catalogued key whose written value is waiting for a restart, in catalog order.</summary>
-        public IReadOnlyList<Fallen8SettingEntry> PendingRestart()
+        public IReadOnlyList<Fallen8SettingEntry> PendingRestart(
+            IReadOnlyDictionary<String, String> effectiveValues = null)
         {
-            return Fallen8SettingCatalog.Entries.Where(IsRestartPending).ToList();
+            var effective = effectiveValues ?? EffectiveValues();
+            return Fallen8SettingCatalog.Entries.Where(entry => IsRestartPending(entry, effective)).ToList();
         }
 
         /// <summary>
@@ -267,39 +273,23 @@ namespace NoSQL.GraphDB.App.Configuration
         /// </summary>
         public Fallen8SettingSource SourceOf(String key)
         {
-            foreach (var provider in _configuration.Providers.Reverse())
+            // The same flattened provider walk arbitration uses (one home for the unwrap), in reverse,
+            // so the answer is the EFFECTIVE source rather than merely a source that mentions the key.
+            foreach (var provider in Fallen8ConfigOverridesSource.Flatten(_configuration).Reverse())
             {
-                var resolved = Classify(provider, key);
-                if (resolved.HasValue)
+                if (!provider.TryGet(key, out _))
                 {
-                    return resolved.Value;
+                    continue;
                 }
+
+                return Classify(provider);
             }
 
             return Fallen8SettingSource.Default;
         }
 
-        private static Fallen8SettingSource? Classify(IConfigurationProvider provider, String key)
+        private static Fallen8SettingSource Classify(IConfigurationProvider provider)
         {
-            if (provider is ChainedConfigurationProvider chained && chained.Configuration is IConfigurationRoot inner)
-            {
-                foreach (var nested in inner.Providers.Reverse())
-                {
-                    var resolved = Classify(nested, key);
-                    if (resolved.HasValue)
-                    {
-                        return resolved;
-                    }
-                }
-
-                return null;
-            }
-
-            if (!provider.TryGet(key, out _))
-            {
-                return null;
-            }
-
             switch (provider)
             {
                 case Fallen8ConfigOverridesProvider:
@@ -385,16 +375,23 @@ namespace NoSQL.GraphDB.App.Configuration
         }
 
         /// <summary>
-        ///   Whether an environment variable or the command line declares this key, in which case no
-        ///   stored override can ever take effect and a write must be refused rather than stored and
-        ///   shadowed. Equivalent to the provider's own arbitration probe by construction: the provider
-        ///   suppresses a key an authority declares, so the effective source of such a key IS that
-        ///   authority.
+        ///   Whether an authority declares this key, in which case no stored override can ever take
+        ///   effect and a write must be refused rather than stored and shadowed. THE SAME rule as the
+        ///   provider's own arbitration, by shared code rather than by parallel implementation: both
+        ///   sides use <see cref="Fallen8ConfigOverridesSource.IsAuthority"/> over the same flattened
+        ///   provider walk, so they cannot desynchronise.
         /// </summary>
         public Boolean IsAuthorityDeclared(String key)
         {
-            var source = SourceOf(key);
-            return source == Fallen8SettingSource.Environment || source == Fallen8SettingSource.CommandLine;
+            foreach (var provider in Fallen8ConfigOverridesSource.Flatten(_configuration))
+            {
+                if (Fallen8ConfigOverridesSource.IsAuthority(provider) && provider.TryGet(key, out _))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -422,21 +419,25 @@ namespace NoSQL.GraphDB.App.Configuration
 
             lock (_writeGate)
             {
-                var stored = new SortedDictionary<String, String>(StringComparer.Ordinal);
-                foreach (var pair in _source.State.Applied)
+                // A rewrite starts from what the file holds, so a file that could not be READ must
+                // refuse writes: proceeding would rebuild from an empty set and replace every setting
+                // the unreadable file still contains, turning one transient corruption (or a newer
+                // build's document) into permanent data loss reported as success. Checked INSIDE the
+                // gate, because the reload a concurrent write triggers is what records the error.
+                if (_source.State.LoadError != null)
                 {
-                    stored[pair.Key] = pair.Value;
+                    throw new InvalidOperationException(
+                        "The stored configuration at " + Path + " could not be read (" + _source.State.LoadError
+                        + "), so writing would replace settings it still holds. Fix or remove the file first.");
                 }
 
-                // A shadowed key stays in the file: the environment outranks it today, and silently
-                // dropping it would delete an operator's stored intent the moment they set a variable.
-                foreach (var key in _source.State.Shadowed)
+                // From Stored, not Applied: a shadowed key contributes nothing right now, but its value
+                // is operator intent waiting for the outranking variable to be removed. Keys the
+                // catalog refuses (hand-edited, and warned about at boot) are dropped by the rewrite.
+                var stored = new SortedDictionary<String, String>(StringComparer.OrdinalIgnoreCase);
+                foreach (var pair in _source.State.Stored)
                 {
-                    var existing = ReadStoredValue(key);
-                    if (existing != null)
-                    {
-                        stored[key] = existing;
-                    }
+                    stored[pair.Key] = pair.Value;
                 }
 
                 foreach (var pair in values)
@@ -460,12 +461,6 @@ namespace NoSQL.GraphDB.App.Configuration
                 // write and the pending-restart derivation that reads its result.
                 _configuration.Reload();
             }
-        }
-
-        /// <summary>The value currently stored in the file for a key, or <c>null</c>.</summary>
-        private String ReadStoredValue(String key)
-        {
-            return _source.State.Applied.TryGetValue(key, out var applied) ? applied : null;
         }
 
         private static String Serialize(IReadOnlyDictionary<String, String> stored)

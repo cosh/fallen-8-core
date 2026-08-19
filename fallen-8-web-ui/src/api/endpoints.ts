@@ -126,8 +126,9 @@ export const getConfig = (i: InstanceConfig, signal?: AbortSignal) =>
  * a 400 names the key and why, and a 409 means either the environment declares that key (so a stored
  * value could never win) or the instance has nowhere to persist.
  *
- * Needs TWO operator acts server-side, an API key AND
- * Fallen8:Security:EnableConfigurationWrite, or it answers 403.
+ * Needs TWO operator acts server-side, an API key AND Fallen8:Security:EnableConfigurationWrite, or
+ * it is refused (401 for an unauthenticated caller, 403 otherwise); ConfigREST.configWriteEnabled is
+ * how the panel knows not to offer the write at all.
  */
 export const writeConfig = (i: InstanceConfig, spec: ConfigWriteSpec, signal?: AbortSignal) =>
   apiRequest<ConfigWriteREST>(i, "/config", {

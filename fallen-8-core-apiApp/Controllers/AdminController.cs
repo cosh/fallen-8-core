@@ -96,6 +96,14 @@ namespace NoSQL.GraphDB.App.Controllers
         private readonly Boolean _apiKeyConfigured;
 
         /// <summary>
+        /// Whether Fallen8:Security:EnableConfigurationWrite is on. Published (combined with the key
+        /// posture) as ConfigREST.configWriteEnabled, so the Studio panel can render read-only instead
+        /// of offering a Save the server would always refuse; the flag's own VALUE stays withheld in
+        /// settings[] like every other Fallen8:Security key.
+        /// </summary>
+        private readonly Boolean _configWriteEnabled;
+
+        /// <summary>
         /// The embedding provider whose identity /status reports (see StatusREST.Embedding);
         /// null under direct unit construction.
         /// </summary>
@@ -187,6 +195,7 @@ namespace NoSQL.GraphDB.App.Controllers
 
             var securityOptions = security?.Value ?? new Fallen8SecurityOptions();
             _apiKeyConfigured = !String.IsNullOrWhiteSpace(securityOptions.ApiKey);
+            _configWriteEnabled = securityOptions.EnableConfigurationWrite;
 
             _saveGames = saveGames;
         }
@@ -406,6 +415,7 @@ namespace NoSQL.GraphDB.App.Controllers
                 await Task.WhenAll(probes);
             }
 
+            var effective = _configOverrides?.EffectiveValues();
             return new ConfigREST
             {
                 Semantic = new SemanticConfigREST
@@ -415,22 +425,48 @@ namespace NoSQL.GraphDB.App.Controllers
                 },
                 Observability = ObservabilityConfigREST.From(_observability),
                 ApiKeyRequired = _apiKeyConfigured,
-                Settings = BuildSettingsView(),
-                PendingRestart = (_configOverrides?.PendingRestart() ?? Array.Empty<Fallen8SettingEntry>())
-                    .Select(entry => PendingRestartREST.From(entry, _configOverrides))
-                    .ToList(),
+                ConfigWriteEnabled = _apiKeyConfigured && _configWriteEnabled,
+                Settings = BuildSettingsView(effective),
+                PendingRestart = _configOverrides == null
+                    ? new System.Collections.Generic.List<PendingRestartREST>()
+                    : BuildPendingRestartView(effective),
             };
         }
 
         /// <summary>
-        /// Projects the whole setting inventory, binding each options class once rather than per key.
+        /// Projects the whole setting inventory, binding each options class once rather than per key,
+        /// and folding in any live key whose last apply failed so the read surface reports it as
+        /// restart-pending instead of implying a value the process is not using is in force.
         /// </summary>
-        private System.Collections.Generic.List<SettingREST> BuildSettingsView()
+        private System.Collections.Generic.List<SettingREST> BuildSettingsView(
+            System.Collections.Generic.IReadOnlyDictionary<String, String> effective)
         {
-            var effective = _configOverrides?.EffectiveValues();
             return Fallen8SettingCatalog.Entries
-                .Select(entry => SettingREST.From(entry, _configOverrides, effective))
+                .Select(entry => SettingREST.From(entry, _configOverrides, effective,
+                    entry.Tier == Fallen8SettingTier.Live ? _liveSettings?.FailureFor(entry.Key) : null))
                 .ToList();
+        }
+
+        /// <summary>
+        /// The pending-restart disclosure: the derived restart-tier set, plus any live key whose apply
+        /// failed, since its stored value is equally not in force until a restart.
+        /// </summary>
+        private System.Collections.Generic.List<PendingRestartREST> BuildPendingRestartView(
+            System.Collections.Generic.IReadOnlyDictionary<String, String> effective)
+        {
+            var pending = _configOverrides.PendingRestart(effective)
+                .Select(entry => PendingRestartREST.From(entry, _configOverrides))
+                .ToList();
+
+            // Known imprecision, accepted: a live-failed row reports the BOOT value as running, which
+            // can be stale if an earlier apply of the same key succeeded in this process. Being exact
+            // would need per-key last-applied tracking; the applyFailure on the settings row carries
+            // the truth either way.
+            pending.AddRange(Fallen8SettingCatalog.Entries
+                .Where(entry => entry.Tier == Fallen8SettingTier.Live && _liveSettings?.FailureFor(entry.Key) != null)
+                .Select(entry => PendingRestartREST.From(entry, _configOverrides)));
+
+            return pending;
         }
 
         /// <summary>
@@ -441,21 +477,20 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <remarks>Changes this instance's own configuration (feature writable-instance-config). A new
         /// METHOD on the existing /config path, never a new path. Requires TWO independent operator
         /// acts: an API key must be configured AND Fallen8:Security:EnableConfigurationWrite must be
-        /// true. With no key configured this is a 403 even when the flag is on, because a configuration
-        /// write persists a posture change that survives the restart, unlike the always-on anonymous
-        /// code execution which is per request. Only keys the setting catalog lists as writable can be
-        /// written; everything else is a 400 naming the rule that excludes it. A key an environment
-        /// variable or the command line declares is a 409 and NOTHING is written, because storing a
-        /// value that cannot take effect would be a time bomb that arms the day the variable is removed.
-        /// The whole batch is validated before anything is stored, so it applies whole or not at all,
-        /// and each result reports the value read back after binding, which can differ from the value
-        /// sent because several options clamp in their setter. A restart-tier write is a 200 that
-        /// persists: never a 202, never an error, never a silent no-op.</remarks>
+        /// true; with no key configured the write is refused whatever the flag says (the why lives on
+        /// Fallen8SecurityOptions.EnableConfigurationWrite). Only keys the setting catalog lists as
+        /// writable can be written; everything else is a 400 naming the rule that excludes it, and a
+        /// key an environment variable or the command line declares is a 409 with NOTHING written (the
+        /// why lives on Fallen8ConfigWriteValidator). The whole batch is validated before anything is
+        /// stored, so it applies whole or not at all, and each result reports the value read back after
+        /// binding, which can differ from the value sent because several options clamp in their setter.
+        /// A restart-tier write is a 200 that persists: never a 202, never an error, never a silent
+        /// no-op.</remarks>
         /// <response code="200">The settings were written; each result names the effective value</response>
-        /// <response code="400">A key is unknown, never writable, or the value is outside its domain</response>
-        /// <response code="401">No valid credential was supplied</response>
-        /// <response code="403">No API key is configured, or the configuration-write capability is off</response>
-        /// <response code="409">A key is declared in the environment, or this instance has nowhere to persist</response>
+        /// <response code="400">A key is unknown, never writable, duplicated, or the value is outside its domain</response>
+        /// <response code="401">No valid credential was supplied; also the shape a keyless instance refuses with, since its callers are unauthenticated by definition</response>
+        /// <response code="403">The configuration-write capability (Fallen8:Security:EnableConfigurationWrite) is off</response>
+        /// <response code="409">A key is declared in the environment, the stored file is unreadable, or this instance has nowhere to persist</response>
         [HttpPatch("/config")]
         [Fallen8Level]
         [Authorize(Policy = Fallen8SecurityOptions.ConfigurationWritePolicy)]
@@ -470,11 +505,9 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         public ActionResult<ConfigWriteREST> WriteConfig([FromBody] ConfigWriteSpecification specification)
         {
-            // The first of the two operator acts, enforced here rather than in the policy: a policy that
-            // denies an unauthenticated caller answers 401, which on a keyless instance would invite the
-            // caller to authenticate with a key that does not exist. The capability alone is never enough,
-            // because unlike the always-on anonymous code execution, which is per request, a configuration
-            // write persists a posture change that survives the restart.
+            // The no-key half of the two-act gate, layered UNDER the policy (which enforces both acts
+            // and fails closed): see the ConfigurationWritePolicy registration in Program.cs for the
+            // whole story. This check exists for the message.
             if (!_apiKeyConfigured)
             {
                 return ProblemResults.StatusCode(StatusCodes.Status403Forbidden,
@@ -497,35 +530,77 @@ namespace NoSQL.GraphDB.App.Controllers
                     + "environment and the container image both set it) and restart.");
             }
 
-            if (!Fallen8ConfigWriteValidator.TryValidate(specification.Settings, _configOverrides, out var refusal)
-                || !Fallen8ConfigWriteValidator.TryTrialBind(specification.Settings, out refusal))
+            // A rewrite starts from what the file holds, so an unreadable file refuses writes: see
+            // Fallen8ConfigOverrides.Write for why proceeding would be data loss reported as success.
+            if (_configOverrides.State?.LoadError != null)
+            {
+                return ProblemResults.Conflict(
+                    "The stored configuration file could not be read (" + _configOverrides.State.LoadError
+                    + "), so a write would replace whatever it still holds. Fix or remove "
+                    + Fallen8ConfigOverridesSource.FileName + " in the metadata directory first.");
+            }
+
+            if (!Fallen8ConfigWriteValidator.TryValidate(specification.Settings, _configOverrides, out var refusal))
             {
                 return refusal.IsConflict
                     ? ProblemResults.Conflict(refusal.Detail)
                     : ProblemResults.BadRequest(refusal.Detail);
             }
 
-            // Before-and-after in the server log: this surface keeps no history by design, so the log is
-            // where a posture change is accounted for.
+            // Canonicalise every key to the catalog's spelling before anything acts on the batch.
+            // Validation is case-insensitive because configuration itself is, but the layers below
+            // compare exactly: an un-canonicalised clear would miss the stored entry it names (while
+            // still reporting cleared), and a set would persist a duplicate spelling beside it. Two
+            // spellings of the SAME key in one batch are refused rather than resolved by JSON order,
+            // because whichever one lost would be a silent no-op the caller asked for explicitly.
+            var writes = new System.Collections.Generic.Dictionary<String, String>(StringComparer.Ordinal);
             foreach (var pair in specification.Settings)
             {
+                Fallen8SettingCatalog.TryGet(pair.Key, out var entry);
+                if (writes.ContainsKey(entry.Key))
+                {
+                    return ProblemResults.BadRequest(
+                        "'" + entry.Key + "' appears more than once in the batch (differing only in case). "
+                        + "Send one value per key.");
+                }
+
+                writes[entry.Key] = pair.Value;
+            }
+
+            // Trial-bind the CANONICAL batch: the raw one could carry case-variant duplicates, and its
+            // spellings are not what the write will store.
+            if (!Fallen8ConfigWriteValidator.TryTrialBind(writes, out refusal))
+            {
+                return ProblemResults.BadRequest(refusal.Detail);
+            }
+
+            // Before-and-after in the server log: this surface keeps no history by design, so the log is
+            // where a posture change is accounted for.
+            var before = _configOverrides.EffectiveValues();
+            foreach (var pair in writes)
+            {
                 _logger.LogWarning("Configuration write: {Key} was {Before}, now {After} (requested by an "
-                    + "authenticated caller).", pair.Key, _configOverrides.CurrentValue(pair.Key) ?? "unset",
+                    + "authenticated caller).", pair.Key,
+                    (before.TryGetValue(pair.Key, out var previous) ? previous : null) ?? "unset",
                     pair.Value ?? "cleared");
             }
 
-            _configOverrides.Write(specification.Settings);
+            _configOverrides.Write(writes);
 
+            // One post-write batch serves the results and the pending set; per-key reads would re-bind
+            // each key's whole options section.
+            var after = _configOverrides.EffectiveValues();
             var results = new System.Collections.Generic.List<ConfigWriteResultREST>();
-            foreach (var key in specification.Settings.Keys.OrderBy(k => k, StringComparer.Ordinal))
+            foreach (var key in writes.Keys.OrderBy(k => k, StringComparer.Ordinal))
             {
                 Fallen8SettingCatalog.TryGet(key, out var entry);
-                var effective = _configOverrides.CurrentValue(entry.Key);
-                var requested = specification.Settings[key];
+                var effective = after.TryGetValue(entry.Key, out var value) ? value : null;
+                var requested = writes[key];
 
                 // The apply already ran, driven by the reload the write caused. If a live key's delegate
                 // failed, the value is stored but is NOT in force, so the promise is downgraded to
-                // restart rather than reporting an apply that did not happen.
+                // restart rather than reporting an apply that did not happen. GET /config reports the
+                // same downgrade (BuildSettingsView), so this is not the only place the truth lives.
                 var applyFailure = entry.Tier == Fallen8SettingTier.Live
                     ? _liveSettings?.FailureFor(entry.Key)
                     : null;
@@ -535,21 +610,20 @@ namespace NoSQL.GraphDB.App.Controllers
                     Key = entry.Key,
                     Value = effective,
                     Cleared = requested == null,
-                    Coerced = requested != null && !String.Equals(requested, effective, StringComparison.Ordinal),
-                    ApplyMode = applyFailure == null
-                        ? SettingREST.From(entry, _configOverrides).ApplyMode
-                        : "restart",
+                    // Ignore-case: "True" binding to "true" is normalisation, not a clamp, and reporting
+                    // it as coerced would tell the operator their value was adjusted when it was not.
+                    Coerced = requested != null
+                        && !String.Equals(requested, effective, StringComparison.OrdinalIgnoreCase),
+                    ApplyMode = applyFailure == null ? WireEnum.Camel(entry.ApplyMode) : "restart",
                     ApplyFailure = applyFailure,
-                    RestartPending = applyFailure != null || _configOverrides.IsRestartPending(entry)
+                    RestartPending = applyFailure != null || _configOverrides.IsRestartPending(entry, after)
                 });
             }
 
             return new ConfigWriteREST
             {
                 Results = results,
-                PendingRestart = _configOverrides.PendingRestart()
-                    .Select(entry => PendingRestartREST.From(entry, _configOverrides))
-                    .ToList()
+                PendingRestart = BuildPendingRestartView(after)
             };
         }
 

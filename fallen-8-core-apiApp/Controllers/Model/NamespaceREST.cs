@@ -116,20 +116,18 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// </summary>
         public String StartupLoadMode { get; set; }
 
-        /// <summary>The wire spelling of a startup-load mode, camelCase like every other published value.</summary>
+        /// <summary>
+        ///   The wire spelling of a startup-load mode, camelCase like every other published value.
+        ///
+        ///   <para>An out-of-range value maps to <c>catalog</c> rather than throwing, and the choice is
+        ///   about behaviour, not leniency: the configuration binder happily binds a numeric string like
+        ///   <c>5</c> into the enum, the boot loop's own switch treats every unknown mode as the
+        ///   per-namespace (catalog) branch, and a projection that threw here would turn a configuration
+        ///   the boot tolerated into a 500 on every namespace listing.</para>
+        /// </summary>
         public static String WireStartupLoadMode(NamespaceStartupLoadMode mode)
         {
-            switch (mode)
-            {
-                case NamespaceStartupLoadMode.Catalog:
-                    return "catalog";
-                case NamespaceStartupLoadMode.All:
-                    return "all";
-                case NamespaceStartupLoadMode.DefaultOnly:
-                    return "defaultOnly";
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(mode), mode, "unpublished startup-load mode");
-            }
+            return Enum.IsDefined(mode) ? WireEnum.Camel(mode) : "catalog";
         }
     }
 

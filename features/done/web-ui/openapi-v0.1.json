@@ -908,7 +908,7 @@
           "Admin"
         ],
         "summary": "Writes instance configuration settings",
-        "description": "Changes this instance's own configuration (feature writable-instance-config). A new\r\n    METHOD on the existing /config path, never a new path. Requires TWO independent operator\r\n    acts: an API key must be configured AND Fallen8:Security:EnableConfigurationWrite must be\r\n    true. With no key configured this is a 403 even when the flag is on, because a configuration\r\n    write persists a posture change that survives the restart, unlike the always-on anonymous\r\n    code execution which is per request. Only keys the setting catalog lists as writable can be\r\n    written; everything else is a 400 naming the rule that excludes it. A key an environment\r\n    variable or the command line declares is a 409 and NOTHING is written, because storing a\r\n    value that cannot take effect would be a time bomb that arms the day the variable is removed.\r\n    The whole batch is validated before anything is stored, so it applies whole or not at all,\r\n    and each result reports the value read back after binding, which can differ from the value\r\n    sent because several options clamp in their setter. A restart-tier write is a 200 that\r\n    persists: never a 202, never an error, never a silent no-op.",
+        "description": "Changes this instance's own configuration (feature writable-instance-config). A new\r\n    METHOD on the existing /config path, never a new path. Requires TWO independent operator\r\n    acts: an API key must be configured AND Fallen8:Security:EnableConfigurationWrite must be\r\n    true; with no key configured the write is refused whatever the flag says (the why lives on\r\n    Fallen8SecurityOptions.EnableConfigurationWrite). Only keys the setting catalog lists as\r\n    writable can be written; everything else is a 400 naming the rule that excludes it, and a\r\n    key an environment variable or the command line declares is a 409 with NOTHING written (the\r\n    why lives on Fallen8ConfigWriteValidator). The whole batch is validated before anything is\r\n    stored, so it applies whole or not at all, and each result reports the value read back after\r\n    binding, which can differ from the value sent because several options clamp in their setter.\r\n    A restart-tier write is a 200 that persists: never a 202, never an error, never a silent\r\n    no-op.",
         "parameters": [
           {
             "name": "api-version",
@@ -954,7 +954,7 @@
             }
           },
           "400": {
-            "description": "A key is unknown, never writable, or the value is outside its domain",
+            "description": "A key is unknown, never writable, duplicated, or the value is outside its domain",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -965,7 +965,7 @@
             }
           },
           "401": {
-            "description": "No valid credential was supplied",
+            "description": "No valid credential was supplied; also the shape a keyless instance refuses with, since its callers are unauthenticated by definition",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -976,7 +976,7 @@
             }
           },
           "403": {
-            "description": "No API key is configured, or the configuration-write capability is off",
+            "description": "The configuration-write capability (Fallen8:Security:EnableConfigurationWrite) is off",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -987,7 +987,7 @@
             }
           },
           "409": {
-            "description": "A key is declared in the environment, or this instance has nowhere to persist",
+            "description": "A key is declared in the environment, the stored file is unreadable, or this instance has nowhere to persist",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -18086,7 +18086,11 @@
             "items": {
               "$ref": "#/components/schemas/PendingRestartREST"
             },
-            "description": "The keys whose configured value differs from the value this process started with, so a\r\nrestart would change behaviour. Derived on every read and never stored, so it clears\r\nexactly when the process restarts. It also lights up when an operator hand-edits\r\nappsettings.json, which is why the wording is \"differs from what this process started\r\nwith\" rather than \"you changed this\"."
+            "description": "The keys whose configured value differs from the value this process started with, so a\r\nrestart would change behaviour (the derivation and its wording rules live on\r\nFallen8ConfigOverrides), plus any live key whose apply failed."
+          },
+          "configWriteEnabled": {
+            "type": "boolean",
+            "description": "Whether this instance accepts `PATCH /config`: an API key is configured AND\r\n`Fallen8:Security:EnableConfigurationWrite` is on. Published so a client can render\r\nthe settings read-only instead of offering a Save the server would always refuse; the\r\nflag's own value stays withheld in List&lt;SettingREST&gt; ConfigREST.Settings like every other security key."
           },
           "semantic": {
             "description": "The semantic providers (embedding + chat).",
@@ -18164,6 +18168,13 @@
           "restartPending": {
             "type": "boolean",
             "description": "Whether this key is now waiting for a restart to take effect."
+          },
+          "applyFailure": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Why a live key did not reach the running process, or absent when it did. The value is stored\r\neither way and the next boot will use it, so this reports a live apply that failed rather than\r\na write that failed, and string ConfigWriteResultREST.ApplyMode is downgraded to `restart` to match."
           }
         },
         "description": "What one written key ended up as (feature writable-instance-config). The value is read back off\r\nthe freshly bound options rather than echoed from the request, which is the only way a value the\r\noptions class coerced becomes visible instead of assumed."

@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // types.ts
 //
@@ -38,19 +38,19 @@ export interface IndexDescription {
   /**
    * For a vector index BOUND to an element embedding (feature element-embeddings), the
    * embedding name it projects; null for a raw/unbound index and every other family. A
-   * bound index maintains itself â€” explicit vector adds are rejected. Populated only by
+   * bound index maintains itself — explicit vector adds are rejected. Populated only by
    * the live /status inventory, never in save-game KPIs. Optional so older servers parse.
    */
   embeddingName?: string | null;
   /** The declared model-identity string a vector index expects, or null. Diagnostic only. */
   model?: string | null;
   /**
-   * The query families this index answers (feature index-workspace) â€” the derivation
+   * The query families this index answers (feature index-workspace) — the derivation
    * contract lives on the server's IndexDescriptionREST. Live /status inventory only,
    * absent on older servers (lib/indexCapabilities.ts holds the client fallback).
    */
   capabilities?: string[] | null;
-  /** CountOfKeys() / CountOfValues() snapshots â€” live /status inventory only. */
+  /** CountOfKeys() / CountOfValues() snapshots — live /status inventory only. */
   keys?: number | null;
   values?: number | null;
 }
@@ -97,7 +97,7 @@ export interface SaveGame {
  */
 export type NamespaceTriState = "enabled" | "disabled" | "inherit";
 
-/** GET /ns â€” one namespace of the Fallen-8 (feature graph-namespaces). */
+/** GET /ns — one namespace of the Fallen-8 (feature graph-namespaces). */
 export interface NamespaceEntry {
   name: string;
   /**
@@ -447,7 +447,7 @@ export interface GraphREST {
 }
 
 /**
- * GET /statistics â€” graph-shape snapshot (feature observability; surfaced by feature
+ * GET /statistics — graph-shape snapshot (feature observability; surfaced by feature
  * studio-coverage). When sampled=true, per-name counts and distinct totals are
  * within-the-sample; multiply counts by sampleStride to extrapolate.
  */
@@ -530,22 +530,20 @@ export interface SemanticConfigREST {
   chat?: ChatProviderStatsREST | null;
 }
 
-// The instance's read-only configuration view (feature instance-config): the operator-facing
-// aggregate behind the Studio Configuration section. Secrets are never present.
 // How a setting may be written, and when a written value takes effect (feature
 // writable-instance-config). Exactly two sources mean a stored value can never win, so the editor
 // renders those rows read-only: "environment" and "commandLine".
-export type ConfigSettingTier = 'live' | 'restart' | 'notWritable';
-export type ConfigSettingApplyMode = 'live' | 'liveForNewWork' | 'restart' | 'never';
-export type ConfigSettingKind = 'bool' | 'int' | 'double' | 'string' | 'enum' | 'array';
+export type ConfigSettingTier = "live" | "restart" | "notWritable";
+export type ConfigSettingApplyMode = "live" | "liveForNewWork" | "restart" | "never";
+export type ConfigSettingKind = "bool" | "int" | "double" | "string" | "enum" | "array";
 export type ConfigSettingSource =
-  | 'default'
-  | 'appSettings'
-  | 'userSecrets'
-  | 'environment'
-  | 'commandLine'
-  | 'host'
-  | 'override';
+  | "default"
+  | "appSettings"
+  | "userSecrets"
+  | "environment"
+  | "commandLine"
+  | "host"
+  | "override";
 
 export interface SettingREST {
   key: string;
@@ -577,6 +575,13 @@ export interface ConfigREST {
   semantic: SemanticConfigREST;
   observability: ObservabilityConfigREST;
   apiKeyRequired: boolean;
+  /**
+   * Whether this instance accepts PATCH /config at all (both operator acts are in place: an API key
+   * AND Fallen8:Security:EnableConfigurationWrite). The panel renders the settings read-only when
+   * false, because offering a Save that the server would always refuse is worse than saying why.
+   * Optional so an older instance parses; absent means no write route exists, so read-only is right.
+   */
+  configWriteEnabled?: boolean;
   // Optional on purpose: an older instance answers without them, and the panel reads them
   // defensively rather than collapsing when they are missing.
   settings?: SettingREST[];
@@ -678,7 +683,7 @@ export interface EdgeSpecification {
 
 /**
  * BinaryOperator travels as an INTEGER on the wire (the OpenAPI sample "Equal" is one of
- * the stale doc-comment samples spec Â§5 warns about); resultType travels as a string.
+ * the stale doc-comment samples spec §5 warns about); resultType travels as a string.
  */
 export const BINARY_OPERATORS = {
   Equals: 0,
@@ -750,7 +755,7 @@ export interface PluginSpecification {
 }
 
 /**
- * Vector index (feature vector-index; surfaced by studio-coverage). Scores are RAW â€”
+ * Vector index (feature vector-index; surfaced by studio-coverage). Scores are RAW —
  * interpret via metric/higherIsBetter (L2: lower is better), never re-derive client-side.
  */
 export interface VectorIndexScanSpecification {
@@ -784,14 +789,14 @@ export interface VectorIndexAddSpecification {
  * state written through the typed /graphelement/{id}/embedding/{name} routes; the element
  * is the source of truth and a bound vector index projects from it. The studio reads a
  * stored embedding straight off the element's (folded) reserved properties, so there is no
- * client GET helper â€” only the write DTO. (The server GET returns ElementEmbeddingREST.)
+ * client GET helper — only the write DTO. (The server GET returns ElementEmbeddingREST.)
  */
 export interface EmbeddingWriteSpecification {
   vector: number[];
 }
 
 /**
- * Text-in embedding (feature embedding-provider) â€” capability-gated (403 when the
+ * Text-in embedding (feature embedding-provider) — capability-gated (403 when the
  * provider is off). name defaults to "default" server-side.
  */
 export interface EmbedElementSpecification {
@@ -810,7 +815,7 @@ export interface EmbeddingSearchSpecification {
 }
 
 /**
- * An index key on the wire: PropertySpecification minus the property id â€” the server's
+ * An index key on the wire: PropertySpecification minus the property id — the server's
  * add/remove-key endpoints read only propertyValue + type (see GraphController.Index).
  */
 export interface IndexKeySpecification {
@@ -825,7 +830,7 @@ export interface IndexAddToSpecification {
 
 /**
  * The declarative semantic block (feature element-embeddings) on POST /path and
- * PUT /subgraph. Carries the query vector (or queryText, embedded once by the provider â€”
+ * PUT /subgraph. Carries the query vector (or queryText, embedded once by the provider —
  * mutually exclusive) plus code-free similarity filter/cost. Pure data: it compiles no C#.
  * minScore filters vertices by similarity; costBySimilarity (path only) weights a DIJKSTRA
  * search by it. See the element-embeddings README.
@@ -857,7 +862,7 @@ export interface PathSpecification {
   maxPathWeight: number;
   filter?: PathFilterSpecification;
   cost?: PathCostSpecification;
-  /** Stored query of kind Path â€” mutually exclusive with filter/cost (server 400s on mix). */
+  /** Stored query of kind Path — mutually exclusive with filter/cost (server 400s on mix). */
   storedQuery?: string;
   /** Declarative semantic block (feature element-embeddings); pure data, compiles no C#. */
   semantic?: SemanticTraversalSpecification;
@@ -888,14 +893,14 @@ export interface PatternSpecification {
   edgePropertyFilter?: string;
   /**
    * Declarative semantic threshold for a Vertex step (feature
-   * subgraph-semantic-thresholds) â€” scores against the request's semantic query. Owns the
+   * subgraph-semantic-thresholds) — scores against the request's semantic query. Owns the
    * step's filter slot (400 together with vertexFilter); 400 on edge steps, without a
    * semantic block, and in stored SubGraph templates.
    */
   semanticMinScore?: number;
 }
 
-// Nesting (fromSubGraph) is a QUERY parameter on PUT /subgraph, not a body field â€”
+// Nesting (fromSubGraph) is a QUERY parameter on PUT /subgraph, not a body field —
 // a body-level fromSubGraph is silently dropped by the server's deserializer.
 export interface SubGraphSpecification {
   name: string;
@@ -903,7 +908,7 @@ export interface SubGraphSpecification {
   vertexFilter?: string;
   edgeFilter?: string;
   patterns?: PatternSpecification[];
-  /** Stored query of kind SubGraph â€” mutually exclusive with filters/patterns (server 400s on mix). */
+  /** Stored query of kind SubGraph — mutually exclusive with filters/patterns (server 400s on mix). */
   storedQuery?: string;
   /**
    * Declarative semantic block (feature element-embeddings), bound at REGISTRATION;
@@ -915,7 +920,7 @@ export interface SubGraphSpecification {
 
 /**
  * The bound semantic state echoed on a registered subgraph's summary (feature
- * subgraph-semantic-thresholds) â€” never the raw vector, only its dimension.
+ * subgraph-semantic-thresholds) — never the raw vector, only its dimension.
  */
 export interface SubGraphSemanticSummary {
   embeddingName: string;
@@ -982,7 +987,7 @@ export interface StoredQueryDetailREST extends StoredQuerySummaryREST {
 }
 
 /**
- * Plugin registration (feature plugin-registration) â€” the whole-TYPE sibling of the
+ * Plugin registration (feature plugin-registration) — the whole-TYPE sibling of the
  * stored-query library: C# source authored in the browser, compile-validated and
  * registered per namespace, then invoked by name. An `algorithm` implements a contract
  * (Path/SubGraph/Analytics) and runs transparently through the existing path/subgraph/
@@ -1001,7 +1006,7 @@ export interface AlgorithmPluginRegistration {
   sourceCode: string;
 }
 
-/** POST /plugins/function body (the function category has one contract â€” no discriminator). */
+/** POST /plugins/function body (the function category has one contract — no discriminator). */
 export interface FunctionPluginRegistration {
   name: string;
   description?: string;
@@ -1018,19 +1023,19 @@ export interface PluginValidationSpecification {
   sourceCode: string;
 }
 
-/** POST /plugins/{algorithm,function}/validate result â€” side-effect-free compile check. */
+/** POST /plugins/{algorithm,function}/validate result — side-effect-free compile check. */
 export interface PluginValidationResult {
   valid: boolean;
   error: string | null;
 }
 
-/** POST /plugins/function/{name}/invoke body â€” string-valued parameter bag in v1. */
+/** POST /plugins/function/{name}/invoke body — string-valued parameter bag in v1. */
 export interface GraphFunctionInvocation {
   parameters?: Record<string, string>;
 }
 
 /**
- * POST /plugins/function/{name}/invoke result â€” a view of existing elements, projected with
+ * POST /plugins/function/{name}/invoke result — a view of existing elements, projected with
  * the SAME Vertex/Edge DTOs as GET /vertex/{id} / GET /edge/{id}.
  */
 export interface GraphFunctionResultREST {
@@ -1058,7 +1063,7 @@ export interface PluginDetailREST extends PluginSummaryREST {
 
 /**
  * Graph analytics (feature graph-analytics; surfaced by studio-coverage). Runs are
- * synchronous one-shots with budgets â€” there is no job store, and the UI must not
+ * synchronous one-shots with budgets — there is no job store, and the UI must not
  * fabricate one. Top-K/partition rows are the response; full results travel via
  * write-back (snapshot-durable only).
  */
@@ -1105,7 +1110,7 @@ export interface AnalyticsResultREST {
   writeBack: WriteBackResultREST | null;
 }
 
-/** One partition's membership page â€” re-runs the specification (exact only when quiescent). */
+/** One partition's membership page — re-runs the specification (exact only when quiescent). */
 export interface PartitionMembersREST {
   partitionId: number;
   size: number;
@@ -1213,4 +1218,3 @@ export interface IntegrationJobReport {
   credentialFingerprint?: string | null;
   diagnostics: IntegrationDiagnostic[];
 }
-

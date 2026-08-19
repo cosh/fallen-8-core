@@ -73,6 +73,27 @@ namespace NoSQL.GraphDB.App.Configuration
         /// </summary>
         private const Double MaxChangeFeedBuffer = 1_000_000d;
 
+        // Reasons shared verbatim by several keys under one rule, held once so the published wording
+        // cannot drift apart between the keys it covers.
+        private const String FleetIdentityReason =
+            "Fleet identity is baked into the telemetry resource attributes at boot, so a write could "
+            + "only falsify the reported identity of a process whose signals already went out under the "
+            + "real one.";
+
+        private const String EmbeddingStampReason =
+            "It is part of the immutable identity stamp written beside every stored embedding, so a "
+            + "write mislabels vectors that already exist rather than failing.";
+
+        private const String ModelFileReason =
+            "It names the model file that produces vectors, so a written value changes the embedding "
+            + "function under an unchanged identity stamp.";
+
+        private static String OrphansIndexReason(String search)
+        {
+            return "Changing it orphans the populated index and makes " + search
+                + " search return silently empty results instead of an error.";
+        }
+
         private static readonly IReadOnlyList<Fallen8SettingEntry> _entries =
             new ReadOnlyCollection<Fallen8SettingEntry>(Build());
 
@@ -278,11 +299,9 @@ namespace NoSQL.GraphDB.App.Configuration
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Embedding:TimeoutSeconds",
                 Fallen8SettingKind.Int, minimum: 1, maximum: MaxSeconds));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:ModelName", Fallen8SettingKind.String, "R3",
-                "It is part of the immutable identity stamp written beside every stored embedding, so "
-                + "a write mislabels vectors that already exist rather than failing."));
+                EmbeddingStampReason));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:ModelVersion", Fallen8SettingKind.String, "R3",
-                "It is part of the immutable identity stamp written beside every stored embedding, so "
-                + "a write mislabels vectors that already exist rather than failing."));
+                EmbeddingStampReason));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:Dimension", Fallen8SettingKind.Int, "R3",
                 "Every stored vector and every bound vector index has this width, so a written value "
                 + "corrupts the stored corpus instead of reporting an error."));
@@ -295,8 +314,7 @@ namespace NoSQL.GraphDB.App.Configuration
                 Fallen8SettingKind.Int, minimum: 1));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Embedding:QueryPrefix", Fallen8SettingKind.String));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:Onnx:ModelPath", Fallen8SettingKind.String, "R3",
-                "It names the model file that produces vectors, so a written value changes the "
-                + "embedding function under an unchanged identity stamp."));
+                ModelFileReason));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:Onnx:VocabPath", Fallen8SettingKind.String, "R3",
                 "The vocabulary decides how text becomes tokens, so a written value changes the "
                 + "embedding function under an unchanged identity stamp."));
@@ -310,8 +328,7 @@ namespace NoSQL.GraphDB.App.Configuration
                 "Normalisation decides the scale of stored vectors, so mixing both settings in one "
                 + "index makes the distances it reports meaningless."));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:LLamaSharp:ModelPath", Fallen8SettingKind.String, "R3",
-                "It names the model file that produces vectors, so a written value changes the "
-                + "embedding function under an unchanged identity stamp."));
+                ModelFileReason));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:Ollama:Endpoint", Fallen8SettingKind.String, "R4",
                 "This is a URL the server dials, so a written value makes the embedding gateway "
                 + "reach an address of the caller's choosing on the operator's own network."));
@@ -324,20 +341,14 @@ namespace NoSQL.GraphDB.App.Configuration
             #region Fallen8:Identity
 
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Identity:Tenant:Id", Fallen8SettingKind.String, "R6",
-                "Fleet identity is baked into the telemetry resource attributes at boot, so a write "
-                + "could only falsify the reported identity of a process whose signals already went "
-                + "out under the real one."));
+                FleetIdentityReason));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Identity:Tenant:Name", Fallen8SettingKind.String, "R6",
-                "Fleet identity is baked into the telemetry resource attributes at boot, so a write "
-                + "could only falsify the reported identity of a process whose signals already went "
-                + "out under the real one."));
+                FleetIdentityReason));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Identity:Instance:Id", Fallen8SettingKind.String, "R6",
                 "The instance id is the stable key a central consumer separates this process by, and "
                 + "it is stamped on every signal at boot."));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Identity:Instance:Name", Fallen8SettingKind.String, "R6",
-                "Fleet identity is baked into the telemetry resource attributes at boot, so a write "
-                + "could only falsify the reported identity of a process whose signals already went "
-                + "out under the real one."));
+                FleetIdentityReason));
 
             #endregion
 
@@ -374,16 +385,13 @@ namespace NoSQL.GraphDB.App.Configuration
                 + "existing corpus addressed by a name nothing searches any more."));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Ingestion:EnsureVectorIndex", Fallen8SettingKind.Bool));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Ingestion:VectorIndexId", Fallen8SettingKind.String, "R3",
-                "Changing it orphans the populated index and makes document search return silently "
-                + "empty results instead of an error."));
+                OrphansIndexReason("document")));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Ingestion:EnsureFulltextIndex", Fallen8SettingKind.Bool));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Ingestion:FulltextIndexId", Fallen8SettingKind.String, "R3",
-                "Changing it orphans the populated index and makes keyword search return silently "
-                + "empty results instead of an error."));
+                OrphansIndexReason("keyword")));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Ingestion:EnsureEntityIndex", Fallen8SettingKind.Bool));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Ingestion:EntityIndexId", Fallen8SettingKind.String, "R3",
-                "Changing it orphans the populated index and makes entity lookup return silently "
-                + "empty results instead of an error."));
+                OrphansIndexReason("entity")));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Ingestion:Docling:Endpoint", Fallen8SettingKind.String, "R4",
                 "This is a URL the server dials with uploaded documents, so a written value "
                 + "exfiltrates them to an address of the caller's choosing."));

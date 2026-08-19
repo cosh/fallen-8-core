@@ -210,13 +210,23 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         /// <summary>
         ///   The keys whose configured value differs from the value this process started with, so a
-        ///   restart would change behaviour. Derived on every read and never stored, so it clears
-        ///   exactly when the process restarts. It also lights up when an operator hand-edits
-        ///   appsettings.json, which is why the wording is "differs from what this process started
-        ///   with" rather than "you changed this".
+        ///   restart would change behaviour (the derivation and its wording rules live on
+        ///   <see cref="Fallen8ConfigOverrides"/>), plus any live key whose apply failed.
         /// </summary>
         [JsonPropertyName("pendingRestart")]
         public List<PendingRestartREST> PendingRestart
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   Whether this instance accepts <c>PATCH /config</c>: an API key is configured AND
+        ///   <c>Fallen8:Security:EnableConfigurationWrite</c> is on. Published so a client can render
+        ///   the settings read-only instead of offering a Save the server would always refuse; the
+        ///   flag's own value stays withheld in <see cref="Settings"/> like every other security key.
+        /// </summary>
+        [JsonPropertyName("configWriteEnabled")]
+        public Boolean ConfigWriteEnabled
         {
             get; set;
         }

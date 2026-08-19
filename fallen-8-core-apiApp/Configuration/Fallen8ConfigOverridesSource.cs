@@ -44,6 +44,7 @@ namespace NoSQL.GraphDB.App.Configuration
     public sealed class Fallen8ConfigOverridesState
     {
         private readonly Object _gate = new Object();
+        private IReadOnlyDictionary<String, String> _stored = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
         private IReadOnlyDictionary<String, String> _applied = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
         private IReadOnlyList<String> _shadowed = Array.Empty<String>();
         private IReadOnlyList<String> _ignored = Array.Empty<String>();
@@ -58,6 +59,17 @@ namespace NoSQL.GraphDB.App.Configuration
         internal Fallen8ConfigOverridesState(String path)
         {
             Path = path;
+        }
+
+        /// <summary>
+        ///   Every valid stored pair the file holds, canonically keyed: the applied ones AND the ones
+        ///   an authority currently shadows. This is what a rewrite starts from, because rebuilding
+        ///   from <see cref="Applied"/> alone would silently drop a shadowed key's stored value, which
+        ///   is an operator's intent waiting for the variable that outranks it to be removed.
+        /// </summary>
+        public IReadOnlyDictionary<String, String> Stored
+        {
+            get { lock (_gate) { return _stored; } }
         }
 
         /// <summary>The keys this layer actually contributed, with the values it contributed.</summary>
@@ -92,11 +104,13 @@ namespace NoSQL.GraphDB.App.Configuration
             get { lock (_gate) { return _loadError; } }
         }
 
-        internal void Record(IReadOnlyDictionary<String, String> applied, IReadOnlyList<String> shadowed,
+        internal void Record(IReadOnlyDictionary<String, String> stored,
+            IReadOnlyDictionary<String, String> applied, IReadOnlyList<String> shadowed,
             IReadOnlyList<String> ignored, String loadError)
         {
             lock (_gate)
             {
+                _stored = stored;
                 _applied = applied;
                 _shadowed = shadowed;
                 _ignored = ignored;
@@ -181,29 +195,45 @@ namespace NoSQL.GraphDB.App.Configuration
         }
 
         /// <summary>
-        ///   The providers whose declarations outrank a stored override: environment variables and the
-        ///   command line. Chained providers are unwrapped, because a host that composes its
-        ///   configuration would otherwise hide the real environment provider behind one and every
-        ///   arbitration check would silently answer "not declared".
+        ///   THE definition of an authority: a provider whose declaration outranks a stored override.
+        ///   One home on purpose. The write-refusal (409), the boot-time arbitration and the published
+        ///   per-key source all derive from this predicate, so a provider type added here changes all
+        ///   three together instead of desynchronising them.
         /// </summary>
-        private static IEnumerable<IConfigurationProvider> CollectAuthorities(IConfigurationRoot configuration)
+        internal static Boolean IsAuthority(IConfigurationProvider provider)
+        {
+            return provider is EnvironmentVariablesConfigurationProvider
+                || provider is CommandLineConfigurationProvider;
+        }
+
+        /// <summary>
+        ///   Every leaf provider of a configuration root, in configuration order, with chained
+        ///   providers unwrapped. Unwrapping matters: a host that composes its configuration would
+        ///   otherwise hide the real environment provider behind a wrapper and every check over the
+        ///   provider list would silently miss it.
+        /// </summary>
+        internal static IEnumerable<IConfigurationProvider> Flatten(IConfigurationRoot configuration)
         {
             foreach (var provider in configuration.Providers)
             {
-                if (provider is EnvironmentVariablesConfigurationProvider
-                    || provider is CommandLineConfigurationProvider)
-                {
-                    yield return provider;
-                }
-                else if (provider is ChainedConfigurationProvider chained
+                if (provider is ChainedConfigurationProvider chained
                     && chained.Configuration is IConfigurationRoot inner)
                 {
-                    foreach (var nested in CollectAuthorities(inner))
+                    foreach (var nested in Flatten(inner))
                     {
                         yield return nested;
                     }
                 }
+                else
+                {
+                    yield return provider;
+                }
             }
+        }
+
+        private static IEnumerable<IConfigurationProvider> CollectAuthorities(IConfigurationRoot configuration)
+        {
+            return Flatten(configuration).Where(IsAuthority);
         }
 
         /// <inheritdoc />
@@ -219,6 +249,7 @@ namespace NoSQL.GraphDB.App.Configuration
         /// </summary>
         internal void LoadInto(IDictionary<String, String> data)
         {
+            var stored = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
             var applied = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
             var shadowed = new List<String>();
             var ignored = new List<String>();
@@ -228,22 +259,27 @@ namespace NoSQL.GraphDB.App.Configuration
             {
                 if (State.IsActive && File.Exists(State.Path))
                 {
-                    foreach (var stored in Read(State.Path))
+                    foreach (var pair in Read(State.Path))
                     {
                         // Bounded by the catalog's writable set. The write route cannot produce any
                         // other key, so anything else was hand-edited into the file and this layer
                         // declines it rather than becoming a way around the never-writable rules.
-                        if (!Fallen8SettingCatalog.TryGet(stored.Key, out var entry) || !entry.IsWritable)
+                        if (!Fallen8SettingCatalog.TryGet(pair.Key, out var entry) || !entry.IsWritable)
                         {
-                            ignored.Add(stored.Key);
+                            ignored.Add(pair.Key);
                         }
-                        else if (IsDeclaredByAuthority(stored.Key))
+                        else if (IsDeclaredByAuthority(entry.Key))
                         {
-                            shadowed.Add(stored.Key);
+                            // Kept in Stored even though it contributes nothing right now: the value
+                            // is operator intent waiting for the outranking variable to be removed,
+                            // and a rewrite that started from Applied alone would delete it.
+                            stored[entry.Key] = pair.Value;
+                            shadowed.Add(entry.Key);
                         }
                         else
                         {
-                            applied[entry.Key] = stored.Value;
+                            stored[entry.Key] = pair.Value;
+                            applied[entry.Key] = pair.Value;
                         }
                     }
                 }
@@ -252,6 +288,7 @@ namespace NoSQL.GraphDB.App.Configuration
                 || exception is UnauthorizedAccessException)
             {
                 loadError = exception.Message;
+                stored.Clear();
                 applied.Clear();
                 shadowed.Clear();
                 ignored.Clear();
@@ -264,7 +301,7 @@ namespace NoSQL.GraphDB.App.Configuration
 
             shadowed.Sort(StringComparer.Ordinal);
             ignored.Sort(StringComparer.Ordinal);
-            State.Record(applied, shadowed, ignored, loadError);
+            State.Record(stored, applied, shadowed, ignored, loadError);
         }
 
         /// <summary>

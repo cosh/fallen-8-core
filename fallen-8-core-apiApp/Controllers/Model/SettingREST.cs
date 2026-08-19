@@ -53,22 +53,29 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   Projects one catalogued key, withholding the value unless the key is writable. Pass
         ///   <paramref name="effectiveValues" /> when projecting many keys at once: binding one options
         ///   class per key would otherwise bind every section 94 times per request.
+        ///
+        ///   <para><paramref name="applyFailure" /> is why a LIVE key's last apply did not reach the
+        ///   running process, when it did not. It downgrades the published promise: the row reports
+        ///   restart-pending, because the stored value is real but the process is not using it, and a
+        ///   surface that kept calling it live would be making the exact wrong-"this-applied" claim this
+        ///   feature exists to remove.</para>
         /// </summary>
         public static SettingREST From(Fallen8SettingEntry entry, Fallen8ConfigOverrides overrides,
-            IReadOnlyDictionary<String, String> effectiveValues = null)
+            IReadOnlyDictionary<String, String> effectiveValues = null, String applyFailure = null)
         {
             if (entry == null)
             {
                 return null;
             }
 
+            var failed = entry.Tier == Fallen8SettingTier.Live && applyFailure != null;
             var published = new SettingREST
             {
                 Key = entry.Key,
-                Kind = WireKind(entry.Kind),
-                Tier = WireTier(entry.Tier),
-                ApplyMode = WireApplyMode(entry.ApplyMode),
-                Source = WireSource(overrides?.SourceOf(entry.Key) ?? Fallen8SettingSource.Default),
+                Kind = WireEnum.Camel(entry.Kind),
+                Tier = WireEnum.Camel(entry.Tier),
+                ApplyMode = failed ? "restart" : WireEnum.Camel(entry.ApplyMode),
+                Source = WireEnum.Camel(overrides?.SourceOf(entry.Key) ?? Fallen8SettingSource.Default),
                 Rule = entry.Rule,
                 Reason = entry.Reason,
                 Minimum = entry.Minimum,
@@ -81,7 +88,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                 published.Value = effectiveValues != null && effectiveValues.TryGetValue(entry.Key, out var value)
                     ? value
                     : overrides?.CurrentValue(entry.Key);
-                published.RestartPending = overrides?.IsRestartPending(entry) ?? false;
+                published.RestartPending = failed || (overrides?.IsRestartPending(entry, effectiveValues) ?? false);
             }
             else
             {
@@ -199,81 +206,6 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        private static String WireKind(Fallen8SettingKind kind)
-        {
-            switch (kind)
-            {
-                case Fallen8SettingKind.Bool:
-                    return "bool";
-                case Fallen8SettingKind.Int:
-                    return "int";
-                case Fallen8SettingKind.Double:
-                    return "double";
-                case Fallen8SettingKind.String:
-                    return "string";
-                case Fallen8SettingKind.Enum:
-                    return "enum";
-                case Fallen8SettingKind.Array:
-                    return "array";
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(kind), kind, "unpublished setting kind");
-            }
-        }
-
-        private static String WireTier(Fallen8SettingTier tier)
-        {
-            switch (tier)
-            {
-                case Fallen8SettingTier.NotWritable:
-                    return "notWritable";
-                case Fallen8SettingTier.Restart:
-                    return "restart";
-                case Fallen8SettingTier.Live:
-                    return "live";
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(tier), tier, "unpublished setting tier");
-            }
-        }
-
-        private static String WireApplyMode(Fallen8SettingApplyMode mode)
-        {
-            switch (mode)
-            {
-                case Fallen8SettingApplyMode.Never:
-                    return "never";
-                case Fallen8SettingApplyMode.Restart:
-                    return "restart";
-                case Fallen8SettingApplyMode.Live:
-                    return "live";
-                case Fallen8SettingApplyMode.LiveForNewWork:
-                    return "liveForNewWork";
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(mode), mode, "unpublished apply mode");
-            }
-        }
-
-        private static String WireSource(Fallen8SettingSource source)
-        {
-            switch (source)
-            {
-                case Fallen8SettingSource.Default:
-                    return "default";
-                case Fallen8SettingSource.AppSettings:
-                    return "appSettings";
-                case Fallen8SettingSource.UserSecrets:
-                    return "userSecrets";
-                case Fallen8SettingSource.Environment:
-                    return "environment";
-                case Fallen8SettingSource.CommandLine:
-                    return "commandLine";
-                case Fallen8SettingSource.Host:
-                    return "host";
-                case Fallen8SettingSource.Override:
-                    return "override";
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(source), source, "unpublished setting source");
-            }
-        }
     }
 
     /// <summary>

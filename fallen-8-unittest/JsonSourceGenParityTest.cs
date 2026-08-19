@@ -820,11 +820,56 @@ namespace NoSQL.GraphDB.Tests
                     RunningValue = "64",
                     PendingValue = "128"
                 }, "PendingRestartREST"),
+                (new ConfigWriteSpecification
+                {
+                    Settings = new Dictionary<String, String>
+                    {
+                        ["Fallen8:Ingestion:MaxPages"] = "250",
+                        ["Fallen8:Plugins:MaxCount"] = null
+                    }
+                }, "ConfigWriteSpecification (set + clear)"),
+                (new ConfigWriteResultREST
+                {
+                    Key = "Fallen8:ChangeFeed:MaxSubscribers",
+                    Value = "64",
+                    Coerced = false,
+                    Cleared = false,
+                    ApplyMode = "liveForNewWork",
+                    RestartPending = false
+                }, "ConfigWriteResultREST (applied live)"),
+                (new ConfigWriteResultREST
+                {
+                    Key = "Fallen8:ChangeFeed:MaxSubscribers",
+                    Value = "64",
+                    Coerced = false,
+                    Cleared = false,
+                    ApplyMode = "restart",
+                    RestartPending = true,
+                    ApplyFailure = "the delegate threw"
+                }, "ConfigWriteResultREST (apply failed; WhenWritingNull on applyFailure)"),
+                (new ConfigWriteREST
+                {
+                    Results = new List<ConfigWriteResultREST>
+                    {
+                        new ConfigWriteResultREST
+                        {
+                            Key = "Fallen8:Ingestion:MaxPages",
+                            Value = "250",
+                            ApplyMode = "restart",
+                            RestartPending = true
+                        }
+                    },
+                    PendingRestart = new List<PendingRestartREST>
+                    {
+                        new PendingRestartREST { Key = "Fallen8:Ingestion:MaxPages", RunningValue = "500", PendingValue = "250" }
+                    }
+                }, "ConfigWriteREST"),
                 (new ConfigREST
                 {
                     Semantic = new SemanticConfigREST { Embedding = null, Chat = null },
                     Observability = new ObservabilityConfigREST { OtlpEnabled = false },
                     ApiKeyRequired = true,
+                    ConfigWriteEnabled = true,
                     Settings = new List<SettingREST>
                     {
                         new SettingREST { Key = "Fallen8:Plugins:MaxCount", Kind = "int", Tier = "restart", ApplyMode = "restart", Value = "64", Source = "default" }

@@ -43,7 +43,7 @@ namespace NoSQL.GraphDB.App.Configuration
     public static class Fallen8OptionsSections
     {
         private static readonly IReadOnlyDictionary<String, Type> _bySection =
-            new Dictionary<String, Type>(StringComparer.Ordinal)
+            new Dictionary<String, Type>(StringComparer.OrdinalIgnoreCase)
             {
                 [Fallen8AnalyticsOptions.SectionName] = typeof(Fallen8AnalyticsOptions),
                 [Fallen8BulkIOOptions.SectionName] = typeof(Fallen8BulkIOOptions),
@@ -70,6 +70,34 @@ namespace NoSQL.GraphDB.App.Configuration
         public static Type TypeOf(String section)
         {
             return section != null && _bySection.TryGetValue(section, out var type) ? type : null;
+        }
+
+        /// <summary>
+        ///   The <c>Fallen8:Section</c> prefix a configuration key belongs to, or <c>null</c> when the
+        ///   key has none. The one home for the "a section is the first two segments" rule, which both
+        ///   the trial-bind and the effective-value read depend on.
+        /// </summary>
+        public static String SectionOf(String key)
+        {
+            if (key == null)
+            {
+                return null;
+            }
+
+            var first = key.IndexOf(':');
+            if (first < 0)
+            {
+                return null;
+            }
+
+            var second = key.IndexOf(':', first + 1);
+            return second < 0 ? null : key.Substring(0, second);
+        }
+
+        /// <summary>The options class a configuration key binds through, or <c>null</c>.</summary>
+        public static Type TypeOfKey(String key)
+        {
+            return TypeOf(SectionOf(key));
         }
     }
 }

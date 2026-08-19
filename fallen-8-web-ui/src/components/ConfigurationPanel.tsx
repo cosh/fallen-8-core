@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
@@ -56,15 +56,14 @@ import { ErrorBox } from "./ErrorBox";
  */
 
 /**
- * The two keys that decide the namespace startup policy. They are instance-wide settings, so they sit
- * in this panel, but an embed that locked namespace management must not be able to re-plan the host's
- * next boot through them either, so they take the namespace lock on top of the instance lock.
+ * Namespace-policy keys are instance-wide settings, so they sit in this panel, but an embed that
+ * locked namespace management must not be able to re-plan the host's namespaces through them either,
+ * so they take the namespace lock on top of the instance lock. A prefix rule rather than a key list:
+ * the server encodes the grouping in the key itself, and a list would silently miss the next key
+ * added under the section.
  */
 function isNamespacePolicy(key: string, lockNamespace?: boolean): boolean {
-  return (
-    lockNamespace === true &&
-    (key === "Fallen8:Namespaces:LoadOnStartup" || key === "Fallen8:Namespaces:StartupLoadMode")
-  );
+  return lockNamespace === true && key.startsWith("Fallen8:Namespaces:");
 }
 function Row({ label, value }: { label: string; value: string }) {
   return (
@@ -203,8 +202,12 @@ export function ConfigurationPanel() {
   const write = useMutation({
     mutationFn: (settings: Record<string, string | null>) =>
       writeConfig(activeOrPlaceholder, { settings }),
-    onSuccess: () => {
-      setDraft({});
+    onSuccess: (_result, written) => {
+      // Remove only the keys this save carried: edits typed into OTHER rows while the request was in
+      // flight are someone's unsaved work, and wiping them would silently discard it.
+      setDraft((current) =>
+        Object.fromEntries(Object.entries(current).filter(([key]) => !(key in written))),
+      );
       setWriteError(null);
       // Nothing else refreshes the read surface: window-focus refetch is off globally and the poll is
       // still suspended at the moment this returns.
@@ -213,14 +216,37 @@ export function ConfigurationPanel() {
     onError: (error: ApiError | Error) => setWriteError(error),
   });
 
+  // The draft belongs to the instance it was typed against. Switching the active instance must drop
+  // it, or Save would write one instance's intended values into another's configuration.
+  const instanceId = instance?.id;
+  useEffect(() => {
+    setDraft({});
+    setWriteError(null);
+  }, [instanceId]);
+
+  const onRowChange = useCallback((key: string, value: string) => {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }, []);
+  const onRowClear = useCallback((key: string) => {
+    setDraft((current) => ({ ...current, [key]: null }));
+  }, []);
+
   if (!instance) return null;
 
   const settings = config.data?.settings ?? [];
   const pendingRestart = config.data?.pendingRestart ?? [];
-  // A write needs an API key configured server-side, so without one every row is read-only and the
-  // panel says why rather than offering a Save that would always be refused.
-  const writesAllowed = config.data?.apiKeyRequired === true;
+  // The server says whether it accepts a write at all (both operator acts in place). Gating on the
+  // API key alone would render an editor whose every Save is refused on a keyed instance that has
+  // not enabled the capability; absent on an older server means no write route exists, so read-only.
+  const writesAllowed = config.data?.configWriteEnabled === true;
   const editable = !lockInstances;
+
+  // A blanked numeric field is neither a value nor a clear, and the server refuses the WHOLE batch
+  // over it; Save waits until the field says something.
+  const kinds = new Map(settings.map((setting) => [setting.key, setting.kind]));
+  const blankNumericDrafts = Object.entries(draft).filter(
+    ([key, value]) => value === "" && (kinds.get(key) === "int" || kinds.get(key) === "double"),
+  );
 
   return (
     <section className="panel" data-testid="configuration-panel">
@@ -301,14 +327,21 @@ export function ConfigurationPanel() {
                 <div className="text-fg-faint mb-2 flex items-center gap-2 text-[10px] tracking-widest uppercase">
                   settings
                   <span className="normal-case tracking-normal">
-                    {writesAllowed ? "" : "(read-only: configuring an API key is what allows a write)"}
+                    {writesAllowed
+                      ? ""
+                      : "(read-only: writes need an API key and Fallen8:Security:EnableConfigurationWrite)"}
                   </span>
                   {editable && dirty && (
                     <button
                       type="button"
                       className="btn-accent btn ml-auto normal-case"
                       data-testid="config-save"
-                      disabled={write.isPending}
+                      disabled={write.isPending || blankNumericDrafts.length > 0}
+                      title={
+                        blankNumericDrafts.length > 0
+                          ? `${blankNumericDrafts[0][0]} is empty: type a number, or discard the edit`
+                          : undefined
+                      }
                       onClick={() => write.mutate(draft)}
                     >
                       {write.isPending ? "saving…" : `Save ${Object.keys(draft).length}`}
@@ -331,8 +364,8 @@ export function ConfigurationPanel() {
                       disabled={
                         !editable || !writesAllowed || isNamespacePolicy(setting.key, lockNamespace)
                       }
-                      onChange={(value) => setDraft((current) => ({ ...current, [setting.key]: value }))}
-                      onClear={() => setDraft((current) => ({ ...current, [setting.key]: null }))}
+                      onChange={onRowChange}
+                      onClear={onRowClear}
                     />
                   ))}
                 </div>

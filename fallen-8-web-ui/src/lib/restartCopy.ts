@@ -50,20 +50,3 @@ export function restartBannerSummary(count: number): string {
     : `${count} settings differ from what this instance started with. Restart the server to apply them.`;
 }
 
-/**
- * What a written setting promises, in the operator's words. "New work only" is not a hedge: these
- * caps are consulted when work starts and never re-checked, so an existing subscriber, registration
- * or namespace keeps what it already had, and saying "applied" would be untrue for them.
- */
-export function applyPromise(applyMode: string): string {
-  switch (applyMode) {
-    case 'live':
-      return 'in effect now';
-    case 'liveForNewWork':
-      return 'in effect for new work; anything already running keeps its current limit';
-    case 'restart':
-      return `stored, ${TAKES_EFFECT_ON_RESTART}`;
-    default:
-      return 'not writable';
-  }
-}

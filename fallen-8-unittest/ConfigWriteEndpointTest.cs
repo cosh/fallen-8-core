@@ -161,18 +161,19 @@ namespace NoSQL.GraphDB.Tests
         ///   The asymmetry that matters: the capability alone must not be enough. Every other capability
         ///   policy requires authentication only when a key is configured, so a symmetric policy here
         ///   would have made configuration anonymously writable on the DEFAULT deployment, which is
-        ///   keyless. Anonymous code execution is already possible there, but it is per request; a
-        ///   configuration write persists a posture change across the restart.
+        ///   keyless. The refusal surfaces as a challenge (401) because the policy carries BOTH acts and
+        ///   fails closed for an unauthenticated caller; what this test pins is that the write is
+        ///   refused and nothing persists, whatever the capability says.
         /// </summary>
         [TestMethod]
-        public async Task TheCapabilityOn_WithNoApiKeyConfigured_Is403()
+        public async Task TheCapabilityOn_WithNoApiKeyConfigured_IsRefusedAndWritesNothing()
         {
             using var factory = CreateFactory(apiKey: false, metadataDirectory: _metadata);
             using var client = factory.CreateClient();
 
             using var response = await Patch(client, ("Fallen8:Plugins:MaxCount", "128"));
 
-            Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode,
+            Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode,
                 "no API key means no configuration write, ever, however the capability is set");
 
             Assert.IsFalse(File.Exists(Path.Combine(_metadata, Fallen8ConfigOverridesSource.FileName)),
@@ -330,6 +331,103 @@ namespace NoSQL.GraphDB.Tests
 
             using var accepted = await Patch(client, ("Fallen8:Chat:Backend", "Ollama"));
             Assert.AreEqual(HttpStatusCode.OK, accepted.StatusCode);
+        }
+
+        /// <summary>
+        ///   A clear sent with non-canonical casing must clear the canonical stored entry. Configuration
+        ///   keys are case-insensitive, so validation accepts the variant; before canonicalisation the
+        ///   layer below compared exactly, removed nothing, and the response still reported cleared.
+        /// </summary>
+        [TestMethod]
+        public async Task AClearWithNonCanonicalCasing_ClearsTheCanonicalStoredEntry()
+        {
+            using var factory = CreateFactory(metadataDirectory: _metadata);
+            using var client = Authenticated(factory);
+
+            using var written = await Patch(client, ("Fallen8:Ingestion:MaxPages", "250"));
+            Assert.AreEqual(HttpStatusCode.OK, written.StatusCode);
+
+            using var cleared = await client.PatchAsJsonAsync("/config",
+                new Dictionary<String, Object>
+                {
+                    ["settings"] = new Dictionary<String, String> { ["fallen8:ingestion:maxpages"] = null }
+                });
+            Assert.AreEqual(HttpStatusCode.OK, cleared.StatusCode);
+
+            var result = (await Json(cleared)).GetProperty("results")[0];
+            Assert.AreEqual("Fallen8:Ingestion:MaxPages", result.GetProperty("key").GetString(),
+                "the result reports the canonical spelling, not the caller's");
+            Assert.IsTrue(result.GetProperty("cleared").GetBoolean());
+            Assert.AreEqual("500", result.GetProperty("value").GetString(),
+                "the override is genuinely gone: the class default is back in force");
+
+            var file = await File.ReadAllTextAsync(Path.Combine(_metadata, Fallen8ConfigOverridesSource.FileName));
+            StringAssert.DoesNotMatch(file, new System.Text.RegularExpressions.Regex("(?i)maxpages"),
+                "no spelling of the key survives in the stored file");
+        }
+
+        /// <summary>
+        ///   Two spellings of the same key in one batch are a 400, not a silent last-wins and not a 500:
+        ///   validation accepts each spelling independently (configuration keys are case-insensitive),
+        ///   so without an explicit collision check the batch would either resolve by JSON order or blow
+        ///   up in the trial-bind dictionary.
+        /// </summary>
+        [TestMethod]
+        public async Task TwoSpellingsOfTheSameKey_AreA400_AndWriteNothing()
+        {
+            using var factory = CreateFactory(metadataDirectory: _metadata);
+            using var client = Authenticated(factory);
+
+            using var response = await Patch(client,
+                ("Fallen8:Ingestion:MaxPages", "250"),
+                ("fallen8:ingestion:maxpages", "300"));
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+            StringAssert.Contains((await Json(response)).GetProperty("detail").GetString(), "more than once");
+            Assert.IsFalse(File.Exists(Path.Combine(_metadata, Fallen8ConfigOverridesSource.FileName)));
+        }
+
+        /// <summary>
+        ///   NaN parses as a double and every bounds comparison against it is false, so without an
+        ///   explicit check a bounded key would accept a value no comparison can refuse. The sampler
+        ///   ratio is the key where that would silently drop effectively all traces at the next boot.
+        /// </summary>
+        [TestMethod]
+        public async Task ANonFiniteDouble_Is400()
+        {
+            using var factory = CreateFactory(metadataDirectory: _metadata);
+            using var client = Authenticated(factory);
+
+            foreach (var hostile in new[] { "NaN", "Infinity", "-Infinity" })
+            {
+                using var response = await Patch(client, ("Fallen8:Observability:TracingSamplingRatio", hostile));
+                Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode, hostile + " must be refused");
+            }
+
+            Assert.IsFalse(File.Exists(Path.Combine(_metadata, Fallen8ConfigOverridesSource.FileName)));
+        }
+
+        /// <summary>
+        ///   An unreadable overrides file refuses writes: a rewrite starts from what the file holds, so
+        ///   proceeding would rebuild from nothing and replace every setting the file still contains,
+        ///   turning one transient corruption into data loss reported as success.
+        /// </summary>
+        [TestMethod]
+        public async Task AWrite_WhileTheStoredFileIsUnreadable_Is409AndChangesNothing()
+        {
+            var file = Path.Combine(_metadata, Fallen8ConfigOverridesSource.FileName);
+            await File.WriteAllTextAsync(file, "{ not json");
+
+            using var factory = CreateFactory(metadataDirectory: _metadata);
+            using var client = Authenticated(factory);
+
+            using var response = await Patch(client, ("Fallen8:Ingestion:MaxPages", "250"));
+
+            Assert.AreEqual(HttpStatusCode.Conflict, response.StatusCode);
+            StringAssert.Contains((await Json(response)).GetProperty("detail").GetString(),
+                Fallen8ConfigOverridesSource.FileName, "the refusal names the file to fix");
+            Assert.AreEqual("{ not json", await File.ReadAllTextAsync(file),
+                "the unreadable file is left exactly as it was");
         }
 
         /// <summary>

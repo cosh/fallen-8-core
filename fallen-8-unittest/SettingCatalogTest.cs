@@ -53,8 +53,6 @@ namespace NoSQL.GraphDB.Tests
     {
         private static readonly Assembly _apiApp = typeof(Fallen8SecurityOptions).Assembly;
 
-        private const String ConfigurationNamespace = "NoSQL.GraphDB.App.Configuration";
-
         /// <summary>
         ///   The exclusion rules a catalogued key may cite: R1 to R6 of spec section 4.7, plus the
         ///   collection rule of 4.3.5. R7 is deliberately NOT here. Its resolution is to implement or
@@ -66,15 +64,18 @@ namespace NoSQL.GraphDB.Tests
         #region reflecting the real configuration surface
 
         /// <summary>
-        ///   Every options class the apiApp binds: a class in the configuration namespace declaring a
-        ///   <c>public const String SectionName</c>. Derived, so a seventeenth options class joins this
-        ///   sweep (and therefore the catalog's obligations) the moment it is written.
+        ///   Every options class the apiApp binds: any class in the WHOLE assembly declaring a
+        ///   <c>public const String SectionName</c> under the <c>Fallen8:</c> prefix. The marker is the
+        ///   const, deliberately not the namespace: a namespace filter would let an options class added
+        ///   beside its feature (rather than under Configuration/) bind real keys while silently
+        ///   escaping the catalog, the section map and trial-binding, which is exactly the unclassified
+        ///   drift this gate exists to make impossible.
         /// </summary>
         private static IEnumerable<Type> OptionsClasses()
         {
             return _apiApp.GetTypes()
-                .Where(type => type.IsClass && !type.IsAbstract && type.Namespace == ConfigurationNamespace)
-                .Where(type => SectionNameOf(type) != null)
+                .Where(type => type.IsClass && !type.IsAbstract)
+                .Where(type => SectionNameOf(type)?.StartsWith("Fallen8:", StringComparison.Ordinal) == true)
                 .OrderBy(type => type.Name, StringComparer.Ordinal);
         }
 

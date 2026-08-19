@@ -1,4 +1,4 @@
-﻿# Namespace startup default - Implementation plan
+# Namespace startup default - Implementation plan
 
 > **SUPERSEDED (2026-08-18), never implemented.** Do not follow these phases. See
 > [spec.md](./spec.md)'s status line and
@@ -8,7 +8,7 @@ Spec: [spec.md](./spec.md). Phases are ordered so each one ends with a green bui
 
 ## Phase 0 - Pin today's behaviour before changing it
 
-The effective default is pinned by nothing (spec Â§9), so the first commit is tests that pass
+The effective default is pinned by nothing (spec §9), so the first commit is tests that pass
 **against current `main`** and would fail after a careless change.
 
 - `NamespaceEndpointTest`: a host booted with `Fallen8:Namespaces:LoadOnStartup=false` skips an
@@ -31,13 +31,13 @@ Exit: suite green, two or three new tests, no product change.
      `Default.PluginRegistrationEnabled`.
    - **Refactor `IsSelectedForStartupLoad` to take `Boolean? ownPolicy`** rather than a
      `NamespaceCatalogEntry`, so the same method answers "what does a namespace with no override
-     inherit" by being called with `null`. This is what keeps Â§4.2's single home single - no second
+     inherit" by being called with `null`. This is what keeps §4.2's single home single - no second
      null-to-bool site anywhere.
    - Public accessors beside `MaxNamespaces`: the resolved default (slot, else configuration key -
-     **not** mode-composed, per Â§4.5) and the mode.
+     **not** mode-composed, per §4.5) and the mode.
    - A `TrySetLoadOnStartupDefault(...)` that writes the field, calls the catalog writer, and answers
-     `false` with a reason when `_catalogPath == null` (Â§4.7).
-   - **`WriteCatalogUnlocked`: re-stamp the slot** onto the rebuilt document (Â§4.8). One line, and
+     `false` with a reason when `_catalogPath == null` (§4.7).
+   - **`WriteCatalogUnlocked`: re-stamp the slot** onto the rebuilt document (§4.8). One line, and
      the whole feature silently reverts without it.
 3. `AppJsonContext.cs`: confirm the catalog DTOs are registered (they are) - a new property on an
    already-registered type needs no entry, but `JsonSourceGenParityTest` must stay green.
@@ -58,14 +58,14 @@ through a create/rename/drop in a new test.
    `<summary>`/`<remarks>` saying it changes the next boot only.
 3. Verify the tri-state parse is shared with the per-namespace path rather than copied.
 
-Exit: build green. Tests from spec Â§9's first four bullets added and passing. Then
+Exit: build green. Tests from spec §9's first four bullets added and passing. Then
 `powershell -File scripts/update-openapi-snapshot.ps1` and review the printed diff: expected delta is
 one new path plus two properties on `NamespacesREST`, nothing removed.
 
 ## Phase 3 - MCP bridge (engine to REST to MCP)
 
 `PATCH /ns` is a new path, so `McpRestCoverageTest` and `McpContractTest` **will fail** until this
-phase lands or a reasoned deferral is recorded. Bridging is the decision taken (spec Â§8):
+phase lands or a reasoned deferral is recorded. Bridging is the decision taken (spec §8):
 
 1. `Bridge/Dto/NamespacesDto.cs`: the two new read fields. `NamespaceDto`: per-entry
    `loadOnStartupEnabled` (the bridge carries 4 of 7 entry fields today and no parity gate covers
@@ -90,11 +90,11 @@ Exit: both MCP gates green, `dotnet test` green.
 3. `NamespacesPanel.tsx`: turn `STARTUP_OPTIONS` into a function of `{loadOnStartupDefault}` so the
    third option reads `inherit (load)` / `inherit (skip)`, bare `inherit` when the field is absent.
    Leave `STARTUP_EFFECT` alone - no fourth vocabulary. **Delete** the `namespace-startup-hint`
-   paragraph (Â§5.1). Two traps: keep the reserved `default` row's reason **under** the select (a
+   paragraph (§5.1). Two traps: keep the reserved `default` row's reason **under** the select (a
    recorded column-width regression at `NamespacesPanel.tsx:252-261` once pushed the actions column
    out of the scroll viewport), and give the reserved row no `inherit` annotation.
 4. `ConfigurationPanel.tsx`: a `namespaces` group with the writable select, **gated on
-   `!lockNamespace`** (Â§5.2). Mode-disabled with its reason when `startupLoadMode !== "catalog"`.
+   `!lockNamespace`** (§5.2). Mode-disabled with its reason when `startupLoadMode !== "catalog"`.
    Panel subtitle stops claiming read-only. Keep env keys behind the overlay - the body has never
    shown one and `studio.md:62` documents that split.
 5. `src/app/NamespaceScope.tsx:150-153`: reword so inherit-resolving-to-skip is named.
@@ -107,7 +107,7 @@ Exit: `npm --prefix fallen-8-web-ui run test` and `run build` green, exit codes 
 
 ## Phase 5 - Docs, screenshots, bookkeeping
 
-1. Docs pages per spec Â§8's Docs row. `namespaces.mdx#startup-load` stays the single home; the
+1. Docs pages per spec §8's Docs row. `namespaces.mdx#startup-load` stays the single home; the
    heading is not renamed (link-checked build).
 2. Recapture `screen-connect.png` **and** `screen-connect-observability.png` against an isolated
    already-running app (`F8_UI_URL`, never the `:5000` webServer race, never piped through
@@ -126,10 +126,9 @@ Exit: `npm --prefix fallen-8-web-ui run test` and `run build` green, exit codes 
 - `npm --prefix fallen-8-web-ui run test` and `run build`, exit codes confirmed explicitly
 - `npm --prefix docs ci && npm --prefix docs run build` (link-checked)
 - Both Connect screenshots recaptured
-- **Not required, with reasons:** `tools/browser-probe` (`fallen-8-core` untouched, spec Â§6) and
+- **Not required, with reasons:** `tools/browser-probe` (`fallen-8-core` untouched, spec §6) and
   `scripts/update-provider-descriptor-snapshot.ps1` (no integration descriptor change)
 
 ## Left open
 
 Nothing yet - this section records deviations and unfinished rows as the phases land.
-

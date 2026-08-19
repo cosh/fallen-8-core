@@ -339,6 +339,45 @@ something:
 - `screen-connect-observability.png` re-shot for its rewritten description; the old
   "this view is read-only" sentence is gone from the image as well as from the code.
 
+**Review gate (pre-merge).** A ten-finder adversarial review over the whole branch diff, findings
+verified against the source, fixes applied, and a second adversarial pass over the fixes themselves.
+What it caught, worst first:
+
+1. **MCP `get_settings` threw on every call**: the op re-parented JsonNodes still attached to the
+   parsed response, and no test invoked it (the coverage gates pin routes, not response handling). It
+   never worked. Fixed by detaching first, and `McpSettingsToolTest` now invokes both ops against a
+   canned bridge.
+2. **`Write()` could destroy the overrides file**: a rewrite starts from what the file holds, so
+   writing while the file was unreadable (or written by a newer build) rebuilt from nothing and
+   replaced every stored setting, reported as success. Now refused at the model (throw) and the route
+   (409 naming the file), with the file pinned byte-identical by a test.
+3. **The shadowed-key preservation loop was dead code**: it read a map that by construction never held
+   a shadowed key, so any write silently dropped an operator's stored-but-outranked values, the exact
+   loss its own comment claimed to prevent. The state now retains every valid stored pair and the
+   rewrite starts from that.
+4. **Case-variant writes**: validation is case-insensitive (configuration is), but the layers below
+   compared exactly, so a lowercase clear removed nothing while answering `cleared: true`. Keys are
+   canonicalised to the catalog spelling after validation, and the section map is case-insensitive.
+5. **NaN passed the bounds**: every comparison against NaN is false, so `TracingSamplingRatio=NaN`
+   validated, persisted, and would have silently dropped effectively all traces at the next boot.
+   Non-finite doubles are refused.
+6. **A keyed instance with the capability off rendered an editor whose every Save answered 403.** The
+   server now publishes `configWriteEnabled` and the panel gates on it; the policy also carries both
+   operator acts (fails closed for any endpoint that adopts it), so a keyless refusal surfaces as 401.
+7. **A live key whose apply failed looked healthy on GET /config** (the downgrade lived only in the
+   one write response). The read surface now folds the failure in as restart-pending, and the MCP
+   summary folds from the per-key results instead of a batch count that read failures as success.
+8. **An encoding regression had committed mojibake plus BOMs into five files**, including a historical
+   spec whose own header says it is never rewritten (a PowerShell Get/Set-Content round-trip through
+   the ANSI codepage). Restored from main and re-edited with tooling that preserves bytes.
+9. Assorted honesty and duplication fixes: `GET /ns` no longer 500s when the startup mode binds an
+   out-of-range enum value (it reports `catalog`, which is what the boot does); the panel's draft
+   survives neither an instance switch nor a save racing fresh edits; a blanked numeric field blocks
+   Save instead of failing the whole batch; five hand-written enum wire switches became one camelCase
+   helper; the authority rule and the provider unwrap have one home each; the bind-per-key storm on
+   GET/PATCH became one batched bind; and the garbled sentence the observability page briefly carried
+   is rewritten.
+
 ## Follow-up this phase uncovered (not fixed here)
 
 **NLP enrichment silently stops above 512 chunks.** R7 deleted `Fallen8:Nlp:MaxBatchSize` because no

@@ -539,6 +539,85 @@ namespace NoSQL.GraphDB.Tests
                 Fallen8ConfigOverrides.EnvironmentSpelling("Fallen8:Plugins:MaxCount"));
         }
 
+        /// <summary>
+        ///   A shadowed key's stored value survives an unrelated write. It contributes nothing while the
+        ///   environment outranks it, but it is operator intent waiting for that variable to be removed,
+        ///   and a rewrite that rebuilt the file from the applied set alone would silently delete it.
+        /// </summary>
+        [TestMethod]
+        public void AWrite_PreservesTheStoredValueOfAShadowedKey()
+        {
+            const String Variable = "Fallen8__Chat__TimeoutSeconds";
+            try
+            {
+                WriteOverrides(("Fallen8:Chat:TimeoutSeconds", "60"));
+                Environment.SetEnvironmentVariable(Variable, "30");
+
+                var (root, source) = Build(environment: new Dictionary<String, String>
+                {
+                    [Variable] = "30"
+                });
+                var model = new Fallen8ConfigOverrides(root, source);
+                CollectionAssert.Contains(source.State.Shadowed.ToList(), "Fallen8:Chat:TimeoutSeconds",
+                    "precondition: the stored key is shadowed by the environment");
+
+                // An unrelated write rewrites the whole file.
+                model.Write(new Dictionary<String, String> { ["Fallen8:Ingestion:MaxPages"] = "250" });
+
+                var file = File.ReadAllText(Path.Combine(_directory, Fallen8ConfigOverridesSource.FileName));
+                StringAssert.Contains(file, "Fallen8:Chat:TimeoutSeconds",
+                    "the shadowed key is still in the file");
+                StringAssert.Contains(file, "60", "with the value the operator stored");
+                StringAssert.Contains(file, "Fallen8:Ingestion:MaxPages", "beside the new write");
+            }
+            finally
+            {
+                ClearEnvironment(Variable);
+            }
+        }
+
+        /// <summary>
+        ///   An unreadable file refuses writes at the model level too, not only at the route: a rewrite
+        ///   starts from what the file holds, and an empty starting set would replace everything the
+        ///   unreadable file still contains.
+        /// </summary>
+        [TestMethod]
+        public void AWrite_WhileTheFileIsUnreadable_ThrowsInsteadOfReplacingIt()
+        {
+            WriteOverrides("{ not json");
+            var (root, source) = Build();
+            var model = new Fallen8ConfigOverrides(root, source);
+
+            Assert.IsNotNull(source.State.LoadError, "precondition: the load failed");
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                model.Write(new Dictionary<String, String> { ["Fallen8:Ingestion:MaxPages"] = "250" }));
+
+            Assert.AreEqual("{ not json",
+                File.ReadAllText(Path.Combine(_directory, Fallen8ConfigOverridesSource.FileName)),
+                "the file is untouched");
+        }
+
+        /// <summary>
+        ///   A live key whose apply failed is reported as restart-pending by the read surface: the
+        ///   stored value is real, but the process is not using it, and a row that kept calling itself
+        ///   live would be the wrong-"this-applied" claim this feature exists to remove.
+        /// </summary>
+        [TestMethod]
+        public void ALiveKeyWhoseApplyFailed_IsPublishedAsRestartPending()
+        {
+            Assert.IsTrue(Fallen8SettingCatalog.TryGet("Fallen8:ChangeFeed:MaxSubscribers", out var live));
+
+            var healthy = NoSQL.GraphDB.App.Controllers.Model.SettingREST.From(live, overrides: null);
+            Assert.AreEqual("live", healthy.Tier);
+            Assert.AreEqual("liveForNewWork", healthy.ApplyMode);
+            Assert.IsFalse(healthy.RestartPending);
+
+            var failed = NoSQL.GraphDB.App.Controllers.Model.SettingREST.From(live, overrides: null,
+                effectiveValues: null, applyFailure: "the delegate threw");
+            Assert.AreEqual("restart", failed.ApplyMode, "the promise is downgraded to what is true");
+            Assert.IsTrue(failed.RestartPending, "and the row reports that a restart is what applies it");
+        }
+
         #endregion
     }
 }

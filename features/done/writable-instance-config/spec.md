@@ -182,10 +182,12 @@ symmetric policy would make `PATCH /config` anonymously writable on the default 
 unlike the per-request anonymous code execution, a configuration write persists a posture change
 across restarts.
 
-The no-key half is enforced **in the action, not the policy**, because a policy that denies an
-unauthenticated caller produces a *challenge*: a keyless instance would answer `401` and invite the
-caller to authenticate with a key that does not exist. The action answers `403` and names the two
-settings to configure. The capability half stays in the policy.
+**Both acts live in the policy's assertion, so it fails closed** for any endpoint that ever adopts
+it: on a keyless instance the failure surfaces as a challenge (`401`), because the caller is
+unauthenticated. The action keeps a layered no-key check that answers `403` naming the two settings,
+so the route can still explain itself if the policy is ever relaxed; the panel explains the
+requirement either way through the published `configWriteEnabled` boolean, which is what stops it
+offering a Save the server would always refuse.
 
 An instance with no `Fallen8:Metadata:Directory` has nowhere for a write to survive a restart, so a
 write is refused with `409` naming that setting rather than appearing to succeed and vanishing. The

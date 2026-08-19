@@ -82,8 +82,10 @@ function config(settings: SettingREST[], overrides: Partial<ConfigREST> = {}): C
       statisticsElementBudget: 1_000_000,
       statisticsTopN: 20,
     },
-    // A write needs a key configured server-side, so the editable cases say so.
+    // The editable cases model an instance with both operator acts in place, which is what the server
+    // publishes as configWriteEnabled.
     apiKeyRequired: true,
+    configWriteEnabled: true,
     settings,
     pendingRestart: [],
     ...overrides,
@@ -245,14 +247,42 @@ describe("Configuration editor", () => {
     });
   });
 
-  it("is read-only when the instance has no API key, because a write would always be refused", async () => {
-    getConfigMock.mockResolvedValue(config([setting()], { apiKeyRequired: false }));
+  it("is read-only when the server does not accept writes, and says both acts are needed", async () => {
+    // The case that used to mislead: an API key IS configured, but the capability is off, so every
+    // save would answer 403. The server publishes configWriteEnabled=false and the panel renders
+    // read-only instead of offering that save.
+    getConfigMock.mockResolvedValue(
+      config([setting()], { apiKeyRequired: true, configWriteEnabled: false }),
+    );
     renderPanel();
 
     expect(await screen.findByTestId(PLUGIN_ROW)).toBeDisabled();
     expect(screen.getByTestId("configuration-panel")).toHaveTextContent(
-      /configuring an API key is what allows a write/,
+      /writes need an API key and Fallen8:Security:EnableConfigurationWrite/,
     );
+  });
+
+  it("treats a missing configWriteEnabled as read-only, because an older server has no write route", async () => {
+    getConfigMock.mockResolvedValue(
+      config([setting()], { apiKeyRequired: true, configWriteEnabled: undefined }),
+    );
+    renderPanel();
+
+    expect(await screen.findByTestId(PLUGIN_ROW)).toBeDisabled();
+  });
+
+  it("keeps a blanked numeric field from saving, since the server refuses the whole batch over it", async () => {
+    const user = userEvent.setup();
+    getConfigMock.mockResolvedValue(config([setting()]));
+    renderPanel();
+
+    const field = await screen.findByTestId(PLUGIN_ROW);
+    await user.clear(field);
+
+    const save = screen.getByTestId("config-save");
+    expect(save).toBeDisabled();
+    expect(save).toHaveAttribute("title", expect.stringContaining("Fallen8:Plugins:MaxCount"));
+    expect(writeConfigMock).not.toHaveBeenCalled();
   });
 
   it("gates the editable region on lockInstances, and the namespace policy on lockNamespace too", async () => {
