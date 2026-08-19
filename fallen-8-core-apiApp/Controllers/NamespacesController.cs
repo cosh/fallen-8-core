@@ -75,7 +75,9 @@ namespace NoSQL.GraphDB.App.Controllers
             var result = new NamespacesREST
             {
                 Namespaces = new System.Collections.Generic.List<NamespaceREST>(namespaces.Count),
-                MaxNamespaces = _namespaces.MaxNamespaces
+                MaxNamespaces = _namespaces.MaxNamespaces,
+                LoadOnStartupDefault = _namespaces.LoadOnStartupDefault,
+                StartupLoadMode = NamespacesREST.WireStartupLoadMode(_namespaces.StartupLoadMode)
             };
             foreach (var ns in namespaces)
             {

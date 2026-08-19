@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using NoSQL.GraphDB.App.Chat;
 using NoSQL.GraphDB.App.Configuration;
@@ -187,14 +188,39 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     }
 
     /// <summary>
-    ///   The instance's read-only configuration view (feature instance-config), the single home
-    ///   for the Studio Configuration section: the semantic providers and the observability
-    ///   posture. Secrets are never emitted (no API key, no credentials); only the boolean
-    ///   <see cref="ApiKeyRequired"/> reports the security posture. Fallen-8-level and API-key
-    ///   gated (like /statistics); config is startup-bound, so this is display-only.
+    ///   The instance's configuration view (features instance-config and writable-instance-config),
+    ///   the single home for the Studio Configuration section: every catalogued setting, the semantic
+    ///   providers and the observability posture. Secrets are never emitted (no API key, no
+    ///   credentials); only the boolean <see cref="ApiKeyRequired"/> reports the security posture, and
+    ///   a never-writable setting publishes its tier and reason but no value, because this route is
+    ///   anonymous on an instance with no API key configured.
     /// </summary>
     public sealed class ConfigREST
     {
+        /// <summary>
+        ///   Every bound configuration key with its tier, the layer its value comes from, and whether a
+        ///   written value is waiting for a restart. The live inventory of this instance's
+        ///   configuration: what an operator may change, and what they may not, with the reason.
+        /// </summary>
+        [JsonPropertyName("settings")]
+        public List<SettingREST> Settings
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The keys whose configured value differs from the value this process started with, so a
+        ///   restart would change behaviour. Derived on every read and never stored, so it clears
+        ///   exactly when the process restarts. It also lights up when an operator hand-edits
+        ///   appsettings.json, which is why the wording is "differs from what this process started
+        ///   with" rather than "you changed this".
+        /// </summary>
+        [JsonPropertyName("pendingRestart")]
+        public List<PendingRestartREST> PendingRestart
+        {
+            get; set;
+        }
+
         /// <summary>The semantic providers (embedding + chat).</summary>
         [JsonPropertyName("semantic")]
         public SemanticConfigREST Semantic

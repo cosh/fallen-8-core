@@ -104,6 +104,8 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(SemanticConfigREST))]
     [JsonSerializable(typeof(ObservabilityConfigREST))]
     [JsonSerializable(typeof(ChatProviderStatsREST))]
+    [JsonSerializable(typeof(SettingREST))]
+    [JsonSerializable(typeof(PendingRestartREST))]
     [JsonSerializable(typeof(PathREST))]
     [JsonSerializable(typeof(PathElementREST))]
     [JsonSerializable(typeof(PathFilterSpecification))]

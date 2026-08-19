@@ -113,6 +113,14 @@ namespace NoSQL.GraphDB.App.Controllers
         private readonly Fallen8ObservabilityOptions _observability;
 
         /// <summary>
+        /// The configuration read model /config publishes (feature writable-instance-config): the
+        /// per-key source resolution and the boot snapshot the pending-restart set is derived from.
+        /// Null under direct unit construction, in which case settings[] still lists every catalogued
+        /// key with its tier and reason, only without values or sources.
+        /// </summary>
+        private readonly Fallen8ConfigOverrides _configOverrides;
+
+        /// <summary>
         /// The embedding config (feature instance-config): supplies the Ollama endpoint/model for
         /// the /config residency probe. Null under direct unit construction.
         /// </summary>
@@ -140,8 +148,10 @@ namespace NoSQL.GraphDB.App.Controllers
             Chat.Fallen8ChatProvider chatProvider = null, IOptions<Fallen8ObservabilityOptions> observability = null,
             IOptions<Fallen8EmbeddingOptions> embeddingOptions = null,
             Ingestion.IDoclingConverter doclingConverter = null, IOptions<Fallen8IngestionOptions> ingestionOptions = null,
-            Ingestion.INlpClient nlpClient = null, IOptions<Fallen8NlpOptions> nlpOptions = null)
+            Ingestion.INlpClient nlpClient = null, IOptions<Fallen8NlpOptions> nlpOptions = null,
+            Fallen8ConfigOverrides configOverrides = null)
         {
+            _configOverrides = configOverrides;
             _embeddingProvider = embeddingProvider;
             _chatProvider = chatProvider;
             _observability = observability?.Value ?? new Fallen8ObservabilityOptions();
@@ -328,15 +338,19 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        /// Gets the instance's read-only configuration (semantic providers + observability)
+        /// Gets the instance's configuration: every setting with its tier, source and effective value
         /// </summary>
         /// <param name="cancellationToken">Aborts the best-effort GPU probe</param>
-        /// <returns>The configuration view: embedding + chat providers and the observability posture</returns>
-        /// <remarks>The operator view behind the Studio Configuration section (feature
-        /// instance-config). Fallen-8-level and API-key gated like /statistics; config is
-        /// startup-bound, so this is display-only. Secrets are never emitted - only the boolean
-        /// apiKeyRequired reports the security posture, and the OTLP endpoint (operator config, not
-        /// a secret) is shown as configured.</remarks>
+        /// <returns>The configuration view: every catalogued setting, the semantic providers, and the observability posture</returns>
+        /// <remarks>The operator view behind the Studio Configuration section (features
+        /// instance-config and writable-instance-config). settings[] carries one entry per bound
+        /// configuration key with its tier (live, restart or notWritable), the layer its value comes
+        /// from, and whether a written value is waiting for a restart; pendingRestart[] is the same
+        /// waiting set, with the running and pending values named. A never-writable key publishes NO
+        /// value: this route is anonymous on an instance with no API key configured, so its value would
+        /// otherwise reach an unauthenticated caller. Secrets are never emitted - only the boolean
+        /// apiKeyRequired reports the security posture, and the OTLP endpoint (operator config, not a
+        /// secret) is shown as configured.</remarks>
         /// <response code="200">The configuration view</response>
         /// <response code="401">No valid credential was supplied (when an API key is configured)</response>
         [HttpGet("/config")]
@@ -394,6 +408,12 @@ namespace NoSQL.GraphDB.App.Controllers
                 },
                 Observability = ObservabilityConfigREST.From(_observability),
                 ApiKeyRequired = _apiKeyConfigured,
+                Settings = Fallen8SettingCatalog.Entries
+                    .Select(entry => SettingREST.From(entry, _configOverrides))
+                    .ToList(),
+                PendingRestart = (_configOverrides?.PendingRestart() ?? Array.Empty<Fallen8SettingEntry>())
+                    .Select(entry => PendingRestartREST.From(entry, _configOverrides))
+                    .ToList(),
             };
         }
 

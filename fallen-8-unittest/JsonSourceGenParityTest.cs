@@ -778,11 +778,58 @@ namespace NoSQL.GraphDB.Tests
                     Embedding = null,
                     Chat = new ChatProviderStatsREST { Enabled = false, Backend = "Ollama", Model = "phi4-f8-mini", Loaded = false }
                 }, "SemanticConfigREST"),
+                // A writable setting: the value is published and no exclusion is named.
+                (new SettingREST
+                {
+                    Key = "Fallen8:Plugins:MaxCount",
+                    Kind = "int",
+                    Tier = "restart",
+                    ApplyMode = "restart",
+                    Value = "128",
+                    Source = "override",
+                    RestartPending = true,
+                    Minimum = 1
+                }, "SettingREST (writable, pending)"),
+                // A never-writable setting: no value at all, and the exclusion is named. Both shapes are
+                // exercised because the withheld value depends on WhenWritingNull, which the reflection
+                // baseline must agree with.
+                (new SettingREST
+                {
+                    Key = "Fallen8:Security:ApiKey",
+                    Kind = "string",
+                    Tier = "notWritable",
+                    ApplyMode = "never",
+                    ValueWithheld = true,
+                    Source = "environment",
+                    Rule = "R1",
+                    Reason = "Blanking it locks every caller out with no REST recovery."
+                }, "SettingREST (withheld)"),
+                (new SettingREST
+                {
+                    Key = "Fallen8:Chat:Backend",
+                    Kind = "enum",
+                    Tier = "restart",
+                    ApplyMode = "restart",
+                    Value = "Ollama",
+                    Source = "appSettings",
+                    AllowedValues = new List<String> { "Ollama" }
+                }, "SettingREST (enum with allowed values)"),
+                (new PendingRestartREST
+                {
+                    Key = "Fallen8:Plugins:MaxCount",
+                    RunningValue = "64",
+                    PendingValue = "128"
+                }, "PendingRestartREST"),
                 (new ConfigREST
                 {
                     Semantic = new SemanticConfigREST { Embedding = null, Chat = null },
                     Observability = new ObservabilityConfigREST { OtlpEnabled = false },
-                    ApiKeyRequired = true
+                    ApiKeyRequired = true,
+                    Settings = new List<SettingREST>
+                    {
+                        new SettingREST { Key = "Fallen8:Plugins:MaxCount", Kind = "int", Tier = "restart", ApplyMode = "restart", Value = "64", Source = "default" }
+                    },
+                    PendingRestart = new List<PendingRestartREST>()
                 }, "ConfigREST"),
                 (new VectorIndexAddSpecification
                 {

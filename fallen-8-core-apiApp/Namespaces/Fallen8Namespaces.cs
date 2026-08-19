@@ -125,9 +125,17 @@ namespace NoSQL.GraphDB.App.Namespaces
         private readonly Int32 _storedQueryMaxCount;
         private readonly Int32 _pluginMaxCount;
 
-        /// <summary>The startup-load selection this boot ran with (feature namespace-startup-load).</summary>
-        private readonly Boolean _loadOnStartupDefault;
-        private readonly NamespaceStartupLoadMode _startupLoadMode;
+        /// <summary>
+        ///   The startup-load selection this boot ran with (feature namespace-startup-load). Published
+        ///   on GET /ns (feature writable-instance-config) as the policy actually in force: these are the
+        ///   values latched at construction, so they describe what this boot DID, not what a written but
+        ///   unapplied setting says the next boot will do. The pending write shows up on GET /config,
+        ///   where it carries a restart-pending flag that says so.
+        /// </summary>
+        public Boolean LoadOnStartupDefault { get; }
+
+        /// <inheritdoc cref="LoadOnStartupDefault" />
+        public NamespaceStartupLoadMode StartupLoadMode { get; }
 
         /// <summary>The catalog file path; null in volatile mode (nothing is cataloged).</summary>
         private readonly String _catalogPath;
@@ -158,8 +166,8 @@ namespace NoSQL.GraphDB.App.Namespaces
             _storedQueryMaxCount = storedQueries.Value.MaxCount;
             _pluginMaxCount = plugins.Value.MaxCount;
             MaxNamespaces = namespaces.Value.MaxNamespaces;
-            _loadOnStartupDefault = namespaces.Value.LoadOnStartup;
-            _startupLoadMode = namespaces.Value.StartupLoadMode;
+            LoadOnStartupDefault = namespaces.Value.LoadOnStartup;
+            StartupLoadMode = namespaces.Value.StartupLoadMode;
 
             // The default namespace boots eagerly on the LEGACY paths (the storage directory and
             // WAL location the single-engine host used), so existing deployments upgrade in place
@@ -255,7 +263,7 @@ namespace NoSQL.GraphDB.App.Namespaces
                     "Fallen8:Namespaces:StartupLoadMode={Mode} and LoadOnStartup={LoadOnStartup}. The reserved " +
                     "\"default\" namespace is always loaded. Set StartupLoadMode=All to load every cataloged " +
                     "namespace regardless of its own policy.",
-                    loaded, loaded + skipped, skipped, _startupLoadMode, _loadOnStartupDefault);
+                    loaded, loaded + skipped, skipped, StartupLoadMode, LoadOnStartupDefault);
             }
         }
 
@@ -266,7 +274,7 @@ namespace NoSQL.GraphDB.App.Namespaces
         /// </summary>
         private Boolean IsSelectedForStartupLoad(NamespaceCatalogEntry entry, out String reason)
         {
-            switch (_startupLoadMode)
+            switch (StartupLoadMode)
             {
                 case NamespaceStartupLoadMode.All:
                     reason = "Fallen8:Namespaces:StartupLoadMode=All ignores every exclusion";
@@ -284,8 +292,8 @@ namespace NoSQL.GraphDB.App.Namespaces
                         return entry.LoadOnStartupEnabled.Value;
                     }
 
-                    reason = "it inherits Fallen8:Namespaces:LoadOnStartup=" + (_loadOnStartupDefault ? "true" : "false");
-                    return _loadOnStartupDefault;
+                    reason = "it inherits Fallen8:Namespaces:LoadOnStartup=" + (LoadOnStartupDefault ? "true" : "false");
+                    return LoadOnStartupDefault;
             }
         }
 

@@ -109,6 +109,22 @@ namespace NoSQL.GraphDB.App
         {
             var builder = WebApplication.CreateBuilder(args);
 
+            // This instance's stored configuration overrides (feature writable-instance-config), added
+            // FIRST so every eager Bind below sees them. Appended last as a source, which is what lets
+            // it beat appsettings.json; it arbitrates per key so it can never beat the environment or
+            // the command line. Reading the metadata directory here rather than through
+            // Fallen8MetadataOptions.ResolveDirectory is deliberate: that helper falls back to a folder
+            // under AppContext.BaseDirectory, which is the shared test output directory under the unit
+            // suite, and an appended-last layer reading a file there would outrank what dozens of test
+            // hosts inject. An instance that has not been told where its metadata lives keeps no
+            // overrides, and needs none: it has no API key either, so it accepts no configuration write.
+            var configOverrides = Fallen8ConfigOverridesSource.Resolve(
+                builder.Configuration, builder.Configuration["Fallen8:Metadata:Directory"]);
+            if (configOverrides != null)
+            {
+                ((IConfigurationBuilder)builder.Configuration).Add(configOverrides);
+            }
+
             // Configure enhanced logging
             builder.Logging.ClearProviders();
             builder.Logging.AddSimpleConsole(options =>
@@ -393,6 +409,11 @@ namespace NoSQL.GraphDB.App
             // checkpoints and the startup load authority.
             builder.Services.Configure<Fallen8MetadataOptions>(
                 builder.Configuration.GetSection(Fallen8MetadataOptions.SectionName));
+
+            // The configuration read model (feature writable-instance-config). Its constructor takes the
+            // boot snapshot, so it is resolved deliberately after the namespace collection below rather
+            // than lazily by the first request.
+            builder.Services.AddSingleton(_ => new Fallen8ConfigOverrides(builder.Configuration, configOverrides));
             builder.Services.AddSingleton<SaveGameRegistry>();
 
             // The one home for restoring a single namespace from the registry: shared by the boot
@@ -630,12 +651,24 @@ namespace NoSQL.GraphDB.App
             // persisted AND WAL-replayed subgraphs rehydrate.
             _ = app.Services.GetRequiredService<Fallen8Namespaces>();
 
+            // Snapshot every catalogued key's effective value NOW (feature writable-instance-config):
+            // the namespace collection has just latched six sections' worth of values into long-lived
+            // state, so this is the moment the process committed to its configuration. A restart-tier
+            // key is "pending" when its effective value later differs from this snapshot, which is why
+            // the pending set needs no marker file and clears exactly when the process restarts.
+            var overridesReadModel = app.Services.GetRequiredService<Fallen8ConfigOverrides>();
+
             // Register the namespace-info observable gauge now (feature fleet-observability): only
             // when an exporter is enabled, so a default configuration constructs no extra meter.
             if (observability.AnyExporterEnabled)
             {
                 _ = app.Services.GetRequiredService<NoSQL.GraphDB.App.Diagnostics.NamespaceInfoMetrics>();
             }
+
+            // Say out loud what the stored-overrides layer did: a value an operator saved that the
+            // environment silently outranks is exactly the failure this feature exists to remove.
+            overridesReadModel.LogState(
+                app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Fallen8.Configuration"));
 
             var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Fallen8.Security");
             if (string.IsNullOrWhiteSpace(security.ApiKey))

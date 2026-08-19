@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using NoSQL.GraphDB.App.Configuration;
 
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
@@ -90,6 +91,46 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         /// <summary>The configured <c>Fallen8:Namespaces:MaxNamespaces</c> ceiling.</summary>
         public Int32 MaxNamespaces { get; set; }
+
+        /// <summary>
+        ///   The instance-wide startup-load default (<c>Fallen8:Namespaces:LoadOnStartup</c>) this boot
+        ///   ran with, which is what a namespace set to <c>inherit</c> resolves to.
+        ///
+        ///   <para>Published UNCOMPOSED, i.e. without <see cref="StartupLoadMode"/> folded in. Composing
+        ///   them would report <c>true</c> under mode <c>All</c> whatever the default actually is, and an
+        ///   operator who then saved <c>skip</c> would see the value bounce straight back to <c>true</c>
+        ///   and conclude the control was broken. The two fields are reported separately so a client can
+        ///   say what is really happening: the default is <c>skip</c> AND the mode is overriding it.</para>
+        /// </summary>
+        public Boolean LoadOnStartupDefault { get; set; }
+
+        /// <summary>
+        ///   The startup-load mode this boot ran with: <c>catalog</c> (honour each namespace's own
+        ///   preference), <c>all</c> (load every catalogued namespace regardless) or <c>defaultOnly</c>.
+        ///   Both <c>all</c> and <c>defaultOnly</c> SHORT-CIRCUIT the per-namespace preference, so a
+        ///   namespace showing <c>skip</c> can still have been loaded; a client that renders the policy
+        ///   has to disclose that rather than show a preference the boot ignored.
+        ///
+        ///   <para>A string, not the enum: this application installs no string-enum converter, so a bare
+        ///   enum would publish 0, 1 or 2 and the meaning would live only in this assembly.</para>
+        /// </summary>
+        public String StartupLoadMode { get; set; }
+
+        /// <summary>The wire spelling of a startup-load mode, camelCase like every other published value.</summary>
+        public static String WireStartupLoadMode(NamespaceStartupLoadMode mode)
+        {
+            switch (mode)
+            {
+                case NamespaceStartupLoadMode.Catalog:
+                    return "catalog";
+                case NamespaceStartupLoadMode.All:
+                    return "all";
+                case NamespaceStartupLoadMode.DefaultOnly:
+                    return "defaultOnly";
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(mode), mode, "unpublished startup-load mode");
+            }
+        }
     }
 
     /// <summary>

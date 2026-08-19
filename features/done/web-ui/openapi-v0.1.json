@@ -860,8 +860,8 @@
         "tags": [
           "Admin"
         ],
-        "summary": "Gets the instance's read-only configuration (semantic providers + observability)",
-        "description": "The operator view behind the Studio Configuration section (feature\r\n    instance-config). Fallen-8-level and API-key gated like /statistics; config is\r\n    startup-bound, so this is display-only. Secrets are never emitted - only the boolean\r\n    apiKeyRequired reports the security posture, and the OTLP endpoint (operator config, not\r\n    a secret) is shown as configured.",
+        "summary": "Gets the instance's configuration: every setting with its tier, source and effective value",
+        "description": "The operator view behind the Studio Configuration section (features\r\n    instance-config and writable-instance-config). settings[] carries one entry per bound\r\n    configuration key with its tier (live, restart or notWritable), the layer its value comes\r\n    from, and whether a written value is waiting for a restart; pendingRestart[] is the same\r\n    waiting set, with the running and pending values named. A never-writable key publishes NO\r\n    value: this route is anonymous on an instance with no API key configured, so its value would\r\n    otherwise reach an unauthenticated caller. Secrets are never emitted - only the boolean\r\n    apiKeyRequired reports the security posture, and the OTLP endpoint (operator config, not a\r\n    secret) is shown as configured.",
         "parameters": [
           {
             "name": "api-version",
@@ -17972,6 +17972,26 @@
       "ConfigREST": {
         "type": "object",
         "properties": {
+          "settings": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SettingREST"
+            },
+            "description": "Every bound configuration key with its tier, the layer its value comes from, and whether a\r\nwritten value is waiting for a restart. The live inventory of this instance's\r\nconfiguration: what an operator may change, and what they may not, with the reason."
+          },
+          "pendingRestart": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PendingRestartREST"
+            },
+            "description": "The keys whose configured value differs from the value this process started with, so a\r\nrestart would change behaviour. Derived on every read and never stored, so it clears\r\nexactly when the process restarts. It also lights up when an operator hand-edits\r\nappsettings.json, which is why the wording is \"differs from what this process started\r\nwith\" rather than \"you changed this\"."
+          },
           "semantic": {
             "description": "The semantic providers (embedding + chat).",
             "$ref": "#/components/schemas/SemanticConfigREST"
@@ -17985,7 +18005,7 @@
             "description": "Whether an API key is configured (never the key itself)."
           }
         },
-        "description": "The instance's read-only configuration view (feature instance-config), the single home\r\nfor the Studio Configuration section: the semantic providers and the observability\r\nposture. Secrets are never emitted (no API key, no credentials); only the boolean\r\nbool ConfigREST.ApiKeyRequired reports the security posture. Fallen-8-level and API-key\r\ngated (like /statistics); config is startup-bound, so this is display-only."
+        "description": "The instance's configuration view (features instance-config and writable-instance-config),\r\nthe single home for the Studio Configuration section: every catalogued setting, the semantic\r\nproviders and the observability posture. Secrets are never emitted (no API key, no\r\ncredentials); only the boolean bool ConfigREST.ApiKeyRequired reports the security posture, and\r\na never-writable setting publishes its tier and reason but no value, because this route is\r\nanonymous on an instance with no API key configured."
       },
       "DegreeStatsREST": {
         "type": "object",
@@ -20430,6 +20450,17 @@
             ],
             "description": "The configured `Fallen8:Namespaces:MaxNamespaces` ceiling.",
             "format": "int32"
+          },
+          "loadOnStartupDefault": {
+            "type": "boolean",
+            "description": "The instance-wide startup-load default (`Fallen8:Namespaces:LoadOnStartup`) this boot\r\nran with, which is what a namespace set to `inherit` resolves to.\r\n\r\nPublished UNCOMPOSED, i.e. without string NamespacesREST.StartupLoadMode folded in. Composing\r\nthem would report true under mode All whatever the default actually is, and an\r\noperator who then saved skip would see the value bounce straight back to true\r\nand conclude the control was broken. The two fields are reported separately so a client can\r\nsay what is really happening: the default is skip AND the mode is overriding it."
+          },
+          "startupLoadMode": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The startup-load mode this boot ran with: `catalog` (honour each namespace's own\r\npreference), `all` (load every catalogued namespace regardless) or `defaultOnly`.\r\nBoth `all` and `defaultOnly` SHORT-CIRCUIT the per-namespace preference, so a\r\nnamespace showing `skip` can still have been loaded; a client that renders the policy\r\nhas to disclose that rather than show a preference the boot ignored.\r\n\r\nA string, not the enum: this application installs no string-enum converter, so a bare\r\nenum would publish 0, 1 or 2 and the meaning would live only in this assembly."
           }
         },
         "description": "The namespace list with its configured ceiling."
@@ -20998,6 +21029,33 @@
           }
         },
         "description": "A single element of a subgraph pattern sequence."
+      },
+      "PendingRestartREST": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The configuration key."
+          },
+          "runningValue": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The value this process started with and is still using."
+          },
+          "pendingValue": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The value configured now, which the next boot will use."
+          }
+        },
+        "description": "One key whose written value is waiting for a restart, disclosed so the operator can see what a\r\nrestart would change rather than only that something would."
       },
       "PluginDetailREST": {
         "type": "object",
@@ -21915,6 +21973,106 @@
           "metric": "Cosine",
           "minScore": 0.7
         }
+      },
+      "SettingREST": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The full configuration key, e.g. `Fallen8:Plugins:MaxCount`."
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The value's type: bool, int, double, string, enum or array."
+          },
+          "tier": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "How the key may be written: live, restart or notWritable."
+          },
+          "applyMode": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "When a written value takes effect: live, liveForNewWork, restart or never."
+          },
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The current effective value as configuration text, absent entirely for a never-writable key\r\n(see bool SettingREST.ValueWithheld) and null when no layer sets it, so the options class's own\r\ndefault is in force."
+          },
+          "valueWithheld": {
+            "type": "boolean",
+            "description": "True when the value is deliberately not published because the key is never writable. Sent\r\nonly in that case, so it is never confused with a key whose value is genuinely unset."
+          },
+          "source": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Which layer supplies the current value: default, appSettings, userSecrets, environment,\r\ncommandLine, host or override. Exactly two of those, environment and commandLine, mean a\r\nstored override can never win, and the editor renders the row read-only for that reason;\r\nevery other source is a layer a write can beat."
+          },
+          "restartPending": {
+            "type": "boolean",
+            "description": "True when this key's effective value differs from the value this process started with, so a\r\nrestart is needed to apply it. Never true for a never-writable or live key."
+          },
+          "minimum": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "The inclusive lower bound for a numeric key, null when unbounded below.",
+            "format": "double"
+          },
+          "maximum": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "description": "The inclusive upper bound for a numeric key, null when unbounded above.",
+            "format": "double"
+          },
+          "allowedValues": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "The closed set of accepted values for an enum key, null otherwise."
+          },
+          "rule": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The rule that excludes a never-writable key (R1 to R6, or 4.3.5), null otherwise."
+          },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Why a never-writable key is excluded, null otherwise."
+          }
+        },
+        "description": "One instance configuration setting as the operator surface sees it (feature\r\nwritable-instance-config): what the key is, whether it may be written, where its current value\r\ncomes from, and whether a written value is waiting for a restart.\r\n\r\nA never-writable key publishes no value. It carries its key, tier, source, the\r\nrule that excludes it and the reason, with bool SettingREST.ValueWithheld set and\r\nstring SettingREST.Value absent from the payload entirely. GET /config carries neither\r\n[Authorize] nor [AllowAnonymous], and the fallback policy that would demand a\r\nprincipal is installed only when an API key is configured, so on a keyless instance this\r\nresponse is anonymous: publishing every value would hand sidecar URLs, model file paths and\r\ndurability paths to an unauthenticated caller.\r\n\r\nWire values are strings rather than enums deliberately. This application installs no\r\nstring-enum converter, so a .NET enum would serialize as 0, 1, 2 and the published contract\r\nwould carry integers whose meaning lives only in this assembly."
       },
       "StatusREST": {
         "type": "object",

@@ -57,8 +57,9 @@ and would stale the snapshot silently), `JsonSourceGenParityTest` for the new DT
 2. Validate-everything-before-mutating, trial-bind, one durable write, `Reload()`,
    effective-value read-back, `409` arbitration, `400` on out-of-domain values (the
    `Chat:Backend` case trial-binding cannot catch).
-3. `Fallen8:Security:EnableConfigurationWrite` (default false, absent from the catalog), the
-   capability policy, the no-key-means-403 rule (4.5).
+3. `Fallen8:Security:EnableConfigurationWrite` (default false), the capability policy, the
+   no-key-means-403 rule (4.5). **Catalogued `NotWritable` under R1**, not exempted: an exemption
+   would break phase 1's derived-completeness gate and buy nothing, since R1 already refuses it.
 4. MCP in the same phase or the coverage gate goes red the moment the route exists: `f8_admin`
    gains `get_settings`/`set_settings`, `McpBridgedEndpoints` gains both, the `GET /config`
    deferral is **deleted**, and `f8_namespace` bridges per-namespace `loadOnStartup`. Regenerate
@@ -153,6 +154,45 @@ same commit rather than left as a difference:
 6. **The docs-site build joined phase 1's gates**: R7's deletion pulled the security page's
    bind-address paragraph forward from phase 6.
 7. **Counts are measured now, not estimated**: 94 leaves, 44 never-writable, 50 restart, 0 live.
+
+**Phase 2 (landed).** Deviations and decisions, all recorded rather than inferred:
+
+1. **A seventh `source` value, `host`.** An in-process host setting (a test host's `UseSetting`, an
+   embedding host) is reported as `host`, not `commandLine`. Arbitration only stands down for a real
+   environment variable or command line, so calling a host setting `commandLine` would tell an
+   operator a row was locked when a write to it would in fact succeed. Exactly two sources now mean
+   locked, and a test pins that the read-only rule and the write outcome agree. Spec 4.3.4 amended.
+2. **The path rule is stricter than "read the metadata directory".** The layer resolves a path ONLY
+   from an explicitly configured `Fallen8:Metadata:Directory` and never through
+   `Fallen8MetadataOptions.ResolveDirectory`, whose documented default is a folder under
+   `AppContext.BaseDirectory`. Measured consequence of getting this wrong: 38 of the 43
+   `WebApplicationFactory` test files declare no metadata directory, and the shared test output
+   directory already holds a 66 KB `savegames.json`, so a file there would have outranked every test
+   host's settings for that run and every later run. The compose deployment sets the directory, and an
+   instance that has not also has no API key, so it accepts no write to persist.
+3. **A corrupt overrides file is reported and ignored, never fatal.** The save-game registry and the
+   namespace catalog both throw on a corrupt document, and that is right for them: each is the sole
+   authority for what exists. This file carries preferences, and a provider that threw would do so
+   during configuration build, before the logging pipeline exists, leaving the instance unbootable
+   with no REST recovery. Boot logs the failure instead.
+4. **The layer is bounded by the catalog's writable set.** A hand-edited never-writable or unknown key
+   in the file is refused and logged, so the file cannot become a way around section 4.7.
+5. **No DTO for the overrides file.** The provider only reads, so it parses with `JsonDocument`: no
+   serializer-context registration, no parity-test entry, and a hand-written scalar of any JSON type
+   is accepted verbatim.
+6. **`Fallen8Namespaces` exposes the two startup values as properties** rather than storing them
+   twice, and `GET /ns` publishes the BOOT-latched values: they describe what this boot actually did,
+   while the pending write shows up on `GET /config` with its restart-pending flag. `startupLoadMode`
+   is a camelCase string because this app installs no string-enum converter and a bare enum would
+   publish an integer.
+7. **`withheld value` is asserted over `settings[]`, not the whole body.** `GET /config` has published
+   `observability.otlpEndpoint` and the embedding identity stamp since feature instance-config, and
+   both are never-writable keys, so a whole-body search would fail on behaviour this feature neither
+   introduced nor changes. Worth a decision later: on a keyless instance that route is anonymous, so
+   those pre-existing fields reach an unauthenticated caller.
+8. **Deferred to phase 5, deliberately**: the web-ui `types.ts` mirror of the two new `ConfigREST`
+   fields. They are optional on the wire and no web-ui gate reads them yet, and phase 5 is the Studio
+   phase that will consume them.
 
 ## Follow-up this phase uncovered (not fixed here)
 
