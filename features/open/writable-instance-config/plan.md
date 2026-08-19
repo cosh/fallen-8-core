@@ -307,6 +307,25 @@ same commit rather than left as a difference:
    editor renders read-only and the screenshot photographs the wrong thing; the observability capture
    additionally needs an OTLP-configured app or its Push section renders "off".
 
+**Phase 6 (landed).** `docs/src/content/docs/configuration.md` is the one home for the tier model,
+source resolution and the pending-restart signal, registered in the sidebar AND in the llms-txt
+custom set (that config's own comment demands the two stay in step), with the root README key-features
+line pointing at the published page. It lists no keys on purpose: the instance is the live inventory.
+
+Four published claims that this feature made false were amended in place rather than left: the Studio
+page's two "the Configuration panel is read-only" sentences, the observability page's "surfaces the
+posture read-only", and the semantic page's "shown read-only" (which now also says why the model
+identity is deliberately not editable). The security page's honest-limits paragraph was **extended**
+at its declared single home, not restated, with the two things this feature adds to the posture: that
+a key holder can now change what other callers see, and the deliberate read/write asymmetry on
+`GET /config` including the anonymous-exposure reasoning.
+
+The `/running/#configuration-keys` anchor was caught by the link validator, which is exactly what
+that gate is for: the first draft invented `#configuration-reference`.
+
+**This feature stays in `features/open/` rather than moving to `done/`,** because the screenshots are
+still owed and `open/` means pending work. Everything else is implemented and green.
+
 ## Follow-up this phase uncovered (not fixed here)
 
 **NLP enrichment silently stops above 512 chunks.** R7 deleted `Fallen8:Nlp:MaxBatchSize` because no

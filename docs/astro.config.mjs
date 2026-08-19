@@ -66,7 +66,7 @@ export default defineConfig({
 							label: 'Getting started',
 							description:
 								'run the engine or embed it as a library, and secure what you expose',
-							paths: ['index', 'running', 'library', 'security', 'samples'],
+							paths: ['index', 'running', 'configuration', 'library', 'security', 'samples'],
 						},
 						{
 							label: 'Graph model and queries',
@@ -171,6 +171,7 @@ export default defineConfig({
 					label: 'Getting Started',
 					items: [
 						{ label: 'Running', slug: 'running' },
+						{ label: 'Configuration', slug: 'configuration' },
 						{ label: 'Use as a library', slug: 'library' },
 						{ label: 'Security', slug: 'security' },
 					],

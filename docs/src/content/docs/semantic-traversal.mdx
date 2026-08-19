@@ -206,8 +206,11 @@ NL-assist transport in [F8 Studio](/studio/), also apiApp-only and capability-ga
 model is server-owned. Configure it under `Fallen8:Chat` (off unless `Enabled` /
 `F8_CHAT`): `Backend` (`Ollama`), `Ollama.{Endpoint,Model}` (default `phi4-f8-mini`),
 `TimeoutSeconds` (the single deadline on a completion; exceeded calls answer `504`). Both
-providers' state, plus whether the backend runs on GPU when Ollama reports it, is shown read-only
-in Studio's Connect **Configuration** section (`GET /config`).
+providers' state, plus whether the backend runs on GPU when Ollama reports it, is shown
+in Studio's Connect **Configuration** section (`GET /config`). The values that identify a model are
+deliberately **not** editable there: the model name, version, dimension and metric are stamped beside
+every vector you have already stored, so changing one would mislabel that data rather than fail
+([configuration](/configuration/)).
 
 The embedding provider has the same knob, `Fallen8:Embedding:TimeoutSeconds`, defaulting higher
 because one call embeds a batch of texts; an exceeded batch answers `503`, like any other

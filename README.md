@@ -57,6 +57,9 @@ Each feature has a deep-dive doc — follow the link.
 - **[Namespaces](https://docs.fallen-8.com/namespaces/)** — many isolated graphs in one Fallen-8, addressable under
   `/ns/{name}/…`, each choosing whether a boot loads it (a skipped one stays cataloged, answers `503`,
   and is never written to) and loadable into a running process on demand.
+- **[Configuration](https://docs.fallen-8.com/configuration/)**: an instance shows every setting it binds with
+  the layer each value came from, and lets an operator change the writable ones; most take effect at the
+  next boot and say so, roughly half are never writable and say why.
 - **[Observability](https://docs.fallen-8.com/observability/)**: opt-in Prometheus/OTLP metrics and traces, a
   graph-shape snapshot, and health probes for one instance, plus a multi-tenant consumer stack
   (Collector, Prometheus, Tempo, Loki, Grafana) that collects what many instances push into one
