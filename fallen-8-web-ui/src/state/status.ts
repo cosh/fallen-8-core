@@ -41,17 +41,21 @@ export function useStatus(instance: InstanceConfig) {
 }
 
 /**
- * The instance's read-only configuration (feature instance-config): the semantic providers
- * and observability posture behind the Connect Configuration section. Fallen-8-level, so it
- * is keyed by the RAW instance id (not per namespace) and API-key gated server-side.
+ * The instance's configuration (features instance-config and writable-instance-config): the setting
+ * inventory, the semantic providers and the observability posture behind the Connect Configuration
+ * section. Fallen-8-level, so it is keyed by the RAW instance id (not per namespace) and API-key
+ * gated server-side.
+ *
+ * Pass poll: false while the operator has unsaved edits. The panel is an editor now, and a ten second
+ * refetch would otherwise replace the value under a half-typed field: the poll exists so model
+ * residency updates on its own, which is never worth losing someone's input over.
  */
-export function useConfig(instance: InstanceConfig) {
+export function useConfig(instance: InstanceConfig, options?: { poll?: boolean }) {
+  const poll = options?.poll ?? true;
   return useQuery({
     queryKey: [instance.id, "config"],
     queryFn: ({ signal }) => getConfig(instance, signal),
     retry: 0,
-    // Re-check periodically so model residency (a model loads/unloads in the sidecar over time)
-    // updates on its own; the panel also offers a manual Refresh. GET /config's probe is bounded.
-    refetchInterval: 10_000,
+    refetchInterval: poll ? 10_000 : false,
   });
 }

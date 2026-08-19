@@ -25,23 +25,47 @@
 
 import { useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
-import { usePortalContainer } from "../app/studioConfig";
+import { usePortalContainer, useStudioConfig } from "../app/studioConfig";
 import { useConfig } from "../state/status";
+import { writeConfig } from "../api/endpoints";
+import type { ApiError } from "../api/client";
 import type {
   ChatProviderStatsREST,
   EmbeddingProviderStatsREST,
   ObservabilityConfigREST,
 } from "../api/types";
 import { Truncated } from "./Truncated";
+import { SettingRow } from "./SettingRow";
+import { restartBannerSummary } from "../lib/restartCopy";
+import { ErrorBox } from "./ErrorBox";
 
 /**
- * Connect · Configuration (feature instance-config): the instance-scoped, read-only config
- * home, between Instances and Namespaces. It shows the semantic providers (embedding + chat
- * gateway, sourced from GET /config) and the observability posture ("pushing to <endpoint>"),
- * with a details overlay. Server config is startup-bound, so this is display + guidance, not
- * an editor. The browser NL routing preference lives here too (added by the NL-assist reroute).
+ * Connect · Configuration (features instance-config and writable-instance-config): the
+ * instance-scoped configuration home, between Instances and Namespaces. It lists every setting this
+ * instance binds with its tier, effective value and source, lets an operator edit the writable ones,
+ * and shows the semantic providers plus the observability posture with a details overlay.
+ *
+ * Most settings only take effect at the next boot, and the panel says so per row rather than implying
+ * a restart is never needed. It is the codebase's first dirty-state form, which is why the config poll
+ * is suspended while there are unsaved edits.
+ *
+ * The browser's NL routing preference does NOT live here, despite what this docstring claimed for a
+ * while: it is a per-browser choice and has its own home.
  */
+
+/**
+ * The two keys that decide the namespace startup policy. They are instance-wide settings, so they sit
+ * in this panel, but an embed that locked namespace management must not be able to re-plan the host's
+ * next boot through them either, so they take the namespace lock on top of the instance lock.
+ */
+function isNamespacePolicy(key: string, lockNamespace?: boolean): boolean {
+  return (
+    lockNamespace === true &&
+    (key === "Fallen8:Namespaces:LoadOnStartup" || key === "Fallen8:Namespaces:StartupLoadMode")
+  );
+}
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-2 text-[12px]">
@@ -163,22 +187,66 @@ function observabilitySummary(o: ObservabilityConfigREST): string {
 export function ConfigurationPanel() {
   const instance = useActiveInstance();
   const [showObservability, setShowObservability] = useState(false);
-  const config = useConfig(instance ?? ({ id: "none", name: "", baseUrl: "", auth: { kind: "none" } } as never));
+  // The draft holds only the rows the operator touched. A key mapped to null is a pending CLEAR.
+  const [draft, setDraft] = useState<Record<string, string | null>>({});
+  const [writeError, setWriteError] = useState<ApiError | Error | null>(null);
+  const { lockInstances, lockNamespace } = useStudioConfig();
+  const queryClient = useQueryClient();
+  const dirty = Object.keys(draft).length > 0;
+  // Every hook must sit above the !instance guard below, so the fabricated instance is passed here too.
+  const activeOrPlaceholder =
+    instance ?? ({ id: "none", name: "", baseUrl: "", auth: { kind: "none" } } as never);
+  // Suspended while dirty: a ten second refetch would otherwise replace a value under a half-typed
+  // field. It exists for model residency, which is never worth losing someone's input over.
+  const config = useConfig(activeOrPlaceholder, { poll: !dirty });
+
+  const write = useMutation({
+    mutationFn: (settings: Record<string, string | null>) =>
+      writeConfig(activeOrPlaceholder, { settings }),
+    onSuccess: () => {
+      setDraft({});
+      setWriteError(null);
+      // Nothing else refreshes the read surface: window-focus refetch is off globally and the poll is
+      // still suspended at the moment this returns.
+      void queryClient.invalidateQueries({ queryKey: [activeOrPlaceholder.id, "config"] });
+    },
+    onError: (error: ApiError | Error) => setWriteError(error),
+  });
 
   if (!instance) return null;
+
+  const settings = config.data?.settings ?? [];
+  const pendingRestart = config.data?.pendingRestart ?? [];
+  // A write needs an API key configured server-side, so without one every row is read-only and the
+  // panel says why rather than offering a Save that would always be refused.
+  const writesAllowed = config.data?.apiKeyRequired === true;
+  const editable = !lockInstances;
 
   return (
     <section className="panel" data-testid="configuration-panel">
       <div className="panel-title">
         Configuration
-        <span className="text-fg-faint normal-case">this instance · read-only</span>
+        <span className="text-fg-faint normal-case">this instance</span>
+        {dirty && (
+          <span className="text-warn normal-case" data-testid="config-dirty">
+            unsaved changes
+          </span>
+        )}
         <button
           type="button"
           className="btn ml-auto flex shrink-0 items-center gap-1.5 normal-case"
           data-testid="config-refresh"
-          title="Re-check the providers (model residency is probed live; the panel also re-checks every 10s)"
-          disabled={config.isFetching}
-          onClick={() => void config.refetch()}
+          title={
+            dirty
+              ? "Discard the unsaved changes and reload what this instance currently reports"
+              : "Re-check the providers (model residency is probed live; the panel also re-checks every 10s while there is nothing unsaved)"
+          }
+          disabled={config.isFetching || write.isPending}
+          onClick={() => {
+            setDraft({});
+            setWriteError(null);
+            void config.refetch();
+          }}
         >
           {config.isFetching && (
             <span
@@ -186,7 +254,7 @@ export function ConfigurationPanel() {
               aria-hidden
             />
           )}
-          {config.isFetching ? "checking…" : "Refresh"}
+          {config.isFetching ? "checking…" : dirty ? "Discard" : "Refresh"}
         </button>
       </div>
       <div className="space-y-4 p-3">
@@ -209,6 +277,67 @@ export function ConfigurationPanel() {
                 <ChatCard chat={config.data.semantic?.chat} />
               </div>
             </div>
+
+            {pendingRestart.length > 0 && (
+              <div
+                className="border-warn/50 text-warn rounded border p-2 text-[11px]"
+                data-testid="config-pending-restart"
+              >
+                <div className="font-medium">{restartBannerSummary(pendingRestart.length)}</div>
+                <ul className="text-fg-dim mt-1 space-y-0.5">
+                  {pendingRestart.map((entry) => (
+                    <li key={entry.key}>
+                      <code className="text-[10px]">{entry.key}</code>: running{" "}
+                      <span className="text-fg">{entry.runningValue ?? "unset"}</span>, pending{" "}
+                      <span className="text-fg">{entry.pendingValue ?? "unset"}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {settings.length > 0 && (
+              <div>
+                <div className="text-fg-faint mb-2 flex items-center gap-2 text-[10px] tracking-widest uppercase">
+                  settings
+                  <span className="normal-case tracking-normal">
+                    {writesAllowed ? "" : "(read-only: configuring an API key is what allows a write)"}
+                  </span>
+                  {editable && dirty && (
+                    <button
+                      type="button"
+                      className="btn-accent btn ml-auto normal-case"
+                      data-testid="config-save"
+                      disabled={write.isPending}
+                      onClick={() => write.mutate(draft)}
+                    >
+                      {write.isPending ? "saving…" : `Save ${Object.keys(draft).length}`}
+                    </button>
+                  )}
+                </div>
+
+                {writeError && (
+                  <div className="mb-2" data-testid="config-settings-error">
+                    <ErrorBox error={writeError} />
+                  </div>
+                )}
+
+                <div className="scroll-list">
+                  {settings.map((setting) => (
+                    <SettingRow
+                      key={setting.key}
+                      setting={setting}
+                      draft={draft[setting.key]}
+                      disabled={
+                        !editable || !writesAllowed || isNamespacePolicy(setting.key, lockNamespace)
+                      }
+                      onChange={(value) => setDraft((current) => ({ ...current, [setting.key]: value }))}
+                      onClear={() => setDraft((current) => ({ ...current, [setting.key]: null }))}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div>
               <div className="text-fg-faint mb-2 text-[10px] tracking-widest uppercase">
@@ -288,8 +417,10 @@ function ObservabilityOverlay({
         <Dialog.Content className="panel modal-center flex max-h-[90vh] w-[34rem] max-w-[92vw] flex-col p-4">
           <Dialog.Title className="text-fg text-sm font-bold">Observability</Dialog.Title>
           <Dialog.Description className="text-fg-dim mt-1 text-[12px]">
-            Set at startup via environment variables (or appsettings). Changes take effect on
-            restart; this view is read-only.
+            What this instance is exporting right now. These particular values are read-only: the
+            exporter switches and the endpoint decide the security posture of a metrics surface, so
+            they are set where the instance is deployed. The statistics bounds beside them ARE editable,
+            in the Settings list above.
           </Dialog.Description>
           <div
             className="mt-3 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1"

@@ -117,6 +117,7 @@ const EXCLUDED_FROM_CONTRACT_SWEEP = new Map<string, string>([
 const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
   getStatus: () => endpoints.getStatus(instance),
   getConfig: () => endpoints.getConfig(instance),
+  writeConfig: () => endpoints.writeConfig(instance, { settings: { "Fallen8:Plugins:MaxCount": "128" } }),
   postChat: () => endpoints.postChat(instance, { messages: [{ role: "user", content: "hi" }] }),
   getStatistics: () => endpoints.getStatistics(instance),
   saveGraph: () => endpoints.saveGraph(instance),

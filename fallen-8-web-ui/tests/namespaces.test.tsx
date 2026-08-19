@@ -496,9 +496,12 @@ describe("NAMESPACES panel", () => {
         /skipped at the next start - takes effect on restart/,
       ),
     );
-    expect(screen.getByTestId("namespace-startup-hint")).toHaveTextContent(
-      /Changes take effect on restart/,
+    // The caveat moved out of a paragraph of its own and into the one home for restart phrasing
+    // (src/lib/restartCopy.ts), which this note now composes. Same fact, one source.
+    expect(screen.getByTestId("namespace-startup-note")).toHaveTextContent(
+      /takes effect on restart/,
     );
+    expect(screen.queryByTestId("namespace-startup-hint")).toBeNull();
   });
 
   it("surfaces a refused policy change instead of leaving the control looking applied", async () => {

@@ -271,6 +271,42 @@ same commit rather than left as a difference:
    subscription's queue holding more events than one created before the write. None of them can pass by
    reading an option value back, and all of them failed while the apply mechanism was broken.
 
+**Phase 5 (code landed; the screenshot recapture is still owed).** What shipped and what did not:
+
+1. **The editor**, as spec 5.1 to 5.8: a generic `SettingRow` rendered from the descriptor's `kind`
+   using only existing primitives, per-row source badges, an environment-locked row rendered disabled
+   with the exact `Fallen8__…` spelling to remove, a Clear for a row whose stored value is the one in
+   force, the derived pending-restart banner disclosing running and pending values, inline write errors
+   at `config-settings-error` that leave the read surface standing, and the `!lockInstances` gate.
+2. **The poll is suspended while dirty**, done by widening `useConfig` with a `poll` flag rather than
+   editing the panel: the hook is shared and had exactly one consumer, and `refetchInterval: false` is
+   reactive in the query library this repo pins.
+3. **`src/lib/restartCopy.ts` is the one home** for restart phrasing, which previously existed in four
+   places, one of them a comment saying it was borrowing another view's register.
+4. **The namespace fold-in**: `inherit` now resolves in the label. It reads `inherit (load)` or
+   `inherit (skip)` from the instance default, and under startup mode `all` or `defaultOnly` it says
+   the MODE decides instead, because those short-circuit every per-namespace preference and a label
+   composed from the default alone would be a confident lie. That is what the two uncomposed `/ns`
+   fields are for, and they are now mirrored in `types.ts`.
+5. **The deleted hint's fact was moved, not dropped.** `namespace-startup-hint` is gone; what only it
+   could say (how a not-loaded namespace behaves) survives as `namespace-startup-note`, and the test
+   that pinned the old paragraph now pins the new home plus the hint's absence.
+6. **A vacuous assertion was deliberately NOT added** to the mount-seam sweep. That suite stubs fetch
+   to throw, so `GET /config` always fails there and the panel renders zero setting rows whether or not
+   its gate exists: an assertion would pass for the wrong reason. The comment in that file now says so,
+   and the gates are asserted against a panel with real data instead.
+7. **Two keys take the namespace lock as well as the instance lock**
+   (`Namespaces:LoadOnStartup`, `Namespaces:StartupLoadMode`): the Configuration panel is not behind
+   `lockNamespace`, so an embed that locked namespace management could otherwise re-plan the host's
+   next boot through them.
+8. **A naming collision found and avoided**: `SettingKind` was already taken by the integrations
+   feature, so the four new unions carry a `ConfigSetting` prefix.
+9. **STILL OWED**: recapture `screen-connect.png` and `screen-connect-observability.png` (both bake a
+   read-only claim that is now false) and add `screen-configuration.png`. The recipe needs an app with
+   an API key AND `Fallen8:Security:EnableConfigurationWrite=true` AND a metadata directory, or the
+   editor renders read-only and the screenshot photographs the wrong thing; the observability capture
+   additionally needs an OTLP-configured app or its Push section renders "off".
+
 ## Follow-up this phase uncovered (not fixed here)
 
 **NLP enrichment silently stops above 512 chunks.** R7 deleted `Fallen8:Nlp:MaxBatchSize` because no

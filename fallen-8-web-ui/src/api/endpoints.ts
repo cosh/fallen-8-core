@@ -60,6 +60,8 @@ import type {
   PluginValidationResult,
   PluginValidationSpecification,
   ConfigREST,
+  ConfigWriteREST,
+  ConfigWriteSpec,
   ChatCompletionSpec,
   ChatCompletionResultREST,
   EmbeddingSearchSpecification,
@@ -116,6 +118,24 @@ export const getStatus = (i: InstanceConfig, signal?: AbortSignal) =>
  */
 export const getConfig = (i: InstanceConfig, signal?: AbortSignal) =>
   apiRequest<ConfigREST>(i, "/config", { signal, scope: "fallen8" });
+
+/**
+ * Writes instance configuration (feature writable-instance-config). A null value CLEARS a stored
+ * override and restores whatever layer sits below it, which is the undo this surface ships instead of
+ * history. Every key is validated before any is stored, so a batch applies whole or changes nothing:
+ * a 400 names the key and why, and a 409 means either the environment declares that key (so a stored
+ * value could never win) or the instance has nowhere to persist.
+ *
+ * Needs TWO operator acts server-side, an API key AND
+ * Fallen8:Security:EnableConfigurationWrite, or it answers 403.
+ */
+export const writeConfig = (i: InstanceConfig, spec: ConfigWriteSpec, signal?: AbortSignal) =>
+  apiRequest<ConfigWriteREST>(i, "/config", {
+    method: "PATCH",
+    body: spec,
+    signal,
+    scope: "fallen8",
+  });
 
 /**
  * Chat completion proxied through the instance (feature instance-config): browser -> F8 ->

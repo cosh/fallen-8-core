@@ -42,6 +42,7 @@ import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 import { isValidNamespaceName } from "../lib/namespaceName";
 import { ABSENT, formatCountOrDash } from "../lib/format";
+import { TAKES_EFFECT_ON_RESTART } from "../lib/restartCopy";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
 import { ListCapNote } from "./ListCapNote";
@@ -65,6 +66,25 @@ const STARTUP_OPTIONS: { value: NamespaceTriState; label: string }[] = [
   { value: "disabled", label: "skip" },
   { value: "inherit", label: "inherit" },
 ];
+
+/**
+ * The "inherit" label, resolved against what the instance would actually do (feature
+ * writable-instance-config 5.9). A bare "inherit" left an operator unable to tell whether it meant
+ * load or skip, which is the whole question the row is asked.
+ *
+ * The two fields are published UNCOMPOSED on purpose, and both matter here: a startup mode of "all"
+ * or "defaultOnly" SHORT-CIRCUITS every per-namespace preference, so under those modes the default is
+ * not what inherit resolves to and saying otherwise would be a confident lie.
+ */
+export function inheritLabel(
+  loadOnStartupDefault: boolean | undefined,
+  startupLoadMode: string | undefined,
+): string {
+  if (startupLoadMode === "all") return "inherit (load: mode is all)";
+  if (startupLoadMode === "defaultOnly") return "inherit (skip: mode is defaultOnly)";
+  if (loadOnStartupDefault === undefined) return "inherit";
+  return loadOnStartupDefault ? "inherit (load)" : "inherit (skip)";
+}
 
 /** What the message says the policy did. Every phrasing is about the NEXT start, never this one. */
 const STARTUP_EFFECT: Record<NamespaceTriState, string> = {
@@ -145,7 +165,7 @@ export function NamespacesPanel() {
     onSuccess: (entry, { name, value }) => {
       // No workspace or registry bookkeeping: this changes the NEXT boot's selection, not the
       // running process, so nothing in this session is invalidated except the entry itself.
-      setMessage(`“${entry?.name ?? name}” ${STARTUP_EFFECT[value]} - takes effect on restart.`);
+      setMessage(`“${entry?.name ?? name}” ${STARTUP_EFFECT[value]} - ${TAKES_EFFECT_ON_RESTART}.`);
       invalidate();
     },
   });
@@ -269,7 +289,7 @@ export function NamespacesPanel() {
                       title={
                         entry.name === DEFAULT_NAMESPACE
                           ? "The reserved default namespace is always loaded: every bare URL aliases it"
-                          : "Whether the next boot loads this namespace - takes effect on restart"
+                          : `Whether the next boot loads this namespace - ${TAKES_EFFECT_ON_RESTART}`
                       }
                       onChange={(e) =>
                         policy.mutate({
@@ -280,7 +300,12 @@ export function NamespacesPanel() {
                     >
                       {STARTUP_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>
-                          {option.label}
+                          {option.value === "inherit"
+                            ? inheritLabel(
+                                list.data?.loadOnStartupDefault,
+                                list.data?.startupLoadMode,
+                              )
+                            : option.label}
                         </option>
                       ))}
                     </select>
@@ -415,14 +440,15 @@ export function NamespacesPanel() {
               screens then offer “recreate or switch”) · quota exceeded = 422 with the configured
               limit in the body
             </p>
-            {/* The register the read-only configuration view already uses for startup-only
-                settings ("Changes take effect on restart"), so the two agree instead of each
-                inventing a phrasing for the same fact. */}
-            <p className="text-fg-faint text-[11px]" data-testid="namespace-startup-hint">
-              at startup = whether the next boot loads this namespace (“inherit” follows the
-              server's Fallen8:Namespaces:LoadOnStartup default). Changes take effect on restart;
-              nothing is loaded or unloaded in the running process. A namespace that was not
-              loaded reports no counts and answers 503 on every route but /status.
+            {/* The startup-only caveat this paragraph used to spell out now lives in one place,
+                src/lib/restartCopy.ts, and the "inherit" option resolves itself in the control, so
+                repeating either here would be a second home for the same fact. What survives is the
+                part the control cannot say: what a namespace that was not loaded behaves like. */}
+            <p className="text-fg-faint text-[11px]" data-testid="namespace-startup-note">
+              at startup = whether the next boot loads this namespace; it {TAKES_EFFECT_ON_RESTART},
+              so nothing is loaded or unloaded in the running process. A namespace that was not
+              loaded reports no counts and answers 503 on every route but /status. The instance-wide
+              default is a setting in the Configuration panel.
             </p>
             {message && (
               <div className="text-accent text-[12px]" data-testid="namespace-message">
