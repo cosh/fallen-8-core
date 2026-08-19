@@ -1,40 +1,64 @@
 ---
 title: "Embed F8 Studio"
-description: "Mount F8 Studio inside a host application's own shell: the library artifact, mountStudio and StudioConfig, bearer auth, namespace pinning, theme tokens, and the standalone graph canvas component."
+description: "Mount F8 Studio inside a host application's own shell with the @fallen-8/studio package: mountStudio and StudioConfig, bearer auth, namespace pinning, theme tokens, and the graph canvas on its own with host-settable sizes and camera control."
 ---
 
 There are two ways to put F8 Studio in front of your users. The first needs no code at all:
 deploy the [standalone container](/standalone-ui/) at its own origin and link to
 it, with a runtime `config.js` pointing it at the right instance. The second is this page:
 your application (a host portal, an internal tool, an admin console) renders Studio **inside
-its own shell** - its routing, its auth, its chrome - through a library artifact and one
+its own shell** - its routing, its auth, its chrome - through one package and one
 config object. Everything here is opt-in: every `StudioConfig` field has a default that
 reproduces the standalone app exactly. (This page is the embed CONTRACT; the staged journey -
 an in-browser WASM engine, the canvas over it, then the full Studio - is walked end to end in
 [Embed scenarios](/embed-scenarios/).)
 
-## The artifact
-
-The library build lives in the
-[`fallen-8-web-ui`](https://github.com/cosh/fallen-8-core/tree/main/fallen-8-web-ui) package:
+## The package
 
 ```bash
-npm run build:lib   # in fallen-8-web-ui/
+npm install @fallen-8/studio
 ```
 
-It produces `dist-lib/`: one ES module (the export surface of
-[`src/embed/index.ts`](https://github.com/cosh/fallen-8-core/blob/main/fallen-8-web-ui/src/embed/index.ts)),
-one stylesheet, and TypeScript declarations, wired through the package's `exports` map. The
-package declares `react` and `react-dom` (19+) as peer dependencies: your application brings
-its own React and bundles the artifact like any dependency (a bundler is required; the module
-is not served raw). Consume it as a `file:`/workspace dependency or as a packed tarball
-(`npm pack` after `build:lib`); the package is deliberately not published to a registry.
+`@fallen-8/studio` is built from
+[`fallen-8-web-ui`](https://github.com/cosh/fallen-8-core/tree/main/fallen-8-web-ui) and published
+by the release workflow on a version tag, with a provenance attestation.
+
+`react` and `react-dom` (19+) are its only dependencies of any kind, declared as peers: your
+application brings its own React, and the artifact carries everything else (sigma, graphology,
+three, and the editor) inside itself. So installing it pulls nothing but the tarball, and there is
+no dependency list to keep in step with yours. A bundler is required; the module is not served raw.
+
+:::note
+Registry publishing is wired but not yet switched on: the release job skips it until the npm
+credential is configured, so `npm install @fallen-8/studio` will not resolve before the first
+release that runs with it. Until then, build the artifact and consume it locally as shown below.
+:::
+
+Two entry points, because the graph is worth much less than the app shell it used to arrive
+with:
+
+| Import | You get | You pay for |
+| --- | --- | --- |
+| `@fallen-8/studio` | `mountStudio`, `F8Studio`, and the canvas | the whole shell, including the code editor |
+| `@fallen-8/studio/canvas` | the canvas surface only | the graph renderers and nothing else |
+
+Both resolve through the package's `exports` map to prebuilt ES modules plus TypeScript
+declarations. A build check fails the release if the editor ever leaks into the canvas entry's
+chunk graph, so the second row stays true rather than merely intended.
+
+To develop against an unreleased change, build the artifact and consume it as a
+`file:`/workspace dependency or a packed tarball:
+
+```bash
+npm run build:lib   # in fallen-8-web-ui/, emits dist-lib/
+npm pack
+```
 
 Two imports, one call:
 
 ```ts
-import { mountStudio } from "fallen-8-web-ui";
-import "fallen-8-web-ui/styles.css"; // the stylesheet is NOT injected by the module
+import { mountStudio } from "@fallen-8/studio";
+import "@fallen-8/studio/styles.css"; // the stylesheet is NOT injected by the module
 
 const studio = mountStudio(document.getElementById("studio")!, {
   instances: [{
@@ -125,8 +149,8 @@ Keep global resets layered, or away from the region that hosts the embed.
 Hosts that want an interactive graph without all of Studio import the canvas as a component:
 
 ```tsx
-import { F8GraphCanvas } from "fallen-8-web-ui";
-import "fallen-8-web-ui/styles.css";
+import { F8GraphCanvas } from "@fallen-8/studio/canvas";
+import "@fallen-8/studio/styles.css";
 
 <F8GraphCanvas
   nodes={{ 1: { id: 1, label: "turbine" }, 2: { id: 2, label: "site" } }}
@@ -140,10 +164,93 @@ It renders in its own `.f8-studio` scope (no app shell required), takes the same
 the Studio canvas uses, and reports selections through `onSelect`. Size it via its parent; it
 fills what it is given.
 
+### Sizing it for the box you have
+
+Graph renderers measure in absolute pixels, so a node radius that reads well in a 1440 px card is
+a hairline in a 3840 px one: the graph shrinks, relatively, as the container grows. Your page is
+the only party that knows how big its box is, so `StyleConfig` takes the magnitudes as numbers:
+
+| Field | What it sets | Default |
+| --- | --- | --- |
+| `nodeSize` | node radius in px, for `nodeSizeMode: "fixed"`, and what the scaled modes draw for a node they cannot measure | `NODE_SIZE_DEFAULT`, 5 |
+| `nodeSizeRange` | `[min, max]` node radius in px for the scaled modes | `NODE_SIZE_RANGE`, `[3, 14]` |
+| `edgeWidth` | edge width in px, for `edgeWidthMode: "fixed"` | `EDGE_WIDTH_DEFAULT`, 1 |
+| `edgeWidthRange` | `[min, max]` edge width in px | `EDGE_WIDTH_RANGE`, `[0.5, 5]` |
+| `labelSize` | node label px | `LABEL_SIZE_DEFAULT`, 11 |
+| `edgeLabelSize` | edge label px | `EDGE_LABEL_SIZE_DEFAULT`, 9 |
+
+Every one is optional, and omitting all of them renders exactly as before they existed, which is
+what keeps `F8GraphCanvasProps` a frozen contract. One nuance worth knowing: if you set a range and
+leave the matching scalar alone, the "cannot measure" fallback follows your range rather than the
+stock default, so those elements stay on the scale you asked for. Name the scalar and it is used
+verbatim. The defaults are exported as the constants
+named above, so you can scale FROM them rather than guessing:
+
+```tsx
+import {
+  DEFAULT_STYLE_CONFIG,
+  F8GraphCanvas,
+  LABEL_SIZE_DEFAULT,
+  NODE_SIZE_DEFAULT,
+} from "@fallen-8/studio/canvas";
+
+// Your policy, your numbers. Nothing here happens implicitly.
+const scale = Math.max(1, containerWidth / 1440);
+
+<F8GraphCanvas
+  nodes={nodes}
+  edges={edges}
+  config={{
+    ...DEFAULT_STYLE_CONFIG,
+    nodeSize: NODE_SIZE_DEFAULT * scale,
+    labelSize: LABEL_SIZE_DEFAULT * scale,
+  }}
+/>
+```
+
+Two deliberate boundaries. Sizes never scale themselves with the viewport or the device pixel
+ratio: you get the knobs and decide, so the same config always renders the same picture. And the
+path-overlay minimums still win, so a highlighted path cannot be shrunk into invisibility however
+small you set the rest.
+
+### Driving the camera
+
+`F8GraphCanvas` takes a `ref` exposing three methods, implemented by both the 2D and 3D renderers:
+
+```tsx
+import { useRef } from "react";
+import { F8GraphCanvas, type F8GraphCanvasHandle } from "@fallen-8/studio/canvas";
+
+const canvas = useRef<F8GraphCanvasHandle>(null);
+
+<F8GraphCanvas ref={canvas} nodes={nodes} edges={edges} />;
+
+canvas.current?.fitToView();            // frame everything, renderer's own inset
+canvas.current?.fitToView(300, 80);     // over 300 ms, with 80 px of margin
+canvas.current?.getCameraRatio();       // 1 means "the graph just fits"
+canvas.current?.setCameraRatio(0.5);    // twice as close
+```
+
+`ratio` means the same thing in both renderers and is derived on every call, so 1 still means
+"fits" after the graph grows or the container changes. Two things to know before you compute with
+it. Asking for a margin is a zoom, so it scales element sizes the way any zoom does (pad the
+container instead if you want margin without one). And zooming is not a uniform scale: multiplying
+the ratio by k spreads the layout over 1/k of the distance but draws each element at 1/sqrt(k) of
+its size, because the renderer scales lengths by the square root of the ratio. Labels do not scale
+with it at all. In 2D any finite positive ratio is applied verbatim, so a slider needs your own
+bounds; `fitToView()` is always the way back.
+
+The canvas keeps itself framed when its box changes, without ever overriding a view you or your
+visitor set: the 2D renderer re-measures and repaints without touching the camera at all, and the
+3D renderer re-fits only until the first time someone moves it with the mouse.
+
 ## Boundaries
 
 - **A bundler is required.** React is external; the module expects the host's build to resolve
   peers and asset imports.
+- **One stylesheet, whichever entry you import.** `@fallen-8/studio/styles.css` is the whole
+  Studio stylesheet (scoped, so it styles only the embed). The canvas entry splits the
+  JavaScript, not the CSS; a canvas-only host loads rules it does not use.
 - **The Samples gallery reads its datasets from this repository's public mirror** in an embed
   (the host origin does not serve `/samples`); everything else talks only to the configured
   instance.

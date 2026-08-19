@@ -24,10 +24,20 @@
 // SOFTWARE.
 
 import "@testing-library/jest-dom/vitest";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 import { cleanup } from "@testing-library/react";
+import { FakeResizeObserver, resetResizeObservers } from "./resizeObserver";
+import { resetSigmaInstances } from "./fakeSigma";
+import { resetForceGraphInstances } from "./fakeForceGraph";
+
+// jsdom ships no ResizeObserver and the canvas renderers construct one on mount, so install the
+// fake for EVERY test rather than per file; resizeObserver.ts documents it and owns the trigger.
+vi.stubGlobal("ResizeObserver", FakeResizeObserver);
 
 afterEach(() => {
   cleanup();
   window.localStorage.clear();
+  resetResizeObservers();
+  resetSigmaInstances();
+  resetForceGraphInstances();
 });

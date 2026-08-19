@@ -28,8 +28,12 @@
 // react/react-dom resolve as the host's own copies (the package declares them as peers).
 
 import { createRoot } from "react-dom/client";
-import { mountStudio, F8GraphCanvas } from "fallen-8-web-ui";
-import "fallen-8-web-ui/styles.css";
+import { mountStudio } from "@fallen-8/studio";
+// Deliberately the ./canvas subpath, not the root entry: this is the import a canvas-only
+// host writes, and consuming it here is what proves the subpath resolves through the
+// exports map. (The root entry re-exports the same names; index.ts owns that.)
+import { F8GraphCanvas } from "@fallen-8/studio/canvas";
+import "@fallen-8/studio/styles.css";
 import "./host.css";
 
 // The whole-app embed: memory history (the host owns the address bar), a prefixed storage

@@ -72,9 +72,12 @@ Each feature has a deep-dive doc — follow the link.
   browser-direct custom model backend).
 - **[Standalone F8 Studio](https://docs.fallen-8.com/standalone-ui/)** — deploy the browser UI as its own
   container, decoupled from the data plane and pointed at any Fallen-8 REST endpoint at container start.
-- **[Embed F8 Studio](https://docs.fallen-8.com/embed-studio/)**: mount the whole Studio (or just its graph
-  canvas) inside a host application's own shell via a library artifact - one config object carries the
-  instances, credentials (bearer tokens included), namespace pin, theme tokens and storage namespace.
+- **[Embed F8 Studio](https://docs.fallen-8.com/embed-studio/)**: the `@fallen-8/studio` package mounts
+  the whole Studio, or `@fallen-8/studio/canvas` the graph alone, inside a host application's own
+  shell - one config object carries the instances, credentials (bearer tokens included), namespace pin,
+  theme tokens and storage namespace. The canvas sizes to any viewport: every visual magnitude (node
+  radius, edge width, label px) is a host-settable knob, and a camera handle fits, reads and sets the
+  zoom, so the same graph reads well in a 390 px card and on a 4K wall.
 - **[Embed scenarios](https://docs.fallen-8.com/embed-scenarios/)**: the staged path for building Fallen-8
   into your own product - a WASM graph running entirely in the page, the canvas component rendering it, and
   the full embedded Studio against a hosted instance, with the boundary between them stated plainly.
@@ -107,8 +110,8 @@ the app (`fallen-8-core-apiApp`) is the thin HTTP layer that can serve F8 Studio
 all-in-one image (engine + API + UI) still ships and runs with a bare `docker compose up`, but the
 default `npm run env:up` now runs F8 Studio as its own
 [standalone](https://docs.fallen-8.com/standalone-ui/) nginx container talking to the REST API cross-origin, so
-the UI and the data plane deploy apart, alongside a model sidecar. F8 Studio also ships as an
-[embeddable library](https://docs.fallen-8.com/embed-studio/) a host portal can mount inside its own shell,
+the UI and the data plane deploy apart, alongside a model sidecar. F8 Studio also ships as a published package,
+[`@fallen-8/studio`](https://docs.fallen-8.com/embed-studio/), a host portal can mount inside its own shell,
 calling the same REST API. A third deployable, the
 [integrations runtime](https://docs.fallen-8.com/integrations/), reads systems on your own network and
 writes what it saw in through the same REST API.

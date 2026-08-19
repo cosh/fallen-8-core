@@ -37,7 +37,8 @@ import { fileURLToPath } from "node:url";
 import postcss from "postcss";
 import { SCOPE, UNMATCHABLE_SCOPED } from "./lib-scope.mjs";
 
-const distLib = join(dirname(fileURLToPath(import.meta.url)), "..", "dist-lib");
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const distLib = join(packageRoot, "dist-lib");
 const failures = [];
 
 if (!existsSync(distLib)) {
@@ -45,13 +46,20 @@ if (!existsSync(distLib)) {
   process.exit(1);
 }
 
-// 1. The three artifact parts exist: entry module, stylesheet, entry declarations.
-for (const [rel, label] of [
-  ["f8-studio.js", "the entry module"],
-  ["f8-studio.css", "the stylesheet"],
-  [join("types", "embed", "index.d.ts"), "the entry declarations"],
-]) {
-  if (!existsSync(join(distLib, rel))) failures.push(`${label} is missing: ${rel}`);
+// 1. Every file the exports map promises actually exists. Driven BY the map rather than by
+//    a hand-kept list, so a subpath added to package.json is checked without touching this
+//    file - the map is the one home for what the package publishes.
+const pkg = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8"));
+const exportTargets = new Set();
+const collectTargets = (node) => {
+  if (typeof node === "string") exportTargets.add(node);
+  else if (node && typeof node === "object") Object.values(node).forEach(collectTargets);
+};
+collectTargets(pkg.exports ?? {});
+for (const target of [...exportTargets].sort()) {
+  if (!existsSync(join(packageRoot, target))) {
+    failures.push(`the exports map promises ${target}, which does not exist`);
+  }
 }
 
 const emitted = readdirSync(distLib);
@@ -69,7 +77,55 @@ for (const file of emitted.filter((f) => /worker/i.test(f))) {
   failures.push(`${file} looks like an emitted worker chunk; ?worker imports must be inlined in lib mode`);
 }
 
-// 3. Every selector is scoped AND matchable. Two failure shapes, one per direction:
+// 3. The canvas subpath does not drag the app shell in. This is the whole point of the
+//    second entry: a host that wants a graph must not bundle the code editor. Checked by
+//    walking the emitted chunk graph from each entry (static AND dynamic relative imports -
+//    a dynamically imported editor is still a chunk the host's bundler emits), then looking
+//    for the editor's own markers. The shell entry is asserted to CONTAIN them too: without
+//    that half, a marker that stopped appearing anywhere would turn this into a false green.
+const EDITOR_MARKERS = ["MonacoEnvironment", "monaco-editor"];
+
+function reachableChunks(entry) {
+  const seen = new Set();
+  const queue = [entry];
+  while (queue.length > 0) {
+    const file = queue.pop();
+    if (seen.has(file) || !existsSync(join(distLib, file))) continue;
+    seen.add(file);
+    const code = readFileSync(join(distLib, file), "utf8");
+    // Covers `from"./x.js"`, `import"./x.js"` and `import("./x.js")` alike; vite emits every
+    // intra-artifact specifier as a flat "./name.js" beside the entry.
+    for (const match of code.matchAll(/["'(]\.\/([\w.-]+\.js)["')]/g)) queue.push(match[1]);
+  }
+  return seen;
+}
+
+function markersIn(chunks) {
+  const hits = [];
+  for (const file of chunks) {
+    const code = readFileSync(join(distLib, file), "utf8");
+    for (const marker of EDITOR_MARKERS) {
+      if (code.includes(marker)) hits.push(`${marker} in ${file}`);
+    }
+  }
+  return hits;
+}
+
+const canvasHits = markersIn(reachableChunks("canvas.js"));
+if (canvasHits.length > 0) {
+  failures.push(
+    `the canvas entry reaches the code editor, so a canvas-only host would bundle it: ${canvasHits.join(", ")}`,
+  );
+}
+const shellHits = markersIn(reachableChunks("f8-studio.js"));
+if (shellHits.length === 0) {
+  failures.push(
+    `no chunk reachable from f8-studio.js mentions any of ${EDITOR_MARKERS.join("/")}; the ` +
+      "markers have gone stale, so the canvas-entry check above proves nothing",
+  );
+}
+
+// 4. Every selector is scoped AND matchable. Two failure shapes, one per direction:
 //    a selector without the scope styles the HOST page; a page-level selector rewritten
 //    into a descendant position (`.f8-studio :root`, `.f8-studio html`, ...) can never
 //    match, so its rule silently vanishes from embeds only.

@@ -218,9 +218,11 @@ cross-origin calls need the data plane's `AllowedCorsOrigins` to include the UI'
 [Standalone F8 Studio](/standalone-ui/).
 
 The third way Studio reaches a graph is as a **library a host portal mounts inside its own
-shell**: one `mountStudio(element, config)` call carries the instances and credentials, and the
-embed talks to the REST API cross-origin exactly like the standalone container does. The
-contract, the artifact and its boundaries live in [Embed F8 Studio](/embed-studio/).
+shell**: the `@fallen-8/studio` package, where one `mountStudio(element, config)` call carries the
+instances and credentials, and the embed talks to the REST API cross-origin exactly like the
+standalone container does. A host that wants only the graph imports `@fallen-8/studio/canvas`
+instead, which is the same renderer without the app shell around it. The contract, the artifact and
+its boundaries live in [Embed F8 Studio](/embed-studio/).
 
 ## Observability
 

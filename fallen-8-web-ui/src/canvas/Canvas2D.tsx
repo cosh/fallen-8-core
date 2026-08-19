@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import Graph from "graphology";
 import Sigma from "sigma";
 import { EdgeArrowProgram, EdgeRectangleProgram, NodeCircleProgram } from "sigma/rendering";
@@ -41,8 +41,13 @@ import type { StyleConfig } from "./styleConfig";
 import type { ResolvedStyles } from "./styleEngine";
 import { imageUrlFor } from "./imageAssets";
 import { DEGRADE_THRESHOLD } from "./styling";
-import { eclipseRadius } from "./eclipse";
-import type { ElementRef } from "./GraphCanvas";
+import {
+  eclipseRadius,
+  fitCameraRatio,
+  fitDurationMs,
+  isUsableCameraRatio,
+} from "./eclipse";
+import { FIT_DURATION_MS, type ElementRef, type F8GraphCanvasHandle } from "./GraphCanvas";
 
 /**
  * Curvature spread for the i-th of a parallel-edge bundle (the sigma.js parallel-edges
@@ -66,6 +71,7 @@ export function Canvas2D({
   config,
   highlightId,
   onSelect,
+  ref,
 }: {
   nodes: Record<number, CanvasNode>;
   edges: Record<number, CanvasEdge>;
@@ -73,6 +79,7 @@ export function Canvas2D({
   config: StyleConfig;
   highlightId?: number | null;
   onSelect: (ref: ElementRef | null) => void;
+  ref?: Ref<F8GraphCanvasHandle>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sigmaRef = useRef<Sigma | null>(null);
@@ -104,9 +111,10 @@ export function Canvas2D({
       renderEdgeLabels: true,
       labelColor: { color: "#cdd6e4" },
       labelFont: "JetBrains Mono, monospace",
-      labelSize: 11,
+      // Initial values only; the effect below keeps them live when a host changes the config.
+      labelSize: styles.magnitudes.labelSize,
       edgeLabelColor: { color: "#55647a" },
-      edgeLabelSize: 9,
+      edgeLabelSize: styles.magnitudes.edgeLabelSize,
       defaultEdgeColor: "#232a35",
       zIndex: true,
       nodeProgramClasses: {
@@ -129,7 +137,22 @@ export function Canvas2D({
     });
     sigma.on("clickStage", () => onSelectRef.current(null));
 
+    // Sigma binds a window "resize" listener and nothing else, so a container-only reflow (a Studio
+    // panel collapsing, a host's grid changing) leaves its canvases at the previous pixel size until
+    // some unrelated render happens. This is the same call sigma's own window handler makes, for the
+    // same reason (it has to rebuild the label grid), and it is not cheap: a full refresh re-indexes
+    // every node and edge synchronously, only the paint is deferred to a frame. Matching sigma is
+    // still right - doing less risks a stale label grid, and a resize storm costs sigma's own
+    // window path exactly the same.
+    //
+    // Deliberately NOT a fit: a camera reset here would throw away the pan and zoom of a user who
+    // merely opened a panel. Under autoRescale the refresh alone re-frames a graph whose camera is
+    // untouched, so framing follows the box while the camera stays the user's.
+    const resize = new ResizeObserver(() => sigmaRef.current?.scheduleRefresh());
+    resize.observe(container);
+
     return () => {
+      resize.disconnect();
       fa2Ref.current?.kill();
       fa2Ref.current = null;
       sigma.kill();
@@ -225,6 +248,66 @@ export function Canvas2D({
 
     sigmaRef.current?.refresh();
   }, [nodes, edges, styles, config.showNodeLabels, config.showEdgeLabels, config.edgeArrows]);
+
+  /**
+   * The host-facing camera handle (feature canvas-host-controls). Empty deps: every method reads
+   * sigmaRef at call time, so the identity is stable for the component's whole life and a host can
+   * hold onto it.
+   */
+  useImperativeHandle(
+    ref,
+    () => ({
+      fitToView(durationMs, paddingPx) {
+        const sigma = sigmaRef.current;
+        if (!sigma) return;
+        // getDimensions() is a cache that only resize()/render() refresh, so a fit triggered BY a
+        // container change would otherwise measure the box the graph just left.
+        sigma.resize();
+        const stagePadding = sigma.getStagePadding();
+        const ratio = fitCameraRatio(sigma.getDimensions(), stagePadding, paddingPx ?? stagePadding);
+        // x/y 0.5 is the bounding box centre under autoRescale. angle 0 is load-bearing rather
+        // than tidy: matrixFromCamera rotates AFTER dividing by the ratio, so a rotated camera
+        // lets the corners of the box back out of frame. The duration floor is load-bearing too -
+        // sigma's tween computes elapsed/duration, and 0/0 writes NaN into x, y and ratio for a
+        // frame, which blanks the canvas.
+        void sigma.getCamera().animate(
+          { x: 0.5, y: 0.5, ratio, angle: 0 },
+          // Floor of 1: sigma cannot take a zero duration (fitDurationMs says why).
+          { duration: fitDurationMs(durationMs, FIT_DURATION_MS, 1) },
+        );
+        // An unchanged camera state emits nothing, so a fit that asks for the frame already in
+        // effect would leave a freshly resized layer unpainted. scheduleRender is rAF-debounced.
+        sigma.scheduleRender();
+      },
+      getCameraRatio: () => sigmaRef.current?.getCamera().ratio ?? 1,
+      setCameraRatio: (ratio) => {
+        if (!isUsableCameraRatio(ratio)) return;
+        // NOT setState: a fitToView tween in flight keeps its own start-state snapshot and an rAF
+        // loop that interpolates straight over any setState, so it would swallow this write and land
+        // on the fit's ratio instead. animate() is the only public way to cancel a running tween, so
+        // every write goes through it; one frame is the shortest duration sigma can divide by.
+        void sigmaRef.current?.getCamera().animate({ ratio }, { duration: 1 });
+      },
+    }),
+    [],
+  );
+
+  // Label sizes are Sigma SETTINGS, not per-element attributes, so the sync effect above cannot
+  // carry them; a host that raises labelSize for a wide container needs it to land without a
+  // remount. Skipped while they still match what the constructor was given: setSettings re-validates
+  // the settings, rewrites the camera state and schedules a full refresh, and paying for that on
+  // mount to write the values Sigma was just built with is a second O(V+E) re-index for nothing.
+  const appliedLabelSizesRef = useRef({
+    labelSize: styles.magnitudes.labelSize,
+    edgeLabelSize: styles.magnitudes.edgeLabelSize,
+  });
+  useEffect(() => {
+    const { labelSize, edgeLabelSize } = styles.magnitudes;
+    const applied = appliedLabelSizesRef.current;
+    if (applied.labelSize === labelSize && applied.edgeLabelSize === edgeLabelSize) return;
+    appliedLabelSizesRef.current = { labelSize, edgeLabelSize };
+    sigmaRef.current?.setSettings({ labelSize, edgeLabelSize });
+  }, [styles.magnitudes.labelSize, styles.magnitudes.edgeLabelSize]);
 
   // Layout control (FR-6): FA2 in a worker for "force"; the rest are deterministic.
   useEffect(() => {

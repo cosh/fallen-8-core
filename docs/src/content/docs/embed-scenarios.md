@@ -81,14 +81,15 @@ a download, or your own API is yours.
 
 ## Stage 2: see it (the canvas component over your data)
 
-Studio's graph canvas ships as a standalone component in the same
-[library artifact](/embed-studio/) the full Studio embed uses - data in,
+Studio's graph canvas ships as a standalone component on its own
+[package subpath](/embed-studio/), so this step costs the graph renderer and not the app shell
+around it - data in,
 selection callbacks out, no app shell, no server dependency. The snapshot from stage 1 is
 already in its prop shape:
 
 ```tsx
-import { F8GraphCanvas } from "fallen-8-web-ui";
-import "fallen-8-web-ui/styles.css";
+import { F8GraphCanvas } from "@fallen-8/studio/canvas";
+import "@fallen-8/studio/styles.css";
 
 <F8GraphCanvas
   nodes={Object.fromEntries(nodes.map((n) => [n.id, n]))}
@@ -117,8 +118,8 @@ product operates), allow your product's origin in
 [`AllowedCorsOrigins`](/security/), and hand Studio the instance:
 
 ```ts
-import { mountStudio } from "fallen-8-web-ui";
-import "fallen-8-web-ui/styles.css";
+import { mountStudio } from "@fallen-8/studio";
+import "@fallen-8/studio/styles.css";
 
 mountStudio(document.getElementById("studio")!, {
   instances: [{

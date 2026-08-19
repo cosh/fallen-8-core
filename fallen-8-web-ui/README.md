@@ -1,8 +1,13 @@
-# F8 Studio (`fallen-8-web-ui`)
+# F8 Studio (`@fallen-8/studio`)
 
 Browser frontend for one or more running Fallen-8 instances. Spec, design, and plan live
 in [features/done/web-ui/](../features/done/web-ui/); the NL-assist model backend is specified in
 [features/done/web-ui/nl-assist/spec.md](../features/done/web-ui/nl-assist/spec.md).
+
+This directory is also the published package. Embedding Studio, or its graph canvas alone
+(`@fallen-8/studio/canvas`), in your own application is documented at
+<https://docs.fallen-8.com/embed-studio/> - that page is the contract, so it is not repeated
+here. The rest of this file is how to develop the app itself.
 
 ## Development
 

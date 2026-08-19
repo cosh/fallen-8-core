@@ -23,9 +23,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render } from "@testing-library/react";
 import type { CanvasEdge, CanvasNode } from "../src/state/instanceStore";
+import type { F8GraphCanvasHandle } from "../src/canvas/GraphCanvas";
+import { sigmaInstances } from "./fakeSigma";
+import { liveResizeObservers, resizeObserved } from "./resizeObserver";
 
 /**
  * The component-level embed (feature studio-embeddable): F8GraphCanvas renders Studio's
@@ -35,52 +39,13 @@ import type { CanvasEdge, CanvasNode } from "../src/state/instanceStore";
  * tests use captures the handlers.
  */
 
-type Handler = (payload: { node?: string; edge?: string }) => void;
-const sigmaInstances: { handlers: Record<string, Handler> }[] = [];
-
-vi.mock("sigma", () => ({
-  default: class FakeSigma {
-    handlers: Record<string, Handler> = {};
-    constructor() {
-      sigmaInstances.push(this);
-    }
-    on(event: string, handler: Handler) {
-      this.handlers[event] = handler;
-    }
-    refresh() {}
-    kill() {}
-  },
-}));
-vi.mock("sigma/rendering", () => ({
-  EdgeArrowProgram: class {},
-  EdgeRectangleProgram: class {},
-  NodeCircleProgram: class {},
-}));
-vi.mock("@sigma/node-image", () => ({ createNodeImageProgram: () => class {} }));
-vi.mock("@sigma/edge-curve", () => ({
-  default: class {},
-  EdgeCurvedArrowProgram: class {},
-  DEFAULT_EDGE_CURVATURE: 0.25,
-  indexParallelEdgesIndex: (graph: {
-    forEachEdge: (cb: (edge: string) => void) => void;
-    setEdgeAttribute: (edge: string, name: string, value: unknown) => void;
-  }) => {
-    graph.forEachEdge((edge) => {
-      graph.setEdgeAttribute(edge, "parallelIndex", null);
-      graph.setEdgeAttribute(edge, "parallelMaxIndex", null);
-    });
-  },
-}));
-vi.mock("graphology-layout-forceatlas2/worker", () => ({
-  default: class {
-    start() {}
-    stop() {}
-    kill() {}
-  },
-}));
-vi.mock("graphology-layout-forceatlas2", () => ({
-  default: { inferSettings: () => ({}) },
-}));
+vi.mock("sigma", () => import("./fakeSigma").then((m) => ({ default: m.FakeSigma })));
+vi.mock("sigma/rendering", () => import("./fakeSigma").then((m) => m.sigmaRenderingModule));
+vi.mock("@sigma/node-image", () => import("./fakeSigma").then((m) => m.sigmaNodeImageModule));
+vi.mock("@sigma/edge-curve", () => import("./fakeSigma").then((m) => m.sigmaEdgeCurveModule));
+vi.mock("graphology-layout-forceatlas2/worker", () =>
+  import("./fakeSigma").then((m) => m.fa2WorkerModule));
+vi.mock("graphology-layout-forceatlas2", () => import("./fakeSigma").then((m) => m.fa2Module));
 
 import { F8GraphCanvas } from "../src/embed/F8GraphCanvas";
 
@@ -117,5 +82,61 @@ describe("F8GraphCanvas", () => {
     // No onSelect prop: clicks are a no-op, not a crash.
     render(<F8GraphCanvas nodes={NODES} edges={EDGES} />);
     expect(() => sigmaInstances.at(-1)!.handlers.clickNode({ node: "1" })).not.toThrow();
+  });
+
+  it("exposes a camera handle that survives the renderer being swapped underneath", () => {
+    // The handle delegates rather than handing out the renderer's own object, so switching
+    // config.renderer cannot leave a host holding a dead one.
+    const ref = createRef<F8GraphCanvasHandle>();
+    const { unmount } = render(<F8GraphCanvas ref={ref} nodes={NODES} edges={EDGES} />);
+
+    expect(ref.current?.getCameraRatio()).toBe(1);
+    ref.current!.setCameraRatio(0.4);
+    expect(sigmaInstances.at(-1)!.camera.ratio).toBe(0.4);
+
+
+    // A host that STORED the handle (a callback closing over it, say) and calls it after the canvas
+    // is gone must get a no-op, not a crash. React nulls ref.current on unmount, so the stored
+    // object is the only way to reach the delegation in that state.
+    const stored = ref.current!;
+    unmount();
+    expect(ref.current).toBeNull();
+    expect(() => stored.fitToView()).not.toThrow();
+    expect(() => stored.setCameraRatio(2)).not.toThrow();
+    expect(stored.getCameraRatio()).toBe(1); // "fits", the honest answer with nothing mounted
+  });
+
+  it("survives a host reflow without moving the visitor's camera", () => {
+    // The wrapper deliberately does NOT re-fit on resize. It used to, gated on the camera ratio
+    // still being 1, which read as "nobody has touched it" and was wrong: sigma's drag handlers
+    // write x and y and never touch the ratio, so a visitor who had merely PANNED was silently
+    // yanked back to centre on the host's next reflow. Re-framing is the renderer's job now.
+    render(<F8GraphCanvas nodes={NODES} edges={EDGES} />);
+    const sigma = sigmaInstances.at(-1)!;
+
+    // A visitor pans: sigma moves x and y and leaves the ratio at 1.
+    sigma.camera.x = 0.92;
+    sigma.camera.y = 0.11;
+    const refreshesBefore = sigma.scheduledRefreshCount;
+
+    resizeObserved();
+
+    expect(sigma.camera.animations).toEqual([]);
+    expect(sigma.camera.x).toBe(0.92);
+    expect(sigma.camera.y).toBe(0.11);
+    // Re-framed all the same: the renderer re-measures and repaints without touching the camera.
+    expect(sigma.scheduledRefreshCount).toBe(refreshesBefore + 1);
+  });
+
+  it("leaves no observer behind on unmount", () => {
+    const { unmount } = render(<F8GraphCanvas nodes={NODES} edges={EDGES} />);
+    const sigma = sigmaInstances.at(-1)!;
+    expect(liveResizeObservers()).toBeGreaterThan(0);
+    unmount();
+
+    expect(liveResizeObservers()).toBe(0);
+    const after = sigma.scheduledRefreshCount;
+    resizeObserved();
+    expect(sigma.scheduledRefreshCount).toBe(after);
   });
 });

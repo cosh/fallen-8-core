@@ -44,36 +44,13 @@ const EDGES: Record<number, CanvasEdge> = {};
 
 // Sigma and three.js both want a real GL context; neither is the subject here, and the container div
 // is rendered before either touches it.
-vi.mock("sigma", () => ({
-  default: class FakeSigma {
-    on() {}
-    refresh() {}
-    kill() {}
-  },
-}));
-vi.mock("sigma/rendering", () => ({
-  EdgeArrowProgram: class {},
-  EdgeRectangleProgram: class {},
-  NodeCircleProgram: class {},
-}));
-vi.mock("@sigma/node-image", () => ({ createNodeImageProgram: () => class {} }));
-vi.mock("@sigma/edge-curve", () => ({
-  default: class {},
-  DEFAULT_EDGE_CURVATURE: 0.25,
-  EdgeCurvedArrowProgram: class {},
-  indexParallelEdgesIndex: () => undefined,
-}));
-// The 2D layout runs ForceAtlas2 in a web worker, which jsdom does not provide.
-vi.mock("graphology-layout-forceatlas2/worker", () => ({
-  default: class {
-    start() {}
-    stop() {}
-    kill() {}
-  },
-}));
-vi.mock("graphology-layout-forceatlas2", () => ({
-  default: { inferSettings: () => ({}) },
-}));
+vi.mock("sigma", () => import("./fakeSigma").then((m) => ({ default: m.FakeSigma })));
+vi.mock("sigma/rendering", () => import("./fakeSigma").then((m) => m.sigmaRenderingModule));
+vi.mock("@sigma/node-image", () => import("./fakeSigma").then((m) => m.sigmaNodeImageModule));
+vi.mock("@sigma/edge-curve", () => import("./fakeSigma").then((m) => m.sigmaEdgeCurveModule));
+vi.mock("graphology-layout-forceatlas2/worker", () =>
+  import("./fakeSigma").then((m) => m.fa2WorkerModule));
+vi.mock("graphology-layout-forceatlas2", () => import("./fakeSigma").then((m) => m.fa2Module));
 vi.mock("3d-force-graph", () => ({
   // Every ForceGraph3D setter returns the instance for chaining, so ONE self-returning proxy stands
   // in for the whole fluent surface instead of forty stub methods - and it keeps working when
@@ -91,14 +68,6 @@ vi.mock("3d-force-graph", () => ({
     }
   },
 }));
-
-// jsdom has no ResizeObserver, and Canvas3D observes its container on mount.
-class FakeResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-vi.stubGlobal("ResizeObserver", FakeResizeObserver);
 
 describe("canvas accessible name", () => {
   it("names the 2D graph container through a role that legitimately takes one", () => {

@@ -29,6 +29,7 @@ import { DEFAULT_STYLE_CONFIG } from "../src/canvas/styleConfig";
 import { EMPTY_OVERLAY, resolveStyles } from "../src/canvas/styleEngine";
 import type { CanvasEdge, CanvasNode } from "../src/state/instanceStore";
 import type { ElementRef } from "../src/canvas/GraphCanvas";
+import { sigmaInstances } from "./fakeSigma";
 
 /**
  * Pins the council-found blocker: Canvas2D registers Sigma click handlers once (mount
@@ -37,56 +38,13 @@ import type { ElementRef } from "../src/canvas/GraphCanvas";
  * clicks. Sigma itself needs WebGL, so a fake captures the handlers.
  */
 
-type Handler = (payload: { node?: string; edge?: string }) => void;
-const sigmaInstances: { handlers: Record<string, Handler>; killed: boolean }[] = [];
-
-vi.mock("sigma", () => ({
-  default: class FakeSigma {
-    handlers: Record<string, Handler> = {};
-    killed = false;
-    constructor() {
-      sigmaInstances.push(this);
-    }
-    on(event: string, handler: Handler) {
-      this.handlers[event] = handler;
-    }
-    refresh() {}
-    kill() {
-      this.killed = true;
-    }
-  },
-}));
-vi.mock("sigma/rendering", () => ({
-  EdgeArrowProgram: class {},
-  EdgeRectangleProgram: class {},
-  NodeCircleProgram: class {},
-}));
-vi.mock("@sigma/node-image", () => ({ createNodeImageProgram: () => class {} }));
-vi.mock("@sigma/edge-curve", () => ({
-  default: class {},
-  EdgeCurvedArrowProgram: class {},
-  DEFAULT_EDGE_CURVATURE: 0.25,
-  // Singleton edges: no parallel index (straight rendering path).
-  indexParallelEdgesIndex: (graph: {
-    forEachEdge: (cb: (edge: string) => void) => void;
-    setEdgeAttribute: (edge: string, name: string, value: unknown) => void;
-  }) => {
-    graph.forEachEdge((edge) => {
-      graph.setEdgeAttribute(edge, "parallelIndex", null);
-      graph.setEdgeAttribute(edge, "parallelMaxIndex", null);
-    });
-  },
-}));
-vi.mock("graphology-layout-forceatlas2/worker", () => ({
-  default: class {
-    start() {}
-    stop() {}
-    kill() {}
-  },
-}));
-vi.mock("graphology-layout-forceatlas2", () => ({
-  default: { inferSettings: () => ({}) },
-}));
+vi.mock("sigma", () => import("./fakeSigma").then((m) => ({ default: m.FakeSigma })));
+vi.mock("sigma/rendering", () => import("./fakeSigma").then((m) => m.sigmaRenderingModule));
+vi.mock("@sigma/node-image", () => import("./fakeSigma").then((m) => m.sigmaNodeImageModule));
+vi.mock("@sigma/edge-curve", () => import("./fakeSigma").then((m) => m.sigmaEdgeCurveModule));
+vi.mock("graphology-layout-forceatlas2/worker", () =>
+  import("./fakeSigma").then((m) => m.fa2WorkerModule));
+vi.mock("graphology-layout-forceatlas2", () => import("./fakeSigma").then((m) => m.fa2Module));
 
 import { Canvas2D } from "../src/canvas/Canvas2D";
 

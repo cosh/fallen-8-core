@@ -24,19 +24,18 @@
 // SOFTWARE.
 
 /**
- * The host-facing export surface (feature studio-embeddable). What a host may import is
+ * The whole-Studio export surface (feature studio-embeddable). What a host may import is
  * exactly what is re-exported here - the packaging phase turns this module into the library
  * entry point, so anything not on this list is internal. Spec:
  * features/done/studio-embeddable/spec.md.
+ *
+ * The canvas half of the surface is NOT repeated here: ./canvas owns it (and is published as
+ * the package's "./canvas" subpath for hosts that want the graph without the app shell), so
+ * the two entries cannot drift.
  */
 
 export { mountStudio, F8Studio } from "../app/mount";
-export type { StudioConfig, ThemeTokens } from "../app/studioConfig";
+export type { StudioConfig } from "../app/studioConfig";
 export type { InstanceAuth, InstanceConfig } from "../instances/types";
 
-export { F8GraphCanvas, type F8GraphCanvasProps } from "./F8GraphCanvas";
-export type { ElementRef } from "../canvas/GraphCanvas";
-export { DEFAULT_STYLE_CONFIG } from "../canvas/styleConfig";
-export type { StyleConfig } from "../canvas/styleConfig";
-export type { CanvasEdge, CanvasNode } from "../state/instanceStore";
-export type { PathREST } from "../api/types";
+export * from "./canvas";

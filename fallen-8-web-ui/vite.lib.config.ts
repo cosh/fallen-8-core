@@ -135,9 +135,14 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: resolve(rootDir, "src/embed/index.ts"),
+      // Two entries, so a canvas-only host does not bundle the app shell (Monaco above all).
+      // The file name comes from the key, which is what the exports map points at; the
+      // artifact check asserts the editor never leaks into the canvas entry's chunk graph.
+      entry: {
+        "f8-studio": resolve(rootDir, "src/embed/index.ts"),
+        canvas: resolve(rootDir, "src/embed/canvas.ts"),
+      },
       formats: ["es"],
-      fileName: "f8-studio",
       cssFileName: "f8-studio",
     },
     outDir: "dist-lib",

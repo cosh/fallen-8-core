@@ -23,15 +23,28 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useImperativeHandle, useRef, type Ref } from "react";
 import ForceGraph3D, { type ForceGraph3DInstance } from "3d-force-graph";
 import * as THREE from "three";
 import { edgeDisplayName, type CanvasEdge, type CanvasNode } from "../state/instanceStore";
 import type { StyleConfig } from "./styleConfig";
 import type { ResolvedStyles } from "./styleEngine";
 import { imageUrlFor } from "./imageAssets";
-import { eclipseRadius, perspectiveScreenRadius, worldRadiusForVal } from "./eclipse";
-import type { ElementRef } from "./GraphCanvas";
+import {
+  clampFitPadding,
+  DEFAULT_FOV,
+  eclipseRadius,
+  FIT_PADDING_PX,
+  fitDurationMs,
+  isUsableCameraRatio,
+  graphFitDistance,
+  perspectiveScreenRadius,
+  scaleCameraDistance,
+  sizeToVal,
+  SPRITE_SCALE_PER_PX,
+  worldRadiusForVal,
+} from "./eclipse";
+import { FIT_DURATION_MS, type ElementRef, type F8GraphCanvasHandle } from "./GraphCanvas";
 
 /**
  * three.js (WebGL) 3D projection with feature parity to Canvas2D: resolved styles,
@@ -84,12 +97,6 @@ function escapeHtml(text: string): string {
     .replaceAll('"', "&quot;");
 }
 
-// Sigma sizes are radii in px; nodeVal is proportional to sphere volume. Cubing the
-// ratio keeps 3D radii proportional to their 2D counterparts (default size → val 1).
-function sizeToVal(size: number): number {
-  return Math.pow(size / 5, 3);
-}
-
 export function Canvas3D({
   nodes,
   edges,
@@ -97,6 +104,7 @@ export function Canvas3D({
   config,
   highlightId,
   onSelect,
+  ref,
 }: {
   nodes: Record<number, CanvasNode>;
   edges: Record<number, CanvasEdge>;
@@ -104,17 +112,100 @@ export function Canvas3D({
   config: StyleConfig;
   highlightId?: number | null;
   onSelect: (ref: ElementRef | null) => void;
+  ref?: Ref<F8GraphCanvasHandle>;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraph3DInstance<FgNode, FgLink> | null>(null);
   const nodesByIdRef = useRef(new Map<number, FgNode>());
   const eclipseRef = useRef<HTMLDivElement>(null);
+  // Set once the visitor moves the camera themselves; after that a resize must not re-frame.
+  const cameraTakenRef = useRef(false);
 
   // Same as Canvas2D: mount-once click handlers must read the CURRENT onSelect.
   const onSelectRef = useRef(onSelect);
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
+
+  /**
+   * The ratio's denominator, in one place: the distance a fit would park at right now. fg.width()
+   * and fg.height() are the very values the library used for camera.aspect and its padded field of
+   * view, so this cannot drift from what zoomToFit actually did.
+   */
+  const fitDistance = useCallback(() => {
+    const fg = fgRef.current;
+    if (!fg) return 0;
+    return graphFitDistance(
+      nodesByIdRef.current.values(),
+      (fg.camera() as THREE.PerspectiveCamera).fov ?? DEFAULT_FOV,
+      fg.width(),
+      fg.height(),
+      // The DEFAULT inset, never the one the last fit used: the ratio has to mean the same thing in
+      // both renderers, and 2D cannot re-base (its number IS sigma's camera.ratio, whose reference is
+      // the live stagePadding that fitToView never writes). Remembering an inset here would make the
+      // same call sequence report 1 in 3D and less than 1 in 2D.
+      //
+      // Clamped exactly as fitNow clamps it. Without that the denominator would be computed from an
+      // inset no fit could perform, so the ratio right after a default fitToView would not be 1 in
+      // any container short enough for the ceiling to bite.
+      clampFitPadding(FIT_PADDING_PX, fg.height()),
+    );
+  }, []);
+
+  /**
+   * The ONE way this renderer fits: the mount auto-fit, the resize refit and the handle all come
+   * through here, so every one of them is measured and clamped the same way. zoomToFit's padding is
+   * an unguarded divisor, which is why the clamp is not optional (clampFitPadding owns that story).
+   */
+  const fitNow = useCallback((durationMs: number | undefined, paddingPx: number | undefined) => {
+    const fg = fgRef.current;
+    const container = containerRef.current;
+    if (!fg || !container) return;
+    // Re-measure first, for the same reason Canvas2D calls sigma.resize(): fg.width/height are
+    // library state that only this component's observer updates, so a host fitting from its own
+    // layout handler would otherwise frame the box the canvas just left.
+    fg.width(container.clientWidth).height(container.clientHeight);
+    // Floor 0, not 1: three.js reads a falsy duration as "move now", which is what a resize-driven
+    // fit wants, and it has no division to protect.
+    fg.zoomToFit(
+      fitDurationMs(durationMs, FIT_DURATION_MS, 0),
+      clampFitPadding(paddingPx ?? FIT_PADDING_PX, fg.height()),
+    );
+  }, []);
+
+  /**
+   * The same handle Canvas2D exposes, in three-space. `ratio` means what it means in sigma: 1 is
+   * "the graph just fits", and it is derived from the live node cloud on every call, so it survives
+   * a graph merge, a resize and a remount (which is exactly why the fitted distance is NOT
+   * remembered - Studio's expand-on-demand would stale it immediately).
+   */
+  useImperativeHandle(
+    ref,
+    () => ({
+      fitToView: fitNow,
+      getCameraRatio() {
+        const distance = fitDistance();
+        if (!(distance > 0)) return 1;
+        const position = fgRef.current?.cameraPosition();
+        if (!position) return 1;
+        return Math.hypot(position.x, position.y, position.z) / distance;
+      },
+      setCameraRatio(ratio) {
+        if (!isUsableCameraRatio(ratio)) return;
+        const fg = fgRef.current;
+        const distance = fitDistance();
+        if (!fg || !(distance > 0)) return;
+        // Re-aims at the origin, which is where a fit aims: the library's own fitToBbox resets the
+        // look-at to (0, 0, 0), so matching it keeps "ratio 1 means fits" true after a zoom.
+        fg.cameraPosition(scaleCameraDistance(fg.cameraPosition(), ratio * distance), {
+          x: 0,
+          y: 0,
+          z: 0,
+        });
+      },
+    }),
+    [fitDistance, fitNow],
+  );
 
   // Mount the force graph once.
   useEffect(() => {
@@ -149,12 +240,29 @@ export function Canvas3D({
       // Cyclic graphs are the norm here; DAG layouts just do their best (FR-6).
       .onDagError(() => undefined);
 
+    // "start" fires on any pointer or wheel interaction with the orbit controls, and it is the only
+    // signal that separates the VISITOR moving the camera from us moving it. Deliberately not
+    // "change": that fires from update() whenever the camera moved at all, including our own fit.
+    const controls = fg.controls() as {
+      addEventListener(type: string, listener: () => void): void;
+      removeEventListener(type: string, listener: () => void): void;
+    };
+    const markCameraTaken = () => {
+      cameraTakenRef.current = true;
+    };
+    controls.addEventListener("start", markCameraTaken);
+
     const resize = new ResizeObserver(() => {
       fg.width(container.clientWidth).height(container.clientHeight);
+      // Unlike 2D, a resize alone does not re-frame here: the fit distance depends on the aspect
+      // ratio and on a field of view measured against height, and both just changed. So re-fit while
+      // the framing is still ours, and never once the visitor has taken the camera.
+      if (!cameraTakenRef.current) fitNow(0, undefined);
     });
     resize.observe(container);
 
     return () => {
+      controls.removeEventListener("start", markCameraTaken);
       resize.disconnect();
       fg._destructor();
       fgRef.current = null;
@@ -179,7 +287,7 @@ export function Canvas3D({
       fgNode.color = style.color;
       fgNode.val = sizeToVal(style.size);
       fgNode.image = style.image ? imageUrlFor(style.image) : null;
-      fgNode.spriteScale = style.size * 1.6;
+      fgNode.spriteScale = style.size * SPRITE_SCALE_PER_PX;
       next.set(node.id, fgNode);
       fgNodes.push(fgNode);
     }
@@ -201,9 +309,9 @@ export function Canvas3D({
 
     fg.graphData({ nodes: fgNodes, links: fgLinks });
     if (previous.size === 0 && next.size > 0) {
-      window.setTimeout(() => fgRef.current?.zoomToFit(600, 60), 600);
+      window.setTimeout(() => fitNow(FIT_DURATION_MS, FIT_PADDING_PX), FIT_DURATION_MS);
     }
-  }, [nodes, edges, styles]);
+  }, [nodes, edges, styles, fitNow]);
 
   // Render options (FR-6/FR-7): DAG constraint, hover labels, arrowheads.
   useEffect(() => {
@@ -249,7 +357,7 @@ export function Canvas3D({
             perspectiveScreenRadius(
               toNode.length(),
               worldRadiusForVal(node.val),
-              camera.fov ?? 50,
+              camera.fov ?? DEFAULT_FOV,
               container.clientHeight,
             ),
           );

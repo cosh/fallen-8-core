@@ -10,6 +10,9 @@
 #     -integrations, -ollama, -nlp), multi-arch except -nlp (see the matrix note).
 #   - nuget.org (Trusted Publishing via OIDC - NO stored API key, no fallback):  Fallen-8.
 #   - GitHub Packages NuGet feed (GITHUB_TOKEN):  continuity mirror, best-effort.
+#   - npm (NPM_TOKEN + provenance attestation):  @fallen-8/studio, the F8 Studio library
+#     artifact and its ./canvas subpath. Skipped with a log line until the credential exists
+#     (see the job comment); it must never redden a release that published everything else.
 #   - A GitHub release with generated notes and the package attached.
 #
 # Everything is idempotent: a re-run overwrites image tags, skips already-pushed package
@@ -218,10 +221,69 @@ jobs:
           name: nuget-package
           path: packages/
 
+  npm:
+    name: "npm package: @fallen-8/studio"
+    runs-on: ubuntu-latest
+    needs: [test, test-ui]
+    # id-token: write is for the provenance attestation npm generates (publishConfig sets
+    # provenance: true, which is also what makes a local `npm publish` refuse - publishing is
+    # CI-only by construction).
+    #
+    # Credential: a granular-access NPM_TOKEN secret. Deliberately NOT OIDC Trusted
+    # Publishing like the nuget job, for one concrete reason: npm's trusted publisher is
+    # configured per package on npmjs.com, which cannot be done for a name that has never
+    # been published. Once @fallen-8/studio exists, configure the publisher there and this
+    # job loses the token: drop NODE_AUTH_TOKEN and the gate step, nothing else changes.
+    permissions:
+      contents: read
+      id-token: write
+    defaults:
+      run:
+        working-directory: fallen-8-web-ui
+    env:
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+          cache-dependency-path: fallen-8-web-ui/package-lock.json
+      - name: Install dependencies
+        run: npm ci --no-fund --no-audit
+      # The tag is the single source of truth for the version, exactly as MinVer treats it on
+      # the .NET side; the committed "0.0.0" is a placeholder that would be obvious if it ever
+      # shipped. --no-git-tag-version because the tag already exists.
+      - name: Set the version from the git tag
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+      - name: Build the library artifact
+        run: npm run build:lib
+      # Two reasons to skip, both of which must log rather than fail: no credential yet
+      # (see the permissions comment), and a version already on the registry (npm has no
+      # --skip-duplicate, and a re-run of a release must stay idempotent).
+      - name: Decide whether to publish
+        id: gate
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "No NPM_TOKEN configured; skipping the npm publish of $version."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif npm view "@fallen-8/studio@$version" version > /dev/null 2>&1; then
+            echo "@fallen-8/studio@$version is already on the registry; skipping."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish to npm
+        if: steps.gate.outputs.publish == 'true'
+        run: npm publish
+
   github-release:
     name: GitHub release
     runs-on: ubuntu-latest
-    needs: [docker, nuget]
+    needs: [docker, nuget, npm]
     permissions:
       contents: write
     steps:

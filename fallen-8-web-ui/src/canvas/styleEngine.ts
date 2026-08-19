@@ -72,13 +72,22 @@ export interface ResolvedEdgeStyle {
 export interface ResolvedStyles {
   nodes: Record<number, ResolvedNodeStyle>;
   edges: Record<number, ResolvedEdgeStyle>;
+  /** What the renderers draw with, defaulted once (see resolveMagnitudes). */
+  magnitudes: ResolvedMagnitudes;
 }
 
 // Size/width ranges (FR-3/FR-4). Defaults match the pre-feature constants.
+//
+// These six are the DOCUMENTED DEFAULTS of the optional StyleConfig magnitudes, which is why
+// they are exported all the way out to hosts (src/embed/canvas.ts): a host scaling the canvas
+// to its own container needs to know what it is scaling from. Sigma sizes are absolute px, so
+// a number here is a number of pixels at camera ratio 1.
 export const NODE_SIZE_DEFAULT = 5;
 export const NODE_SIZE_RANGE: readonly [number, number] = [3, 14];
 export const EDGE_WIDTH_DEFAULT = 1;
 export const EDGE_WIDTH_RANGE: readonly [number, number] = [0.5, 5];
+export const LABEL_SIZE_DEFAULT = 11;
+export const EDGE_LABEL_SIZE_DEFAULT = 9;
 
 // Path overlay visuals (FR-9), unchanged from the pre-feature canvas.
 export const PATH_NODE_MIN_SIZE = 8;
@@ -172,6 +181,90 @@ function scaleInto(
   return (v) => (v === null ? fallback : lo + ((v - min) / (max - min)) * (hi - lo));
 }
 
+/**
+ * The magnitudes a renderer actually draws with: each optional StyleConfig magnitude resolved
+ * against its documented default. This is the ONE home for that defaulting, so no renderer and
+ * no call site repeats a fallback expression.
+ */
+export interface ResolvedMagnitudes {
+  nodeSize: number;
+  nodeSizeRange: readonly [number, number];
+  /** What a scaled mode draws for a node it cannot measure (see fallbackWithin). */
+  nodeSizeFallback: number;
+  edgeWidth: number;
+  edgeWidthRange: readonly [number, number];
+  edgeWidthFallback: number;
+  labelSize: number;
+  edgeLabelSize: number;
+}
+
+/**
+ * The one rule for "a positive magnitude a host supplied": a finite number above zero. Exported
+ * because the camera handle applies it to a zoom ratio for the same reason, namely that hosts call
+ * in from plain JavaScript where `undefined`, `null` and NaN all arrive without a type error, and
+ * every one of these numbers ends up a divisor in a renderer that does not validate it.
+ *
+ * Zero and negatives are refused rather than honoured: they render nothing, and a host that reaches
+ * this state has a bug (a slider at its minimum, an unparsed input) that a blank canvas would hide.
+ */
+export function isUsableMagnitude(value: number | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function magnitude(value: number | undefined, fallback: number): number {
+  return isUsableMagnitude(value) ? value : fallback;
+}
+
+/** Both endpoints must be usable or the whole range falls back: a half-valid range has no reading. */
+function magnitudeRange(
+  value: readonly [number, number] | undefined,
+  fallback: readonly [number, number],
+): readonly [number, number] {
+  if (!value) return fallback;
+  const [lo, hi] = value;
+  // Deliberately NOT reordered when lo > hi. An inverted range is a legitimate host choice
+  // (larger property value, smaller element), and quietly sorting it would invert their intent.
+  return isUsableMagnitude(lo) && isUsableMagnitude(hi) ? value : fallback;
+}
+
+/** `value` brought inside `[min, max]` of a range that may be given either way round. */
+function clampInto(value: number, range: readonly [number, number]): number {
+  const [lo, hi] = range;
+  return Math.min(Math.max(value, Math.min(lo, hi)), Math.max(lo, hi));
+}
+
+/**
+ * What a scaled mode draws for an element it cannot measure (no such property, or a non-numeric
+ * value). A scalar the host set EXPLICITLY is honoured as given, because that is exactly what the
+ * field documents. A defaulted one is pulled into the configured range instead: a host that sets
+ * only `nodeSizeRange: [20, 40]` would otherwise see its property-less nodes drawn at the default 5,
+ * off the bottom of its own scale. With neither configured this is clamp(5, [3, 14]) = 5.
+ */
+function fallbackWithin(
+  configured: number | undefined,
+  resolved: number,
+  range: readonly [number, number],
+): number {
+  return isUsableMagnitude(configured) ? resolved : clampInto(resolved, range);
+}
+
+export function resolveMagnitudes(config: StyleConfig): ResolvedMagnitudes {
+  const nodeSize = magnitude(config.nodeSize, NODE_SIZE_DEFAULT);
+  const nodeSizeRange = magnitudeRange(config.nodeSizeRange, NODE_SIZE_RANGE);
+  const edgeWidth = magnitude(config.edgeWidth, EDGE_WIDTH_DEFAULT);
+  const edgeWidthRange = magnitudeRange(config.edgeWidthRange, EDGE_WIDTH_RANGE);
+  return {
+    nodeSize,
+    nodeSizeRange,
+    nodeSizeFallback: fallbackWithin(config.nodeSize, nodeSize, nodeSizeRange),
+    edgeWidth,
+    edgeWidthRange,
+    edgeWidthFallback: fallbackWithin(config.edgeWidth, edgeWidth, edgeWidthRange),
+    labelSize: magnitude(config.labelSize, LABEL_SIZE_DEFAULT),
+    edgeLabelSize: magnitude(config.edgeLabelSize, EDGE_LABEL_SIZE_DEFAULT),
+  };
+}
+
 /** Visible in/out degree per node id (spec "Decisions": the canvas is the working set). */
 export function visibleDegrees(edges: CanvasEdge[]): Map<number, { in: number; out: number }> {
   const degrees = new Map<number, { in: number; out: number }>();
@@ -198,6 +291,7 @@ export function resolveStyles(
 ): ResolvedStyles {
   const nodeList = Object.values(nodes);
   const edgeList = Object.values(edges);
+  const magnitudes = resolveMagnitudes(config);
 
   const nodeColorScale = buildColorScale(nodeList, config.nodeColorMode, config.nodeColorProperty);
   const edgeColorScale = buildColorScale(edgeList, config.edgeColorMode, config.edgeColorProperty);
@@ -229,8 +323,8 @@ export function resolveStyles(
   };
   const nodeSize =
     config.nodeSizeMode === "fixed"
-      ? () => NODE_SIZE_DEFAULT
-      : scaleInto(nodeList.map(nodeSizeSource), NODE_SIZE_RANGE, NODE_SIZE_DEFAULT);
+      ? () => magnitudes.nodeSize
+      : scaleInto(nodeList.map(nodeSizeSource), magnitudes.nodeSizeRange, magnitudes.nodeSizeFallback);
 
   const edgeWidthSource = (edge: CanvasEdge): number | null =>
     config.edgeWidthMode === "property" && config.edgeWidthProperty
@@ -238,8 +332,8 @@ export function resolveStyles(
       : null;
   const edgeWidth =
     config.edgeWidthMode === "fixed"
-      ? () => EDGE_WIDTH_DEFAULT
-      : scaleInto(edgeList.map(edgeWidthSource), EDGE_WIDTH_RANGE, EDGE_WIDTH_DEFAULT);
+      ? () => magnitudes.edgeWidth
+      : scaleInto(edgeList.map(edgeWidthSource), magnitudes.edgeWidthRange, magnitudes.edgeWidthFallback);
 
   const resolvedNodes: Record<number, ResolvedNodeStyle> = {};
   for (const node of nodeList) {
@@ -274,7 +368,7 @@ export function resolveStyles(
     };
   }
 
-  return { nodes: resolvedNodes, edges: resolvedEdges };
+  return { nodes: resolvedNodes, edges: resolvedEdges, magnitudes };
 }
 
 /** Legend model for the canvas screen (FR-10): follows the node color mode. */

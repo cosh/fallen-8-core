@@ -62,6 +62,38 @@ export interface StyleConfig {
   showNodeLabels: boolean;
   showEdgeLabels: boolean;
   edgeArrows: boolean;
+
+  // ---- magnitudes (feature canvas-host-controls) ----
+  //
+  // Every field below is OPTIONAL and omitting all of them reproduces the rendering exactly,
+  // which is what keeps F8GraphCanvasProps a frozen contract for hosts that pin a tag. They
+  // exist because sigma sizes are absolute px: the same graph that reads well in a 1440 px
+  // box is a hairline star in a 3840 px one, and the host is the only party that knows how
+  // big its box is. Sizes stay deterministic on purpose - nothing here scales itself with the
+  // viewport or the device pixel ratio; a host computes what it wants from the exported
+  // defaults (NODE_SIZE_DEFAULT and friends in styleEngine.ts) and passes numbers in.
+  //
+  // Every default is NAMED below rather than spelled out, because the constant in styleEngine.ts is
+  // that value's one home and a number copied into a doc comment is the copy that goes stale.
+  // resolveMagnitudes() there is what applies them, treating any value that is not a finite positive
+  // number as omitted.
+
+  /**
+   * Node radius in px for `nodeSizeMode: "fixed"`. Also the fallback the scaled modes use for
+   * a node they cannot measure (no such property, or a non-numeric value).
+   * Default: `NODE_SIZE_DEFAULT`.
+   */
+  nodeSize?: number;
+  /** `[min, max]` node radius in px for the scaled modes. Default: `NODE_SIZE_RANGE`. */
+  nodeSizeRange?: readonly [number, number];
+  /** Edge width in px for `edgeWidthMode: "fixed"`, and the unmeasurable-edge fallback. Default: `EDGE_WIDTH_DEFAULT`. */
+  edgeWidth?: number;
+  /** `[min, max]` edge width in px for the scaled mode. Default: `EDGE_WIDTH_RANGE`. */
+  edgeWidthRange?: readonly [number, number];
+  /** Node label px. Default: `LABEL_SIZE_DEFAULT`. */
+  labelSize?: number;
+  /** Edge label px. Default: `EDGE_LABEL_SIZE_DEFAULT`. */
+  edgeLabelSize?: number;
 }
 
 export const DEFAULT_STYLE_CONFIG: StyleConfig = {
@@ -83,4 +115,9 @@ export const DEFAULT_STYLE_CONFIG: StyleConfig = {
   showNodeLabels: true,
   showEdgeLabels: true,
   edgeArrows: false,
+
+  // The magnitudes are deliberately ABSENT rather than spelled out here. This object seeds and
+  // is merged into the persisted per-instance style config (instanceStore.ts), with the
+  // persisted copy winning, so a magnitude written here would be frozen into every existing
+  // workspace's local storage and would then outrank the documented default forever.
 };

@@ -23,8 +23,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import type { CSSProperties } from "react";
-import { GraphCanvas, type ElementRef } from "../canvas/GraphCanvas";
+import { useImperativeHandle, useRef, type CSSProperties, type Ref } from "react";
+import {
+  GraphCanvas,
+  type ElementRef,
+  type F8GraphCanvasHandle,
+} from "../canvas/GraphCanvas";
 import { DEFAULT_STYLE_CONFIG, type StyleConfig } from "../canvas/styleConfig";
 import type { CanvasEdge, CanvasNode } from "../state/instanceStore";
 import type { PathREST } from "../api/types";
@@ -50,6 +54,11 @@ export interface F8GraphCanvasProps {
   onSelect?: (ref: ElementRef | null) => void;
   /** Token overrides for this embed; anything omitted keeps Studio's dark defaults. */
   theme?: Partial<ThemeTokens>;
+  /**
+   * Camera handle (feature canvas-host-controls): `fitToView`, `getCameraRatio`,
+   * `setCameraRatio`. Optional like everything else here, and attaching it changes no rendering.
+   */
+  ref?: Ref<F8GraphCanvasHandle>;
 }
 
 /**
@@ -64,7 +73,36 @@ export function F8GraphCanvas({
   highlight = null,
   onSelect,
   theme,
+  ref,
 }: F8GraphCanvasProps) {
+  const handleRef = useRef<F8GraphCanvasHandle>(null);
+
+  /**
+   * Delegate to whichever renderer is mounted rather than handing the host the renderer's own handle:
+   * switching `config.renderer` swaps 2D for 3D underneath, so a host that had stored the inner
+   * handle would be holding a dead object. Delegating also means the methods stay callable after
+   * unmount, as no-ops, instead of throwing at a host that kept a reference.
+   */
+  useImperativeHandle(
+    ref,
+    () => ({
+      fitToView: (durationMs, paddingPx) => handleRef.current?.fitToView(durationMs, paddingPx),
+      getCameraRatio: () => handleRef.current?.getCameraRatio() ?? 1,
+      setCameraRatio: (ratio) => handleRef.current?.setCameraRatio(ratio),
+    }),
+    [],
+  );
+
+  /*
+   * No resize handling lives here on purpose: each renderer owns its own, because only the renderer
+   * can tell whether the visitor has taken the camera. This wrapper once observed the box and
+   * re-fitted whenever the camera RATIO was still 1, which looked like "nobody has touched it" and
+   * was not: sigma's drag handlers write x and y and never touch the ratio, so a visitor who had
+   * panned still read as untouched and had their view yanked back on the next host reflow. Canvas2D
+   * re-frames by refreshing without moving the camera at all, and Canvas3D re-fits only until its
+   * orbit controls report the first interaction.
+   */
+
   return (
     <div className="f8-studio" style={themeStyle(theme) as CSSProperties}>
       <GraphCanvas
@@ -74,6 +112,7 @@ export function F8GraphCanvas({
         pathOverlay={pathOverlay}
         highlight={highlight}
         onSelect={onSelect ?? (() => {})}
+        ref={handleRef}
       />
     </div>
   );

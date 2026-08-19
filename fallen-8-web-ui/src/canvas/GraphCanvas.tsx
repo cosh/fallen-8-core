@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { lazy, Suspense, useMemo } from "react";
+import { lazy, Suspense, useMemo, type Ref } from "react";
 import type { CanvasEdge, CanvasNode } from "../state/instanceStore";
 import type { PathREST } from "../api/types";
 import type { StyleConfig } from "./styleConfig";
@@ -31,6 +31,41 @@ import { EMPTY_OVERLAY, resolveStyles, type PathOverlaySets } from "./styleEngin
 import { Canvas2D } from "./Canvas2D";
 
 export type ElementRef = { kind: "node" | "edge"; id: number };
+
+/**
+ * Imperative camera control on a mounted canvas (feature canvas-host-controls). A host embedding
+ * the canvas has no other way to reach the camera, so this is the whole surface: frame everything,
+ * read the zoom, set the zoom.
+ *
+ * `ratio` is sigma's camera ratio in BOTH renderers: 1 means the graph just fits the padded
+ * viewport and 2 is twice as far out. It is DERIVED on every call rather than stored, so 1 still
+ * means "fits" after the graph grows, the container changes, or the renderer remounts.
+ *
+ * Multiplying it by k spreads the layout over 1/k of the distance but shrinks each element to
+ * 1/sqrt(k) of its size, because sigma scales lengths by `sqrt(ratio)` (`scaleSize`) while it scales
+ * positions by the ratio itself. So zooming out is not a uniform shrink, and a host computing sizes
+ * needs the square root. Labels do not scale at all.
+ *
+ * Two renderer differences worth knowing. `setCameraRatio` keeps the pan in 2D but re-aims at the
+ * graph origin in 3D (which is what a fit does there). And only 3D bounds the number: its orbit
+ * controls cap the camera distance at the sky radius, whereas 2D applies any finite positive ratio
+ * verbatim, because sigma's `minCameraRatio`/`maxCameraRatio` are left unset. A host driving the
+ * ratio from a slider therefore owns the range check in 2D; `fitToView()` is always the way back.
+ *
+ * `paddingPx` is CSS px of inset around the graph, and omitting it asks for the renderer's own
+ * framing rather than a shared number: 2D uses sigma's live `stagePadding`, 3D uses
+ * `FIT_PADDING_PX`. The two are not comparable (3D padding shrinks the field of view against
+ * container HEIGHT only), so copying one renderer's digit into the other would be false precision.
+ * The arithmetic for both lives in canvas/eclipse.ts.
+ */
+export interface F8GraphCanvasHandle {
+  fitToView(durationMs?: number, paddingPx?: number): void;
+  getCameraRatio(): number;
+  setCameraRatio(ratio: number): void;
+}
+
+/** Fit tween length in ms. Canvas3D has framed its mount auto-fit at 600 since day one. */
+export const FIT_DURATION_MS = 600;
 
 /** Elements to emphasize with the overlay visuals WITHOUT dimming the rest (adjacency-preview). */
 type EmphasisSet = { nodeIds: readonly number[]; edgeIds: readonly number[] };
@@ -52,6 +87,7 @@ export function GraphCanvas({
   emphasis,
   highlight,
   onSelect,
+  ref,
 }: {
   nodes: Record<number, CanvasNode>;
   edges: Record<number, CanvasEdge>;
@@ -62,6 +98,8 @@ export function GraphCanvas({
    *  this node while a Find result row is hovered. Only a node kind spotlights; edges are ignored. */
   highlight?: ElementRef | null;
   onSelect: (ref: ElementRef | null) => void;
+  /** Camera handle, forwarded to whichever renderer is mounted (React 19 passes ref as a prop). */
+  ref?: Ref<F8GraphCanvasHandle>;
 }) {
   const highlightId = highlight && highlight.kind === "node" ? highlight.id : null;
   const overlay: PathOverlaySets = useMemo(() => {
@@ -107,6 +145,7 @@ export function GraphCanvas({
           config={config}
           highlightId={highlightId}
           onSelect={onSelect}
+          ref={ref}
         />
       </Suspense>
     );
@@ -119,6 +158,7 @@ export function GraphCanvas({
       config={config}
       highlightId={highlightId}
       onSelect={onSelect}
+      ref={ref}
     />
   );
 }
