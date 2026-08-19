@@ -104,6 +104,18 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   Why a live key did not reach the running process, or absent when it did. The value is stored
+        ///   either way and the next boot will use it, so this reports a live apply that failed rather than
+        ///   a write that failed, and <see cref="ApplyMode"/> is downgraded to <c>restart</c> to match.
+        /// </summary>
+        [JsonPropertyName("applyFailure")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String ApplyFailure
+        {
+            get; set;
+        }
     }
 
     /// <summary>

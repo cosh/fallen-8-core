@@ -207,13 +207,21 @@ namespace NoSQL.GraphDB.Tests
             using var client = factory.CreateClient();
 
             var config = await ReadConfig(client);
-            var plugins = Setting(config, "Fallen8:Plugins:MaxCount");
+            var restartTier = Setting(config, "Fallen8:Ingestion:MaxPages");
 
-            Assert.AreEqual("int", plugins.GetProperty("kind").GetString(),
+            Assert.AreEqual("int", restartTier.GetProperty("kind").GetString(),
                 "wire values are strings; an enum would publish an integer whose meaning is private to the server");
-            Assert.AreEqual("restart", plugins.GetProperty("tier").GetString());
-            Assert.AreEqual("restart", plugins.GetProperty("applyMode").GetString());
-            Assert.AreEqual(1, plugins.GetProperty("minimum").GetDouble());
+            Assert.AreEqual("restart", restartTier.GetProperty("tier").GetString());
+            Assert.AreEqual("restart", restartTier.GetProperty("applyMode").GetString());
+            Assert.AreEqual(1, restartTier.GetProperty("minimum").GetDouble());
+
+            // A promoted key publishes the live tier and the narrower promise separately, so a client can
+            // say "in force for new work" rather than implying everything already running changed.
+            var live = Setting(config, "Fallen8:Plugins:MaxCount");
+            Assert.AreEqual("live", live.GetProperty("tier").GetString());
+            Assert.AreEqual("liveForNewWork", live.GetProperty("applyMode").GetString());
+            Assert.IsFalse(live.GetProperty("restartPending").GetBoolean(),
+                "a live key is never waiting for a restart");
 
             var apiKey = Setting(config, "Fallen8:Security:ApiKey");
             Assert.AreEqual("notWritable", apiKey.GetProperty("tier").GetString());

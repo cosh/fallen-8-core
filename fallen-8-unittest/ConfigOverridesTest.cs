@@ -493,24 +493,28 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void PendingRestart_IsDerivedFromTheBootSnapshot()
         {
-            WriteOverrides(("Fallen8:Plugins:MaxCount", "128"));
+            // A restart-tier key on purpose: a live key applies immediately and is therefore never
+            // pending, which the live-tier tests assert separately.
+            const String Key = "Fallen8:Ingestion:MaxPages";
+
+            WriteOverrides((Key, "128"));
             var (root, source) = Build();
 
             var model = new Fallen8ConfigOverrides(root, source);
 
             Assert.AreEqual(0, model.PendingRestart().Count,
                 "a value already in force at boot is not pending; the process is using it");
-            Assert.AreEqual("128", model.BootValue("Fallen8:Plugins:MaxCount"));
+            Assert.AreEqual("128", model.BootValue(Key));
 
             // A later write, as PATCH /config will do: rewrite the file and reload the root.
-            WriteOverrides(("Fallen8:Plugins:MaxCount", "256"));
+            WriteOverrides((Key, "256"));
             root.Reload();
 
             var pending = model.PendingRestart();
             Assert.AreEqual(1, pending.Count);
-            Assert.AreEqual("Fallen8:Plugins:MaxCount", pending[0].Key);
-            Assert.AreEqual("128", model.BootValue("Fallen8:Plugins:MaxCount"), "the snapshot does not move");
-            Assert.AreEqual("256", model.CurrentValue("Fallen8:Plugins:MaxCount"));
+            Assert.AreEqual(Key, pending[0].Key);
+            Assert.AreEqual("128", model.BootValue(Key), "the snapshot does not move");
+            Assert.AreEqual("256", model.CurrentValue(Key));
             Assert.IsTrue(model.IsRestartPending(pending[0]));
         }
 

@@ -122,8 +122,12 @@ namespace NoSQL.GraphDB.App.Namespaces
         private readonly ILogger<Fallen8Namespaces> _logger;
         private readonly Fallen8DurabilityOptions _durability;
         private readonly ChangeFeedOptions _changeFeedOptions;
-        private readonly Int32 _storedQueryMaxCount;
-        private readonly Int32 _pluginMaxCount;
+
+        // Not readonly: these are the ceilings a NEW engine is built with, and a live write has to move
+        // them as well as the registries of the engines already built, or a namespace activated after the
+        // write would come up with the ceiling this process booted with. See ApplyRegistryCeilings.
+        private Int32 _storedQueryMaxCount;
+        private Int32 _pluginMaxCount;
 
         /// <summary>
         ///   The startup-load selection this boot ran with (feature namespace-startup-load). Published
@@ -305,7 +309,22 @@ namespace NoSQL.GraphDB.App.Namespaces
         public Namespace Default { get; }
 
         /// <summary>The configured namespace ceiling (includes <see cref="DefaultName"/>).</summary>
-        public Int32 MaxNamespaces { get; }
+        public Int32 MaxNamespaces { get; private set; }
+
+        /// <summary>
+        ///   The change-feed limits every engine in this collection shares (feature
+        ///   writable-instance-config), or <c>null</c> when the feed is disabled.
+        ///
+        ///   <para>This is ONE object handed to every engine at construction, which is what lets a live
+        ///   write to a subscriber limit reach every namespace, including one activated later, by
+        ///   assigning a single property. Assign named properties only: replacing the object would strand
+        ///   every engine already built on the old one, and re-projecting the whole options section would
+        ///   quietly make the buffer size live for later engines while leaving earlier ones alone.</para>
+        /// </summary>
+        public ChangeFeedOptions ChangeFeedLimits
+        {
+            get { return _changeFeedOptions; }
+        }
 
         /// <summary>The number of namespaces, including <see cref="DefaultName"/>.</summary>
         public Int32 Count
@@ -362,6 +381,64 @@ namespace NoSQL.GraphDB.App.Namespaces
         public Boolean TryGet(String name, out Namespace ns)
         {
             return _byName.TryGetValue(name, out ns);
+        }
+
+        /// <summary>
+        ///   Applies a live registration ceiling (feature writable-instance-config): it moves both the
+        ///   value a NEW engine is built with and the registries of the engines already built. Passing
+        ///   <c>null</c> leaves that ceiling alone, so a write to one key never re-applies its sibling.
+        ///
+        ///   <para>Takes effect for new registrations only. Neither registry evicts anything, so lowering
+        ///   a ceiling below what a namespace already holds leaves those registrations in place, and the
+        ///   published apply mode says so rather than claiming the limit is now in force everywhere.</para>
+        /// </summary>
+        public void ApplyRegistryCeilings(Int32? pluginMaxCount, Int32? storedQueryMaxCount)
+        {
+            // The latched values move FIRST: an activation racing this write then builds its engine with
+            // the new ceiling rather than being missed between the walk and the latch.
+            if (pluginMaxCount.HasValue)
+            {
+                _pluginMaxCount = pluginMaxCount.Value;
+            }
+
+            if (storedQueryMaxCount.HasValue)
+            {
+                _storedQueryMaxCount = storedQueryMaxCount.Value;
+            }
+
+            foreach (var ns in _byName.Values)
+            {
+                if (!ns.TryGetEngine(out var engine))
+                {
+                    continue; // catalogued but not loaded in this process; it will be built with the latched value
+                }
+
+                if (pluginMaxCount.HasValue && engine.Plugins != null)
+                {
+                    engine.Plugins.MaxCount = pluginMaxCount.Value;
+                }
+
+                if (storedQueryMaxCount.HasValue && engine.StoredQueries != null)
+                {
+                    engine.StoredQueries.MaxCount = storedQueryMaxCount.Value;
+                }
+            }
+        }
+
+        /// <summary>
+        ///   Applies a live namespace ceiling (feature writable-instance-config), under the same lock the
+        ///   creation path holds so the change is ordered against a create already in flight rather than
+        ///   relying on the visibility of a bare integer write.
+        ///
+        ///   <para>New creations only: lowering the ceiling below the namespaces that exist removes
+        ///   nothing.</para>
+        /// </summary>
+        public void ApplyNamespaceCeiling(Int32 maxNamespaces)
+        {
+            lock (_writeLock)
+            {
+                MaxNamespaces = maxNamespaces;
+            }
         }
 
         /// <summary>A name-ordered snapshot of all namespaces.</summary>

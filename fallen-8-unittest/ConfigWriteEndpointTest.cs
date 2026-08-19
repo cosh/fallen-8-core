@@ -239,13 +239,14 @@ namespace NoSQL.GraphDB.Tests
             using var factory = CreateFactory(metadataDirectory: _metadata);
             using var client = Authenticated(factory);
 
-            using var response = await Patch(client, ("Fallen8:Plugins:MaxCount", "128"));
+            // A restart-tier key: the live tier has its own tests, and its promise is different.
+            using var response = await Patch(client, ("Fallen8:Ingestion:MaxPages", "128"));
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
                 "a restart-tier write is a 200 that persists: never a 202, never an error");
 
             var body = await Json(response);
             var result = body.GetProperty("results")[0];
-            Assert.AreEqual("Fallen8:Plugins:MaxCount", result.GetProperty("key").GetString());
+            Assert.AreEqual("Fallen8:Ingestion:MaxPages", result.GetProperty("key").GetString());
             Assert.AreEqual("128", result.GetProperty("value").GetString());
             Assert.AreEqual("restart", result.GetProperty("applyMode").GetString(),
                 "the promise is honest: nothing changed in this process");
@@ -254,8 +255,8 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(1, body.GetProperty("pendingRestart").GetArrayLength());
             var pending = body.GetProperty("pendingRestart")[0];
-            Assert.AreEqual("64", pending.GetProperty("runningValue").GetString(),
-                "the running value is what this process started with");
+            Assert.AreEqual("500", pending.GetProperty("runningValue").GetString(),
+                "the running value is what this process started with, which here is the class default");
             Assert.AreEqual("128", pending.GetProperty("pendingValue").GetString());
 
             // Persisted, and visible on the read surface.

@@ -415,6 +415,11 @@ namespace NoSQL.GraphDB.App
             // than lazily by the first request.
             builder.Services.AddSingleton(sp => new Fallen8ConfigOverrides(builder.Configuration, configOverrides,
                 sp.GetService<ILoggerFactory>()?.CreateLogger("Fallen8.Configuration")));
+
+            // Pushes live-tier settings into the running process on every configuration reload, whatever
+            // caused it (feature writable-instance-config phase 4).
+            builder.Services.AddSingleton(sp => new Fallen8LiveSettings(sp, builder.Configuration,
+                sp.GetService<ILoggerFactory>()?.CreateLogger("Fallen8.Configuration")));
             builder.Services.AddSingleton<SaveGameRegistry>();
 
             // The one home for restoring a single namespace from the registry: shared by the boot
@@ -684,6 +689,10 @@ namespace NoSQL.GraphDB.App
             // Say out loud what the stored-overrides layer did: a value an operator saved that the
             // environment silently outranks is exactly the failure this feature exists to remove.
             overridesReadModel.LogState();
+
+            // Only now that the host is built: a reload during startup would otherwise run an apply
+            // delegate against services that do not exist yet.
+            app.Services.GetRequiredService<Fallen8LiveSettings>().Start();
 
             var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Fallen8.Security");
             if (string.IsNullOrWhiteSpace(security.ApiKey))

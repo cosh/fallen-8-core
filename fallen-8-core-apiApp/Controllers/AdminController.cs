@@ -121,6 +121,12 @@ namespace NoSQL.GraphDB.App.Controllers
         private readonly Fallen8ConfigOverrides _configOverrides;
 
         /// <summary>
+        /// Reports whether a live setting reached the running process (feature writable-instance-config).
+        /// Null under direct unit construction.
+        /// </summary>
+        private readonly Fallen8LiveSettings _liveSettings;
+
+        /// <summary>
         /// The embedding config (feature instance-config): supplies the Ollama endpoint/model for
         /// the /config residency probe. Null under direct unit construction.
         /// </summary>
@@ -149,9 +155,10 @@ namespace NoSQL.GraphDB.App.Controllers
             IOptions<Fallen8EmbeddingOptions> embeddingOptions = null,
             Ingestion.IDoclingConverter doclingConverter = null, IOptions<Fallen8IngestionOptions> ingestionOptions = null,
             Ingestion.INlpClient nlpClient = null, IOptions<Fallen8NlpOptions> nlpOptions = null,
-            Fallen8ConfigOverrides configOverrides = null)
+            Fallen8ConfigOverrides configOverrides = null, Fallen8LiveSettings liveSettings = null)
         {
             _configOverrides = configOverrides;
+            _liveSettings = liveSettings;
             _embeddingProvider = embeddingProvider;
             _chatProvider = chatProvider;
             _observability = observability?.Value ?? new Fallen8ObservabilityOptions();
@@ -516,14 +523,24 @@ namespace NoSQL.GraphDB.App.Controllers
                 var effective = _configOverrides.CurrentValue(entry.Key);
                 var requested = specification.Settings[key];
 
+                // The apply already ran, driven by the reload the write caused. If a live key's delegate
+                // failed, the value is stored but is NOT in force, so the promise is downgraded to
+                // restart rather than reporting an apply that did not happen.
+                var applyFailure = entry.Tier == Fallen8SettingTier.Live
+                    ? _liveSettings?.FailureFor(entry.Key)
+                    : null;
+
                 results.Add(new ConfigWriteResultREST
                 {
                     Key = entry.Key,
                     Value = effective,
                     Cleared = requested == null,
                     Coerced = requested != null && !String.Equals(requested, effective, StringComparison.Ordinal),
-                    ApplyMode = SettingREST.From(entry, _configOverrides).ApplyMode,
-                    RestartPending = _configOverrides.IsRestartPending(entry)
+                    ApplyMode = applyFailure == null
+                        ? SettingREST.From(entry, _configOverrides).ApplyMode
+                        : "restart",
+                    ApplyFailure = applyFailure,
+                    RestartPending = applyFailure != null || _configOverrides.IsRestartPending(entry)
                 });
             }
 

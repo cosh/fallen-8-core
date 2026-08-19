@@ -214,15 +214,29 @@ Stated as rules so the list is derivable and a future key classifies itself:
 
 ### 4.8 Monitors go in per key, never per provider
 
-**Hard rule, with a test.** Converting a consumer wholesale to `IOptionsMonitor.CurrentValue` makes
-*every* key on that section live, including never-writable ones (production `appsettings.json`
-reloads on change): `DurabilityLifecycleService` reads `Volatile`, `SaveOnShutdown` and
-`CheckpointBaseName` together, so a wholesale conversion silently makes two R2 keys live. A
-converted consumer reads **the specific live key** from `CurrentValue` and every other key from
-the boot snapshot. The same rule forbids whole-section monitors for the chat and embedding
-providers, whose `/status`-facing properties would then truthfully report a backend the process is
-not using. The optional-`IOptions` plus `?? new T()` constructor pattern is preserved so
-direct-construction tests keep working.
+**Hard rule, with a test.** Nothing may be converted wholesale: making a consumer read its whole
+options object from a reloading source makes *every* key on that section live, including
+never-writable ones (production `appsettings.json` reloads on change). `DurabilityLifecycleService`
+reads `Volatile`, `SaveOnShutdown` and `CheckpointBaseName` together, so a wholesale conversion
+silently makes two R2 keys live. The same rule forbids it for the chat and embedding providers, whose
+`/status`-facing properties would then truthfully report a backend the process is not using.
+
+**How a live key actually applies (settled in phase 4, and not by a monitor).** An apply delegate
+binds a **fresh** options instance from configuration and assigns the **one property it owns** on the
+object the consumer already reads. Two measured facts rule the monitor route out rather than merely
+making it unnecessary: `IOptions<T>` is a process singleton that consumers hold a reference to, so a
+monitor's new-instance-on-reload would leave every consumer that captured `.Value` at construction
+reading the old value; and a delegate reading `IOptionsMonitor.CurrentValue` can observe the
+pre-reload value, because the monitor invalidates its cache from the same reload token the delegates
+run on and callback order is registration order. Binding fresh has no ordering relationship with
+anything, needs no consumer edits, and is per key by construction. The optional-`IOptions` plus
+`?? new T()` constructor pattern is untouched, so direct-construction tests keep working.
+
+The apply runs on **every** configuration reload, not only after a write: `appsettings.json` reloads
+on change, so a hand-edited file would otherwise move the published value while the value in force
+stayed put, and the pending signal says nothing about live keys. A delegate that throws never fails
+the write, because by then the value is persisted: the key's promise is downgraded to `restart` and
+the failure is reported.
 
 ## 5. F8 Studio
 

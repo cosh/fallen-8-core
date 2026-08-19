@@ -231,6 +231,46 @@ same commit rather than left as a difference:
    refused batch was NOT written, the `400` naming rule R2, and that a never-writable key's `value`
    property is genuinely absent from the wire body.
 
+**Phase 4 (landed).** Six keys promoted, all `liveForNewWork`, plus the mechanism itself:
+
+1. **No monitor conversions at all**, which is a real departure from this plan's own wording. Two
+   findings made the monitor route wrong rather than merely unnecessary. First, `IOptions<T>` is a
+   process singleton and most consumers hold that instance, so a monitor handing out a NEW instance on
+   reload would leave every consumer that captured `.Value` at construction reading the old one, which
+   is the opposite of live. Second, measured: an apply delegate that read
+   `IOptionsMonitor.CurrentValue` got the value from BEFORE the reload, because the monitor invalidates
+   its cache from the same reload token the delegates run on and callback order is registration order.
+   So a delegate binds a FRESH options instance from configuration and assigns the one property it owns
+   on the object the consumer already reads. That is per key by construction, with no ordering
+   relationship to anything, and it needs no consumer edits at all.
+2. **The apply runs on every configuration reload, not only on a write** (`Fallen8LiveSettings`).
+   `appsettings.json` reloads on change in production, so a hand-edited file moves what `GET /config`
+   publishes; if the apply ran only from the write path, a live key's published value would then differ
+   from the value in force, and the pending signal deliberately says nothing about live keys, so
+   nothing would flag it. A test pins that a reload this process did not initiate still applies.
+3. **A failing delegate never fails the write.** By then the value is persisted and reloaded, so the
+   honest outcome is a live key that did not take effect: the failure is recorded, logged, reported as
+   `applyFailure`, and the key's promise is downgraded from live to restart in the same response.
+4. **The tranche is six keys**: the change feed's `MaxSubscribers`, `SubscriberQueueSize` and
+   `KeepAliveSeconds`, the `Plugins` and `StoredQueries` registration ceilings, and
+   `Namespaces:MaxNamespaces`. Every one is `liveForNewWork`, never plain `live`, because each is a cap
+   consulted when work starts: none evicts a subscriber, a registration or a namespace. `BufferSize`
+   stays restart-tier because its ring is allocated at engine construction, and `ChangeFeed:Enabled`
+   because it decides the feed exists.
+5. **One shared object, not a walk over engines.** `ChangeFeedOptions` is projected once and handed to
+   every engine, so assigning one property reaches every namespace including one activated later. The
+   registry ceilings genuinely need a fan-out, and it also moves the boot-latched values a NEW engine is
+   built with, or a namespace activated after the write would come up with the old ceiling.
+6. **Deferred with a reason, not by omission**: the request-bound tranche (the statistics knobs, the
+   two analytics time budgets, the BulkIO bounds). They are read per request from the options singleton,
+   so each is a one-line delegate, but the spec warns that a key quoted in a user-facing message must
+   stay restart-tier or the message lies about the cap in force, and that check is exactly what the
+   analysis for that group had not finished when this phase closed. Do it before promoting them.
+7. Every promoted key's test asserts OBSERVED behaviour: a subscribe refused then allowed, a
+   registration refused then allowed, a namespace creation refused then allowed, and a new
+   subscription's queue holding more events than one created before the write. None of them can pass by
+   reading an option value back, and all of them failed while the apply mechanism was broken.
+
 ## Follow-up this phase uncovered (not fixed here)
 
 **NLP enrichment silently stops above 512 chunks.** R7 deleted `Fallen8:Nlp:MaxBatchSize` because no

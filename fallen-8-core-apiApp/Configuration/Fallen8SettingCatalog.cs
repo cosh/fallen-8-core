@@ -27,6 +27,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using NoSQL.GraphDB.App.Namespaces;
 
 namespace NoSQL.GraphDB.App.Configuration
 {
@@ -95,6 +99,85 @@ namespace NoSQL.GraphDB.App.Configuration
             return _byKey.TryGetValue(key, out entry);
         }
 
+        #region applying a live setting to the running process
+
+        /// <summary>
+        ///   The change-feed subscriber limits. Both live keys share one delegate because they live on the
+        ///   same shared object, and each is assigned from its own freshly bound value, so applying one
+        ///   never invents a value for the other.
+        ///
+        ///   <para>Named properties are assigned on the object every engine already holds. Re-projecting
+        ///   the whole section instead would make the buffer size live for engines built later while
+        ///   leaving existing ones alone, which is exactly the per-provider conversion spec 4.8
+        ///   forbids.</para>
+        /// </summary>
+        private static void ApplyChangeFeedLimits(IServiceProvider services)
+        {
+            var limits = services.GetRequiredService<Fallen8Namespaces>().ChangeFeedLimits;
+            if (limits == null)
+            {
+                return; // the feed is disabled for this process; nothing holds these limits
+            }
+
+            var configured = Configured<Fallen8ChangeFeedOptions>(services, Fallen8ChangeFeedOptions.SectionName);
+            limits.MaxSubscribers = configured.MaxSubscribers;
+            limits.SubscriberQueueSize = configured.SubscriberQueueSize;
+        }
+
+        /// <summary>
+        ///   Binds a FRESH options instance straight from configuration, which has already reloaded by the
+        ///   time an apply delegate runs.
+        ///
+        ///   <para>Deliberately not <c>IOptionsMonitor.CurrentValue</c>. The monitor invalidates its cache
+        ///   from the same configuration reload token these delegates run on, and callback order is
+        ///   registration order, so a monitor read here can legitimately hand back the value from BEFORE
+        ///   the reload. Binding fresh has no such ordering relationship with anything. It also keeps this
+        ///   per key by construction: the caller assigns the ONE property it is responsible for and the
+        ///   bound instance is discarded.</para>
+        /// </summary>
+        private static T Configured<T>(IServiceProvider services, String section) where T : class, new()
+        {
+            var configured = new T();
+            services.GetRequiredService<IConfiguration>().GetSection(section).Bind(configured);
+            return configured;
+        }
+
+        /// <summary>
+        ///   The heartbeat period, assigned on the options instance the change-feed controller reads per
+        ///   request. Mutating that instance rather than converting the consumer to a monitor is
+        ///   deliberate: the instance is a process singleton that every existing holder already points at,
+        ///   whereas a monitor hands out a NEW instance on reload and would leave every consumer that
+        ///   captured the value at construction reading the old one.
+        /// </summary>
+        private static void ApplyChangeFeedKeepAlive(IServiceProvider services)
+        {
+            var inForce = services.GetRequiredService<IOptions<Fallen8ChangeFeedOptions>>().Value;
+            inForce.KeepAliveSeconds =
+                Configured<Fallen8ChangeFeedOptions>(services, Fallen8ChangeFeedOptions.SectionName).KeepAliveSeconds;
+        }
+
+        private static void ApplyPluginCeiling(IServiceProvider services)
+        {
+            services.GetRequiredService<Fallen8Namespaces>().ApplyRegistryCeilings(
+                Configured<Fallen8PluginOptions>(services, Fallen8PluginOptions.SectionName).MaxCount,
+                storedQueryMaxCount: null);
+        }
+
+        private static void ApplyStoredQueryCeiling(IServiceProvider services)
+        {
+            services.GetRequiredService<Fallen8Namespaces>().ApplyRegistryCeilings(
+                pluginMaxCount: null,
+                Configured<Fallen8StoredQueryOptions>(services, Fallen8StoredQueryOptions.SectionName).MaxCount);
+        }
+
+        private static void ApplyNamespaceCeiling(IServiceProvider services)
+        {
+            services.GetRequiredService<Fallen8Namespaces>().ApplyNamespaceCeiling(
+                Configured<Fallen8NamespacesOptions>(services, Fallen8NamespacesOptions.SectionName).MaxNamespaces);
+        }
+
+        #endregion
+
         private static IList<Fallen8SettingEntry> Build()
         {
             var entries = new List<Fallen8SettingEntry>();
@@ -130,14 +213,21 @@ namespace NoSQL.GraphDB.App.Configuration
             #region Fallen8:ChangeFeed
 
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:ChangeFeed:Enabled", Fallen8SettingKind.Bool));
+            // Stays restart-tier: the ring array is allocated at engine construction, so an existing
+            // dispatcher cannot change size and nothing a client can observe would move.
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:ChangeFeed:BufferSize",
                 Fallen8SettingKind.Int, minimum: 1, maximum: MaxChangeFeedBuffer));
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:ChangeFeed:SubscriberQueueSize",
-                Fallen8SettingKind.Int, minimum: 1));
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:ChangeFeed:MaxSubscribers",
-                Fallen8SettingKind.Int, minimum: 1));
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:ChangeFeed:KeepAliveSeconds",
-                Fallen8SettingKind.Int, minimum: 1, maximum: MaxSeconds));
+            // New work only: the queue depth is fixed when a subscription is created, so an existing
+            // subscriber keeps the depth it was given.
+            entries.Add(Fallen8SettingEntry.LiveForNewWork("Fallen8:ChangeFeed:SubscriberQueueSize",
+                Fallen8SettingKind.Int, ApplyChangeFeedLimits, minimum: 1));
+            // New work only: the cap is compared when a caller subscribes and nobody is evicted, so
+            // lowering it leaves existing streams connected.
+            entries.Add(Fallen8SettingEntry.LiveForNewWork("Fallen8:ChangeFeed:MaxSubscribers",
+                Fallen8SettingKind.Int, ApplyChangeFeedLimits, minimum: 1));
+            // New work only: the heartbeat period is fixed when a stream opens.
+            entries.Add(Fallen8SettingEntry.LiveForNewWork("Fallen8:ChangeFeed:KeepAliveSeconds",
+                Fallen8SettingKind.Int, ApplyChangeFeedKeepAlive, minimum: 1, maximum: MaxSeconds));
 
             #endregion
 
@@ -334,8 +424,9 @@ namespace NoSQL.GraphDB.App.Configuration
 
             #region Fallen8:Namespaces
 
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Namespaces:MaxNamespaces",
-                Fallen8SettingKind.Int, minimum: 1));
+            // New creations only: lowering the ceiling below the namespaces that exist removes none.
+            entries.Add(Fallen8SettingEntry.LiveForNewWork("Fallen8:Namespaces:MaxNamespaces",
+                Fallen8SettingKind.Int, ApplyNamespaceCeiling, minimum: 1));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Namespaces:LoadOnStartup", Fallen8SettingKind.Bool));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Namespaces:StartupLoadMode",
                 Fallen8SettingKind.Enum, allowedValues: new[] { "Catalog", "All", "DefaultOnly" }));
@@ -387,8 +478,10 @@ namespace NoSQL.GraphDB.App.Configuration
 
             #region Fallen8:Plugins
 
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Plugins:MaxCount",
-                Fallen8SettingKind.Int, minimum: 1));
+            // New registrations only: the registry compares at registration and never evicts, so
+            // lowering the ceiling leaves what a namespace already holds in place.
+            entries.Add(Fallen8SettingEntry.LiveForNewWork("Fallen8:Plugins:MaxCount",
+                Fallen8SettingKind.Int, ApplyPluginCeiling, minimum: 1));
 
             #endregion
 
@@ -427,8 +520,9 @@ namespace NoSQL.GraphDB.App.Configuration
 
             #region Fallen8:StoredQueries
 
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:StoredQueries:MaxCount",
-                Fallen8SettingKind.Int, minimum: 1));
+            // New registrations only, for the same reason as the plugin ceiling.
+            entries.Add(Fallen8SettingEntry.LiveForNewWork("Fallen8:StoredQueries:MaxCount",
+                Fallen8SettingKind.Int, ApplyStoredQueryCeiling, minimum: 1));
 
             #endregion
 
