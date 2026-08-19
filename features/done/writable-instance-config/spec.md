@@ -1,15 +1,16 @@
 # Writable instance configuration - Specification
 
-> **Status:** OPEN (specified 2026-08-18, condensed 2026-08-19). **Phases 1 to 6 are implemented** on
-> `feature/writable-instance-config`: the setting catalog and its governance gate, the stored-overrides
-> configuration layer, the read surface, `PATCH /config` with its two-act gate, the MCP bridge, six
-> keys promoted to the live tier, the Studio editor, and the docs. The .NET suite is green at 2000
-> tests, the web-ui suite at 958, the OpenAPI snapshot is regenerated and the link-checked docs build
-> passes. **One deliverable is outstanding**, which is why this stays in `open/`: the docs screenshots
-> (`screen-connect.png` and `screen-connect-observability.png` still bake a read-only claim that is now
-> false, and `screen-configuration.png` does not exist). See the plan's phase 5 entry for the recipe and
-> the one blocker found: the Connect capture is already vertically full, so the editor will push the
-> Namespaces panel out of frame unless that spec's viewport grows.
+> **Status: IMPLEMENTED** (specified 2026-08-18, condensed and built 2026-08-19) on
+> `feature/writable-instance-config`. All six phases landed: the setting catalog and its governance
+> gate, the stored-overrides configuration layer, the read surface, `PATCH /config` with its two-act
+> gate, the MCP bridge, six keys promoted to the live tier, the Studio editor, the docs page, and the
+> three recaptured screenshots.
+>
+> Gates green: 2000 .NET tests, 958 web-ui tests, `tsc` clean, the OpenAPI snapshot regenerated, the
+> link-checked docs build passing, and the write path verified against a live server rather than only
+> in process. Deviations and the decisions behind them are recorded per phase in
+> [plan.md](./plan.md); two follow-ups are recorded there rather than done here (the request-bound
+> live tranche, and an NLP enrichment defect this work uncovered).
 > This feature **retires** [instance-config](../../done/instance-config/) decision D6 ("instance
 > server config is read-only + guidance... No `PATCH /config`") by invoking that feature's own
 > revisit clause and naming the operator need below, and it **supersedes**

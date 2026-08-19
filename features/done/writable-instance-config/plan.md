@@ -323,8 +323,21 @@ a key holder can now change what other callers see, and the deliberate read/writ
 The `/running/#configuration-keys` anchor was caught by the link validator, which is exactly what
 that gate is for: the first draft invented `#configuration-reference`.
 
-**This feature stays in `features/open/` rather than moving to `done/`,** because the screenshots are
-still owed and `open/` means pending work. Everything else is implemented and green.
+**The screenshots landed too, which is what completed the phase.** Three captures, and each one taught
+something:
+
+- `screen-configuration.png` is new, and it took two attempts to be worth publishing. The first wrote
+  `Plugins:MaxCount`, which phase 4 had made LIVE, so it applied immediately and produced no restart
+  banner: the capture's own guard caught that the picture would not show what the page claims. The
+  second writes a restart-tier key that sits in the first few catalogued rows, so one written value puts
+  all three things on the picture at once: the `set here` source badge, the `restart to apply` chip, and
+  the banner naming running 300 against pending 600.
+- `screen-connect.png` needed its viewport raised from 900 to 1600. At 900 the settings editor pushed
+  the Namespaces panel off the bottom while every assertion still passed, which is the silent-degradation
+  failure the scouting flagged. Both capture specs now assert `toBeInViewport()` on the element that
+  would fall off first, so the picture cannot quietly lose its subject again.
+- `screen-connect-observability.png` re-shot for its rewritten description; the old
+  "this view is read-only" sentence is gone from the image as well as from the code.
 
 ## Follow-up this phase uncovered (not fixed here)
 

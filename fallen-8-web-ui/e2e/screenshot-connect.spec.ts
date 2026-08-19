@@ -40,7 +40,11 @@ const AUTH = { Authorization: `Bearer ${API_KEY}` };
 test.skip(process.env.F8_SCREENSHOT !== "1", "docs screenshot capture (set F8_SCREENSHOT=1)");
 
 test("capture the Connect screen", async ({ page, request }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
+  // Taller than the 900 this used to be. The Configuration panel now carries the settings editor
+  // (feature writable-instance-config), which adds a height-capped list between the provider cards
+  // and the observability line, and at 900 that pushed the Namespaces panel off the bottom while
+  // every assertion below still passed: the picture would have degraded silently.
+  await page.setViewportSize({ width: 1440, height: 1600 });
 
   await request.head("/tabularasa/all", { headers: AUTH });
 
@@ -99,6 +103,25 @@ test("capture the Connect screen", async ({ page, request }) => {
     page.getByTestId("config-chat"),
     "the Chat card is unconfigured: wire Fallen8__Chat__* on the capture app.",
   ).toContainText("Ollama");
+
+  // GUARD: the settings editor is now part of this shot, and it only renders when the capture app
+  // can actually accept a write. Without it the picture would show a read-only list and document
+  // the wrong thing.
+  await expect(
+    page.getByTestId("config-setting-fallen8-plugins-maxcount"),
+    "the settings editor is missing: run the capture app with Fallen8__Security__ApiKey, " +
+      "Fallen8__Security__EnableConfigurationWrite=true and Fallen8__Metadata__Directory.",
+  ).toBeVisible({ timeout: 20_000 });
+  await expect(
+    page.getByTestId("namespaces-panel"),
+    "the Namespaces panel is off the picture: the viewport is too short for the settings editor.",
+  ).toBeVisible();
+  // Every namespace row in frame, not just the first two: the "at startup" column is part of what this
+  // shot documents, and the inheriting row is the one that shows what inherit resolves to.
+  await expect(
+    page.getByTestId("namespace-startup-flights"),
+    "the last namespace row is below the fold: the viewport is too short.",
+  ).toBeInViewport();
 
   await page.screenshot({ path: "../docs/src/assets/images/screen-connect.png" });
 });

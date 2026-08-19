@@ -7,6 +7,8 @@ Fallen-8 reads its configuration the way any ASP.NET Core application does: from
 
 That distinction matters more than it sounds. Before this, the only way to know what a running instance was actually configured with was to go and read the files you deployed it with, and the only way to change anything was to edit them and restart. Now the instance itself is the authority on its own configuration, and it will tell you where each value came from.
 
+![The Configuration panel in F8 Studio, listing settings with their source and tier](../../assets/images/screen-configuration.png)
+
 ## What you can change, and what you cannot
 
 Every setting falls into one of three tiers, and the panel shows which:

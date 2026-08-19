@@ -1,7 +1,7 @@
-# Namespace startup default - Specification
+﻿# Namespace startup default - Specification
 
 > **Status:** SUPERSEDED (2026-08-18), never implemented. Nothing from this spec was built.
-> [writable-instance-config](../../open/writable-instance-config/) absorbed it: once every configuration key
+> [writable-instance-config](../writable-instance-config/) absorbed it: once every configuration key
 > becomes writable through a persisted overrides layer, `Fallen8:Namespaces:LoadOnStartup` is just
 > one more restart-tier key, so this spec's catalog document slot (4.1), its `PATCH /ns` route (4.3),
 > its fourth precedence level (4.2), its volatile-`409` (4.7) and its catalog re-stamp rule and test
@@ -233,3 +233,4 @@ its own pins:
   persisted state defeats its purpose. It stays configuration-only, and is now merely *visible*.
 - **No `PATCH /config`** - instance-config D6's letter stands.
 - **No idle eviction and no unload-on-demand** (inherited from namespace-startup-load).
+
