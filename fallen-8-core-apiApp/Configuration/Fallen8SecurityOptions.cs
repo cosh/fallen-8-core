@@ -57,6 +57,13 @@ namespace NoSQL.GraphDB.App.Configuration
         public const String SensitiveRateLimitPolicy = "Fallen8.SensitiveEndpoints";
 
         /// <summary>
+        ///   Authorization policy name gating <c>PATCH /config</c> (feature writable-instance-config).
+        ///   Unlike every other capability policy it is NOT symmetric with authentication: it denies
+        ///   when no API key is configured, however <see cref="EnableConfigurationWrite"/> is set.
+        /// </summary>
+        public const String ConfigurationWritePolicy = "Fallen8.ConfigurationWrite";
+
+        /// <summary>
         ///   The API key required in the <see cref="ApiKeyHeader"/>. Supply from user-secrets or
         ///   environment - NEVER a checked-in default. When null/blank the API-key scheme authenticates
         ///   nobody: the server logs a prominent warning and runs UNAUTHENTICATED - including the
@@ -67,6 +74,20 @@ namespace NoSQL.GraphDB.App.Configuration
 
         /// <summary>Header carrying the API key. Defaults to <c>X-Api-Key</c>.</summary>
         public String ApiKeyHeader { get; set; } = "X-Api-Key";
+
+        /// <summary>
+        ///   Whether <c>PATCH /config</c> accepts writes (feature writable-instance-config). Default
+        ///   <b>false</b>: changing this instance's configuration over REST takes two independent
+        ///   operator acts, configuring an API key AND enabling this flag.
+        ///
+        ///   <para><b>Enabling it alone is never enough.</b> With no <see cref="ApiKey"/> configured the
+        ///   write is refused whatever this says, because the other capability policies add
+        ///   <c>RequireAuthenticatedUser</c> only when a key is set, so a symmetric policy here would
+        ///   make configuration anonymously writable on the default deployment. Anonymous code execution
+        ///   is already possible there, but it is per request; a configuration write persists a posture
+        ///   change that survives the restart.</para>
+        /// </summary>
+        public Boolean EnableConfigurationWrite { get; set; }
 
         /// <summary>
         ///   The GLOBAL default for runtime plugin REGISTRATION (POST /plugins/*, feature

@@ -194,6 +194,43 @@ same commit rather than left as a difference:
    fields. They are optional on the wire and no web-ui gate reads them yet, and phase 5 is the Studio
    phase that will consume them.
 
+**Phase 3 (landed).** Decisions, three of them the owner's:
+
+1. **The no-key rule lives in the ACTION, not the policy.** A policy that denies an unauthenticated
+   caller challenges rather than forbids, so a keyless instance answered `401` and invited the caller
+   to authenticate with a key that does not exist. The capability stays in the policy; the action
+   answers `403` and names both settings. All five authorization cases are hand-written tests, because
+   the repository's security-boundary test is spot checks rather than a route sweep and a new write
+   route gets no automatic coverage.
+2. **`value` became the EFFECTIVE value**, which corrects phase 2. Binding reports null for a section
+   absent from every configuration file, and roughly a quarter of the catalogue is in that position, so
+   the panel would have shown an empty field for a setting fully in force. The owning options class is
+   bound (filling in its property defaults) and the value read off the property; the boot snapshot uses
+   the same values, which also makes writing a key to the value it already had correctly NOT pending.
+   Verified live: `runningValue` for `Plugins:MaxCount` reads 64, which exists in no file.
+3. **Owner decision: the pre-existing anonymous `/config` exposure stays**, documented rather than
+   changed. `observability.otlpEndpoint` and the embedding identity stamp are never-writable values
+   published since feature instance-config, and a keyless instance already grants the same caller
+   anonymous in-process code execution, so withholding a value they could read by running code buys no
+   real protection. The withholding rule in `settings[]` is defence in depth against casual exposure,
+   not a boundary. Phase 6 puts that reasoning on the docs page.
+4. **Owner decision: the container image now sets `Fallen8__Metadata__Directory`.** It closes a real
+   `docker run` gap and, incidentally, a pre-existing one: without it the save-game registry landed in
+   the container's own filesystem and disappeared on recreation, because `Metadata:Directory` does not
+   follow `StorageDirectory`. A host with no directory configured gets `409` naming the setting.
+5. **Owner decision: the write answers per-key results plus the pending set**, so a coerced value is
+   visible next to what was asked for and the restart banner needs no second round trip.
+6. **`Fallen8OptionsSections` is written out, not reflected over.** Reflecting on each class's
+   `SectionName` cannot be annotated for trimming and would need a suppression; the section names still
+   come from the constants, and `SettingCatalogTest` fails if a new options class misses the map, which
+   is what keeps trial-binding honest.
+7. **A shadowed key stays in the file** when the batch is rewritten. Dropping it would delete an
+   operator's stored intent the moment they set an environment variable that outranks it.
+8. **Verified against a live server**, not only in-process: the 200 with its read-back value, the
+   `409` naming the real `Fallen8__StoredQueries__MaxCount` variable, that the valid key in that same
+   refused batch was NOT written, the `400` naming rule R2, and that a never-writable key's `value`
+   property is genuinely absent from the wire body.
+
 ## Follow-up this phase uncovered (not fixed here)
 
 **NLP enrichment silently stops above 512 chunks.** R7 deleted `Fallen8:Nlp:MaxBatchSize` because no

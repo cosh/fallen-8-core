@@ -70,19 +70,36 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 Name = Name,
                 Title = "Admin & durability",
                 Description =
-                    "Durability and maintenance: save, load (by save-game id), list_savegames, activate, trim, " +
-                    "tabula_rasa. trim/tabula_rasa are fire-and-forget (reported as enqueued). load/trim/tabula_rasa " +
+                    "Durability, maintenance and instance configuration: save, load (by save-game id), " +
+                    "list_savegames, activate, trim, tabula_rasa, get_settings, set_settings. " +
+                    "trim/tabula_rasa are fire-and-forget (reported as enqueued). load/trim/tabula_rasa " +
                     "are destructive. activate loads a namespace that this process did not load at startup (the fix " +
-                    "for a 503 'Namespace not loaded'); it is idempotent and does not change the startup policy.",
+                    "for a 503 'Namespace not loaded'); it is idempotent and does not change the startup policy - " +
+                    "to make a namespace load on every boot, set its loadOnStartup with f8_namespace. " +
+                    "get_settings reads every configuration key with its tier, effective value and the reason a key " +
+                    "cannot be written; it is the first thing to read when a limit or a capability refuses a call. " +
+                    "set_settings writes the writable ones: most take effect only after an operator restarts the " +
+                    "server, and the result says so per key. A never-writable key is refused with its reason, and a " +
+                    "key the server's environment declares is refused because a stored value could never win.",
                 InputSchema = SchemaBuilder.Create()
                     .Str("op", "The operation.", required: true,
-                        choices: new[] { "save", "load", "list_savegames", "activate", "trim", "tabula_rasa" })
+                        choices: new[]
+                        {
+                            "save", "load", "list_savegames", "activate", "trim", "tabula_rasa",
+                            "get_settings", "set_settings",
+                        })
                     .Str("namespace", "The namespace for save/trim/tabula_rasa, and the one to load for activate " +
                         "(required there). Defaults to 'default'.")
                     .Str("saveGameLocation", "Optional save path (save).")
                     .Int("savePartitions", "Optional partition count (save).")
                     .Str("id", "Save-game id (load).")
                     .Str("restoreNamespace", "Restore only this namespace from a multi-namespace save-game (load).")
+                    .Obj("settings", "The settings to write (set_settings), as configuration keys mapped to string " +
+                        "values, e.g. {\"Fallen8:Plugins:MaxCount\": \"128\"}. A null value clears a stored " +
+                        "override and restores the value below it. Every key is validated before any is stored, so " +
+                        "the batch applies whole or changes nothing.")
+                    .Bool("writableOnly", "Return only the settings that can be written (get_settings). Defaults " +
+                        "to false, which also lists the never-writable keys with the reason each is excluded.")
                     .Build(),
                 Annotations = new ToolAnnotations
                 {
@@ -174,9 +191,69 @@ namespace NoSQL.GraphDB.Mcp.Tools
                         new JsonObject { ["op"] = "tabula_rasa", ["enqueued"] = true });
                 }
 
+                case "get_settings":
+                {
+                    // Fallen-8-level: configuration belongs to the instance, not to a namespace.
+                    var config = await _bridge.RequestRawAsync(HttpMethod.Get, null, "config", null, cancellationToken)
+                        .ConfigureAwait(false);
+                    var view = ToolResults.Pass(config) as JsonObject;
+                    var settings = view?["settings"] as JsonArray;
+                    var pending = view?["pendingRestart"] as JsonArray;
+
+                    if (settings != null && ToolArgs.GetBool(arguments, "writableOnly") == true)
+                    {
+                        // Backwards, and in place: a JsonNode has one parent, so moving nodes into a new
+                        // array would have to detach them first.
+                        for (var index = settings.Count - 1; index >= 0; index--)
+                        {
+                            if (settings[index] is JsonObject entry
+                                && entry["tier"]?.GetValue<String>() == "notWritable")
+                            {
+                                settings.RemoveAt(index);
+                            }
+                        }
+                    }
+
+                    var pendingCount = pending?.Count ?? 0;
+                    return ToolResults.Ok(
+                        $"{settings?.Count ?? 0} setting(s); {pendingCount} awaiting a server restart."
+                        + (pendingCount > 0
+                            ? " A written value only takes effect once an operator restarts the server."
+                            : String.Empty),
+                        new JsonObject
+                        {
+                            ["settings"] = settings ?? new JsonArray(),
+                            ["pendingRestart"] = pending ?? new JsonArray(),
+                        });
+                }
+
+                case "set_settings":
+                {
+                    if (!arguments.TryGetValue("settings", out var requested)
+                        || requested.ValueKind != JsonValueKind.Object)
+                    {
+                        return ToolResults.Error(400, "Invalid arguments",
+                            "set_settings needs a settings object mapping configuration keys to string values.");
+                    }
+
+                    var body = JsonNode.Parse(requested.GetRawText());
+                    var written = await _bridge.RequestRawAsync(HttpMethod.Patch, null, "config",
+                        new JsonObject { ["settings"] = body }, cancellationToken).ConfigureAwait(false);
+                    var result = ToolResults.Pass(written) as JsonObject;
+                    var pendingAfter = (result?["pendingRestart"] as JsonArray)?.Count ?? 0;
+
+                    return ToolResults.Ok(
+                        pendingAfter > 0
+                            ? $"settings written; {pendingAfter} now await a server restart. Nothing changes in the "
+                                + "running process until an operator restarts it."
+                            : "settings written and in effect.",
+                        result);
+                }
+
                 default:
                     return ToolResults.Error(400, "Invalid arguments",
-                        "op must be save, load, list_savegames, activate, trim, or tabula_rasa.");
+                        "op must be save, load, list_savegames, activate, trim, tabula_rasa, get_settings, or "
+                        + "set_settings.");
             }
         }
     }

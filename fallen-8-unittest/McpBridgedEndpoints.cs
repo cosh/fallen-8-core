@@ -100,6 +100,12 @@ namespace NoSQL.GraphDB.Tests
             ("PUT", "/savegames/{id}/load"),
             ("HEAD", "/trim"),
             ("HEAD", "/tabularasa"),
+            // Instance configuration (feature writable-instance-config): f8_admin get_settings and
+            // set_settings. The read replaces the former deferral of GET /config, which existed when the
+            // route was only a semantic/observability projection; it now carries the whole setting
+            // inventory, which is what an agent asking "why is this refused" needs.
+            ("GET", "/config"),
+            ("PATCH", "/config"),
         };
     }
 }

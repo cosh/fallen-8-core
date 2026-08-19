@@ -24,13 +24,22 @@
 // SOFTWARE.
 
 using System;
+using System.Buffers;
+using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.CommandLine;
 using Microsoft.Extensions.Configuration.EnvironmentVariables;
 using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.Logging;
+using NoSQL.GraphDB.Core.Persistency;
 
 namespace NoSQL.GraphDB.App.Configuration
 {
@@ -88,6 +97,13 @@ namespace NoSQL.GraphDB.App.Configuration
         private readonly IConfigurationRoot _configuration;
         private readonly Fallen8ConfigOverridesSource _source;
         private readonly IReadOnlyDictionary<String, String> _bootValues;
+        private readonly ILogger _logger;
+
+        /// <summary>
+        ///   Serialises writes. The file is one document read, modified and replaced, so two concurrent
+        ///   writers would each persist their own view and the later would drop the earlier's key.
+        /// </summary>
+        private readonly Object _writeGate = new Object();
 
         /// <summary>
         ///   Captures the boot snapshot. Constructed once, immediately after the namespace collection
@@ -95,11 +111,13 @@ namespace NoSQL.GraphDB.App.Configuration
         ///   long-lived state during that construction, so a snapshot taken earlier would record values
         ///   the process had not yet committed to.
         /// </summary>
-        public Fallen8ConfigOverrides(IConfigurationRoot configuration, Fallen8ConfigOverridesSource source)
+        public Fallen8ConfigOverrides(IConfigurationRoot configuration, Fallen8ConfigOverridesSource source,
+            ILogger logger = null)
         {
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _source = source;
-            _bootValues = Snapshot(configuration);
+            _logger = logger;
+            _bootValues = Snapshot();
         }
 
         /// <summary>Whether this instance can persist an override at all (see the source's path rule).</summary>
@@ -111,10 +129,108 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>What the last load of the overrides file did, or <c>null</c> when there is no layer.</summary>
         public Fallen8ConfigOverridesState State => _source?.State;
 
-        /// <summary>The effective value of a catalogued key right now, as configuration text.</summary>
+        /// <summary>
+        ///   The effective value of a catalogued key right now, as text.
+        ///
+        ///   <para>This is the value the process would USE, not merely the value some configuration layer
+        ///   set. The difference is not academic: roughly a quarter of the catalogued keys appear in no
+        ///   configuration file at all, so reading configuration alone would report null for them and the
+        ///   operator surface would show an empty field for a setting that is very much in force. So the
+        ///   owning options class is bound, which fills in its own property defaults, and the value is
+        ///   read from the property behind the key.</para>
+        /// </summary>
         public String CurrentValue(String key)
         {
-            return _configuration[key];
+            return EffectiveValue(key, new Dictionary<String, Object>(StringComparer.Ordinal));
+        }
+
+        /// <summary>
+        ///   Every catalogued key's effective value, binding each options class once. The read surface
+        ///   publishes 94 keys per request, so it takes this rather than binding a section per key.
+        /// </summary>
+        public IReadOnlyDictionary<String, String> EffectiveValues()
+        {
+            var bound = new Dictionary<String, Object>(StringComparer.Ordinal);
+            var values = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in Fallen8SettingCatalog.Entries)
+            {
+                values[entry.Key] = EffectiveValue(entry.Key, bound);
+            }
+
+            return values;
+        }
+
+        [UnconditionalSuppressMessage("Trimming", "IL2072:RequiresUnreferencedCode",
+            Justification = "Trimming is disabled for this application; every type reached here comes from "
+                + "Fallen8OptionsSections, whose entries are written out as typeof(...) and are all rooted by "
+                + "Services.Configure<T> calls in Program.cs.")]
+        private String EffectiveValue(String key, Dictionary<String, Object> bound)
+        {
+            var parts = key.Split(':');
+            if (parts.Length < 3)
+            {
+                return _configuration[key];
+            }
+
+            var section = parts[0] + ":" + parts[1];
+            var type = Fallen8OptionsSections.TypeOf(section);
+            if (type == null)
+            {
+                return _configuration[key];
+            }
+
+            if (!bound.TryGetValue(section, out var instance))
+            {
+                // Created and then bound onto, rather than Get(type): a section absent from every
+                // configuration file binds to NULL, and those are exactly the keys whose effective value
+                // is the class default and which the operator has never been shown.
+                instance = Activator.CreateInstance(type);
+                _configuration.GetSection(section).Bind(instance);
+                bound[section] = instance;
+            }
+
+            return instance == null ? _configuration[key] : ReadPath(instance, parts);
+        }
+
+        /// <summary>
+        ///   Walks the property path a configuration key names (<c>Prometheus:Enabled</c> becomes
+        ///   <c>.Prometheus.Enabled</c>) and formats what it finds the way configuration would carry it.
+        /// </summary>
+        [UnconditionalSuppressMessage("Trimming", "IL2075:RequiresUnreferencedCode",
+            Justification = "Trimming is disabled for this application; every options class walked here is "
+                + "rooted by a Services.Configure<T> call in Program.cs and by Fallen8OptionsSections.")]
+        private static String ReadPath(Object instance, String[] parts)
+        {
+            var current = instance;
+            for (var index = 2; index < parts.Length && current != null; index++)
+            {
+                var property = current.GetType().GetProperty(parts[index],
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (property == null)
+                {
+                    return null;
+                }
+
+                current = property.GetValue(current);
+            }
+
+            switch (current)
+            {
+                case null:
+                    return null;
+                case Boolean flag:
+                    // Lowercase, so a value read here can be written straight back.
+                    return flag ? "true" : "false";
+                case String text:
+                    return text;
+                case IFormattable formattable:
+                    return formattable.ToString(null, CultureInfo.InvariantCulture);
+                case IEnumerable:
+                    // A collection has no single value, and no collection key is writable anyway.
+                    return null;
+                default:
+                    return current.ToString();
+            }
         }
 
         /// <summary>The value this process started with, as configuration text.</summary>
@@ -211,15 +327,15 @@ namespace NoSQL.GraphDB.App.Configuration
                 && path.IndexOf("secrets.json", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static IReadOnlyDictionary<String, String> Snapshot(IConfiguration configuration)
+        /// <summary>
+        ///   The boot snapshot, taken over EFFECTIVE values rather than configured ones. That makes the
+        ///   pending signal say what it means: writing a key explicitly to the value it already had by
+        ///   default changes the configuration but changes nothing about the next boot, so it is correctly
+        ///   not pending.
+        /// </summary>
+        private IReadOnlyDictionary<String, String> Snapshot()
         {
-            var values = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
-            foreach (var entry in Fallen8SettingCatalog.Entries)
-            {
-                values[entry.Key] = configuration[entry.Key];
-            }
-
-            return values;
+            return EffectiveValues();
         }
 
         /// <summary>
@@ -228,9 +344,9 @@ namespace NoSQL.GraphDB.App.Configuration
         ///   a file that could not be read. A stored value that silently loses to the environment is
         ///   exactly the failure this feature exists to remove, so it is never left unsaid.
         /// </summary>
-        public void LogState(ILogger logger)
+        public void LogState()
         {
-            if (logger == null || _source == null)
+            if (_logger == null || _source == null)
             {
                 return;
             }
@@ -238,14 +354,14 @@ namespace NoSQL.GraphDB.App.Configuration
             var state = _source.State;
             if (state.LoadError != null)
             {
-                logger.LogError("The stored configuration overrides at {Path} could not be read and were "
+                _logger.LogError("The stored configuration overrides at {Path} could not be read and were "
                     + "ignored for this boot: {Error}. No setting written through PATCH /config is in "
                     + "effect until the file is valid again.", state.Path, state.LoadError);
             }
 
             foreach (var key in state.Shadowed)
             {
-                logger.LogWarning("The stored override for {Key} is NOT in effect: it is declared in the "
+                _logger.LogWarning("The stored override for {Key} is NOT in effect: it is declared in the "
                     + "environment or on the command line, which outranks this instance's stored "
                     + "configuration. Remove {EnvironmentKey} to let the stored value apply.",
                     key, EnvironmentSpelling(key));
@@ -253,7 +369,7 @@ namespace NoSQL.GraphDB.App.Configuration
 
             foreach (var key in state.Ignored)
             {
-                logger.LogWarning("The stored override for {Key} was ignored: the setting catalog does not "
+                _logger.LogWarning("The stored override for {Key} was ignored: the setting catalog does not "
                     + "list it as writable, so it can only have been edited into {Path} by hand.",
                     key, state.Path);
             }
@@ -266,6 +382,110 @@ namespace NoSQL.GraphDB.App.Configuration
         public static String EnvironmentSpelling(String key)
         {
             return key?.Replace(":", "__", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        ///   Whether an environment variable or the command line declares this key, in which case no
+        ///   stored override can ever take effect and a write must be refused rather than stored and
+        ///   shadowed. Equivalent to the provider's own arbitration probe by construction: the provider
+        ///   suppresses a key an authority declares, so the effective source of such a key IS that
+        ///   authority.
+        /// </summary>
+        public Boolean IsAuthorityDeclared(String key)
+        {
+            var source = SourceOf(key);
+            return source == Fallen8SettingSource.Environment || source == Fallen8SettingSource.CommandLine;
+        }
+
+        /// <summary>
+        ///   Persists a batch of overrides and reloads configuration, then returns nothing: the caller
+        ///   reads the effective values back off the freshly bound options, which is the only way a
+        ///   coerced value becomes visible rather than assumed.
+        ///
+        ///   <para>Writes are serialised, because this is a read-modify-write of one document: two
+        ///   concurrent writers would otherwise each persist their own view and the later one would drop
+        ///   the earlier one's key. A <c>null</c> value REMOVES a key, which is the undo, and is why no
+        ///   versioning is needed.</para>
+        /// </summary>
+        public void Write(IReadOnlyDictionary<String, String> values)
+        {
+            if (values == null)
+            {
+                throw new ArgumentNullException(nameof(values));
+            }
+
+            if (!CanPersist)
+            {
+                throw new InvalidOperationException(
+                    "This instance has nowhere to persist configuration: Fallen8:Metadata:Directory is not configured.");
+            }
+
+            lock (_writeGate)
+            {
+                var stored = new SortedDictionary<String, String>(StringComparer.Ordinal);
+                foreach (var pair in _source.State.Applied)
+                {
+                    stored[pair.Key] = pair.Value;
+                }
+
+                // A shadowed key stays in the file: the environment outranks it today, and silently
+                // dropping it would delete an operator's stored intent the moment they set a variable.
+                foreach (var key in _source.State.Shadowed)
+                {
+                    var existing = ReadStoredValue(key);
+                    if (existing != null)
+                    {
+                        stored[key] = existing;
+                    }
+                }
+
+                foreach (var pair in values)
+                {
+                    if (pair.Value == null)
+                    {
+                        stored.Remove(pair.Key);
+                    }
+                    else
+                    {
+                        stored[pair.Key] = pair.Value;
+                    }
+                }
+
+                // ReplaceAllTextDurably does not create the directory, and on a fresh deployment this
+                // writer can be the first thing to persist anything at all.
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path));
+                DurableFileIo.ReplaceAllTextDurably(Path, Serialize(stored), _logger);
+
+                // Reload explicitly. The source carries no file watcher on purpose: one would race this
+                // write and the pending-restart derivation that reads its result.
+                _configuration.Reload();
+            }
+        }
+
+        /// <summary>The value currently stored in the file for a key, or <c>null</c>.</summary>
+        private String ReadStoredValue(String key)
+        {
+            return _source.State.Applied.TryGetValue(key, out var applied) ? applied : null;
+        }
+
+        private static String Serialize(IReadOnlyDictionary<String, String> stored)
+        {
+            var buffer = new ArrayBufferWriter<Byte>();
+            using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
+            {
+                writer.WriteStartObject();
+                writer.WriteNumber("version", Fallen8ConfigOverridesSource.FormatVersion);
+                writer.WriteStartObject("settings");
+                foreach (var pair in stored)
+                {
+                    writer.WriteString(pair.Key, pair.Value);
+                }
+
+                writer.WriteEndObject();
+                writer.WriteEndObject();
+            }
+
+            return Encoding.UTF8.GetString(buffer.WrittenSpan);
         }
     }
 }

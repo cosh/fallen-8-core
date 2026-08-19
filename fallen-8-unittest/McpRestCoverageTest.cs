@@ -119,9 +119,10 @@ namespace NoSQL.GraphDB.Tests
             new(op => op == "POST /chat",
                 "the chat gateway is Studio's model path (browser -> instance -> Ollama); agents bring " +
                 "their own model. Chat capability state is discoverable via f8_overview (chatEnabled)"),
-            new(op => op == "GET /config",
-                "instance configuration is an operator/setup surface (semantic providers + observability " +
-                "posture); agents read capability state via f8_overview, not this aggregate"),
+            // GET /config is no longer deferred: feature writable-instance-config turned it into the whole
+            // setting inventory (tier, source, effective value, and the reason a key is refused), and
+            // f8_admin get_settings/set_settings bridge it. The deferral had to be DELETED rather than
+            // narrowed, because this test asserts the bridged and deferred sets are disjoint.
             // All four /integrations routes are deferred rather than bridged (feature integrations
             // spec section 18). Three of them are DECLARATIONS rather than capabilities: the provider
             // catalog and the vocabulary describe what COULD be run, and snapshot validation is an

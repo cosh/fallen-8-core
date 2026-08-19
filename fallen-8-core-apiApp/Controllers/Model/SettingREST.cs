@@ -49,8 +49,13 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     /// </summary>
     public sealed class SettingREST
     {
-        /// <summary>Projects one catalogued key, withholding the value unless the key is writable.</summary>
-        public static SettingREST From(Fallen8SettingEntry entry, Fallen8ConfigOverrides overrides)
+        /// <summary>
+        ///   Projects one catalogued key, withholding the value unless the key is writable. Pass
+        ///   <paramref name="effectiveValues" /> when projecting many keys at once: binding one options
+        ///   class per key would otherwise bind every section 94 times per request.
+        /// </summary>
+        public static SettingREST From(Fallen8SettingEntry entry, Fallen8ConfigOverrides overrides,
+            IReadOnlyDictionary<String, String> effectiveValues = null)
         {
             if (entry == null)
             {
@@ -73,7 +78,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
             if (entry.IsWritable)
             {
-                published.Value = overrides?.CurrentValue(entry.Key);
+                published.Value = effectiveValues != null && effectiveValues.TryGetValue(entry.Key, out var value)
+                    ? value
+                    : overrides?.CurrentValue(entry.Key);
                 published.RestartPending = overrides?.IsRestartPending(entry) ?? false;
             }
             else

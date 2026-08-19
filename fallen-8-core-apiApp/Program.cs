@@ -413,7 +413,8 @@ namespace NoSQL.GraphDB.App
             // The configuration read model (feature writable-instance-config). Its constructor takes the
             // boot snapshot, so it is resolved deliberately after the namespace collection below rather
             // than lazily by the first request.
-            builder.Services.AddSingleton(_ => new Fallen8ConfigOverrides(builder.Configuration, configOverrides));
+            builder.Services.AddSingleton(sp => new Fallen8ConfigOverrides(builder.Configuration, configOverrides,
+                sp.GetService<ILoggerFactory>()?.CreateLogger("Fallen8.Configuration")));
             builder.Services.AddSingleton<SaveGameRegistry>();
 
             // The one home for restoring a single namespace from the registry: shared by the boot
@@ -466,6 +467,21 @@ namespace NoSQL.GraphDB.App
                         p.RequireAuthenticatedUser();
                     }
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.DynamicPluginLoading));
+                });
+
+                // The configuration-write gate (feature writable-instance-config): the capability half of
+                // the two operator acts a write needs. The other half, that an API key must be
+                // configured at all, is enforced in the action rather than here, and deliberately: a
+                // policy that fails for an UNAUTHENTICATED caller produces a challenge, so a keyless
+                // instance would answer 401 and invite a caller to authenticate with a key that does not
+                // exist. The action answers 403 and says why.
+                o.AddPolicy(Fallen8SecurityOptions.ConfigurationWritePolicy, p =>
+                {
+                    if (keyConfigured)
+                    {
+                        p.RequireAuthenticatedUser();
+                    }
+                    p.RequireAssertion(_ => security.EnableConfigurationWrite);
                 });
 
                 // The embedding provider gate (feature embedding-provider): same shape as the
@@ -667,8 +683,7 @@ namespace NoSQL.GraphDB.App
 
             // Say out loud what the stored-overrides layer did: a value an operator saved that the
             // environment silently outranks is exactly the failure this feature exists to remove.
-            overridesReadModel.LogState(
-                app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Fallen8.Configuration"));
+            overridesReadModel.LogState();
 
             var startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Fallen8.Security");
             if (string.IsNullOrWhiteSpace(security.ApiKey))

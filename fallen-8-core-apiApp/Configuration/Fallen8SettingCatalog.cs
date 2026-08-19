@@ -413,6 +413,12 @@ namespace NoSQL.GraphDB.App.Configuration
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Security:RateLimitWindowSeconds", Fallen8SettingKind.Int, "R1",
                 "It is the other half of the only brake on the sensitive endpoints, and widening the "
                 + "window has exactly the effect of raising the permit count."));
+            // Catalogued rather than hidden. R1 already refuses the write, so an exemption would buy no
+            // safety and would only break the derived-completeness gate; publishing it with its reason is
+            // also how an operator learns the switch exists.
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Security:EnableConfigurationWrite", Fallen8SettingKind.Bool, "R1",
+                "It is the gate on configuration writes themselves, so writing it would let the write "
+                + "surface grant itself permission it was never given."));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Security:BenchmarkMaxIterations", Fallen8SettingKind.Int, "R1",
                 "It is the only bound on a benchmark pass, where each iteration saturates every core "
                 + "and the loop cannot be interrupted once it has started."));

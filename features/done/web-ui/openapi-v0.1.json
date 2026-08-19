@@ -902,6 +902,102 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Writes instance configuration settings",
+        "description": "Changes this instance's own configuration (feature writable-instance-config). A new\r\n    METHOD on the existing /config path, never a new path. Requires TWO independent operator\r\n    acts: an API key must be configured AND Fallen8:Security:EnableConfigurationWrite must be\r\n    true. With no key configured this is a 403 even when the flag is on, because a configuration\r\n    write persists a posture change that survives the restart, unlike the always-on anonymous\r\n    code execution which is per request. Only keys the setting catalog lists as writable can be\r\n    written; everything else is a 400 naming the rule that excludes it. A key an environment\r\n    variable or the command line declares is a 409 and NOTHING is written, because storing a\r\n    value that cannot take effect would be a time bomb that arms the day the variable is removed.\r\n    The whole batch is validated before anything is stored, so it applies whole or not at all,\r\n    and each result reports the value read back after binding, which can differ from the value\r\n    sent because several options clamp in their setter. A restart-tier write is a 200 that\r\n    persists: never a 202, never an error, never a silent no-op.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The keys to write; a null value clears a stored override",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigWriteSpecification"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigWriteSpecification"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The settings were written; each result names the effective value",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigWriteREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A key is unknown, never writable, or the value is outside its domain",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "No API key is configured, or the configuration-write capability is off",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "409": {
+            "description": "A key is declared in the environment, or this instance has nowhere to persist",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
       }
     },
     "/delegates/validate": {
@@ -18006,6 +18102,87 @@
           }
         },
         "description": "The instance's configuration view (features instance-config and writable-instance-config),\r\nthe single home for the Studio Configuration section: every catalogued setting, the semantic\r\nproviders and the observability posture. Secrets are never emitted (no API key, no\r\ncredentials); only the boolean bool ConfigREST.ApiKeyRequired reports the security posture, and\r\na never-writable setting publishes its tier and reason but no value, because this route is\r\nanonymous on an instance with no API key configured."
+      },
+      "ConfigWriteREST": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ConfigWriteResultREST"
+            },
+            "description": "One result per written key, in the order the catalog lists them."
+          },
+          "pendingRestart": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PendingRestartREST"
+            },
+            "description": "Every key whose configured value now differs from the value this process started with. The\r\nsame set `GET /config` publishes, included here so saving a restart-tier setting shows\r\nits consequence immediately."
+          }
+        },
+        "description": "The result of one `PATCH /config`: what each written key became, plus the instance's whole\r\npending-restart set, so a client can render the restart banner without a second round trip."
+      },
+      "ConfigWriteResultREST": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The configuration key that was written."
+          },
+          "value": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The value now in effect, read back after binding. It can differ from the value sent: several\r\noptions clamp in their setter, so asking for 0 can legitimately answer with the default."
+          },
+          "coerced": {
+            "type": "boolean",
+            "description": "Whether the value sent was changed on the way in (a clamp or a reset). Named explicitly so a\r\nclient can say \"stored, adjusted to X\" rather than appearing to ignore the operator."
+          },
+          "cleared": {
+            "type": "boolean",
+            "description": "Whether the override was removed rather than set."
+          },
+          "applyMode": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "When the value takes effect: `live`, `liveForNewWork` or `restart`. This is\r\nthe honest promise, so a client never reports a restart-tier write as applied."
+          },
+          "restartPending": {
+            "type": "boolean",
+            "description": "Whether this key is now waiting for a restart to take effect."
+          }
+        },
+        "description": "What one written key ended up as (feature writable-instance-config). The value is read back off\r\nthe freshly bound options rather than echoed from the request, which is the only way a value the\r\noptions class coerced becomes visible instead of assumed."
+      },
+      "ConfigWriteSpecification": {
+        "type": "object",
+        "properties": {
+          "settings": {
+            "type": [
+              "null",
+              "object"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "The keys to write, as configuration text keyed by full configuration key. A `null`\r\nvalue CLEARS the stored override and restores whatever layer sits below it, which is the\r\nundo, and is why this surface needs no versioning or history."
+          }
+        },
+        "description": "A batch of configuration writes (feature writable-instance-config). Every key is validated\r\nbefore ANY of them is stored, so a batch either applies whole or changes nothing."
       },
       "DegreeStatsREST": {
         "type": "object",

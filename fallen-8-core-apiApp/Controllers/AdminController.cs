@@ -408,12 +408,131 @@ namespace NoSQL.GraphDB.App.Controllers
                 },
                 Observability = ObservabilityConfigREST.From(_observability),
                 ApiKeyRequired = _apiKeyConfigured,
-                Settings = Fallen8SettingCatalog.Entries
-                    .Select(entry => SettingREST.From(entry, _configOverrides))
-                    .ToList(),
+                Settings = BuildSettingsView(),
                 PendingRestart = (_configOverrides?.PendingRestart() ?? Array.Empty<Fallen8SettingEntry>())
                     .Select(entry => PendingRestartREST.From(entry, _configOverrides))
                     .ToList(),
+            };
+        }
+
+        /// <summary>
+        /// Projects the whole setting inventory, binding each options class once rather than per key.
+        /// </summary>
+        private System.Collections.Generic.List<SettingREST> BuildSettingsView()
+        {
+            var effective = _configOverrides?.EffectiveValues();
+            return Fallen8SettingCatalog.Entries
+                .Select(entry => SettingREST.From(entry, _configOverrides, effective))
+                .ToList();
+        }
+
+        /// <summary>
+        /// Writes instance configuration settings
+        /// </summary>
+        /// <param name="specification">The keys to write; a null value clears a stored override</param>
+        /// <returns>What each written key became, plus the instance's pending-restart set</returns>
+        /// <remarks>Changes this instance's own configuration (feature writable-instance-config). A new
+        /// METHOD on the existing /config path, never a new path. Requires TWO independent operator
+        /// acts: an API key must be configured AND Fallen8:Security:EnableConfigurationWrite must be
+        /// true. With no key configured this is a 403 even when the flag is on, because a configuration
+        /// write persists a posture change that survives the restart, unlike the always-on anonymous
+        /// code execution which is per request. Only keys the setting catalog lists as writable can be
+        /// written; everything else is a 400 naming the rule that excludes it. A key an environment
+        /// variable or the command line declares is a 409 and NOTHING is written, because storing a
+        /// value that cannot take effect would be a time bomb that arms the day the variable is removed.
+        /// The whole batch is validated before anything is stored, so it applies whole or not at all,
+        /// and each result reports the value read back after binding, which can differ from the value
+        /// sent because several options clamp in their setter. A restart-tier write is a 200 that
+        /// persists: never a 202, never an error, never a silent no-op.</remarks>
+        /// <response code="200">The settings were written; each result names the effective value</response>
+        /// <response code="400">A key is unknown, never writable, or the value is outside its domain</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">No API key is configured, or the configuration-write capability is off</response>
+        /// <response code="409">A key is declared in the environment, or this instance has nowhere to persist</response>
+        [HttpPatch("/config")]
+        [Fallen8Level]
+        [Authorize(Policy = Fallen8SecurityOptions.ConfigurationWritePolicy)]
+        [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
+        [RequestSizeLimit(1_048_576)]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(ConfigWriteREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status409Conflict)]
+        public ActionResult<ConfigWriteREST> WriteConfig([FromBody] ConfigWriteSpecification specification)
+        {
+            // The first of the two operator acts, enforced here rather than in the policy: a policy that
+            // denies an unauthenticated caller answers 401, which on a keyless instance would invite the
+            // caller to authenticate with a key that does not exist. The capability alone is never enough,
+            // because unlike the always-on anonymous code execution, which is per request, a configuration
+            // write persists a posture change that survives the restart.
+            if (!_apiKeyConfigured)
+            {
+                return ProblemResults.StatusCode(StatusCodes.Status403Forbidden,
+                    "Configuration writes need an API key. Configure Fallen8:Security:ApiKey (and keep "
+                    + "Fallen8:Security:EnableConfigurationWrite true); a keyless instance never accepts a "
+                    + "configuration write, because it would let any caller persist a change to this "
+                    + "instance's posture.");
+            }
+
+            if (specification?.Settings == null || specification.Settings.Count == 0)
+            {
+                return ProblemResults.BadRequest("No settings were supplied.");
+            }
+
+            if (_configOverrides == null || !_configOverrides.CanPersist)
+            {
+                return ProblemResults.Conflict(
+                    "This instance has nowhere to persist configuration: Fallen8:Metadata:Directory is not "
+                    + "configured, so a written setting could not survive a restart. Configure it (the compose "
+                    + "environment and the container image both set it) and restart.");
+            }
+
+            if (!Fallen8ConfigWriteValidator.TryValidate(specification.Settings, _configOverrides, out var refusal)
+                || !Fallen8ConfigWriteValidator.TryTrialBind(specification.Settings, out refusal))
+            {
+                return refusal.IsConflict
+                    ? ProblemResults.Conflict(refusal.Detail)
+                    : ProblemResults.BadRequest(refusal.Detail);
+            }
+
+            // Before-and-after in the server log: this surface keeps no history by design, so the log is
+            // where a posture change is accounted for.
+            foreach (var pair in specification.Settings)
+            {
+                _logger.LogWarning("Configuration write: {Key} was {Before}, now {After} (requested by an "
+                    + "authenticated caller).", pair.Key, _configOverrides.CurrentValue(pair.Key) ?? "unset",
+                    pair.Value ?? "cleared");
+            }
+
+            _configOverrides.Write(specification.Settings);
+
+            var results = new System.Collections.Generic.List<ConfigWriteResultREST>();
+            foreach (var key in specification.Settings.Keys.OrderBy(k => k, StringComparer.Ordinal))
+            {
+                Fallen8SettingCatalog.TryGet(key, out var entry);
+                var effective = _configOverrides.CurrentValue(entry.Key);
+                var requested = specification.Settings[key];
+
+                results.Add(new ConfigWriteResultREST
+                {
+                    Key = entry.Key,
+                    Value = effective,
+                    Cleared = requested == null,
+                    Coerced = requested != null && !String.Equals(requested, effective, StringComparison.Ordinal),
+                    ApplyMode = SettingREST.From(entry, _configOverrides).ApplyMode,
+                    RestartPending = _configOverrides.IsRestartPending(entry)
+                });
+            }
+
+            return new ConfigWriteREST
+            {
+                Results = results,
+                PendingRestart = _configOverrides.PendingRestart()
+                    .Select(entry => PendingRestartREST.From(entry, _configOverrides))
+                    .ToList()
             };
         }
 

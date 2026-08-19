@@ -259,6 +259,23 @@ namespace NoSQL.GraphDB.Tests
                 "the setting catalog's governance sweep must see every bound Fallen8 section");
             Assert.IsTrue(ReflectLeaves().Count > 50,
                 "the leaf sweep collapsed: " + ReflectLeaves().Count + " leaves found");
+
+            // The write path's section map is written out rather than reflected over (it cannot be
+            // annotated for trimming), so its completeness is enforced here instead: a new options class
+            // that never reaches Fallen8OptionsSections would silently skip trial-binding, and trial
+            // binding is what catches a value the catalog's domain checks cannot see.
+            var mapped = Fallen8OptionsSections.All;
+            var missing = OptionsClasses()
+                .Where(type => !mapped.ContainsKey(SectionNameOf(type)))
+                .Select(type => "NOT MAPPED: " + SectionNameOf(type) + " (" + type.Name
+                    + ") is missing from Fallen8OptionsSections")
+                .Concat(mapped
+                    .Where(pair => !OptionsClasses().Any(type => type == pair.Value))
+                    .Select(pair => "STALE MAPPING: " + pair.Key + " maps to " + pair.Value.Name
+                        + ", which no longer binds a section"))
+                .ToList();
+
+            AssertNoViolations(missing, "every bound section maps to the options class that binds it");
         }
 
         /// <summary>

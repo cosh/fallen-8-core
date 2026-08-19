@@ -44,9 +44,14 @@ WORKDIR /app
 COPY --from=api-build /app ./
 COPY --from=ui-build /src/fallen-8-web-ui/dist ./wwwroot
 
-# Durable by default: checkpoints + WAL live on the /data volume.
+# Durable by default: checkpoints + WAL live on the /data volume, and so does the metadata the
+# instance keeps beside them (the save-game registry, the namespace inventory, and the stored
+# configuration overrides). Metadata:Directory does NOT follow StorageDirectory, so it is set
+# explicitly: without it both the registry and any saved configuration would land in the container's
+# own filesystem and disappear on the next recreation. The compose file sets the same two paths.
 ENV ASPNETCORE_URLS=http://0.0.0.0:8080 \
-    Fallen8__Durability__StorageDirectory=/data
+    Fallen8__Durability__StorageDirectory=/data \
+    Fallen8__Metadata__Directory=/data/metadata
 VOLUME /data
 EXPOSE 8080
 
@@ -55,5 +60,7 @@ EXPOSE 8080
 #                                                     /path + /subgraph endpoints run in-process code)
 #   Fallen8__Security__EnableDynamicPluginLoading=true  (source plugin registration: POST /plugins/*)
 #   Fallen8__Security__AllowedCorsOrigins__0=...     (cross-origin instances)
+#   Fallen8__Security__EnableConfigurationWrite=true (PATCH /config; needs an ApiKey too, and is
+#                                                     refused without one however this is set)
 
 ENTRYPOINT ["dotnet", "fallen-8-core-apiApp.dll"]

@@ -128,6 +128,12 @@ keeps it off the secret-at-rest ledger.
 never-writable key publishes `applyMode: never` and its `rule` beside the `reason`, so the UI can group
 exclusions by rule instead of restating them per key.
 
+`value` is the **effective** value, meaning the value the process would use, not merely what a
+configuration layer set. Roughly a quarter of the keys appear in no configuration file at all, so
+reading configuration alone reports null for them and the panel would show an empty field for a
+setting that is fully in force. The owning options class is therefore bound (filling in its own
+property defaults) and the value read off the property.
+
 **A `NotWritable` key publishes no value** (`valueWithheld: true`, plus key, tier, source, reason).
 The route is anonymous on a keyless instance (it carries neither `[Authorize]` nor
 `[AllowAnonymous]`, and the `FallbackPolicy` installs only when a key is configured), and today's
@@ -164,7 +170,17 @@ nothing, because R1 already refuses the write and 4.4 already withholds the valu
 The existing capability policies add `RequireAuthenticatedUser` only when a key is configured; a
 symmetric policy would make `PATCH /config` anonymously writable on the default deployment, and
 unlike the per-request anonymous code execution, a configuration write persists a posture change
-across restarts. The panel explains the requirement instead of showing a dead Save button.
+across restarts.
+
+The no-key half is enforced **in the action, not the policy**, because a policy that denies an
+unauthenticated caller produces a *challenge*: a keyless instance would answer `401` and invite the
+caller to authenticate with a key that does not exist. The action answers `403` and names the two
+settings to configure. The capability half stays in the policy.
+
+An instance with no `Fallen8:Metadata:Directory` has nowhere for a write to survive a restart, so a
+write is refused with `409` naming that setting rather than appearing to succeed and vanishing. The
+container image sets it (so does compose), which also stops the save-game registry landing in the
+ephemeral container layer. The panel explains the requirement instead of showing a dead Save button.
 Accepted consequence: the shipped `env:up` instance is keyless, so **the docs screenshot recipe
 must set `F8_API_KEY`** or it photographs a read-only panel.
 
