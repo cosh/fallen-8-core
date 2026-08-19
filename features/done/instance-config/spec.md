@@ -4,6 +4,12 @@ Status: **implemented** (all seven phases landed; full .NET + web-ui suites gree
 the combined `feature/studio-and-config` branch alongside the Studio nav-reorg. Revised after
 an adversarial spec review (technical-correctness, cross-feature-completeness, right-sizing).
 
+> **Decision D6 and the "no runtime config mutation" non-goal are RETIRED** (2026-08-19) by
+> [writable-instance-config](../../open/writable-instance-config/), invoking this spec's own revisit
+> clause ("revisit only on a concrete operator need for live reconfiguration") with that need named.
+> `PATCH /config` and a read-write Configuration panel are that feature's contract. Everything below
+> is the historical record and is deliberately not rewritten.
+
 ## Summary
 
 Give a Fallen-8 instance a small, instance-scoped **Configuration** home in F8 Studio (on the
