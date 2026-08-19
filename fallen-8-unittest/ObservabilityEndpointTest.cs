@@ -153,8 +153,7 @@ namespace NoSQL.GraphDB.Tests
             var withKey = new Dictionary<String, String>
             {
                 { "Fallen8:Observability:Prometheus:Enabled", "true" },
-                { "Fallen8:Security:ApiKey", "test-key-123" },
-                { "Fallen8:Security:AllowRemoteAccess", "true" }
+                { "Fallen8:Security:ApiKey", "test-key-123" }
             };
 
             using (var factory = new ObservabilityFactory(withKey))
@@ -189,8 +188,7 @@ namespace NoSQL.GraphDB.Tests
         {
             using var factory = new ObservabilityFactory(new Dictionary<String, String>
             {
-                { "Fallen8:Security:ApiKey", "test-key-123" },
-                { "Fallen8:Security:AllowRemoteAccess", "true" }
+                { "Fallen8:Security:ApiKey", "test-key-123" }
             });
             using var client = factory.CreateClient();
 
@@ -298,8 +296,7 @@ namespace NoSQL.GraphDB.Tests
         {
             using var factory = new ObservabilityFactory(new Dictionary<String, String>
             {
-                { "Fallen8:Security:ApiKey", "test-key-123" },
-                { "Fallen8:Security:AllowRemoteAccess", "true" }
+                { "Fallen8:Security:ApiKey", "test-key-123" }
             });
             using var client = factory.CreateClient();
 

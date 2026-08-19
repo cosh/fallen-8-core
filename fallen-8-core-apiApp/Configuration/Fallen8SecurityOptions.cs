@@ -123,12 +123,11 @@ namespace NoSQL.GraphDB.App.Configuration
             set { _benchmarkMaxIterations = value > 0 ? value : DefaultBenchmarkMaxIterations; }
         }
 
-        /// <summary>
-        ///   Reserved and currently NOT enforced: the app binds wherever ASPNETCORE_URLS / Kestrel is
-        ///   configured (0.0.0.0:8080 in the container image) regardless of this value. Do not rely on it
-        ///   to keep the surface loopback-only - control off-box reachability via the bind address and set
-        ///   an <see cref="ApiKey"/>.
-        /// </summary>
-        public Boolean AllowRemoteAccess { get; set; } = false;
+        // There is deliberately no AllowRemoteAccess knob. It existed, bound, and was read by no
+        // product code while its own documentation admitted it enforced nothing, so it advertised a
+        // loopback guarantee the app never had - the same defect class as the removed
+        // MaxSensitiveRequestBodyBytes (see AuditDefectLimitsTest). Off-box reachability is the bind
+        // address (ASPNETCORE_URLS / Kestrel) plus an ApiKey. Its absence is pinned by
+        // SettingCatalogTest so the knob cannot come back without enforcement.
     }
 }

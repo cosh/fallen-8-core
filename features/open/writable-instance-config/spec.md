@@ -14,8 +14,9 @@
 The Connect screen's Configuration panel is read-only; changing anything means editing host
 configuration and restarting. The owner asked for a full read-write configuration surface where
 values apply immediately or the operator is told a restart is required. Underneath sits a
-documentation defect: roughly 95 configuration leaf keys are bound across 16 options classes, the
-docs site names about 37, and the product has never shown a single value.
+documentation defect: **94 configuration leaf keys** are bound across 16 options classes (measured by
+the phase-1 governance sweep, not estimated), the docs site names about 37, and the product has never
+shown a single value.
 
 Two verified facts constrain the contract:
 
@@ -24,7 +25,7 @@ Two verified facts constrain the contract:
    the process lifetime. `appsettings.json` already reloads on change and nothing observes it, so
    `Reload()` alone changes no behaviour. Every live key costs a named per-consumer conversion
    (§4.8): "applies immediately" is consumer plumbing, not a configuration-source feature.
-2. **"All configs writable" is impossible.** Roughly a third of the keys must never be
+2. **"All configs writable" is impossible.** **44 of the 94 keys, nearly half**, must never be
    REST-writable: lockout generators, on-disk delete paths, stored-data identity stamps, dialable
    URLs, capability flags (§4.7). The deliverable is therefore **every key visible with its tier
    and reason, and the writable subset editable** - that framing is the feature.
@@ -79,8 +80,11 @@ environment is env-locked and the control says so (§4.3). The shipped compose d
 ### 4.1 The setting catalog is the one home
 
 `Configuration/Fallen8SettingCatalog.cs`: one entry per configuration leaf key with `Key`, `Kind`
-(`bool`/`int`/`double`/`string`/`enum`), `Bounds`, `AllowedValues`, `Tier`, `ApplyMode`, and a
-non-null `ApplyNow` delegate for live entries.
+(`bool`/`int`/`double`/`string`/`enum`/`array`), `Bounds`, `AllowedValues`, `ApplyMode`, the excluding
+`Rule` plus `Reason` for a never-writable key, and a non-null `ApplyNow` delegate for live entries.
+`ApplyMode` is the single stored field and **`Tier` is derived from it**, so no entry can declare a
+tier its apply semantics contradict; entries are built through one factory per tier, which is what
+makes the invariants structural rather than tested.
 
 | Rule | |
 |---|---|
@@ -89,10 +93,11 @@ non-null `ApplyNow` delegate for live entries.
 | 4.1.3 | **The catalog carries no human prose.** A key's meaning lives in its options class XML docs (already consumed by the OpenAPI pipeline); a second copy would be multi-home duplication. The UI links a key's owner doc. |
 | 4.1.4 | **`AllowedValues` is load-bearing.** `Fallen8:Chat:Backend` is a free-form string that `ChatBackendFactory` switches on by exact ordinal match and throws otherwise, cached by a `Lazy<IChatBackend>` as a permanent 503. There is no `IValidateOptions` anywhere and binding a string never fails, so only the catalog's allowed-value set turns `"ollama"` into a `400`. |
 
-### 4.2 Three tiers, three apply modes
+### 4.2 Three tiers, four apply modes
 
 **Tiers:** `Live` (writable, effective in this process), `Restart` (writable, effective next boot),
-`NotWritable` (§4.7).
+`NotWritable` (§4.7). The fourth apply mode is `never`, which is what a never-writable key stores and
+what the tier derives from; the three modes below are the ones an operator can be promised.
 
 | `applyMode` | Meaning |
 |---|---|
@@ -109,7 +114,7 @@ keeps it off the secret-at-rest ledger.
 
 | Rule | |
 |---|---|
-| 4.3.1 | **Outranks `appsettings.json`, `appsettings.{Environment}.json` and user secrets; never outranks environment variables or the command line.** It must beat appsettings because that file ships 26 keys at code defaults (covering roughly 14 of the writable set) - a layer underneath is dead on arrival. It must not beat the environment because the shipped compose declares 26 `Fallen8__` keys and the docs instruct operators to set `Fallen8__` variables by hand. User secrets are a Development-only convenience and are deliberately outranked; the `source` field (4.3.4) makes that visible. |
+| 4.3.1 | **Outranks `appsettings.json`, `appsettings.{Environment}.json` and user secrets; never outranks environment variables or the command line.** It must beat appsettings because that file ships much of the writable set at its code defaults, so a layer underneath would be dead on most of the feature. It must not beat the environment because the shipped compose declares roughly two dozen `Fallen8__` keys and the docs instruct operators to set `Fallen8__` variables by hand. User secrets are a Development-only convenience and are deliberately outranked; the `source` field (4.3.4) makes that visible. |
 | 4.3.2 | **Mechanism is per-key arbitration, not source ordering.** The source is appended last, but the provider emits a key only when no environment-variable or command-line provider **declares** it - probed by keeping provider references and `TryGet`ing the catalog key set, never inferred. A declared empty string is still a declaration, which handles compose's `${VAR:-}` idiom by construction. |
 | 4.3.3 | **The provider no-ops unless its path resolves from configured metadata - NEVER `AppContext.BaseDirectory`.** That fallback would poison the shared test output directory used by 52 `WebApplicationFactory` files (outranking their `UseSetting` values for the whole run and every later run) and silently eat a dev operator's saves under `bin/`. Write-path tests use a per-test temp directory; the negative test is mandatory. |
 | 4.3.4 | **Neither a silent no-op nor a silent override**, at three points: **write time** - `PATCH` answers `409` and writes nothing when any key in the batch is environment- or command-line-declared, naming each refused key, its authority and the exact `Fallen8__…` form (no force flag, no stored-but-shadowed value); **read time** - every descriptor carries `source` (`default`/`appsettings`/`userSecrets`/`environment`/`commandLine`/`override`), resolved by walking providers in reverse; **boot** - one log line per overridden key the environment outranks. |
@@ -118,7 +123,9 @@ keeps it off the secret-at-rest ledger.
 ### 4.4 `GET /config` grows the read surface
 
 `ConfigREST` gains `settings[]` (per catalogued key: `key`, `kind`, `tier`, `applyMode`, `value`,
-`source`, `restartPending`, `bounds`, `allowedValues`, `reason`) and `pendingRestart[]`.
+`source`, `restartPending`, `bounds`, `allowedValues`, `rule`, `reason`) and `pendingRestart[]`. A
+never-writable key publishes `applyMode: never` and its `rule` beside the `reason`, so the UI can group
+exclusions by rule instead of restating them per key.
 
 **A `NotWritable` key publishes no value** (`valueWithheld: true`, plus key, tier, source, reason).
 The route is anonymous on a keyless instance (it carries neither `[Authorize]` nor
@@ -144,10 +151,14 @@ no versioning exists. A `Restart`-tier write returns `200` and persists: never a
 error, never a silent no-op. Unknown or never-writable keys are `400`, nothing written.
 
 **Authorization - two independent operator acts.** A new
-`Fallen8:Security:EnableConfigurationWrite` (default `false`, itself absent from the catalog so the
-write surface can neither disable nor re-enable itself) plus a capability policy, plus:
+`Fallen8:Security:EnableConfigurationWrite` (default `false`) plus a capability policy, plus:
 
 > **No API key configured means no configuration write, ever - even with the capability enabled.**
+
+The new key is catalogued `NotWritable` under R1 like every other `Fallen8:Security` key, which is
+what stops the write surface disabling or re-enabling itself. It is deliberately **not** exempted
+from the catalog: an exemption would defeat the derived-completeness gate of 4.1.1, and it would buy
+nothing, because R1 already refuses the write and 4.4 already withholds the value.
 
 The existing capability policies add `RequireAuthenticatedUser` only when a key is configured; a
 symmetric policy would make `PATCH /config` anonymously writable on the default deployment, and
@@ -231,7 +242,7 @@ paths and stored-data identity out of reach. Separately, `f8_namespace` bridges 
 | Engine (`fallen-8-core`) | **No contract change.** `PluginRegistry.MaxCount` and `StoredQueryLibrary.MaxCount` are already settable, re-read at registration, documented as never evicting | No engine edit |
 | [instance-config](../../done/instance-config/) | D6 retired (§3.1) | One status-header line; historical spec unchanged |
 | [namespace-startup-default](../../done/namespace-startup-default/) | Superseded unimplemented (§3.2) | Already recorded there |
-| [api-security-boundary](../../done/api-security-boundary/) | A key holder may now change the posture other callers see | **Extend** the declared single home on the security docs page |
+| [api-security-boundary](../../done/api-security-boundary/) | A key holder may now change the posture other callers see. Separately, R7 **deletes** the `Fallen8:Security:AllowRemoteAccess` flag that feature shipped, which no product code has ever read. Its startup warnings are untouched: they cover a missing API key and always-on code execution, and neither reads the flag | **Extend** the declared single home on the security docs page; rewrite its bind-address paragraph to say the flag is gone and why (its historical spec stays unrewritten) |
 | [embedding-provider](../../done/embedding-provider/) | Its "503 until config changes" promise is restart-only in practice: the metric latch, dimension latch and cached `Lazy` creation exception have no reset path | State plainly on the page; claim no reload |
 | [observability](../../done/observability/) / semantic pages | Several published read-only sentences become false | Amend in place |
 | REST contract | New method on an existing path; field additions to `ConfigREST` and `NamespacesREST`; new `409` and `403` | `[Fallen8Level]`; existing problem+json homes |

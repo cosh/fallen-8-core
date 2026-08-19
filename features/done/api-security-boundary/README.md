@@ -20,6 +20,18 @@ Fallen-8's core "queries are C#" model, so there is no switch for it. Runtime pl
 > `POST /storedquery`, and `POST /delegates/validate` is authentication (the API key when one is
 > configured). Plugin loading keeps its own kill switch (`EnableDynamicPluginLoading`).
 
+> **Update (AllowRemoteAccess removed).** This feature shipped an `AllowRemoteAccess` flag as the
+> opt-in for exposing the server off-box. It has been **removed** (feature
+> writable-instance-config, rule R7): no product code ever read it, so it advertised a loopback
+> posture the app never enforced. Nothing else changes, because nothing else ever depended on it -
+> the shipped startup warnings cover a missing API key and always-on dynamic code, and neither
+> consulted the flag. Off-box reachability is the bind address (`ASPNETCORE_URLS` / Kestrel) plus an
+> API key; the current story lives in
+> [docs/src/content/docs/security.mdx](../../../docs/src/content/docs/security.mdx). A configuration
+> file that still sets the key keeps binding, it simply has no effect, which is what it always had.
+> Note this is the REST app's flag only: `Mcp:Security:AllowRemoteAccess` in the MCP deployable is a
+> different setting and **is** enforced there.
+
 > **Honest limit (read this).** In-process Roslyn compilation and plugin loading **cannot be
 > sandboxed** — a compiled filter or a loaded plugin runs with the server process's full authority.
 > Authentication is the *trust boundary* (who may reach the code endpoints), **not a sandbox**.
@@ -39,7 +51,7 @@ Fallen-8's core "queries are C#" model, so there is no switch for it. Runtime pl
 | `AllowedCorsOrigins` | `[]` | CORS allow-list. Empty ⇒ deny all cross-origin. No wildcard-with-credentials. |
 | `SensitiveRateLimitPermitPerWindow` | `30` | Requests allowed per window on the code/plugin endpoints (429 on breach). |
 | `RateLimitWindowSeconds` | `10` | Fixed-window length for that limiter. |
-| `AllowRemoteAccess` | `false` | Opt-in for exposing the server off-box. **S6 note:** this flag + a startup warning ship; the app does not yet *force* a loopback bind (that would override your Kestrel/port config). Ensure your bind address is loopback unless you have set an API key and intend remote access. |
+| `BenchmarkMaxIterations` | `10000` | Ceiling on the timed iterations `GET /ns/{ns}/benchmark` accepts (a higher count is a 400). Added later, by feature audit-defect-limits. |
 
 ## Behaviour
 

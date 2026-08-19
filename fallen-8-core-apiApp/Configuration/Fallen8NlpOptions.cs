@@ -54,8 +54,15 @@ namespace NoSQL.GraphDB.App.Configuration
         /// its own hard cap; this keeps requests small).</summary>
         public Int32 MaxCharsPerChunk { get; set; } = 20000;
 
-        /// <summary>Chunks per enrich request batch.</summary>
-        public Int32 MaxBatchSize { get; set; } = 128;
+        // There is deliberately no MaxBatchSize knob. It was bound and documented as "chunks per
+        // enrich request batch" but read by nothing, so it advertised a control that does not exist:
+        // NlpClient posts every chunk of a document as ONE request. What it was meant to bound is a
+        // real limit, which is why the property could not simply be honoured as written: the sidecar
+        // refuses more than F8_NLP_MAX_ITEMS (512) items with a 413, while this path can post up to
+        // MaxChunksPerDocument (2000), and enrichment failures are additive-only - so a document over
+        // 512 chunks silently gets no enrichment at all. Batching the call is a behaviour change with
+        // its own tests; it is recorded as a follow-up in the writable-instance-config plan rather than
+        // smuggled into a catalog phase. Absence pinned by SettingCatalogTest.
 
         /// <summary>Max <c>mentions</c> edges written per chunk from extracted entities.</summary>
         public Int32 MaxEntitiesPerChunk { get; set; } = 32;

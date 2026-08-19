@@ -27,9 +27,12 @@ Three tests are the point of the phase:
 3. Every §4.7 key is absent from the writable set.
 
 Forces the two R7 dead-knob decisions (`Security:AllowRemoteAccess`, `Nlp:MaxBatchSize`):
-implement or delete the property before anything can render it.
+implement or delete the property before anything can render it. Both were **deleted** (verified read
+by nothing repo-wide), following the precedent of the removed `MaxSensitiveRequestBodyBytes` knob, so
+the deletions also touch `appsettings.json`, the security docs page and the api-security-boundary
+feature README, and each absence is pinned by a test.
 
-Gates: build, `dotnet test`.
+Gates: build, `dotnet test`, plus the docs-site build because the R7 deletion edits a published page.
 
 ## Phase 2 - the overrides source and the READ surface
 
@@ -130,4 +133,34 @@ Linux; the durable write and directory creation are filesystem-sensitive).
 
 ## Left open
 
-Nothing yet - this section records deviations as the phases land.
+**Phase 1 (landed).** Deviations from the spec as written, each folded back into the spec text in the
+same commit rather than left as a difference:
+
+1. **`Tier` is derived, not stored.** The entry stores one `ApplyMode` and derives `Tier`, so a
+   contradictory pair cannot exist. `ApplyMode` therefore has a fourth value, `never`, and the spec's
+   §4.1, §4.2 and §4.4 were amended to match. Entries are built through one factory per tier, which
+   moved the invariants from tests into the type.
+2. **Two fields the spec did not name**: `Rule` (the excluding rule, so the UI and docs can group
+   exclusions instead of restating them) and an `array` kind (§4.3.5 needs a way to say so).
+3. **`Fallen8:Security:EnableConfigurationWrite` is catalogued** rather than exempt from the catalog,
+   because an exemption would defeat the derived-completeness gate and buy nothing under R1. Spec §4.5
+   amended.
+4. **No entry is `Live` yet**, by design (see phase 1 above); phase 4 promotes the live subset.
+5. **The leaf definition is the binder's, not the obvious one.** A get-only nested block or collection
+   IS bound by `Microsoft.Extensions.Configuration` (measured, and now pinned by a test), so a
+   setter-only sweep would have left a hole exactly where the gate promises there is none. The sweep
+   also reports any property shape it cannot classify, so a future exotic option fails loudly.
+6. **The docs-site build joined phase 1's gates**: R7's deletion pulled the security page's
+   bind-address paragraph forward from phase 6.
+7. **Counts are measured now, not estimated**: 94 leaves, 44 never-writable, 50 restart, 0 live.
+
+## Follow-up this phase uncovered (not fixed here)
+
+**NLP enrichment silently stops above 512 chunks.** R7 deleted `Fallen8:Nlp:MaxBatchSize` because no
+code read it, and doing so surfaced what it was meant to bound: `NlpClient` posts every chunk of a
+document as ONE enrich request, the sidecar refuses more than `F8_NLP_MAX_ITEMS` (512) items with a
+413, `Fallen8:Ingestion:MaxChunksPerDocument` allows 2000, and enrichment failures are additive-only.
+So a document over 512 chunks gets no enrichment and nothing says so. The fix is to batch the call in
+`NlpClient`, which is a behaviour change with its own tests and its own before-and-after measurement;
+it does not belong in a catalog phase. Until then the limitation is recorded in the options class and
+in `SettingCatalogTest`, and the ingestion docs page should state it.
