@@ -17733,6 +17733,20 @@
             "description": "Sampling temperature (backend default when omitted).",
             "format": "double",
             "example": 0.1
+          },
+          "stop": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Sequences that stop generation, sent through to the model (its own defaults when\r\nomitted). Needed when the configured model's stop tokens are not baked into it: the same\r\nweights published to a registry arrive without the template and stop tokens a locally\r\nBUILT image carries, so whatever relies on them has to send them per request.",
+            "example": [
+              "&lt;|im_start|&gt;",
+              "&lt;|im_end|&gt;"
+            ]
           }
         },
         "description": "Optional per-request generation knobs."

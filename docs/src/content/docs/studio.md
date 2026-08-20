@@ -201,7 +201,7 @@ The editor's side panel drafts a fragment from a natural-language description, c
 | Setting | Detail |
 |---|---|
 | backend | **this Fallen-8 instance** (default) or **custom endpoint** (browser-direct) |
-| instance mode | browser → the active instance's `POST /chat` → its model backend (the Ollama sidecar). The model is server-owned (`Fallen8:Chat:Ollama:Model`, default `phi4-f8-mini`); nothing to configure. Needs the instance's chat gateway enabled (`Fallen8:Chat:Enabled` / `F8_CHAT`), [semantic-traversal.md](/semantic-traversal/). |
+| instance mode | browser → the active instance's `POST /chat` → its model backend (the Ollama sidecar). The model is server-owned (`Fallen8:Chat:Ollama:Model`, default `phi4-f8-mini:latest`); nothing to configure. Needs the instance's chat gateway enabled (`Fallen8:Chat:Enabled` / `F8_CHAT`), [semantic-traversal.md](/semantic-traversal/). |
 | custom mode | the browser calls the endpoint **directly**; api kind `ollama` or `openai`-compatible; presets for the fine-tuned `phi4-f8-mini`/`phi4-f8`, stock `phi4-mini`/`phi4`, OpenAI, Anthropic. Any API key is held only in the browser and never sent to a Fallen-8 instance. |
 
 Instance mode is the default because Fallen-8 is now the semantic gateway (embeddings and chat both proxy through the instance). **This retires the earlier "never through the Fallen-8 instance" rule for the default path**: the prompt travels to the same instance you already trust with your graph, so instance mode shows no egress notice; the surviving guarantee is that a **custom** endpoint and its key stay browser-direct and never reach F8. A non-loopback custom endpoint still shows the "text leaves this machine" notice.

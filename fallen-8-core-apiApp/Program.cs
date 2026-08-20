@@ -544,7 +544,8 @@ namespace NoSQL.GraphDB.App
             builder.Services.Configure<Fallen8EmbeddingOptions>(
                 builder.Configuration.GetSection(Fallen8EmbeddingOptions.SectionName));
             builder.Services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(sp =>
-                EmbeddingBackendFactory.Create(sp.GetRequiredService<IOptions<Fallen8EmbeddingOptions>>().Value));
+                EmbeddingBackendFactory.Create(sp.GetRequiredService<IOptions<Fallen8EmbeddingOptions>>().Value,
+                    sp.GetRequiredService<ILoggerFactory>()));
             builder.Services.AddSingleton(sp => new Fallen8EmbeddingProvider(
                 sp.GetRequiredService<IOptions<Fallen8EmbeddingOptions>>(),
                 new Lazy<IEmbeddingGenerator<string, Embedding<float>>>(
@@ -556,7 +557,8 @@ namespace NoSQL.GraphDB.App
             builder.Services.Configure<Fallen8ChatOptions>(
                 builder.Configuration.GetSection(Fallen8ChatOptions.SectionName));
             builder.Services.AddSingleton<IChatBackend>(sp =>
-                ChatBackendFactory.Create(sp.GetRequiredService<IOptions<Fallen8ChatOptions>>().Value));
+                ChatBackendFactory.Create(sp.GetRequiredService<IOptions<Fallen8ChatOptions>>().Value,
+                    sp.GetRequiredService<ILoggerFactory>()));
             builder.Services.AddSingleton(sp => new Fallen8ChatProvider(
                 sp.GetRequiredService<IOptions<Fallen8ChatOptions>>(),
                 new Lazy<IChatBackend>(() => sp.GetRequiredService<IChatBackend>())));
@@ -814,6 +816,33 @@ namespace NoSQL.GraphDB.App
             {
                 startupLogger.LogInformation(
                     "Fallen-8 observability: no exporters enabled (Fallen8:Observability) - zero OpenTelemetry code paths run; /statistics and the health endpoints are always available.");
+            }
+
+            // The model backends' addressability, reported at boot (feature nahil-backend):
+            // an endpoint that cannot be dialled is worth knowing before the first request rather
+            // than after it. Deliberately a WARNING and not a startup failure - the backends load
+            // lazily and latch the reason into the 503 their own endpoints answer, so a mistyped
+            // Nahil URL must not take a graph database down with it while every other capability
+            // would have kept working. The wording comes from OllamaConnection.IsValid, so this line
+            // and that 503 can never drift apart.
+            var chatOptions = app.Services.GetRequiredService<IOptions<Fallen8ChatOptions>>().Value;
+            if (chatOptions.Enabled
+                && NoSQL.GraphDB.App.Chat.ChatBackendFactory.ResolveConnection(chatOptions) is { } chatTarget
+                && !chatTarget.IsValid(out var chatProblem))
+            {
+                startupLogger.LogWarning(
+                    "Fallen-8 chat gateway: the configured backend cannot be dialled, so POST /chat will answer 503. {Problem}",
+                    chatProblem);
+            }
+
+            var embeddingOptions = app.Services.GetRequiredService<IOptions<Fallen8EmbeddingOptions>>().Value;
+            if (embeddingOptions.Enabled
+                && EmbeddingBackendFactory.ResolveConnection(embeddingOptions) is { } embeddingTarget
+                && !embeddingTarget.IsValid(out var embeddingProblem))
+            {
+                startupLogger.LogWarning(
+                    "Fallen-8 embedding provider: the configured backend cannot be dialled, so the embedding surface will answer 503. {Problem}",
+                    embeddingProblem);
             }
 
             if (spaIndexPresent)

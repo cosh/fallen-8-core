@@ -93,6 +93,19 @@ function main() {
   // stays available via a bare `docker compose up` (no overlay).
   files.push('-f', 'docker-compose.split.yml');
 
+  // Nahil (feature nahil-backend): with F8_NAHIL_URL set, the two model capabilities talk to
+  // nahil.dev and the local Ollama sidecar is not started at all. Applied after split.yml so
+  // its Fallen8__Chat/Embedding overrides win. Keyed off the URL rather than a separate flag:
+  // there is nothing to point at without one.
+  const nahil = (process.env.F8_NAHIL_URL || '').trim() !== '';
+  if (nahil) {
+    files.push('-f', 'docker-compose.nahil.yml');
+    console.log(
+      `Nahil is ON (F8_NAHIL_URL=${process.env.F8_NAHIL_URL}) - the local Ollama\n` +
+        'sidecar is NOT started and nothing is pulled onto this machine. Needs F8_NAHIL_API_KEY.'
+    );
+  }
+
   // Unstructured ingestion (feature unstructured-ingestion): the docling-serve sidecar rides
   // the "ingestion" profile, default ON like the rest of the environment. F8_INGESTION=false
   // skips the ~4.4 GB image AND turns the capability off (the fallen8 service reads the same

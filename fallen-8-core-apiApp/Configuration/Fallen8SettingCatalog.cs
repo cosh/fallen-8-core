@@ -88,6 +88,25 @@ namespace NoSQL.GraphDB.App.Configuration
             "It names the model file that produces vectors, so a written value changes the embedding "
             + "function under an unchanged identity stamp.";
 
+        /// <summary>
+        ///   R8: the credential this server PRESENTS to Nahil. R1 covers the credential the
+        ///   server demands and is scoped to <c>Fallen8:Security</c>; nothing covered a secret the
+        ///   server hands to a third party until a backend existed that requires one, and the two
+        ///   hazards are not the same. A written value redirects someone else's metered spend to a
+        ///   destination of the caller's choosing, and a published one hands the key over: an
+        ///   always-writable tier would do the first and a value on the read surface the second,
+        ///   which is why never-writable (whose entries publish the rule and the reason but NO value)
+        ///   is the only tier that holds.
+        /// </summary>
+        private const String NahilCredentialReason =
+            "It is the credential this server presents to Nahil, so a written value "
+            + "redirects metered spend to a destination the caller chose and a published value hands "
+            + "the key itself to anyone who can read this response.";
+
+        private const String NahilEndpointReason =
+            "This is a URL the server dials WITH a credential attached, so a written value would aim "
+            + "an authenticated request at an address of the caller's choosing.";
+
         private static String OrphansIndexReason(String search)
         {
             return "Changing it orphans the populated index and makes " + search
@@ -260,13 +279,19 @@ namespace NoSQL.GraphDB.App.Configuration
             // The accepted set is load-bearing: the backend factory matches ordinally and throws
             // otherwise, and that throw is cached by a Lazy and surfaces as a permanent 503.
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Backend",
-                Fallen8SettingKind.Enum, allowedValues: new[] { "Ollama" }));
+                Fallen8SettingKind.Enum, allowedValues: new[] { "Ollama", "Nahil" }));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:TimeoutSeconds",
                 Fallen8SettingKind.Int, minimum: 1, maximum: MaxSeconds));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Stream", Fallen8SettingKind.Bool));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:Ollama:Endpoint", Fallen8SettingKind.String, "R4",
                 "This is a URL the server dials, so a written value turns the chat gateway into a "
                 + "request forwarder onto the operator's own network."));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Ollama:Model", Fallen8SettingKind.String));
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:Nahil:Endpoint", Fallen8SettingKind.String, "R4",
+                NahilEndpointReason));
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:Nahil:ApiKey", Fallen8SettingKind.String, "R8",
+                NahilCredentialReason));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Nahil:Model", Fallen8SettingKind.String));
 
             #endregion
 
@@ -333,6 +358,13 @@ namespace NoSQL.GraphDB.App.Configuration
                 "This is a URL the server dials, so a written value makes the embedding gateway "
                 + "reach an address of the caller's choosing on the operator's own network."));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:Ollama:Model", Fallen8SettingKind.String, "R3",
+                "The model is the embedding function itself, so a write produces vectors that no "
+                + "longer match the ones already stored under the same stamp."));
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:Nahil:Endpoint", Fallen8SettingKind.String, "R4",
+                NahilEndpointReason));
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:Nahil:ApiKey", Fallen8SettingKind.String, "R8",
+                NahilCredentialReason));
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Embedding:Nahil:Model", Fallen8SettingKind.String, "R3",
                 "The model is the embedding function itself, so a write produces vectors that no "
                 + "longer match the ones already stored under the same stamp."));
 

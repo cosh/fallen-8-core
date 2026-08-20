@@ -38,7 +38,7 @@ import { expect, test, type Page } from "@playwright/test";
  *   Fallen8__Embedding__ModelName=bge-m3  Fallen8__Embedding__Dimension=1024
  *   Fallen8__Embedding__IntendedMetric=Cosine
  *   Fallen8__Embedding__Ollama__Endpoint=http://127.0.0.1:11434
- *   Fallen8__Embedding__Ollama__Model=bge-m3
+ *   Fallen8__Embedding__Ollama__Model=bge-m3:latest
  *
  * With the provider absent this SKIPS instead of shooting. A skip leaves the good image alone, where
  * a degraded shot would overwrite it: that is how screen-connect-observability.png was lost five

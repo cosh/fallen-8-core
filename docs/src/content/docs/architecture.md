@@ -41,7 +41,7 @@ flowchart TB
         durab["Durability<br/>(WAL + checkpoints)"]:::sys
         feed["Change feed<br/>(dispatcher + ring buffer)"]:::sys
     end
-    sidecar["Model sidecar (Ollama)<br/>embeddings + delegate assist"]:::ext
+    sidecar["Model backend<br/>local Ollama sidecar OR Nahil (nahil.dev)<br/>embeddings + delegate assist"]:::ext
     docling["Document sidecar (docling-serve)<br/>binary-to-structured conversion"]:::ext
     nlp["NLP sidecar (spaCy)<br/>named entities + key terms"]:::ext
     integrations["Integrations runtime · fallen-8-integrations<br/>separate deployable · no host port · writes via REST"]:::mcp
@@ -204,7 +204,9 @@ instance**: the browser hands the app *text* and the app embeds or proxies serve
 `POST /embedding/text` is the bare text-to-vector route, there for other clients. In the compose
 environment the backend behind all of this is the Ollama sidecar, which serves both the embedding
 model and the chat model. F8 itself bundles no model weights or
-runtime. The one path that stays off the instance is a **custom** NL-assist endpoint: there
+runtime. That backend is also the one part of this picture that can move off the machine: a
+[Nahil](/nahil/) serves the same API from someone else's hardware, and choosing
+it is a configuration change with no new deployable and no new path from the browser. The one path that stays off the instance is a **custom** NL-assist endpoint: there
 the browser calls the model backend directly and any API key is held only in the browser
 (the earlier browser-only default was retired in favour of the gateway; see
 [studio.md](/studio/)).

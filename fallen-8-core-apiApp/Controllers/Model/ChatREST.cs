@@ -86,6 +86,19 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   Sequences that stop generation, sent through to the model (its own defaults when
+        ///   omitted). Needed when the configured model's stop tokens are not baked into it: the same
+        ///   weights published to a registry arrive without the template and stop tokens a locally
+        ///   BUILT image carries, so whatever relies on them has to send them per request.
+        /// </summary>
+        /// <example>["&lt;|im_start|&gt;", "&lt;|im_end|&gt;"]</example>
+        [JsonPropertyName("stop")]
+        public List<String> Stop
+        {
+            get; set;
+        }
     }
 
     /// <summary>A chat completion plus the backend's generation stats.</summary>

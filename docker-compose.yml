@@ -70,7 +70,11 @@ services:
       - Fallen8__Embedding__Dimension=1024
       - Fallen8__Embedding__IntendedMetric=Cosine
       - Fallen8__Embedding__Ollama__Endpoint=http://ollama:11434
-      - Fallen8__Embedding__Ollama__Model=bge-m3
+      # Tagged explicitly: a request identifier that names one thing on both ends beats a bare
+      # name that relies on server and client agreeing about the default tag. ModelName above is
+      # the identity STAMP stored beside every vector, never a request identifier - it stays
+      # untagged, because retagging it would make every existing index identity-mismatch.
+      - Fallen8__Embedding__Ollama__Model=bge-m3:latest
       # Chat gateway out of the box (feature instance-config): the same Ollama sidecar serves
       # the fine-tuned phi4-f8-mini assist model. This is the DEFAULT NL-assist path
       # (browser -> POST /chat -> sidecar). F8_CHAT=false answers 403 (custom browser-direct
@@ -78,7 +82,7 @@ services:
       - Fallen8__Chat__Enabled=${F8_CHAT:-true}
       - Fallen8__Chat__Backend=Ollama
       - Fallen8__Chat__Ollama__Endpoint=http://ollama:11434
-      - Fallen8__Chat__Ollama__Model=phi4-f8-mini
+      - Fallen8__Chat__Ollama__Model=phi4-f8-mini:latest
       # Documents in, graph out (feature unstructured-ingestion): binary formats convert in
       # the docling sidecar below; txt/md ingest without it. F8_INGESTION=false opts out as
       # one unit: the document endpoints answer 403 AND env:up skips the sidecar (compose

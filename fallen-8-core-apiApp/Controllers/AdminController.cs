@@ -379,37 +379,37 @@ namespace NoSQL.GraphDB.App.Controllers
             var embedding = EmbeddingProviderStatsREST.From(_embeddingProvider);
             var chat = ChatProviderStatsREST.From(_chatProvider);
 
-            // Best-effort model-residency probe for Ollama-backed providers (feature instance-config):
-            // is the configured model actually loaded in the sidecar right now? It uses a TRANSIENT
-            // client (never the providers' lazy backends), so reading config never loads a model or
-            // flips "loaded"; it is bounded so a hung/absent sidecar answers "unknown" (null) within
-            // the timeout and never fails the read. Both providers probe concurrently.
+            // Best-effort model-residency probe for the Ollama-protocol providers (features
+            // instance-config and nahil-backend): is the configured model actually loaded on
+            // the backend right now? It uses a TRANSIENT client (never the providers' lazy backends),
+            // so reading config never loads a model or flips "loaded"; it is bounded so a hung/absent
+            // backend answers "unknown" (null) within the timeout and never fails the read. Which
+            // backends can be asked at all - and with which credential - is the factories' answer,
+            // not a second copy of the switch here. Both providers probe concurrently.
             using (var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
                 cts.CancelAfter(TimeSpan.FromSeconds(3));
 
-                async Task ProbeAsync(String endpoint, String model, Action<Boolean?, Boolean?> assign)
+                async Task ProbeAsync(Helper.OllamaConnection connection, Action<Boolean?, Boolean?> assign)
                 {
-                    if (String.IsNullOrWhiteSpace(endpoint) || String.IsNullOrWhiteSpace(model))
-                    {
-                        return;
-                    }
-
-                    var state = await Chat.OllamaModelProbe.ProbeAsync(endpoint, model, cts.Token);
+                    var state = await Chat.OllamaModelProbe.ProbeAsync(connection, cts.Token);
                     assign(state?.Resident, state?.Gpu);
                 }
 
                 var probes = new System.Collections.Generic.List<Task>();
-                if (chat != null && chat.Enabled && _chatProvider != null)
+                if (chat != null && chat.Enabled && _chatProvider?.ProbeTarget != null)
                 {
-                    probes.Add(ProbeAsync(_chatProvider.OllamaEndpoint, _chatProvider.OllamaModel,
+                    probes.Add(ProbeAsync(_chatProvider.ProbeTarget,
                         (resident, gpu) => { chat.Resident = resident; chat.Gpu = gpu; }));
                 }
-                if (embedding != null && embedding.Enabled && _embeddingOptions != null &&
-                    String.Equals(embedding.Backend, "Ollama", StringComparison.OrdinalIgnoreCase))
+                if (embedding != null && embedding.Enabled && _embeddingOptions != null)
                 {
-                    probes.Add(ProbeAsync(_embeddingOptions.Ollama?.Endpoint, _embeddingOptions.Ollama?.Model,
-                        (resident, gpu) => { embedding.Resident = resident; embedding.Gpu = gpu; }));
+                    var target = Embedding.EmbeddingBackendFactory.ResolveConnection(_embeddingOptions);
+                    if (target != null)
+                    {
+                        probes.Add(ProbeAsync(target,
+                            (resident, gpu) => { embedding.Resident = resident; embedding.Gpu = gpu; }));
+                    }
                 }
 
                 await Task.WhenAll(probes);

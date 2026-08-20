@@ -1,0 +1,58 @@
+# Nahil overlay (feature nahil-backend): the models run on Nahil (nahil.dev) instead of the
+# local Ollama sidecar.
+#
+#   F8_NAHIL_URL=https://api.nahil.dev F8_NAHIL_API_KEY=... npm run env:up
+#
+# or, without the helper scripts:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.nahil.yml up
+#
+# What changes, and nothing else: WHERE the two model capabilities send their requests, and
+# that they authenticate. The graph, the indices, the vectors and their identity stamp are
+# untouched - the same bge-m3 produces the same vectors wherever it runs, so nothing
+# re-embeds and no index is rebuilt.
+#
+# The local sidecar is NOT started here (see the ollama service below), so nothing pulls
+# ~15 GB of weights onto this machine.
+#
+# Required: F8_NAHIL_URL (a host root - scheme, host, optional port, NO path) and
+# F8_NAHIL_API_KEY. There is no default for either: selecting this backend with no endpoint
+# must be refused with a reason, never quietly aimed at localhost.
+
+services:
+  fallen8:
+    environment:
+      # Chat (the NL-assist path). The model is named as NAHIL's catalog names it, which is the
+      # published registry name and may differ from a locally tagged copy of the same weights -
+      # see docs.fallen-8.com/nahil/.
+      - Fallen8__Chat__Backend=Nahil
+      - Fallen8__Chat__Nahil__Endpoint=${F8_NAHIL_URL:?set F8_NAHIL_URL to the Nahil host root}
+      - Fallen8__Chat__Nahil__ApiKey=${F8_NAHIL_API_KEY:?set F8_NAHIL_API_KEY}
+      - Fallen8__Chat__Nahil__Model=${F8_NAHIL_CHAT_MODEL:-phi4-f8-mini:latest}
+      # 600s, not the 120s default. Nahil routes to workers that include CPU-only machines, and
+      # this budget now also has to cover WAITING for a cold model to be pulled onto one (the
+      # transport retries 503-warming inside it). 120s would answer 504 to requests that were
+      # about to succeed.
+      #
+      # Do not raise it above 600: F8 Studio's editor gives up at 10 minutes, so a larger
+      # budget only moves the give-up from the server (which explains itself) to the browser
+      # (which cannot).
+      - Fallen8__Chat__TimeoutSeconds=${F8_NAHIL_CHAT_TIMEOUT:-600}
+      # Embeddings. Same model, same 1024 dimensions, same Cosine metric, same identity stamp -
+      # only the address changes. ModelName stays untagged and unchanged: it is the stamp stored
+      # beside every vector, not a request identifier.
+      - Fallen8__Embedding__Backend=Nahil
+      - Fallen8__Embedding__Nahil__Endpoint=${F8_NAHIL_URL:?set F8_NAHIL_URL to the Nahil host root}
+      - Fallen8__Embedding__Nahil__ApiKey=${F8_NAHIL_EMBED_API_KEY:-${F8_NAHIL_API_KEY}}
+      - Fallen8__Embedding__Nahil__Model=${F8_NAHIL_EMBED_MODEL:-bge-m3:latest}
+      # 32, not the default 64. Nahil caps a request at 64 items, so the shipped default sits
+      # exactly ON the limit: one off-by-one on either side and a bulk re-index starts failing.
+      # 32 leaves the headroom.
+      - Fallen8__Embedding__MaxBatchSize=${F8_NAHIL_EMBED_BATCH:-32}
+
+  # The local sidecar is parked on a profile nobody activates, which is how a compose OVERLAY
+  # declines a service: merging cannot remove one. Nothing depends_on it, so the rest of the
+  # environment comes up unchanged; `npm run env:down` still stops a sidecar left running from
+  # an earlier non-Nahil start.
+  ollama:
+    profiles: ["local-sidecar-not-used-with-nahil"]

@@ -60,23 +60,21 @@ namespace NoSQL.GraphDB.App.Chat
         /// <summary>The backend selector (config value).</summary>
         public String Backend => _options.Backend;
 
-        /// <summary>The server-owned model (config value).</summary>
-        public String Model => _options.Ollama.Model;
-
-        /// <summary>The configured backend endpoint (surfaced read-only on the config view).</summary>
-        public String Endpoint => _options.Ollama.Endpoint;
+        /// <summary>The server-owned model (config value), whichever backend serves it.</summary>
+        public String Model => ProbeTarget?.Model;
 
         /// <summary>Whether the backend client has been created (a chat call happened). A config
         /// read never flips this: residency is probed via a transient client (OllamaModelProbe).</summary>
         public Boolean IsLoaded => _backend.IsValueCreated;
 
-        /// <summary>The configured Ollama endpoint (for the residency probe); null for non-Ollama.</summary>
-        public String OllamaEndpoint =>
-            String.Equals(_options.Backend, "Ollama", StringComparison.OrdinalIgnoreCase) ? _options.Ollama.Endpoint : null;
-
-        /// <summary>The configured model (for the residency probe).</summary>
-        public String OllamaModel =>
-            String.Equals(_options.Backend, "Ollama", StringComparison.OrdinalIgnoreCase) ? _options.Ollama.Model : null;
+        /// <summary>
+        ///   What the residency probe should ask, or <c>null</c> when the configured backend speaks
+        ///   no protocol that can be asked. Resolved through the backend factory so the config view
+        ///   can never report on a different target than a completion would reach - including the
+        ///   credential, without which Nahil answers 401 and residency would read "unknown"
+        ///   forever with nothing saying why.
+        /// </summary>
+        internal Helper.OllamaConnection ProbeTarget => ChatBackendFactory.ResolveConnection(_options);
 
         /// <summary>
         ///   Runs one chat completion, bounded by <c>Fallen8:Chat:TimeoutSeconds</c>. Faults map to:
@@ -115,6 +113,25 @@ namespace NoSQL.GraphDB.App.Chat
             {
                 result = await backend.ChatAsync(messages, options, timeoutCts.Token);
             }
+            catch (ChatBackendOutputException ex)
+            {
+                // The backend answered, badly (a truncated stream). The fault is in the response, so
+                // it lands on the same 502 an empty response does rather than the 503 that would
+                // invite an identical retry.
+                throw new ChatProviderOutputException(ex.Message);
+            }
+            catch (Helper.NahilWarmupTimeoutException ex)
+            {
+                // Nahil spent the whole budget saying "not yet". Still a 504 - the caller's
+                // configured deadline is what expired - but the message names the model that was
+                // never loaded, so nobody goes looking for a slow generation that never started.
+                // A caller who went away in the meantime gets the cancellation they asked for
+                // instead: only OUR budget running out is a timeout.
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new ChatProviderTimeoutException(String.Format(
+                    "The chat backend did not respond within Fallen8:Chat:TimeoutSeconds ({0}s). {1}",
+                    _options.TimeoutSeconds, ex.Message));
+            }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 // Every cancellation that is NOT the caller's means "the backend did not answer in
@@ -125,7 +142,8 @@ namespace NoSQL.GraphDB.App.Chat
                 // deadline of its own, so in practice this IS our budget; the widened filter keeps
                 // any future inner deadline from re-opening that hole.
                 throw new ChatProviderTimeoutException(String.Format(
-                    "The chat backend did not respond within Fallen8:Chat:TimeoutSeconds ({0}s).", _options.TimeoutSeconds));
+                    "The chat backend did not respond within Fallen8:Chat:TimeoutSeconds ({0}s).",
+                    _options.TimeoutSeconds));
             }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {

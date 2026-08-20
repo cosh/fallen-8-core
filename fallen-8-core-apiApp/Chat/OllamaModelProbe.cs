@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using NoSQL.GraphDB.App.Helper;
@@ -42,14 +43,21 @@ namespace NoSQL.GraphDB.App.Chat
     }
 
     /// <summary>
-    ///   Best-effort residency probe against an Ollama endpoint (feature instance-config). It asks
-    ///   <c>/api/ps</c> whether the configured model is currently loaded and, if so, whether it
-    ///   holds VRAM. Deliberately uses a TRANSIENT client so a config read never touches a
+    ///   Best-effort residency probe against an Ollama-protocol endpoint (feature instance-config).
+    ///   It asks <c>/api/ps</c> whether the configured model is currently loaded and, if so, whether
+    ///   it holds VRAM. Deliberately uses a TRANSIENT client so a config read never touches a
     ///   provider's lazy backend state (probing must not flip a provider's "loaded" flag), and
-    ///   swallows every failure to <c>null</c> ("unknown") so a hung or absent sidecar can never
+    ///   swallows every failure to <c>null</c> ("unknown") so a hung or absent backend can never
     ///   stall or fail the read. Both halves of that guarantee are owned HERE: the swallow below,
     ///   and <see cref="ProbeTimeout" /> on the transport. A caller cancellation is the one thing
     ///   that is NOT swallowed - it propagates, so a disconnected client's config read stops.
+    ///   <para>
+    ///     It probes THROUGH the connection rather than a bare endpoint, which is what carries a
+    ///     Nahil credential: <c>/api/ps</c> is authenticated there too, and a keyless probe
+    ///     would 401, be swallowed, and report residency "unknown" forever with nothing in the logs
+    ///     to say why. It never retries a warm-up (see <see cref="OllamaHttpClientFactory" />) -
+    ///     "unknown" now beats a correct answer after a model pull.
+    ///   </para>
     /// </summary>
     internal static class OllamaModelProbe
     {
@@ -60,14 +68,21 @@ namespace NoSQL.GraphDB.App.Chat
         /// <summary>
         ///   Resident + GPU when the <c>/api/ps</c> call succeeds (Resident=false when the call
         ///   answers but the model is not loaded right now — Ollama loads on demand and unloads when
-        ///   idle); <c>null</c> when the endpoint/model is unset or the call fails (unknown).
+        ///   idle); <c>null</c> when there is nothing to probe or the call fails (unknown).
         /// </summary>
-        internal static async Task<OllamaModelState> ProbeAsync(String endpoint, String model, CancellationToken cancellationToken)
+        /// <param name="connection">What to ask, credential included; <c>null</c> or unusable means
+        /// there is nothing to probe.</param>
+        /// <param name="cancellationToken">The caller's; its cancellation propagates.</param>
+        /// <param name="handler">A test-supplied transport handler; used verbatim when non-null.</param>
+        internal static async Task<OllamaModelState> ProbeAsync(OllamaConnection connection,
+            CancellationToken cancellationToken, HttpMessageHandler handler = null)
         {
-            if (String.IsNullOrWhiteSpace(endpoint) || String.IsNullOrWhiteSpace(model))
+            if (connection == null || !connection.IsValid(out _))
             {
                 return null;
             }
+
+            var model = connection.Model;
 
             try
             {
@@ -76,7 +91,7 @@ namespace NoSQL.GraphDB.App.Chat
                 // passing CancellationToken.None) gets it too. Disposed per call because
                 // OllamaSharp does NOT dispose an injected client - the previous transient
                 // OllamaApiClient leaked one HttpClient and connection pool on every GET /config.
-                using var http = OllamaHttpClientFactory.Create(endpoint, ProbeTimeout);
+                using var http = OllamaHttpClientFactory.CreateForProbe(connection, ProbeTimeout, handler);
                 var client = new OllamaApiClient(http, model);
                 var running = await client.ListRunningModelsAsync(cancellationToken);
                 if (running == null)

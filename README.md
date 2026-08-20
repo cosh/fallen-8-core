@@ -41,6 +41,9 @@ Each feature has a deep-dive doc — follow the link.
   embeddings (cosine, dot product, L2).
 - **[Semantic traversal](https://docs.fallen-8.com/semantic-traversal/)** — embeddings as element state; a
   code-free `semantic` block steers paths and subgraphs by similarity.
+- **[Nahil](https://docs.fallen-8.com/nahil/)** - run the embedding and chat models on Nahil
+  (nahil.dev) instead of the local sidecar: same vectors, same indices, no weights on the host.
+  Configuration only; the local sidecar stays the default.
 - **[Semantic layer](https://docs.fallen-8.com/unstructured-ingestion/)**: documents in, graph out:
   PDFs/Office/markdown become Document, Chunk and deduplicated Entity vertices with embedded
   text, enriched with named entities and key terms, found again by fused semantic + exact-token
@@ -138,7 +141,7 @@ flowchart TB
         rest --> engine
     end
 
-    sidecar["Model sidecar<br/>Ollama"]:::ext
+    sidecar["Model backend<br/>local Ollama sidecar or remote gateway"]:::ext
     docling["Document sidecar<br/>docling-serve"]:::ext
     nlp["NLP sidecar<br/>spaCy · entities + terms"]:::ext
     sources["Your network<br/>CSV · UniFi console · Fronius inverter"]:::ext

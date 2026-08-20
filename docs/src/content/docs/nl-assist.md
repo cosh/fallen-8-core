@@ -25,6 +25,12 @@ fine-tunes specialised on the delegate contract:
 | `phi4-f8`      | Phi-4 (14B)| GPU, roughly 16 GB VRAM, pulled by default | The stronger draft, opt out with `F8_PULL_PHI4F8=0` |
 | `phi4-mini`    | Phi-4-mini | CPU or GPU, pulled by default          | The stock, un-tuned base, useful as a comparison     |
 
+The models do not have to run on this machine: [Nahil](/nahil/) serves the same API from remote
+hardware, which is a configuration change and nothing else. Note that Nahil catalogs a model under
+its **published registry name**, which can differ from the local tag for the same weights, and that
+a registry build carries neither the chat template nor the stop tokens a locally built image bakes
+in - send those per request via `options.stop` on `POST /chat`.
+
 Fallen-8 ships **no weights**. The compose environment's Ollama sidecar pulls them on first start from
 the repositories named by `F8_DELEGATE_REPO` and `F8_PHI4F8_REPO`, so the models and their MIT licences
 bind whoever runs them ([running](/running/#first-start-pulls-models)). Until a fine-tune

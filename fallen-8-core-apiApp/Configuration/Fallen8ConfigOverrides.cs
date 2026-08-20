@@ -146,7 +146,7 @@ namespace NoSQL.GraphDB.App.Configuration
 
         /// <summary>
         ///   Every catalogued key's effective value, binding each options class once. The read surface
-        ///   publishes 94 keys per request, so it takes this rather than binding a section per key.
+        ///   publishes 102 keys per request, so it takes this rather than binding a section per key.
         /// </summary>
         public IReadOnlyDictionary<String, String> EffectiveValues()
         {
