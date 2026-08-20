@@ -40,7 +40,7 @@ overlay when a GPU is detected. Eight containers publish a host port:
 | ----------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | F8 Studio (UI)                | http://localhost:8081                 | The browser UI, in its own container (`F8_UI_PORT`)                                                                                 |
 | F8 REST API                   | http://localhost:8080                 | The engine plus the REST surface: the data plane (`F8_PORT`)                                                                        |
-| Model sidecar (Ollama)        | http://localhost:11434                | Serves `bge-m3` for embeddings and the assist models for NL assist                                                                  |
+| Model sidecar (Ollama)        | http://localhost:11434                | Serves `bge-m3` for embeddings and the assist models for NL assist. Replaceable by [Nahil](/nahil/)          |
 | MCP server                    | http://localhost:8090                 | The [AI-agent surface](/mcp-server/), anonymous and read-only in this environment (`F8_MCP_PORT`)                     |
 | Document conversion (docling) | http://localhost:5001                 | Converts PDF, Office and HTML uploads for [ingestion](/unstructured-ingestion/) (`F8_DOCLING_PORT`)                   |
 | NLP enrichment (spaCy)        | http://localhost:8100                 | Named entities and key terms per chunk, folded into the entity graph (`F8_NLP_PORT`)                                                |

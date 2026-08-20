@@ -58,6 +58,17 @@ namespace NoSQL.GraphDB.Tests
         private readonly int _dimension;
         internal int Calls;
 
+        /// <summary>The size of each request, in order. Lets a test see the BATCHING a caller did,
+        /// not just that it embedded the right number of things in the end.</summary>
+        internal readonly System.Collections.Concurrent.ConcurrentQueue<int> BatchSizes =
+            new System.Collections.Concurrent.ConcurrentQueue<int>();
+
+        /// <summary>
+        ///   From this call onwards (1-based), refuse the way a remote backend does when a key's
+        ///   hourly token budget runs out part way through a long run. 0 never refuses.
+        /// </summary>
+        internal int RefuseFromCall;
+
         internal FakeEmbeddingGenerator(int dimension)
         {
             _dimension = dimension;
@@ -83,12 +94,20 @@ namespace NoSQL.GraphDB.Tests
         public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(IEnumerable<string> values,
             EmbeddingGenerationOptions options = null, CancellationToken cancellationToken = default)
         {
-            Interlocked.Increment(ref Calls);
+            var call = Interlocked.Increment(ref Calls);
+            if (RefuseFromCall > 0 && call >= RefuseFromCall)
+            {
+                throw new InvalidOperationException("the hourly token budget for this key is spent");
+            }
+
             var result = new GeneratedEmbeddings<Embedding<float>>();
+            var size = 0;
             foreach (var value in values)
             {
+                size++;
                 result.Add(new Embedding<float>(VectorFor(value, _dimension)));
             }
+            BatchSizes.Enqueue(size);
             return Task.FromResult(result);
         }
 
@@ -615,7 +634,9 @@ namespace NoSQL.GraphDB.Tests
                 System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
             try
             {
-                return create.Invoke(null, new object[] { options });
+                // The second argument is the ILoggerFactory the Ollama/Nahil branch carries into the
+                // transport for Nahil's per-retry lines; null is a valid "log nothing".
+                return create.Invoke(null, new object[] { options, null });
             }
             catch (System.Reflection.TargetInvocationException ex)
             {
@@ -638,8 +659,63 @@ namespace NoSQL.GraphDB.Tests
             Assert.ThrowsException<System.IO.FileNotFoundException>(() =>
                 CreateBackend(new Fallen8EmbeddingOptions { Backend = "LLamaSharp" }));
 
+            // Nahil constructs eagerly too, and needs the whole triple: it is the same protocol
+            // over an authenticated remote (feature nahil-backend).
+            var nahil = new Fallen8EmbeddingOptions { Backend = "Nahil" };
+            nahil.Nahil.Endpoint = "https://models.example";
+            nahil.Nahil.Model = "bge-m3:latest";
+            nahil.Nahil.ApiKey = "k";
+            using var remote = (IDisposable)CreateBackend(nahil);
+            Assert.IsInstanceOfType(remote, typeof(OllamaSharp.OllamaApiClient));
+
             Assert.ThrowsException<InvalidOperationException>(() =>
                 CreateBackend(new Fallen8EmbeddingOptions { Backend = "Nope" }));
+        }
+
+        /// <summary>
+        ///   Nahil is refused, with the reason, for every way its configuration can be
+        ///   unusable - rather than constructing a client that would 401 or dial the wrong URL. The
+        ///   throw is what the provider's Lazy latches into a permanent 503, which is how the
+        ///   operator sees the reason at all.
+        /// </summary>
+        [TestMethod]
+        public void BackendFactory_RefusesAnUnusableNahil_NamingTheKeyToFix()
+        {
+            static Fallen8EmbeddingOptions Nahil(String endpoint, String model, String apiKey)
+            {
+                var options = new Fallen8EmbeddingOptions { Backend = "Nahil" };
+                options.Nahil.Endpoint = endpoint;
+                options.Nahil.Model = model;
+                options.Nahil.ApiKey = apiKey;
+                return options;
+            }
+
+            // A path prefix is REFUSED, never rewritten: HttpClient.BaseAddress would drop it and
+            // every call would silently go to the wrong URL.
+            var path = Assert.ThrowsException<InvalidOperationException>(
+                () => CreateBackend(Nahil("https://models.example/v1", "bge-m3:latest", "k")));
+            StringAssert.Contains(path.Message, "Fallen8:Embedding:Nahil:Endpoint");
+            StringAssert.Contains(path.Message, "host root");
+
+            foreach (var (options, expected) in new[]
+            {
+                (Nahil(null, "bge-m3:latest", "k"), "Fallen8:Embedding:Nahil:Endpoint"),
+                (Nahil("not-a-url", "bge-m3:latest", "k"), "Fallen8:Embedding:Nahil:Endpoint"),
+                (Nahil("https://models.example/?a=b", "bge-m3:latest", "k"), "Fallen8:Embedding:Nahil:Endpoint"),
+                (Nahil("https://models.example", null, "k"), "Fallen8:Embedding:Nahil:Model"),
+                (Nahil("https://models.example", "bge-m3:latest", " "), "Fallen8:Embedding:Nahil:ApiKey")
+            })
+            {
+                var refused = Assert.ThrowsException<InvalidOperationException>(() => CreateBackend(options));
+                StringAssert.Contains(refused.Message, expected, refused.Message);
+            }
+
+            // The SIDECAR is held to the same endpoint contract, but never asked for a credential:
+            // real Ollama authenticates nothing, so requiring one would break every local setup.
+            var sidecar = new Fallen8EmbeddingOptions { Backend = "Ollama" };
+            sidecar.Ollama.Endpoint = "http://localhost:11434/ollama";
+            var prefixed = Assert.ThrowsException<InvalidOperationException>(() => CreateBackend(sidecar));
+            StringAssert.Contains(prefixed.Message, "Fallen8:Embedding:Ollama:Endpoint");
         }
 
         private sealed class RealBackendFactory : WebApplicationFactory<Program>

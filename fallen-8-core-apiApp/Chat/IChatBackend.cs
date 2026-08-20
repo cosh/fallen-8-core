@@ -38,9 +38,11 @@ namespace NoSQL.GraphDB.App.Chat
     /// </summary>
     public interface IChatBackend
     {
-        /// <summary>Runs one non-streaming chat completion and returns the assistant content plus
-        /// the backend's generation stats. Throws on backend failure (surfaced by the provider as
-        /// 503) - never returns a partial/garbled result silently.</summary>
+        /// <summary>Runs one chat completion and returns the WHOLE assistant content plus the
+        /// backend's generation stats. Whether the backend streamed to produce it is its own
+        /// business. Throws on backend failure (surfaced by the provider as 503), and throws
+        /// <see cref="ChatBackendOutputException" /> (502) rather than returning an answer it
+        /// received only part of - never a partial/garbled result silently.</summary>
         Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages, ChatBackendOptions options,
             CancellationToken cancellationToken);
     }
@@ -59,10 +61,32 @@ namespace NoSQL.GraphDB.App.Chat
         public String Content { get; }
     }
 
-    /// <summary>Optional per-call knobs. Temperature is the only one surfaced in v1.</summary>
+    /// <summary>Optional per-call knobs; each is left at the model's own default when null/empty.</summary>
     public sealed class ChatBackendOptions
     {
         public Double? Temperature { get; init; }
+
+        /// <summary>
+        ///   Sequences that stop generation. Per-request because a model's stop tokens are only
+        ///   baked into a locally BUILT image: the same weights published to a registry arrive
+        ///   without them, so whatever needs them has to send them.
+        /// </summary>
+        public IReadOnlyList<String> Stop { get; init; }
+    }
+
+    /// <summary>
+    ///   The backend produced an incomplete or unreadable answer - a stream that died part-way, or
+    ///   one that ended with no completion marker. Distinct from an unreachable backend because the
+    ///   fault is in the RESPONSE, so the provider maps it to 502 rather than 503, and it carries
+    ///   how much content had arrived: without that number a truncation is indistinguishable from a
+    ///   short answer the model meant to give.
+    /// </summary>
+    public sealed class ChatBackendOutputException : Exception
+    {
+        public ChatBackendOutputException(String message, Exception inner = null)
+            : base(message, inner)
+        {
+        }
     }
 
     /// <summary>The completion plus the backend's generation stats (all nullable: a backend may

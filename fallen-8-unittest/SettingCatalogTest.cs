@@ -54,12 +54,21 @@ namespace NoSQL.GraphDB.Tests
         private static readonly Assembly _apiApp = typeof(Fallen8SecurityOptions).Assembly;
 
         /// <summary>
-        ///   The exclusion rules a catalogued key may cite: R1 to R6 of spec section 4.7, plus the
-        ///   collection rule of 4.3.5. R7 is deliberately NOT here. Its resolution is to implement or
-        ///   delete the property, never to catalogue it, because a never-writable entry still publishes
-        ///   the key and would go on advertising a control the app does not have.
+        ///   The exclusion rules a catalogued key may cite: R1 to R6 of spec section 4.7, R8 (feature
+        ///   nahil-backend), plus the collection rule of 4.3.5. R7 is deliberately NOT here.
+        ///   Its resolution is to implement or delete the property, never to catalogue it, because a
+        ///   never-writable entry still publishes the key and would go on advertising a control the
+        ///   app does not have.
+        ///   <para>
+        ///     R8 - no credential this server PRESENTS - is the one rule added since. R1 covers the
+        ///     credential the server DEMANDS and is blanket-scoped to <c>Fallen8:Security</c>, so a
+        ///     key elsewhere cannot cite it (<see cref="AssertBlanketRule"/> fails it); and neither
+        ///     the URL rule (R4) nor the capability rule (R5) describes a secret. A new hazard class
+        ///     earns a rule rather than being filed under the nearest one, which is what keeps the
+        ///     published reasons honest.
+        ///   </para>
         /// </summary>
-        private static readonly String[] _knownRules = { "R1", "R2", "R3", "R4", "R5", "R6", "4.3.5" };
+        private static readonly String[] _knownRules = { "R1", "R2", "R3", "R4", "R5", "R6", "R8", "4.3.5" };
 
         #region reflecting the real configuration surface
 
@@ -608,9 +617,13 @@ namespace NoSQL.GraphDB.Tests
                 ["Fallen8:Ingestion:FulltextIndexId"] = "R3",
                 ["Fallen8:Ingestion:EntityIndexId"] = "R3",
 
+                ["Fallen8:Embedding:Nahil:Model"] = "R3",
+
                 // R4 - every URL the server dials.
                 ["Fallen8:Embedding:Ollama:Endpoint"] = "R4",
                 ["Fallen8:Chat:Ollama:Endpoint"] = "R4",
+                ["Fallen8:Chat:Nahil:Endpoint"] = "R4",
+                ["Fallen8:Embedding:Nahil:Endpoint"] = "R4",
                 ["Fallen8:Ingestion:Docling:Endpoint"] = "R4",
                 ["Fallen8:Nlp:Endpoint"] = "R4",
                 ["Fallen8:Observability:Otlp:Endpoint"] = "R4",
@@ -622,7 +635,13 @@ namespace NoSQL.GraphDB.Tests
                 ["Fallen8:Ingestion:Enabled"] = "R5",
                 ["Fallen8:Integrations:Enabled"] = "R5",
                 ["Fallen8:Observability:Prometheus:Enabled"] = "R5",
-                ["Fallen8:Observability:Prometheus:RequireApiKey"] = "R5"
+                ["Fallen8:Observability:Prometheus:RequireApiKey"] = "R5",
+
+                // R8 - no credential this server PRESENTS. Pinned here because it is the whole
+                // security property of the gateway backend: writable it redirects someone's metered
+                // spend, published it hands the key to an anonymous reader of GET /config.
+                ["Fallen8:Chat:Nahil:ApiKey"] = "R8",
+                ["Fallen8:Embedding:Nahil:ApiKey"] = "R8"
             };
 
             var violations = new List<String>();

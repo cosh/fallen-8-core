@@ -156,6 +156,16 @@ namespace NoSQL.GraphDB.App.Embedding
             {
                 generated = await generator.GenerateAsync(texts, options: null, timeoutCts.Token);
             }
+            catch (Helper.NahilWarmupTimeoutException ex)
+            {
+                // Nahil spent the whole budget saying "not yet". Same 503 as any other backend
+                // that is not usable right now, with the model that was never loaded named - and a
+                // caller who went away still gets their cancellation rather than a fault report.
+                cancellationToken.ThrowIfCancellationRequested();
+                throw new EmbeddingProviderUnavailableException(String.Format(
+                    "The embedding backend '{0}' did not respond within Fallen8:Embedding:TimeoutSeconds ({1}s). {2}",
+                    _options.Backend, _options.TimeoutSeconds, ex.Message));
+            }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 // Any cancellation that is not the CALLER's is a backend timeout. 503 like every

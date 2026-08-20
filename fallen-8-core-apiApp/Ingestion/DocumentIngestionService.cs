@@ -902,7 +902,24 @@ namespace NoSQL.GraphDB.App.Ingestion
                     texts.Add(chunks[offset + i].Text);
                 }
 
-                var batch = await _provider.EmbedAsync(texts, cancellationToken);
+                Single[][] batch;
+                try
+                {
+                    batch = await _provider.EmbedAsync(texts, cancellationToken);
+                }
+                catch (Embedding.EmbeddingProviderUnavailableException ex)
+                {
+                    // Name WHERE a long run stopped. A remote backend can refuse part way through
+                    // (a spent token budget, a model evicted mid-run), and the provider's message
+                    // alone - which is all this used to report - says nothing about how much of the
+                    // document was already embedded, so "re-run it" was the only possible response.
+                    // Nothing is written before every chunk is embedded, so the whole document is
+                    // re-runnable; this only makes the size of what failed visible.
+                    throw new Embedding.EmbeddingProviderUnavailableException(String.Format(
+                        "{0} Chunks {1}-{2} of {3} were not embedded ({4} already were).",
+                        ex.Message, offset + 1, offset + count, chunks.Count, offset), ex);
+                }
+
                 for (var i = 0; i < count; i++)
                 {
                     vectors[offset + i] = batch[i];

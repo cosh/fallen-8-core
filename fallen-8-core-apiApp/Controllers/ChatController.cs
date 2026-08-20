@@ -125,8 +125,15 @@ namespace NoSQL.GraphDB.App.Controllers
                 turns.Add(new ChatTurn(message.Role, message.Content));
             }
 
-            var options = definition.Options?.Temperature is Double temperature
-                ? new ChatBackendOptions { Temperature = temperature }
+            // Both knobs travel together or not at all: a request naming stop sequences must not lose
+            // its temperature on the way, which is why this is one object rather than two ternaries.
+            var stop = definition.Options?.Stop?.Where(s => !String.IsNullOrEmpty(s)).ToList();
+            var options = definition.Options?.Temperature is Double temperature || stop is { Count: > 0 }
+                ? new ChatBackendOptions
+                {
+                    Temperature = definition.Options?.Temperature,
+                    Stop = stop is { Count: > 0 } ? stop : null
+                }
                 : null;
 
             ChatBackendResult result;

@@ -52,7 +52,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   Projects one catalogued key, withholding the value unless the key is writable. Pass
         ///   <paramref name="effectiveValues" /> when projecting many keys at once: binding one options
-        ///   class per key would otherwise bind every section 94 times per request.
+        ///   class per key would otherwise bind every section 102 times per request.
         ///
         ///   <para><paramref name="applyFailure" /> is why a LIVE key's last apply did not reach the
         ///   running process, when it did not. It downgrades the published promise: the row reports

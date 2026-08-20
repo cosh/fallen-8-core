@@ -49,7 +49,8 @@ namespace NoSQL.GraphDB.App.Configuration
             get; set;
         }
 
-        /// <summary>The backend: <c>Onnx</c>, <c>LLamaSharp</c> or <c>Ollama</c>.</summary>
+        /// <summary>The backend: <c>Onnx</c>, <c>LLamaSharp</c>, <c>Ollama</c> (the local sidecar) or
+        /// <c>Nahil</c> (nahil.dev, remote and authenticated).</summary>
         public String Backend { get; set; } = "Onnx";
 
         /// <summary>The per-call budget for one generate (which embeds a BATCH of texts, hence the
@@ -101,6 +102,9 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>Ollama backend settings.</summary>
         public OllamaOptions Ollama { get; set; } = new OllamaOptions();
 
+        /// <summary>Nahil settings; used only when <see cref="Backend" /> is <c>Nahil</c>.</summary>
+        public NahilOptions Nahil { get; set; } = new NahilOptions();
+
         public sealed class OnnxOptions
         {
             /// <summary>Path to the .onnx model file (operator-provided; nothing is downloaded).</summary>
@@ -142,8 +146,42 @@ namespace NoSQL.GraphDB.App.Configuration
             /// embedding endpoints answer 503 while everything else keeps running.</summary>
             public String Endpoint { get; set; } = "http://localhost:11434";
 
-            /// <summary>The embedding model to invoke (pull an MIT model, e.g. bge-m3).</summary>
-            public String Model { get; set; } = "bge-m3";
+            /// <summary>The embedding model to invoke (pull an MIT model, e.g. bge-m3). Reaches the
+            /// request body VERBATIM, so the tag is explicit; this is the request identifier, NOT
+            /// the identity stamp (<see cref="Fallen8EmbeddingOptions.ModelName" />), which is
+            /// compared against stored vectors and is deliberately untagged.</summary>
+            public String Model { get; set; } = "bge-m3:latest";
+        }
+
+        /// <summary>
+        ///   Nahil (nahil.dev), serving the same embedding model. The geometry does not change with
+        ///   the hop: <see cref="Dimension" />,
+        ///   <see cref="IntendedMetric" /> and the identity stamp stay exactly what they were, and
+        ///   nothing re-embeds - the same model produces the same vectors wherever it runs.
+        /// </summary>
+        public sealed class NahilOptions
+        {
+            /// <summary>The Nahil base URL. Must be a host root (scheme, host, optional port);
+            /// HTTPS for anything off the operator's own network.</summary>
+            public String Endpoint
+            {
+                get; set;
+            }
+
+            /// <summary>The bearer credential Nahil requires on EVERY route. Never logged and never
+            /// published on the config read surface.</summary>
+            public String ApiKey
+            {
+                get; set;
+            }
+
+            /// <summary>The embedding model to invoke, as Nahil's catalog names it. This is the
+            /// embedding FUNCTION: it must serve the same model the stored vectors were produced
+            /// with, or the identity stamp beside them becomes a lie.</summary>
+            public String Model
+            {
+                get; set;
+            }
         }
     }
 }

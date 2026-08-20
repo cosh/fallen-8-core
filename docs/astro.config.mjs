@@ -192,6 +192,7 @@ export default defineConfig({
 						{ label: 'Indexes', slug: 'indexes' },
 						{ label: 'Vector search', slug: 'vector-search' },
 						{ label: 'Semantic traversal', slug: 'semantic-traversal' },
+						{ label: 'Nahil', slug: 'nahil' },
 						{ label: 'Semantic layer', slug: 'unstructured-ingestion' },
 						{ label: 'Bulk import/export', slug: 'bulk-import-export' },
 						{ label: 'Integrations', slug: 'integrations' },

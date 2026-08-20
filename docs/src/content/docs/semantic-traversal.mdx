@@ -204,7 +204,8 @@ gateway**, `POST /chat`, that proxies a chat completion to the
 same model backend so a client reaches an SLM/LLM *through* the instance. It is the default
 NL-assist transport in [F8 Studio](/studio/), also apiApp-only and capability-gated, and the
 model is server-owned. Configure it under `Fallen8:Chat` (off unless `Enabled` /
-`F8_CHAT`): `Backend` (`Ollama`), `Ollama.{Endpoint,Model}` (default `phi4-f8-mini`),
+`F8_CHAT`): `Backend` (`Ollama` or `Nahil`, see [Nahil](/nahil/)),
+`Ollama.{Endpoint,Model}` (default `phi4-f8-mini:latest`),
 `TimeoutSeconds` (the single deadline on a completion; exceeded calls answer `504`). Both
 providers' state, plus whether the backend runs on GPU when Ollama reports it, is shown
 in Studio's Connect **Configuration** section (`GET /config`). The values that identify a model are

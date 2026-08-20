@@ -50,7 +50,9 @@ namespace NoSQL.GraphDB.App.Configuration
             get; set;
         }
 
-        /// <summary>The backend: <c>Ollama</c> (the only backend in v1).</summary>
+        /// <summary>The backend: <c>Ollama</c> (the local sidecar, the default) or <c>Nahil</c>
+        /// (nahil.dev, remote and authenticated). Both speak the same protocol; Nahil adds a
+        /// credential and a warm-up state, which is the whole difference.</summary>
         public String Backend { get; set; } = "Ollama";
 
         /// <summary>The per-request proxy timeout; exceeded requests answer 504. It is the SINGLE
@@ -65,8 +67,24 @@ namespace NoSQL.GraphDB.App.Configuration
         /// </para></summary>
         public Int32 TimeoutSeconds { get; set; } = 120;
 
+        /// <summary>
+        ///   Whether to ask the backend to stream the completion. On by default: the tokens then
+        ///   arrive as they are produced instead of after the whole answer exists, and Nahil runs
+        ///   its own verification pass AFTER delivery rather than in front of it, so a slow remote
+        ///   worker stops paying for that pass twice over in latency.
+        ///   <para>
+        ///     <c>POST /chat</c> buffers either way - its response shape is unchanged - so this is
+        ///     about what the BACKEND is asked to do, not about what a client sees. Turn it off only
+        ///     for a backend whose streaming is broken.
+        ///   </para>
+        /// </summary>
+        public Boolean Stream { get; set; } = true;
+
         /// <summary>Ollama backend settings (reuses the sidecar the embedding provider uses).</summary>
         public OllamaOptions Ollama { get; set; } = new OllamaOptions();
+
+        /// <summary>Nahil settings; used only when <see cref="Backend" /> is <c>Nahil</c>.</summary>
+        public NahilOptions Nahil { get; set; } = new NahilOptions();
 
         public sealed class OllamaOptions
         {
@@ -77,8 +95,40 @@ namespace NoSQL.GraphDB.App.Configuration
 
             /// <summary>The chat model to invoke (pull a model, e.g. the fine-tuned phi4-f8-mini
             /// default, a stock phi4-mini, or any Ollama chat model). Server-owned: clients cannot
-            /// override it on the default path.</summary>
-            public String Model { get; set; } = "phi4-f8-mini";
+            /// override it on the default path. Reaches the request body VERBATIM - nothing here
+            /// strips, appends or normalizes a <c>:tag</c> - so the tag is explicit rather than
+            /// left to whatever default each end assumes.</summary>
+            public String Model { get; set; } = "phi4-f8-mini:latest";
+        }
+
+        /// <summary>
+        ///   Nahil (nahil.dev): the same Ollama protocol, authenticated, served from someone else's
+        ///   hardware. There is no default endpoint, so selecting this backend without configuring one
+        ///   is refused with the reason rather than silently dialling localhost.
+        /// </summary>
+        public sealed class NahilOptions
+        {
+            /// <summary>The Nahil base URL. Must be a host root (scheme, host, optional port);
+            /// HTTPS for anything off the operator's own network.</summary>
+            public String Endpoint
+            {
+                get; set;
+            }
+
+            /// <summary>The bearer credential Nahil requires on EVERY route, including its version and
+            /// residency probes. Never logged and never published on the config read surface.</summary>
+            public String ApiKey
+            {
+                get; set;
+            }
+
+            /// <summary>The chat model to invoke, as Nahil's catalog names it (the published
+            /// registry name, which may differ from a locally tagged copy of the same weights).
+            /// Reaches the request body verbatim.</summary>
+            public String Model
+            {
+                get; set;
+            }
         }
     }
 }

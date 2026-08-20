@@ -55,26 +55,39 @@ function main() {
   // transformer tier stays out (a build-time variant, deliberately not published).
   const published = process.argv.includes('--published');
   const gpu = hostHasNvidiaGpu();
+  // Decided before the banners below: with Nahil on there is no local sidecar to put on a GPU and
+  // nothing to pull, so printing either would contradict the paragraph after it.
+  const nahil = (process.env.F8_NAHIL_URL || '').trim() !== '';
   if (published) {
     console.log(
       'Published-image mode: pulling ghcr.io/cosh/fallen-8-core* (' +
         `tag ${process.env.F8_IMAGE_TAG || 'latest'}) instead of building.`
     );
   }
+  if (nahil) {
+    console.log(
+      `Nahil is ON (F8_NAHIL_URL=${process.env.F8_NAHIL_URL}) - the models run there, the local\n` +
+        'Ollama sidecar is NOT started, and nothing is pulled onto this machine. Needs\n' +
+        'F8_NAHIL_API_KEY. Docs: https://docs.fallen-8.com/nahil/\n'
+    );
+  }
   console.log(
     gpu
-      ? 'NVIDIA GPU detected - applying docker-compose.gpu.yml (Ollama on the GPU' +
+      ? 'NVIDIA GPU detected - applying docker-compose.gpu.yml (' +
+        (nahil ? 'the NLP sidecar on the GPU' : 'Ollama on the GPU') +
         (published
           ? '; the NLP sidecar\nstays on the published CPU image - its transformer tier needs a local build, npm run env:up).'
           : ') and\ndocker-compose.gpu-nlp.yml (the NLP sidecar on the en_core_web_trf transformer).')
       : 'No NVIDIA GPU detected - starting CPU-only, the NLP sidecar on en_core_web_lg\n' +
         '(F8_GPU=1 forces the GPU override).'
   );
-  console.log(
-    'On first start the Ollama container pulls phi4-mini + phi4-f8-mini (a few GB); the F8\n' +
-      'API is up immediately, and NL assist works once the pull finishes. Watch it with\n' +
-      '`npm run env:logs`. To pre-seed the models (offline/faster first start): scripts/ensure-models.sh\n'
-  );
+  if (!nahil) {
+    console.log(
+      'On first start the Ollama container pulls phi4-mini + phi4-f8-mini (a few GB); the F8\n' +
+        'API is up immediately, and NL assist works once the pull finishes. Watch it with\n' +
+        '`npm run env:logs`. To pre-seed the models (offline/faster first start): scripts/ensure-models.sh\n'
+    );
+  }
 
   const files = ['-f', 'docker-compose.yml'];
   // The fleet observability stack (feature fleet-observability) always comes up with the
@@ -92,6 +105,11 @@ function main() {
   // (UI-less build, CORS allow-list, Ollama origins, the f8-studio service) win. The all-in-one
   // stays available via a bare `docker compose up` (no overlay).
   files.push('-f', 'docker-compose.split.yml');
+
+  // Nahil (feature nahil-backend): the two model capabilities talk to nahil.dev and the local
+  // Ollama sidecar is not started at all. Applied after split.yml so its Fallen8__Chat/Embedding
+  // overrides win. Announced above, where the sidecar banners it contradicts are.
+  if (nahil) files.push('-f', 'docker-compose.nahil.yml');
 
   // Unstructured ingestion (feature unstructured-ingestion): the docling-serve sidecar rides
   // the "ingestion" profile, default ON like the rest of the environment. F8_INGESTION=false

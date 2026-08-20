@@ -21,6 +21,13 @@ finished, or it failed (no internet to `registry.ollama.ai`). The container uses
 does not help the container. (A custom browser-direct backend bypasses the instance; a 404
 there is the model missing on _that_ endpoint.)
 
+**With [Nahil](/nahil/) the model is not on this machine at all, so read the status code.** Nahil
+answers `503` while it pulls a catalogued model onto a worker, and the instance waits that out
+rather than failing. So a `503` from *your instance*, immediately, is Nahil being unreachable or
+misconfigured, and the message names the setting to fix. A `504` after a long wait is the other
+case: the pull did not finish inside `Fallen8:Chat:TimeoutSeconds`, and that message names the model
+and how long was spent waiting. The logs carry one line per retry.
+
 A common variant with the **custom browser-direct** backend: the editor's preset list offers
 **"Ollama (fine-tuned phi4-f8, GPU)"** (model `phi4-f8`) alongside the default
 `phi4-f8-mini`. `phi4-f8` (~9GB) is pulled by default too, but it is queued **after** the
@@ -88,6 +95,10 @@ undocumented 100-second transport timeout pre-empted it and surfaced as a `500`.
 `504` is what you see, naming the setting you can change. Above it the editor gives up first, so
 raising `Fallen8:Chat:TimeoutSeconds` past 10 minutes has no effect in the editor. That ceiling also
 bounds a **custom** browser-direct backend, which has no Fallen-8 budget in front of it at all.
+
+This is why a [Nahil](/nahil/) deployment sets the budget to **600** seconds and
+not more: 600 s is exactly that 10-minute ceiling, so anything larger only moves the give-up from
+the server, which explains itself in the response, to the browser, which cannot.
 
 While a draft is running the editor tells you it is alive rather than leaving you guessing:
 

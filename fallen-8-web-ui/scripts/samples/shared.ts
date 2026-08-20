@@ -85,8 +85,8 @@ interface EmbedResponse {
 }
 
 /**
- * Embeds texts through the running instance's provider (POST /embedding/text), batched
- * at the provider's default MaxBatchSize (64). Returns the vectors AND the model stamp
+ * Embeds texts through the running instance's provider (POST /embedding/text), in small
+ * batches (F8_EMBED_BATCH, default 8 - see below). Returns the vectors AND the model stamp
  * (`name[@version]#dimension#metric`) so the datasets carry honest provenance next to
  * each vector. Throws a clear message when the provider is off — embedded datasets
  * need a compose environment (or a local instance wired to Ollama's bge-m3).
@@ -103,9 +103,11 @@ export async function embedTexts(
     );
   }
 
-  // Small batches: a CPU Ollama (the default local/compose backend) embeds bge-m3 at a
-  // few texts/second, and Fallen-8's provider HttpClient times out at 100s — a 64-text
-  // batch blows past that. F8_EMBED_BATCH lets a GPU environment raise it.
+  // Small batches, because a CPU Ollama (the default local/compose backend) embeds bge-m3 at
+  // a few texts per second and a big batch spends the whole per-call budget
+  // (Fallen8:Embedding:TimeoutSeconds, 300s by default) on one request. F8_EMBED_BATCH lets a
+  // GPU environment raise it - but keep it at or below the server's Fallen8:Embedding:MaxBatchSize,
+  // which the endpoint enforces with a 400 and which a Nahil deployment lowers to 32.
   const batchSize = Number(process.env.F8_EMBED_BATCH) || 8;
   const vectors: number[][] = [];
   let model = "";

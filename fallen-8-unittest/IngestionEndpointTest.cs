@@ -124,13 +124,16 @@ namespace NoSQL.GraphDB.Tests
         internal readonly FakeDoclingConverter Docling = new FakeDoclingConverter();
         internal readonly FakeNlpClient Nlp = new FakeNlpClient();
 
+        /// <summary>Held rather than newed inline so a test can read the BATCHING that happened, the
+        /// same way it can read what was asked of the other two fakes.</summary>
+        internal readonly FakeEmbeddingGenerator Embeddings;
+
         private readonly Dictionary<String, String> _settings;
-        private readonly Int32 _fakeDimension;
 
         public IngestionFactory(Dictionary<String, String> settings = null, Int32 fakeDimension = Dim)
         {
             _settings = settings ?? new Dictionary<String, String>();
-            _fakeDimension = fakeDimension;
+            Embeddings = new FakeEmbeddingGenerator(fakeDimension);
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -150,8 +153,7 @@ namespace NoSQL.GraphDB.Tests
 
             builder.ConfigureTestServices(services =>
             {
-                services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(
-                    new FakeEmbeddingGenerator(_fakeDimension));
+                services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(Embeddings);
                 services.AddSingleton<IDoclingConverter>(Docling);
                 services.AddSingleton<INlpClient>(Nlp);
             });
