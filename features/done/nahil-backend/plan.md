@@ -1,6 +1,6 @@
 # Plan: Nahil backend
 
-Spec: [spec.md](spec.md). Branch: `feature/nahil-backend`.
+Spec: [spec.md](spec.md). Built on `feature/nahil-backend`, merged to `main` 2026-08-20.
 
 **Status: phases 1-8 done; phase 9 declined.** This file is kept as the record of
 how the work was sequenced, with each phase's outcome noted. The spec's "As built" section is

@@ -1,10 +1,10 @@
 # Spec: Nahil backend
 
-**Status: implemented on `feature/nahil-backend`, not merged.** Drafted 2026-08-20 from an
-external change-request list, every claim of which was verified against the code the same day (see
-the verification record below). Implemented the same day; the as-built deviations are recorded in
-"As built" at the end, which is the part to read if the rest of this document and the code
-disagree.
+**Status: implemented and merged to `main` (2026-08-20).** Drafted the same day from an external
+change-request list, every claim of which was verified against the code before implementing (see
+the verification record below). The as-built deviations are recorded in "As built" at the end,
+which is the part to read if the rest of this document and the code disagree. This file is the
+LIVING record for the feature; the plan beside it is the historical sequencing note.
 
 ## Why
 
