@@ -107,7 +107,7 @@ export async function embedTexts(
   // a few texts per second and a big batch spends the whole per-call budget
   // (Fallen8:Embedding:TimeoutSeconds, 300s by default) on one request. F8_EMBED_BATCH lets a
   // GPU environment raise it - but keep it at or below the server's Fallen8:Embedding:MaxBatchSize,
-  // which the endpoint enforces with a 400 and which a model-gateway deployment lowers to 32.
+  // which the endpoint enforces with a 400 and which a Nahil deployment lowers to 32.
   const batchSize = Number(process.env.F8_EMBED_BATCH) || 8;
   const vectors: number[][] = [];
   let model = "";

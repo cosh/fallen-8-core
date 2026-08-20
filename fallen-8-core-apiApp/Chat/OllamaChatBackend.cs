@@ -118,11 +118,20 @@ namespace NoSQL.GraphDB.App.Chat
                     }
                 }
             }
-            catch (Exception ex) when (!(ex is OperationCanceledException))
+            catch (Exception ex) when (!(ex is OperationCanceledException)
+                && !(ex is NahilWarmupTimeoutException) && content.Length > 0)
             {
-                // A stream that dies half way has produced real tokens, and returning them would be
-                // indistinguishable from a short answer the model chose to give. Fail, and say how
-                // much arrived so the operator can tell a truncation from an empty response.
+                // A stream that dies AFTER producing tokens is a truncation, and returning what
+                // arrived would be indistinguishable from a short answer the model chose to give.
+                // Fail, and say how much arrived so the operator can tell the two apart.
+                //
+                // The two exclusions are the whole reason this filter is not a blanket catch. A
+                // fault before the first token is not a truncation, it is a backend that did not
+                // answer - which the provider maps to 503, exactly as it did before this backend
+                // could stream at all; blanket-catching it turned every stopped sidecar into a 502
+                // blaming the response for a connection problem. And a warm-up give-up never
+                // produced a response to truncate: it belongs to the provider, which is the only
+                // layer that knows whether the budget or the caller ran out.
                 throw new ChatBackendOutputException(String.Format(
                     "The chat backend's response ended early after {0} character(s): {1}",
                     content.Length, ex.Message), ex);

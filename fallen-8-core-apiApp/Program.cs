@@ -826,13 +826,22 @@ namespace NoSQL.GraphDB.App
             // would have kept working. The wording comes from OllamaConnection.IsValid, so this line
             // and that 503 can never drift apart.
             var chatOptions = app.Services.GetRequiredService<IOptions<Fallen8ChatOptions>>().Value;
-            if (chatOptions.Enabled
-                && NoSQL.GraphDB.App.Chat.ChatBackendFactory.ResolveConnection(chatOptions) is { } chatTarget
-                && !chatTarget.IsValid(out var chatProblem))
+            if (chatOptions.Enabled)
             {
-                startupLogger.LogWarning(
-                    "Fallen-8 chat gateway: the configured backend cannot be dialled, so POST /chat will answer 503. {Problem}",
-                    chatProblem);
+                var chatTarget = NoSQL.GraphDB.App.Chat.ChatBackendFactory.ResolveConnection(chatOptions);
+                // A null resolution means the selector names no backend this app has, which is the
+                // likeliest misconfiguration of all (a wrong-cased "nahil" matches nothing, because
+                // the factory compares ordinally). Reported here too, or the most common typo would
+                // be the one boot said nothing about.
+                var chatProblem = chatTarget == null
+                    ? "Fallen8:Chat:Backend is '" + chatOptions.Backend + "', which is not a supported backend."
+                    : chatTarget.IsValid(out var invalid) ? null : invalid;
+                if (chatProblem != null)
+                {
+                    startupLogger.LogWarning(
+                        "Fallen-8 chat gateway: the configured backend cannot be dialled, so POST /chat will answer 503. {Problem}",
+                        chatProblem);
+                }
             }
 
             var embeddingOptions = app.Services.GetRequiredService<IOptions<Fallen8EmbeddingOptions>>().Value;

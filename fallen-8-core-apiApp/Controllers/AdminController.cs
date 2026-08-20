@@ -392,8 +392,20 @@ namespace NoSQL.GraphDB.App.Controllers
 
                 async Task ProbeAsync(Helper.OllamaConnection connection, Action<Boolean?, Boolean?> assign)
                 {
-                    var state = await Chat.OllamaModelProbe.ProbeAsync(connection, cts.Token);
-                    assign(state?.Resident, state?.Gpu);
+                    try
+                    {
+                        var state = await Chat.OllamaModelProbe.ProbeAsync(connection, cts.Token);
+                        assign(state?.Resident, state?.Gpu);
+                    }
+                    catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        // The SHARED 3s budget above ran out. The probe swallows its own failures to
+                        // "unknown", but it cannot swallow this one: the token it was handed is the
+                        // one that tripped, so its filter correctly declines to. Swallowed here
+                        // instead, where that budget is owned, because "a residency probe can never
+                        // fail the config read" has to hold - and a remote backend makes the race
+                        // that used to need a hung sidecar an ordinary slow round-trip.
+                    }
                 }
 
                 var probes = new System.Collections.Generic.List<Task>();

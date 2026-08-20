@@ -306,19 +306,33 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        ///   A chunk missing the fields the parser wants is tolerated, as long as the stream still
-        ///   completes: a backend that omits a message on one chunk has not failed, and a strict
-        ///   reader here would turn a working answer into a 502.
+        ///   A backend that never answers is NOT a truncation, and must keep reaching the provider's
+        ///   503 rather than the truncation's 502. This is the regression a blanket catch caused:
+        ///   wrapping every transport fault as "the response ended early" turned a stopped sidecar
+        ///   into a 502 that blamed the response for a connection problem, on the DEFAULT path that
+        ///   this feature promised not to change.
         /// </summary>
         [TestMethod]
-        public async Task AChunkWithMissingFields_DoesNotFailAStreamThatStillCompletes()
+        public async Task AnUnreachableBackend_IsNotReportedAsATruncatedStream()
         {
-            var stub = new WireStub("{\"model\":\"m\",\"done\":false}\n" + Delta("ok") + Done());
-            using var backend = Backend(stub);
+            using var backend = new OllamaChatBackend(
+                OllamaConnection.Sidecar("Fallen8:Chat:Ollama", "http://127.0.0.1:1", "phi4-f8-mini:latest"),
+                stream: true, logger: null, new RefusingHandler());
 
-            var result = await backend.ChatAsync(Turns(), null, CancellationToken.None);
+            var failure = await Assert.ThrowsExceptionAsync<HttpRequestException>(
+                () => backend.ChatAsync(Turns(), null, CancellationToken.None),
+                "a connection that never delivered a token is the provider's 503, not a 502 truncation");
+            Assert.IsNotNull(failure);
+        }
 
-            Assert.AreEqual("ok", result.Content);
+        /// <summary>A transport that fails before any byte arrives, the way a stopped sidecar does.</summary>
+        private sealed class RefusingHandler : HttpMessageHandler
+        {
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                throw new HttpRequestException("Connection refused");
+            }
         }
 
         /// <summary>

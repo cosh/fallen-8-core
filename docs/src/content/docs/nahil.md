@@ -121,9 +121,12 @@ which is the tier whose entries publish a key's name, tier and reason but *no va
 be written over REST either: a writable credential would let a caller redirect your metered
 spend. No log line, error message or diagnostic contains the key.
 
-Note that the model names, unlike the keys, are writable-tier - but when compose supplies them as
-environment variables, the environment *wins* over a stored override. Studio renders those rows
-read-only and a write is refused with `409` naming the variable to change instead. That is
+The two model names differ from each other, which is worth knowing before you try to change one.
+The chat model is writable-tier; the embedding model is never-writable, because it *is* the
+embedding function and a write would produce vectors that no longer match the ones already stored
+under the same stamp. And when compose supplies either as an environment variable, the environment
+*wins* over a stored override: Studio renders that row read-only and a write is refused naming the
+variable to change instead. That is
 [how configuration authority works](/configuration/) generally, not something specific to Nahil.
 
 ## Waiting for a cold model
@@ -184,17 +187,17 @@ gave.
 
 ## Model names
 
-Configure model names **with an explicit tag** (`bge-m3:latest`, not `bge-m3`). A bare name relies
-on both ends agreeing about a default; a tagged one names the same thing everywhere. The
-configured string reaches the request body verbatim - nothing strips, appends or normalizes a tag.
-
-Nahil catalogs models under their **published registry names**, which may differ from a name you
-gave a local copy of the same weights. Where they differ, Nahil's name is the one to configure,
-and the digest is what tells you they are the same model.
+The models are the same ones a local setup uses - `phi4-f8-mini` (or `phi4-f8`) for the assist and
+`bge-m3` for embeddings. Configure them **with an explicit tag** (`bge-m3:latest`, not `bge-m3`): a
+bare name relies on both ends agreeing about a default, a tagged one names the same thing
+everywhere. The configured string reaches the request body verbatim - nothing strips, appends or
+normalizes a tag - so if a backend ever catalogues a model under a different name, that is an
+environment variable and nothing more.
 
 ## Checking it works
 
-`GET /config` reports each capability's backend, its model, and whether the model is currently
-resident on the backend. Residency is a best-effort probe with a 3 s bound: it authenticates like
+`GET /config` reports each capability's backend and whether its model is currently resident on
+that backend - the chat block naming the model it will ask for, the embedding block naming the
+identity stamped beside your vectors. Residency is a best-effort probe with a 3 s bound: it authenticates like
 everything else, and answers "unknown" rather than delaying the page. F8 Studio shows the same
 thing in Connect → **Configuration**.

@@ -26,11 +26,11 @@ Nahil is wire-compatible with Ollama (`/api/chat`, `/api/embed`, `/api/tags`, `/
 4. A per-request embedding batch cap of 64 items.
 5. Workers include CPU-only machines (measured ~5 s/token), and a non-streamed response carries
    a verification inference in front of the reply. Streamed responses verify after delivery.
-6. The catalog serves the same fine-tunes under their published registry names: the chat model
-   as `f8-delegate:latest` (content digest
-   `6d4bd13b1fda5a118af62702e7ae5aca0f89c5fb71dc693337429bf075280f1a`, byte-identical to the
-   local `phi4-f8-mini`), and `bge-m3` at 1024 dimensions. `Fallen8:Embedding:Dimension`,
-   `IntendedMetric` and all stored vectors stay valid; nothing re-embeds.
+6. Nahil's catalog has to serve the models this project actually uses - the operator's own
+   fine-tunes `phi4-f8-mini` / `phi4-f8`, and `bge-m3` at 1024 dimensions. Model names are
+   configured, so whatever Nahil's catalog calls a model is what goes in the config;
+   `Fallen8:Embedding:Dimension`, `IntendedMetric` and all stored vectors stay valid, and nothing
+   re-embeds.
 
 ## Decisions (operator)
 
@@ -61,10 +61,11 @@ Nahil is wire-compatible with Ollama (`/api/chat`, `/api/embed`, `/api/tags`, `/
    embedding-provider FR-8) compared against stamps stored beside existing vectors, and is never
    sent to Ollama; retagging it would make every existing index identity-mismatch for zero wire
    benefit. Only `*:Ollama:Model` / `*:Nahil:Model` are request identifiers.
-6. **The local "no f8-delegate alias" decision (delegate-model-variants, 2026-07-20) stands.** It
-   governs local artifact naming. Nahil's catalog name for the same digest is the published
-   registry name, so a Nahil deployment configures
-   `Fallen8:Chat:Nahil:Model=f8-delegate:latest`; local profiles keep `phi4-f8-mini`.
+6. **The models stay `phi4-f8-mini` / `phi4-f8`, everywhere.** These are the operator's own
+   fine-tunes and the "clean rename, no alias" decision (delegate-model-variants, 2026-07-20)
+   governs their name on every backend, not just locally. The external change-request list asked
+   for a rename to a different published name; that is declined - a Nahil deployment configures
+   the same names a local one does, and the model name is a configured string either way.
 7. **A misconfigured backend latches a 503; it does not stop the process** (as built, see below).
 
 ## Requirements
@@ -205,16 +206,15 @@ move the give-up from the server to the browser), `Fallen8:Embedding:TimeoutSeco
 `scripts/env-up.js` applies it when `F8_NAHIL_URL` is set. CI validates it with
 `docker compose config -q`, which is its only gate: no unit test reads a compose file.
 
-### FR-10: Chat model under its published name (coordinated, LAST, NOT DONE)
+### FR-10: renaming the chat model - DECLINED
 
-The Nahil profile will configure `Fallen8:Chat:Nahil:Model=f8-delegate:latest` (decision 6). This
-is the one requirement deliberately **not** implemented: it lands only when the platform catalog
-is live, and it is revertible by configuration alone. The overlay currently defaults to
-`phi4-f8-mini:latest` so a Nahil deployment works against the names that exist today. When it
-lands: record in the docs that `phi4-f8-mini` and `f8-delegate` are the same weights under two
-names (digest above), sweep the repo for `phi4-f8-mini`/`phi4-f8` with a per-hit decision, and
-verify a natural-language-to-lambda request still produces C# of the same shape. If it does not,
-stop and report upstream rather than papering over it with prompt changes.
+The change-request list asked for the configured chat model to be renamed to a different published
+registry name at cutover. Declined: these are the operator's own fine-tunes, they are named
+`phi4-f8-mini` and `phi4-f8`, and the 2026-07-20 "clean rename, no alias" decision applies to
+every backend rather than only to local artifacts. A Nahil deployment configures the same names a
+local one does. Nothing in this feature depends on it - the model name is a configured string, so
+if Nahil's catalog ever needs a different one, that is an environment variable and not a change
+here.
 
 ## Verification record (change requests vs code, 2026-08-20)
 
@@ -229,7 +229,7 @@ stop and report upstream rather than papering over it with prompt changes.
 | 7 | 503 retry, never pull | FR-4. Deviation: no separate retry-budget/clamp knobs (decision 4); the caller's TimeoutSeconds is the budget. `/api/pull` is unreachable from product code already, so nothing needed gating. |
 | 8 | Batch cap, 429, order, dimension | Cap enforced everywhere and dimension validation already latches (verified). Added: order-preservation test, 429 via FR-4, the un-embedded-range failure report, `MaxBatchSize=32` in the profile. Job-level resume out of scope. |
 | 9 | 14.7B baked-ins must travel per request | Premise partly stale: the runtime already sends per-kind system prompts and temperature on every request, and the `SYSTEM` text is already committed. The server never uses the 14.7B tier by default. Remaining gap was per-request stop tokens: FR-7. |
-| 10 | Rename to `f8-delegate:latest` | FR-10, Nahil profile only, coordinated, NOT implemented. Local naming decision of 2026-07-20 stands (decision 6). |
+| 10 | Rename the chat model to a different published name | DECLINED. The fine-tunes are the operator's own and stay `phi4-f8-mini` / `phi4-f8` on every backend (decision 6); the model name is configured, so no code depends on the choice. |
 
 ## As built: deviations from this spec
 
@@ -266,7 +266,30 @@ Recorded because the code is the source of truth and these were decided while im
 6. **`Fallen8:Embedding:Backend` gains no `allowedValues`** (FR-1 as first written was
    impossible): it is `NotWritable`, and never-writable entries structurally cannot carry an
    accepted set.
-7. **FR-10 is not implemented**, by design (see above).
+7. **FR-10 is declined, not deferred** (see above): no `f8-delegate` name appears anywhere.
+8. **The chat backend's stream catch is narrow, and had to be.** An adversarial review pass caught
+   the first version blanket-catching every non-cancellation fault as a truncation - which made the
+   provider's dedicated warm-up and "backend is down" paths unreachable and turned a stopped LOCAL
+   sidecar from 503 into 502, breaking this feature's central promise that the Ollama path is
+   unchanged. A fault is a truncation only if tokens had already arrived; the warm-up give-up is
+   excluded outright, since it belongs to the provider. Pinned by a test.
+9. **No endpoint value appears in a message.** Also from the review: the validation text reaches an
+   anonymous 503 body, while the catalog deliberately withholds that key's value - and an operator
+   who embedded credentials in the URL would have had them disclosed. Messages name the key only.
+
+### Known consequences, accepted rather than engineered around
+
+- **A REST-only operator can select `Backend=Nahil` without being able to configure it.** The
+  endpoint (R4) and key (R8) are never-writable by design, so a `PATCH /config` that switches the
+  backend cannot supply them. It is restart-tier, so nothing breaks until a restart, after which
+  `/chat` answers 503 naming the missing key and clearing the override recovers. Nahil is
+  environment-configured by design (that is what the compose overlay is for); adding a validator
+  that understands backend semantics would couple the write path to them for a case that already
+  explains itself.
+- **`GET /config` drives a residency probe to Nahil, and that route is anonymous on a keyless
+  instance.** It is a `/api/ps` call, which costs no tokens, is bounded at 3 s, and only runs when
+  the capability is enabled; a caller on a keyless instance can already execute arbitrary code in
+  the process. Not worth a cache or a rate limit.
 
 Also fixed in passing, because a reader would otherwise have taken them as true: the
 "publishes 94 keys" comment in `Fallen8ConfigOverrides` (now 102), and two stale claims in
@@ -289,8 +312,8 @@ a 100 s transport timeout that `Timeout.InfiniteTimeSpan` retired).
   `McpRestCoverageTest`. No MCP work and no new deferral entry.
 - **embedding-provider / element-embeddings**: identity stamp, dimension, metric and stored
   vectors all unchanged (decision 5).
-- **delegate-model-variants**: the local no-alias decision is reaffirmed, not reversed. Its
-  published-name note lands with FR-10.
+- **delegate-model-variants**: its no-alias decision is reaffirmed and widened - it governs the
+  model's name on every backend, not just the local one. Nothing in that feature changes.
 - **NL-assist dataset/eval**: no retrain; prompts, models and temperature are unchanged. No
   `RETRAIN-LOG.md` entry.
 - **Docs site**: new `nahil` page; updates to `running.mdx`, `nl-assist.md`, `troubleshooting.md`

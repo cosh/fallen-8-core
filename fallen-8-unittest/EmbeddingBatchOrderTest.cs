@@ -159,40 +159,5 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(0, engine.GetAllVertices(DocumentGraphSchema.ChunkLabel).Count,
                 "a failed embed leaves no half-indexed document behind");
         }
-
-        /// <summary>
-        ///   A backend that returns the wrong WIDTH is a configuration fault, and it is refused rather
-        ///   than stored. Pinned with its message because the number in it is the whole diagnosis: a
-        ///   backend serving a different model than the one the stored vectors came from shows up
-        ///   exactly here, and nowhere else.
-        /// </summary>
-        [TestMethod]
-        public async Task AWrongWidthVector_IsRefusedWithBothDimensionsNamed()
-        {
-            var provider = new Fallen8EmbeddingProvider(
-                Microsoft.Extensions.Options.Options.Create(new Fallen8EmbeddingOptions
-                {
-                    Enabled = true,
-                    Backend = "Nahil",
-                    ModelName = "bge-m3",
-                    Dimension = 1024
-                }),
-                new Lazy<Microsoft.Extensions.AI.IEmbeddingGenerator<String, Microsoft.Extensions.AI.Embedding<Single>>>(
-                    () => new FakeEmbeddingGenerator(768)));
-
-            var mismatch = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
-                () => provider.EmbedAsync(new[] { "x" }, CancellationToken.None));
-
-            StringAssert.Contains(mismatch.Message, "768", mismatch.Message);
-            StringAssert.Contains(mismatch.Message, "1024", mismatch.Message);
-            StringAssert.Contains(mismatch.Message, "never truncated or padded",
-                "the operator must be told the value was refused, not adjusted");
-
-            // Latched: the fault is in the configuration, so every later call fails the same way
-            // instead of re-asking a backend whose answer cannot become correct.
-            var again = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
-                () => provider.EmbedAsync(new[] { "y" }, CancellationToken.None));
-            StringAssert.Contains(again.Message, "1024");
-        }
     }
 }

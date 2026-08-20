@@ -2,7 +2,7 @@
 
 Spec: [spec.md](spec.md). Branch: `feature/nahil-backend`.
 
-**Status: phases 1-8 done, phase 9 deliberately not started.** This file is kept as the record of
+**Status: phases 1-8 done; phase 9 declined.** This file is kept as the record of
 how the work was sequenced, with each phase's outcome noted. The spec's "As built" section is
 where the deviations live; this one records what was done and what the gates said.
 
@@ -74,12 +74,12 @@ defaults so it fails closed), `scripts/env-up.js` applies it on `F8_NAHIL_URL`, 
 `semantic-traversal.mdx`, `studio.md`, `architecture.md` (prose and both diagrams) and the README
 key-features line.
 
-## Phase 9: published chat model name - NOT STARTED, by design
+## Phase 9: renaming the chat model - DECLINED, not deferred
 
-Only when the Nahil catalog is live: default `F8_NAHIL_CHAT_MODEL=f8-delegate:latest`, document
-that `phi4-f8-mini` == `f8-delegate` (digest `6d4bd13b...`), sweep the repo for the old names with
-a per-hit decision, and verify NL-to-lambda output parity. On drift, stop and report upstream
-rather than adjusting prompts to compensate. Revert path: configuration only.
+The change-request list's last item asked for a rename of the configured chat model at cutover.
+Declined (spec decision 6): the fine-tunes are the operator's own, they are named `phi4-f8-mini`
+and `phi4-f8` on every backend, and the model name is a configured string, so nothing here depends
+on the choice.
 
 ## Gates, as run
 
@@ -93,6 +93,5 @@ rather than adjusting prompts to compensate. Revert path: configuration only.
 
 ## Outstanding
 
-- The Studio configuration/connect screenshots are stale: the provider cards show the chat model
-  name, which phase 1 retagged. They need recapturing per the docs-screenshot pipeline.
-- Phase 9, coordinated with the Nahil catalog going live.
+Nothing. The Studio configuration and connect screenshots were recaptured for the retagged model
+name; phase 9 is declined rather than pending.
