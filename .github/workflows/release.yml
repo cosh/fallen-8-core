@@ -10,9 +10,9 @@
 #     -integrations, -ollama, -nlp), multi-arch except -nlp (see the matrix note).
 #   - nuget.org (Trusted Publishing via OIDC - NO stored API key, no fallback):  Fallen-8.
 #   - GitHub Packages NuGet feed (GITHUB_TOKEN):  continuity mirror, best-effort.
-#   - npm (NPM_TOKEN + provenance attestation):  @fallen-8/studio, the F8 Studio library
-#     artifact and its ./canvas subpath. Skipped with a log line until the credential exists
-#     (see the job comment); it must never redden a release that published everything else.
+#   - npm (Trusted Publishing via OIDC - NO stored token; provenance is automatic):
+#     @fallen-8/studio, the F8 Studio library artifact and its ./canvas subpath. Needs Node 24;
+#     the job comment says why that is not optional.
 #   - A GitHub release with generated notes and the package attached.
 #
 # Everything is idempotent: a re-run overwrites image tags, skips already-pushed package
@@ -28,7 +28,8 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
 # Least privilege: no default token scopes; every job declares exactly what it needs.
-# id-token: write exists ONLY on the nuget job.
+# id-token: write exists on the two jobs that publish by OIDC instead of by stored key: nuget
+# and npm.
 permissions: {}
 
 jobs:
@@ -225,32 +226,40 @@ jobs:
     name: "npm package: @fallen-8/studio"
     runs-on: ubuntu-latest
     needs: [test, test-ui]
-    # id-token: write is for the provenance attestation npm generates (publishConfig sets
-    # provenance: true, which is also what makes a local `npm publish` refuse - publishing is
-    # CI-only by construction).
+    # Credential: OIDC Trusted Publishing, like the nuget job. There is NO npm token - the
+    # id-token below is exchanged for a short-lived publish right, and npm attaches the
+    # provenance attestation automatically (which is also what makes a local `npm publish`
+    # refuse: publishing is CI-only by construction).
     #
-    # Credential: a granular-access NPM_TOKEN secret. Deliberately NOT OIDC Trusted
-    # Publishing like the nuget job, for one concrete reason: npm's trusted publisher is
-    # configured per package on npmjs.com, which cannot be done for a name that has never
-    # been published. Once @fallen-8/studio exists, configure the publisher there and this
-    # job loses the token: drop NODE_AUTH_TOKEN and the gate step, nothing else changes.
+    # It took a token to get here, once. npm configures a trusted publisher on the PACKAGE's
+    # settings page, which does not exist until the package does, and it has no pending-publisher
+    # pre-registration - so @fallen-8/studio 0.0.32 was published with a short-lived granular
+    # token that was revoked immediately afterwards. Nothing needs that token again.
+    #
+    # THE VERSION FLOOR IS LOAD-BEARING: trusted publishing needs npm >= 11.5.1, and Node 22
+    # bundles npm 10. Below the floor the OIDC handshake does not happen, the registry treats
+    # the request as anonymous, anonymous callers cannot PUT, and it fails as
+    # "404 Not Found - PUT .../@fallen-8%2fstudio" - which reads exactly like a missing package
+    # or a missing credential and sends you looking in the wrong place. Node 24 is here for that
+    # reason and nothing else.
     permissions:
       contents: read
       id-token: write
     defaults:
       run:
         working-directory: fallen-8-web-ui
-    env:
-      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
     steps:
       - uses: actions/checkout@v5
+      # Node 24, NOT the 22 the rest of this repo builds and tests on: see the version floor
+      # above. registry-url stays - it writes the .npmrc that points npm at the registry - but
+      # no token is fed to it. The dependency cache is deliberately off, which is npm's own
+      # advice for a release build: a poisoned cache is a supply-chain problem on the one job
+      # whose output is signed and published under this name.
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          cache: npm
-          cache-dependency-path: fallen-8-web-ui/package-lock.json
       - name: Install dependencies
         run: npm ci --no-fund --no-audit
       # The tag is the single source of truth for the version, exactly as MinVer treats it on
@@ -260,17 +269,15 @@ jobs:
         run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
       - name: Build the library artifact
         run: npm run build:lib
-      # Two reasons to skip, both of which must log rather than fail: no credential yet
-      # (see the permissions comment), and a version already on the registry (npm has no
-      # --skip-duplicate, and a re-run of a release must stay idempotent).
+      # One reason to skip, and it must log rather than fail: the version is already on the
+      # registry (npm has no --skip-duplicate, and re-running a release must stay idempotent).
+      # The old "no credential configured" branch is gone with the token - a missing OIDC right
+      # is a real failure now, not something to shrug off.
       - name: Decide whether to publish
         id: gate
         run: |
           version="$(node -p 'require("./package.json").version')"
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "No NPM_TOKEN configured; skipping the npm publish of $version."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          elif npm view "@fallen-8/studio@$version" version > /dev/null 2>&1; then
+          if npm view "@fallen-8/studio@$version" version > /dev/null 2>&1; then
             echo "@fallen-8/studio@$version is already on the registry; skipping."
             echo "publish=false" >> "$GITHUB_OUTPUT"
           else
