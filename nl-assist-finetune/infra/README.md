@@ -1,4 +1,10 @@
-# Azure A10 fine-tune runner (phi4-f8-mini + phi4-f8)
+# Azure A10 runners: fine-tune, and evaluation
+
+This directory holds TWO jobs on the same infrastructure. Training both variants is below;
+evaluating the already-published models is "The sibling" further down, and the operator procedure
+for either is in [../RUNBOOK.md](../RUNBOOK.md).
+
+## Fine-tune runner (phi4-f8-mini + phi4-f8)
 
 One command spins up an NVIDIA **A10** VM on Azure, installs the whole fine-tune toolchain,
 runs the [nl-assist-finetune](../) pipeline for **both variants in one session** —

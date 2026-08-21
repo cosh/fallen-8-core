@@ -83,7 +83,9 @@ one variant, `-Location`, `-Spot`, `-NoPublish` (then the group survives and you
 ## 5. After the run
 
 1. Confirm both models are pushed (`ollama pull <ns>/phi4-f8-mini`, and the registry page).
-2. Run the phase-4 eval (README, "Evaluation") and compare against the previous
+2. Measure the published models: see "Running the evaluation only" below, which is the cloud path
+   and needs no GPU of your own. For a single model on a box that already has one, the harness
+   directly is fine (README, "Evaluation"). Compare against the previous
    `eval/results/baseline-*.json`.
 3. Close the `RETRAIN-LOG.md` entries this round actually absorbed, recording the measured
    verdict per variant. Entries the eval shows are still failing stay `PENDING` - that is the
@@ -99,7 +101,9 @@ full run impractical rather than slow.
 
 - **Step 0's Azure setup** in full: a bash with `az` *inside it*, `az login` pointed at the right
   subscription, NVadsA10v5 quota, and an SSH keypair. Unlike the fine-tune job this one also needs
-  the **private** half, because it copies the results back over SSH.
+  the **private** half, because it copies the results back over SSH - and it must open **without a
+  passphrase**, since every ssh here runs `BatchMode=yes` with no agent. The preflight now tests
+  this on a 0600 copy, so it fails in seconds rather than after a paid, silent wait.
 - **A pushed branch** (step 1). The VM clones `REPO_REF` from origin, so an unpushed commit is not
   what gets evaluated. The preflight blocks on this.
 - **The models published** (step 4), under the namespace you pass as `-EvalPrefix`. The preflight
@@ -115,7 +119,8 @@ invocation of the harness, so there is nothing else to trigger.
 ### On throwaway cloud hardware
 
 ```powershell
-# what it would create, without creating it:
+# preflight plus the exact command it would run, creating nothing.
+# (-DryRun stops before the shell runs, so the time budget below is printed by the real run.)
 powershell -File nl-assist-finetune\Start-Finetune.ps1 -Stage Eval -DryRun -EvalPrefix <ns>
 
 # the real thing - this WAITS, because the results must come down before the VM is deleted:
@@ -157,18 +162,30 @@ comparison, `-EvalWaitMin` to override the derived wait.
 The job needs no Azure. It needs a GPU, an ollama daemon, and an apiApp on `:5000` as the compile
 authority - start that one the same way the dataset step does:
 
+Run these from the repo root. The apiApp needs a cold restore and Release build first, so **wait
+for it** - `eval-run.sh` gives `/status` a single 15-second attempt and aborts with "no apiApp" if
+the build is still going:
+
 ```bash
-Fallen8__Durability__Volatile=true ASPNETCORE_URLS=http://localhost:5000   dotnet run --project fallen-8-core-apiApp -c Release &
+Fallen8__Durability__Volatile=true ASPNETCORE_URLS=http://localhost:5000   dotnet run --project fallen-8-core-apiApp -c Release >/tmp/f8-apiapp.log 2>&1 &
+until curl -sf http://localhost:5000/status >/dev/null; do sleep 3; done; echo "apiApp up"
 ```
+
+If something else already answers on :5000, use it deliberately or pick another port with
+`NL_EVAL_F8`: the FT-8 gate **seeds a fixture graph** into whatever answers, and `eval-run.sh`
+cannot tell one apiApp from another.
 
 Then [`infra/eval-run.sh`](infra/eval-run.sh) is the whole thing:
 
 `RESULTS_OUT` defaults to `/opt/f8/eval-results`, which is right on the VM and needs root anywhere
 else, so set it on a workstation:
 
+Note the default differs from the cloud job on purpose: the cloud job adds the stock baseline for
+you, while this script evaluates exactly what you name.
+
 ```bash
-# pull the published variants and evaluate them, plus the stock base for comparison
-RESULTS_OUT=~/f8-eval EVAL_PREFIX=<ns> nl-assist-finetune/infra/eval-run.sh
+# the published variants plus the stock base, i.e. what the cloud job runs
+RESULTS_OUT=~/f8-eval EVAL_PREFIX=<ns> EVAL_BASELINES="phi4-mini" nl-assist-finetune/infra/eval-run.sh
 
 # or evaluate models that are already local, by name, and skip the comparison
 RESULTS_OUT=~/f8-eval EVAL_PREFIX= VARIANTS="phi4-f8-mini" EVAL_BASELINES=   nl-assist-finetune/infra/eval-run.sh
