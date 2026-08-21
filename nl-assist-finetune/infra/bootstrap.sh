@@ -27,6 +27,7 @@ set -a; . /etc/f8-finetune.env; set +a
 : "${PUBLISH_PREFIX:=}"                   # each variant publishes to $PUBLISH_PREFIX/<variant>
 : "${GIT_TOKEN:=}"
 : "${F8_DEBUG:=0}"                        # 1 = set -x full command trace into the log
+: "${EVAL_AFTER_TRAIN:=0}"                # 1 = measure the just-built models before teardown
 WORK=/opt/f8
 MARKER="$WORK/.done"
 mkdir -p "$WORK"
@@ -245,6 +246,29 @@ for v in $VARIANTS; do
     log "skipping push for $v (no PUBLISH_PREFIX or no signing key at $OLLAMA_KEY)."
   fi
 done
+
+# Optional post-train evaluation (feature eval-runner). Without this the job trains,
+# publishes and self-destructs UNMEASURED, which is why the 2026-07-30 verdicts had to be
+# gathered afterwards on another box. EVAL_AFTER_TRAIN=1 runs the same infra/eval-run.sh the
+# eval runner uses, against the models just built LOCALLY (no registry round-trip), and prints
+# the summary into this log - the only copy that survives a self-destructing VM.
+# A failure here does NOT fail the run: the models are already trained and published, so only
+# the measurement is missing, and pretending otherwise would misreport the artifact.
+if [ "${EVAL_AFTER_TRAIN:-0}" = "1" ]; then
+  log "================  post-train evaluation  ================"
+  # The daemon was installed before the GPU driver, so it has no CUDA until restarted; without
+  # this it serves every draft from the CPU at ~14 s/token. (bootstrap-eval.sh, note 2.)
+  systemctl restart ollama
+  for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
+  if EVAL_PREFIX="" VARIANTS="$VARIANTS" EVAL_BASELINES=""      RESULTS_OUT="$WORK/eval-results" NL_EVAL_F8=http://localhost:5000 REPO_DIR="$WORK/repo"      bash "$WORK/repo/nl-assist-finetune/infra/eval-run.sh"; then
+    log "post-train evaluation summary:"
+    cat "$WORK/eval-results/summary.md" || true
+    log "(the JSON is in $WORK/eval-results and dies with this VM; the table above is the copy that survives)"
+  else
+    log "WARNING: the post-train evaluation FAILED. The models were still trained and published;"
+    log "         only the measurement is missing. See the reason above."
+  fi
+fi
 
 touch "$MARKER"
 log "SUCCESS - variants [$VARIANTS] produced${PUBLISH_PREFIX:+ and published under $PUBLISH_PREFIX/}."

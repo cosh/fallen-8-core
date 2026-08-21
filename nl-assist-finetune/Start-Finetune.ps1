@@ -60,14 +60,19 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Preflight', 'Consolidate', 'Azure', 'Run', 'Local')]
+    [ValidateSet('Preflight', 'Consolidate', 'Azure', 'Run', 'Local', 'Eval')]
     [string]$Stage = 'Preflight',
     [string]$PublishPrefix,
     [string]$Variants = 'phi4-f8-mini phi4-f8',
     [string]$Location = 'westeurope',
     [switch]$Spot,
     [string]$CapturesFrom,
+    [string]$EvalPrefix,
+    [string]$EvalBaselines = 'phi4-mini',
+    [string]$AttachRg,
+    [int]$EvalWaitMin = 180,
     [string]$SshPubKeyFile,
+    [string]$SshKeyFile,
     [string]$OllamaKeyFile,
     [ValidateSet('Auto', 'Wsl', 'GitBash')]
     [string]$Launcher = 'Auto',
@@ -167,7 +172,7 @@ function Resolve-KeyPath([string]$Explicit, [string[]]$Fallbacks) {
 
 # --- preflight -----------------------------------------------------------------------------------
 
-function Invoke-Preflight([pscustomobject]$L, [bool]$WantAzure) {
+function Invoke-Preflight([pscustomobject]$L, [string]$Job) {
     Write-Head "preflight (launcher: $($L.Kind) $($L.Distro))"
 
     foreach ($t in @('git', 'dotnet', 'node', 'npm')) {
@@ -251,35 +256,64 @@ function Invoke-Preflight([pscustomobject]$L, [bool]$WantAzure) {
         Add-Check 'node: web-ui deps' $false 'absent - the Consolidate stage runs npm ci first' -Soft
     }
 
-    if (-not $WantAzure) { return }
+    if ($Job -eq 'None') { return }
 
     $sshKey = Resolve-KeyPath $SshPubKeyFile @((Join-Path $HOME '.ssh\id_ed25519.pub'), (Join-Path $HOME '.ssh\id_rsa.pub'))
     $script:SshKeyResolved = $sshKey
     if ($sshKey) { Add-Check 'azure: ssh public key' $true $sshKey 'Azure' }
     else { Add-Check 'azure: ssh public key' $false 'none found; pass -SshPubKeyFile' 'Azure' }
 
-    $publishing = (-not $NoPublish)
-    $ollamaKey = Resolve-KeyPath $OllamaKeyFile @((Join-Path $HOME '.ollama\id_ed25519'))
-    $script:OllamaKeyResolved = $ollamaKey
-    if ($ollamaKey -and (Get-Item $ollamaKey).Length -gt 0) {
-        Add-Check 'azure: ollama signing key' $true $ollamaKey 'Azure'
-    }
-    elseif ($publishing) {
-        Add-Check 'azure: ollama signing key' $false 'no non-empty key; deploy.sh hard-errors when publishing. Register one at ollama.com/settings/keys, or pass -NoPublish' 'Azure'
-    }
-    else {
-        Add-Check 'azure: ollama signing key' $false 'absent (push skipped by -NoPublish)' 'Azure' -Soft
+    if ($Job -eq 'Eval') {
+        # The eval job has to ssh back in to fetch the results, so the PRIVATE half is required
+        # here even though the fine-tune job never needs it.
+        $priv = $SshKeyFile
+        if (-not $priv -and $sshKey) { $priv = ($sshKey -replace '\.pub$', '') }
+        if ($priv -and (Test-Path $priv)) { Add-Check 'eval: ssh private key' $true $priv 'Azure' }
+        else { Add-Check 'eval: ssh private key' $false 'not found; the run cannot fetch its results. Pass -SshKeyFile' 'Azure' }
+        $script:SshPrivResolved = $priv
+
+        if ($EvalPrefix) {
+            # Cheapest possible failure: a variant that was never published. Same auth-free
+            # manifest GET the publish step uses, before any VM exists.
+            foreach ($v in ($Variants -split '\s+' | Where-Object { $_ })) {
+                $uri = "https://registry.ollama.ai/v2/$EvalPrefix/$v/manifests/latest"
+                $ok = $false
+                try { $ok = ((Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 30).StatusCode -eq 200) } catch { $ok = $false }
+                if ($ok) { Add-Check "eval: $EvalPrefix/$v published" $true 'manifest 200' 'Azure' }
+                else { Add-Check "eval: $EvalPrefix/$v published" $false 'no latest manifest in the registry - publish it or drop it from -Variants' 'Azure' }
+            }
+        }
+        else {
+            Add-Check 'eval: registry namespace' $false '-EvalPrefix is required: the VM has no local models to evaluate' 'Azure'
+        }
     }
 
-    if ($publishing -and -not $PublishPrefix) {
-        Add-Check 'azure: publish target' $false '-PublishPrefix is required: with no target, a successful run self-destructs the only copy of the models' 'Azure'
+    # Publishing is a fine-tune concern only: the eval job pulls, it never pushes.
+    if ($Job -eq 'Finetune') {
+        $publishing = (-not $NoPublish)
+        $ollamaKey = Resolve-KeyPath $OllamaKeyFile @((Join-Path $HOME '.ollama\id_ed25519'))
+        $script:OllamaKeyResolved = $ollamaKey
+        if ($ollamaKey -and (Get-Item $ollamaKey).Length -gt 0) {
+            Add-Check 'azure: ollama signing key' $true $ollamaKey 'Azure'
+        }
+        elseif ($publishing) {
+            Add-Check 'azure: ollama signing key' $false 'no non-empty key; deploy.sh hard-errors when publishing. Register one at ollama.com/settings/keys, or pass -NoPublish' 'Azure'
+        }
+        else {
+            Add-Check 'azure: ollama signing key' $false 'absent (push skipped by -NoPublish)' 'Azure' -Soft
+        }
+
+        if ($publishing -and -not $PublishPrefix) {
+            Add-Check 'azure: publish target' $false '-PublishPrefix is required: with no target, a successful run self-destructs the only copy of the models' 'Azure'
+        }
+        elseif ($publishing) {
+            Add-Check 'azure: publish target' $true "$PublishPrefix/<variant>" 'Azure'
+        }
+        else {
+            Add-Check 'azure: publish target' $false '-NoPublish forces DESTROY_ON_FINISH=0; you must delete the resource group by hand' 'Azure' -Soft
+        }
     }
-    elseif ($publishing) {
-        Add-Check 'azure: publish target' $true "$PublishPrefix/<variant>" 'Azure'
-    }
-    else {
-        Add-Check 'azure: publish target' $false '-NoPublish forces DESTROY_ON_FINISH=0; you must delete the resource group by hand' 'Azure' -Soft
-    }
+
 
     $probe = @'
 for t in az jq ssh curl git base64; do
@@ -439,6 +473,39 @@ function Invoke-AzureRun([pscustomobject]$L) {
     Write-Note 'deploy.sh finished. Next: verify the pushed models, run the phase-4 eval (README), then close the RETRAIN-LOG entries it absorbed.'
 }
 
+function Invoke-EvalRun([pscustomobject]$L) {
+    Write-Head 'launch the cloud evaluation (infra/eval-deploy.sh)'
+
+    $infra = ConvertTo-LauncherPath (Join-Path $Ft 'infra') $L.Kind
+    $vars = @()
+    if ($AttachRg) {
+        # Re-attach: everything else is already encoded in the running deployment.
+        $vars += "EVAL_ATTACH_RG='$AttachRg'"
+    }
+    else {
+        $vars += "EVAL_PREFIX='$EvalPrefix'"
+        $vars += "VARIANTS='$Variants'"
+        $vars += "EVAL_BASELINES='$EvalBaselines'"
+        $vars += "LOCATION='$Location'"
+        if ($Spot) { $vars += 'F8_SPOT=1' }
+        $vars += "REPO_URL='$($script:RepoUrl)'"
+        $vars += "REPO_REF='$($script:Branch)'"
+    }
+    $vars += "EVAL_WAIT_MIN='$EvalWaitMin'"
+    if ($script:SshKeyResolved) { $vars += "SSH_PUBKEY_FILE='$(ConvertTo-LauncherPath $script:SshKeyResolved $L.Kind)'" }
+    if ($script:SshPrivResolved) { $vars += "SSH_KEY_FILE='$(ConvertTo-LauncherPath $script:SshPrivResolved $L.Kind)'" }
+
+    $body = "set -e`ncd '$infra'`n" + ($vars -join ' ') + " bash ./eval-deploy.sh`n"
+    Write-Note 'command:'
+    Write-Host $body
+    if ($DryRun) { Write-Note '-DryRun: not launching.'; return }
+
+    Write-Note "this stage WAITS (up to $EvalWaitMin min) because the results have to be copied down before the"
+    Write-Note 'resource group is deleted. If this box sleeps, re-attach with -Stage Eval -AttachRg <rg>.'
+    Invoke-Bash $L $body
+    if ($LASTEXITCODE -ne 0) { throw "eval-deploy.sh exited $LASTEXITCODE - see the output above; the resource group was deliberately kept unless it printed otherwise." }
+}
+
 # --- local (documented, deliberately not automated) ----------------------------------------------
 
 function Show-LocalPlan {
@@ -466,8 +533,13 @@ Then the phase-4 eval ("Evaluation" in README.md). Full detail: README.md phase 
 # --- main ----------------------------------------------------------------------------------------
 
 $L = Resolve-Launcher $Launcher
-$wantAzure = ($Stage -eq 'Azure' -or $Stage -eq 'Run')
-Invoke-Preflight $L $wantAzure
+switch ($Stage) {
+    'Azure' { $job = 'Finetune' }
+    'Run' { $job = 'Finetune' }
+    'Eval' { $job = 'Eval' }
+    default { $job = 'None' }
+}
+Invoke-Preflight $L $job
 
 Write-Head 'preflight result'
 $script:Checks | Format-Table -AutoSize | Out-String -Width 240 | Write-Host
@@ -500,5 +572,6 @@ switch ($Stage) {
     'Consolidate' { Invoke-Consolidate }
     'Azure' { Invoke-AzureRun $L }
     'Run' { Invoke-Consolidate; Invoke-AzureRun $L }
+    'Eval' { Invoke-EvalRun $L }
     'Local' { Show-LocalPlan }
 }

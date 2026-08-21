@@ -80,6 +80,43 @@ one variant, `-Location`, `-Spot`, `-NoPublish` (then the group survives and you
 
 `deploy.sh` prints the ssh line for watching; the VM's own log is `/var/log/f8-finetune.log`.
 
+## Evaluating the published models on cloud GPU
+
+Same box, same launcher, different job. Measuring needs a GPU because CPU inference for these
+models is roughly 14 s/token, and it needs the models to be published first (step 4 above).
+
+```powershell
+# what it would create, without creating it:
+powershell -File nl-assist-finetune\Start-Finetune.ps1 -Stage Eval -DryRun -EvalPrefix <ns>
+
+# the real thing - this WAITS, because the results must come down before the VM is deleted:
+powershell -File nl-assist-finetune\Start-Finetune.ps1 -Stage Eval -EvalPrefix <ns>
+```
+
+It evaluates `phi4-f8-mini`, `phi4-f8` and the stock `phi4-mini` on one GPU in one session, then
+copies the results into `nl-assist-finetune/eval/results/cloud-<UTC stamp>/` and deletes the
+resource group. Your existing `baseline-*.json` ledger is never overwritten.
+
+**If this box sleeps or you lose the connection**, nothing is lost and nothing is leaked: the VM
+keeps running and holds the results, and the resource group is not deleted until they are
+fetched. Re-attach with the resource group name the run printed:
+
+```powershell
+powershell -File nl-assist-finetune\Start-Finetune.ps1 -Stage Eval -AttachRg rg-f8-eval-xxxxxx
+```
+
+A genuinely abandoned run is capped by the VM's own teardown timer, 4 h after boot.
+
+Useful switches: `-Variants 'phi4-f8-mini'` for one model, `-EvalBaselines ''` to skip the stock
+comparison, `-Spot` (an eval is short and re-runnable, so eviction costs little), `-EvalWaitMin`.
+
+To measure the models **as part of** a fine-tune run instead, pass `EVAL_AFTER_TRAIN=1` to
+`deploy.sh`: the same evaluation runs on the training VM before teardown and its summary goes
+into the run log. That log is the only copy, since that VM self-destructs.
+
+The job itself lives in [`infra/eval-run.sh`](infra/eval-run.sh) and needs no Azure: on a box
+that already has a GPU, an ollama daemon and an apiApp, run it directly.
+
 ## 5. After the run
 
 1. Confirm both models are pushed (`ollama pull <ns>/phi4-f8-mini`, and the registry page).
