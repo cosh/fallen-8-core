@@ -14,9 +14,10 @@ ARXML is the format in which the automotive industry exchanges E/E network descr
 every OEM ships communication matrices to its suppliers this way, so one provider covers
 files from any manufacturer. The value of putting one in a graph is impact analysis
 ("which ECUs hear this signal, in which frame, in which slot"), topology review (who talks,
-who listens), and release-to-release diffing, which the integration contract supplies for
-free: a system extract is by construction a complete description of its network, so a
-complete snapshot of a new release withdraws exactly what the release removed.
+who listens), semantic discovery (the word "kilometer" finds the odometer signal, section
+9), and release-to-release diffing, which the integration contract supplies for free: a
+system extract is by construction a complete description of its network, so a complete
+snapshot of a new release withdraws exactly what the release removed.
 
 This provider follows the integrations contract exactly and adds nothing to it except one
 identifier-vocabulary entry and one case-preserving canonicaliser. Everything the contract
@@ -31,9 +32,10 @@ owns those rules.
 **FlexRay** cluster. One file per integration instance, read from the runtime's files
 directory like the CSV provider's file.
 
-**Out (each with a named revisit trigger, section 12):** CAN and Ethernet clusters, the
-AUTOSAR 3.x namespace, the software-component level, byte-layout on relations, DBC/LDF, and
-embeddings.
+**Out (each with a named revisit trigger, section 13):** CAN and Ethernet clusters, the
+AUTOSAR 3.x namespace, the software-component level, byte-layout on relations, and DBC/LDF.
+Semantic search is **in** scope (section 9); it rides the existing summary-embedding
+surface and adds no machinery.
 
 ## 3. The provider descriptor
 
@@ -48,7 +50,7 @@ embeddings.
 | `relationTypes` | `attachedTo`, `sends`, `deliversTo`, `contains`, `carries`, `secures`, `implements`, `scaledBy` |
 | `canObserveCompleteState` | `true` (this is the point: a system extract describes its whole network) |
 | `readOnly` | `true` |
-| `entitySummaryTemplate` | `{kind} {arxml.name}, {arxml.descEn}` |
+| `entitySummaryTemplate` | `{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, unit {arxml.unit}` (the semantic payload; why each hole is there is section 9) |
 
 There is deliberately **no cluster or channel filter setting**: a setting must never narrow
 what a complete snapshot covers (the standing integrations rule). A file with several
@@ -64,7 +66,7 @@ All properties carry the `arxml.` prefix. An absent value is absent, never an em
 | `ecu` | `ECU-INSTANCE` | `arxml.name` |
 | `frame` | `FLEXRAY-FRAME` | `arxml.name`, `arxml.frameLengthBytes`, `arxml.slotId`, `arxml.baseCycle`, `arxml.cycleRepetition` (timing from the frame's triggering) |
 | `pdu` | each PDU element (`I-SIGNAL-I-PDU`, `NM-PDU`, `N-PDU`, `DCM-I-PDU`, `SECURED-I-PDU`, `CONTAINER-I-PDU`, `GENERAL-PURPOSE-PDU`, `GENERAL-PURPOSE-I-PDU`, `USER-DEFINED-I-PDU`, `USER-DEFINED-PDU`, `MULTIPLEXED-I-PDU`) | `arxml.name`, `arxml.pduKind` (the element name), `arxml.lengthBytes`, `arxml.descDe`, `arxml.descEn` |
-| `signal` | `I-SIGNAL` | `arxml.name`, `arxml.lengthBits`, `arxml.initValue`, `arxml.baseType`, `arxml.descDe`, `arxml.descEn` |
+| `signal` | `I-SIGNAL` | `arxml.name`, `arxml.lengthBits`, `arxml.initValue`, `arxml.baseType`, `arxml.descDe`, `arxml.descEn`, `arxml.unit` (denormalised at parse time through `implements` then `scaledBy`; absent when the chain is incomplete) |
 | `system-signal` | `SYSTEM-SIGNAL` | `arxml.name`, `arxml.descDe`, `arxml.descEn` |
 | `compu-method` | `COMPU-METHOD` | `arxml.name`, `arxml.category`, `arxml.unit` |
 
@@ -174,17 +176,66 @@ vehicle platform: 82 MB, 1,050,264 XML elements, 490 distinct element names. A p
 exactly this parsing design processed it in 1.4 s into 12,261 entities and 28,155 relations
 with **zero unresolved references**, and the resulting graph loaded and answered impact,
 degree and path queries correctly. The file and every value derived from it stay outside
-the repository (section 10).
+the repository (section 11).
 
 - The file arrives as **one string** (`ReadFileAsync`); with the reader over it, transient
   memory is roughly 3x file size. Acceptable for a job runner at the validated size; a
-  streaming overload on `ProviderContext` is deferred with a trigger (section 12).
+  streaming overload on `ProviderContext` is deferred with a trigger (section 13).
 - The snapshot (~12k entities, ~28k relations) is well within what the applier already
   handles: writes go through the batched `PUT /vertices` / `PUT /edges` wire path and claim
   lookups read in batches. A release import is a batch job measured in minutes at worst; no
   new machinery is needed and none is added.
 
-## 9. What a re-run means (the release diff)
+## 9. Semantic search over the matrix
+
+**The requirement, as an acceptance example:** with embeddings enabled, a semantic query
+for "kilometer" must surface the odometer signal, even though signal names are cryptic
+codes and nothing forces the word to appear in any of its text. This is a first-class
+requirement of the feature, not a nice-to-have: comm-matrix signal names are unguessable,
+and finding the right one is the single most common question asked of a matrix.
+
+**The mechanism is entirely existing machinery.** The integrations runtime already embeds
+one summary per entity when BOTH halves of the opt-in are set (the descriptor declares a
+template; the job asks and names the embedding), re-embedding only entities whose data
+changed. A `VectorIndex` bound to that embedding name projects itself from the imported
+vectors, and `POST /embedding/search` embeds a query text once and runs constrained kNN
+against it. The provider's entire contribution is putting the right text into the summary.
+
+**Why the template has exactly these holes** (`{kind} {arxml.name}, {arxml.descEn},
+{arxml.descDe}, unit {arxml.unit}`):
+
+- `arxml.name`: the identifier engineers already know, so name fragments also hit.
+- `arxml.descEn` **and** `arxml.descDe`: the source prose is bilingual and queries arrive
+  in either language. A multilingual embedding model puts "kilometer" next to
+  "Kilometerstand"; the compose default (bge-m3) is multilingual. Honest constraint: under
+  a non-multilingual model the German half degrades, and the docs recipe says so.
+- `arxml.unit`: the reason the unit is denormalised onto the signal (section 4). An
+  odometer signal whose descriptions say "total distance" never mentions kilometers; its
+  unit `km` does. Holes collapse for kinds that lack the property, per the template rules.
+
+**The operator recipe** (the docs page owns the worked version):
+
+1. Run the job with the embedding opt-in set and an embedding name (say `arxml-summary`);
+   the apiApp's embedding provider must be on (`GET /status`).
+2. Create a `VectorIndex` bound to `embeddingName: arxml-summary`.
+3. `POST /embedding/search` with `{"indexId": ..., "text": "kilometer", "k": 10,
+   "label": "signal"}`.
+4. Feed the hit ids into the traversal surface (`/path`, `/subgraph`, property reads):
+   similarity search lands ON the graph, so "who receives the kilometer signal" is the
+   kNN hit followed by one `deliversTo` hop.
+
+**Acceptance, falsifiably:**
+
+- Offline (the suite): the rendered summary of the fixture's odometer signal contains its
+  name, both descriptions and the unit; removing any hole from the template turns the test
+  red. No embedding provider is needed for this half.
+- Live (the merge gate, plan phase 4): the synthetic fixture network is run into a compose
+  environment with the embedding sidecar, and the recipe's "kilometer" query must rank the
+  odometer signal above the fixture's near-miss (a speed signal, unit `km/h`, whose
+  existence keeps this a ranking statement rather than a substring match). Recorded in the
+  PR; not a CI gate, because it needs a live model.
+
+## 10. What a re-run means (the release diff)
 
 Same instance, new release file: the snapshot declares `complete`, so reconciliation
 withdraws every claim the instance asserted that the new file no longer contains, deletes
@@ -193,32 +244,34 @@ and leaves the unchanged resolved in place. The change feed then IS the release 
 needs zero provider code beyond declaring completeness; it is the reason the provider
 exists as an integration rather than as a converter script.
 
-## 10. Conformance, fixtures, confidentiality
+## 11. Conformance, fixtures, confidentiality
 
 - The provider implements `IObservableProvider` and passes the conformance suite offline
   (`TheShippedArxmlProviderConforms`, alongside the three existing blueprint tests).
 - **Every fixture is hand-authored synthetic ARXML**: a small invented network (two ECUs,
   two frames, a secured and a container PDU, a handful of signals) exercising every rule in
-  sections 4 to 7, plus one negative fixture per diagnostic and per failure rule.
+  sections 4 to 7, including the odometer signal and its near-miss speed signal that
+  section 9's acceptance needs, plus one negative fixture per diagnostic and per failure
+  rule.
 - **Hard rule:** no fixture, test, doc, comment or commit message may contain content
   derived from any real OEM export: no OEM names, no real signal/ECU/network names, no real
   descriptions. The merge gate greps for this (plan, phase 4).
 
-## 11. Impact on existing features
+## 12. Impact on existing features
 
 | Asset | Impact |
 | --- | --- |
 | `identifier-vocabulary.v1.json` + `Canonicalisers` | one new entry, one new canonicaliser (`trim`); the per-entry canonicaliser/accept tests grow accordingly, and any test pinning the entry count updates |
 | `features/done/integrations/provider-descriptors.json` | regenerate (`scripts/update-provider-descriptor-snapshot.ps1`); `ProviderDescriptorSnapshotTest` pins the fourth descriptor |
 | `docs/images/screen-integrations.png` | **must be recaptured**: the capture replays the descriptor snapshot and the provider list gains a row |
-| `docs/src/content/docs/integrations.md` | gains the provider's section (one home; no new page) |
+| `docs/src/content/docs/integrations.md` | gains the provider's section including the worked semantic-search recipe of section 9 (one home; no new page) |
 | Stale counts | every "three shipped providers/descriptors" phrasing goes count-free or becomes four: known sites are the root `CLAUDE.md` quality-gates bullet and the docs page; phase 3 sweeps for the rest |
 | OpenAPI snapshot, MCP coverage, architecture diagrams, NL-assist dataset | untouched: no new REST operation, no new deployable, no new channel |
 | F8 Studio | zero code change; the integrations screen renders any descriptor (pinned by the existing descriptor-fixture test) |
 | Engine, apiApp | untouched |
 | `features/done/integrations/spec.md` | historical record; not rewritten. The living list of shipped providers is the descriptor snapshot and the docs page |
 
-## 12. Deliberately not built
+## 13. Deliberately not built
 
 | Not built | Trigger to reopen |
 | --- | --- |
@@ -229,5 +282,5 @@ exists as an integration rather than as a converter script.
 | `sourceVersion` from tool-specific `ADMIN-DATA` | release-diff UX wants a human release name. The standard does not carry one; only tool-specific blocks do |
 | A streaming file read on `ProviderContext` | an extract well past ~200 MB. Today the file arrives as one string and the validated 82 MB is comfortable |
 | DBC / LDF readers | someone brings the format. Different parsers, not extensions of this one |
-| Embeddings of `descDe`/`descEn` inside the provider | never here. The post-import embedding pass and the descriptor's summary template own the AI surface |
+| A provider-side embedding call, or embeddings beyond the one summary per entity | never: the summary-template opt-in (section 9) is the semantic surface, and the provider only supplies text. Per-kind templates, or a second embedding per entity, wait for a kind that demonstrably needs a different payload |
 | A cluster or channel filter setting | never: a setting must not narrow what a complete snapshot covers |
