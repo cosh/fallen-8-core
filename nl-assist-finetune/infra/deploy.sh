@@ -50,6 +50,7 @@ PUBLISH_PREFIX="${PUBLISH_PREFIX:-}"           # each variant publishes to $PUBL
 USE_SPOT="${F8_SPOT:-0}"                        # 0 = on-demand (default), 1 = Spot
 GIT_TOKEN="${GIT_TOKEN:-}"
 DESTROY_ON_FINISH="${DESTROY_ON_FINISH:-1}"
+EVAL_AFTER_TRAIN="${EVAL_AFTER_TRAIN:-0}"      # 1 = evaluate the just-built models before teardown
 ADMIN_USER="${ADMIN_USER:-azureuser}"
 
 # Repo defaults from this checkout; normalize git@github.com:owner/repo.git -> https URL.
@@ -216,6 +217,7 @@ write_files:
       DESTROY_ON_FINISH="${DESTROY_ON_FINISH}"
       DESTROY_ON_FAILURE="${DESTROY_ON_FAILURE:-0}"
       F8_DEBUG="${F8_DEBUG:-0}"
+      EVAL_AFTER_TRAIN="${EVAL_AFTER_TRAIN:-0}"
   - path: /opt/f8/bootstrap.sh
     permissions: '0755'
     encoding: b64
