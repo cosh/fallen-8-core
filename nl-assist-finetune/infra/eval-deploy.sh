@@ -150,11 +150,17 @@ RESULTS_DIR="${RESULTS_DIR:-$FT/eval/results/cloud-$(date -u +%Y%m%dT%H%M%SZ)}"
 remote_state(){ # -> "DONE" | "FAILED" | "DEAD" | "RUNNING" | "UNREACHABLE" line 1, liveness line 2
   # -n so the loop's stdin is never consumed by ssh. The unit check matters: without it a crashed
   # or SIGKILLed job is indistinguishable from a slow one, and we bill the whole window.
+  # ActiveState explicitly, NOT `is-active`: the unit is Type=oneshot, so it sits in "activating"
+  # for the entire run, and `is-active --quiet` exits non-zero for that. An earlier version of this
+  # check therefore declared a perfectly healthy job DEAD on the first successful poll.
+  # "inactive" additionally needs evidence the job ever ran, because the unit is inactive in the
+  # window between sshd coming up and cloud-init starting it.
   ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" '
+    st="$(systemctl show -p ActiveState --value f8-eval.service 2>/dev/null || echo unknown)"
     if [ -f /opt/f8/.eval-done ]; then echo DONE
     elif [ -f /opt/f8/.eval-failed ]; then echo FAILED
-    elif systemctl is-failed --quiet f8-eval.service; then echo DEAD
-    elif ! systemctl is-active --quiet f8-eval.service && [ -f /var/log/f8-eval.log ]; then echo DEAD
+    elif [ "$st" = failed ]; then echo DEAD
+    elif [ "$st" = inactive ] && [ -f /var/log/f8-eval.log ]; then echo DEAD
     else echo RUNNING; fi
     tail -n 1 /var/log/f8-eval.log 2>/dev/null || true
   ' 2>/dev/null || echo UNREACHABLE
