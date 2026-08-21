@@ -89,6 +89,68 @@ one variant, `-Location`, `-Spot`, `-NoPublish` (then the group survives and you
    verdict per variant. Entries the eval shows are still failing stay `PENDING` - that is the
    log working, not a formality.
 
+## Running the evaluation only
+
+No training, no publishing: this measures models that are **already published** and does nothing
+else. It is a standalone job, so nothing above in this runbook is a prerequisite except that the
+models exist in the registry (step 4). It needs a GPU, because on a CPU these models generate at
+roughly 14 s/token, which makes a full run impractical rather than slow.
+
+A full run evaluates `phi4-f8-mini`, `phi4-f8` and the stock `phi4-mini` on one GPU in one
+session. Delegate rows, whole-type plugin rows and the FT-8 element-set gate are all one
+invocation of the harness, so there is nothing else to trigger.
+
+### On throwaway cloud hardware
+
+```powershell
+# what it would create, without creating it:
+powershell -File nl-assist-finetune\Start-Finetune.ps1 -Stage Eval -DryRun -EvalPrefix <ns>
+
+# the real thing - this WAITS, because the results must come down before the VM is deleted:
+powershell -File nl-assist-finetune\Start-Finetune.ps1 -Stage Eval -EvalPrefix <ns>
+```
+
+It evaluates `phi4-f8-mini`, `phi4-f8` and the stock `phi4-mini` on one GPU in one session, then
+copies the results into `nl-assist-finetune/eval/results/cloud-<UTC stamp>/` and deletes the
+resource group. Your existing `baseline-*.json` ledger is never overwritten.
+
+**If this box sleeps or you lose the connection**, nothing is lost and nothing is leaked: the VM
+keeps running and holds the results, and the resource group is not deleted until they are
+fetched. Re-attach with the resource group name the run printed:
+
+```powershell
+powershell -File nl-assist-finetune\Start-Finetune.ps1 -Stage Eval -AttachRg rg-f8-eval-xxxxxx
+```
+
+A genuinely abandoned run is capped by the VM's own teardown timer, 4 h after boot.
+
+Useful switches: `-Variants 'phi4-f8-mini'` for one model, `-EvalBaselines ''` to skip the stock
+comparison, `-Spot` (an eval is short and re-runnable, so eviction costs little), `-EvalWaitMin`.
+
+### On a box you already have
+
+The job needs no Azure. Given a GPU, an ollama daemon and an apiApp on `:5000`,
+[`infra/eval-run.sh`](infra/eval-run.sh) is the whole thing:
+
+```bash
+# pull the published variants and evaluate them, plus the stock base for comparison
+EVAL_PREFIX=<ns> nl-assist-finetune/infra/eval-run.sh
+
+# or evaluate models that are already local, by name, and skip the comparison
+EVAL_PREFIX= VARIANTS="phi4-f8-mini" EVAL_BASELINES= nl-assist-finetune/infra/eval-run.sh
+```
+
+Results land in `eval/results/` as usual plus a combined `summary.md` in `RESULTS_OUT`
+(`/opt/f8/eval-results` by default; set it to somewhere writable on a workstation). For a single
+model with no orchestration at all, call the harness directly, as described under "Evaluation" in
+[README.md](README.md).
+
+### As part of a fine-tune run
+
+Pass `EVAL_AFTER_TRAIN=1` to `deploy.sh` and the same evaluation runs on the training VM before
+teardown, against the models it just built, with no registry round-trip. Its summary goes into
+the run log, which is the only copy that survives that VM self-destructing.
+
 ## Before you spend the GPU hours
 
 `RETRAIN-LOG.md` has four `PENDING` entries, and a round started today reproduces the last

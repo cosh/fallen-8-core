@@ -248,6 +248,11 @@ retrain folds your real-usage feedback in; re-run the eval gate to confirm it st
 This runs on the host (Windows PowerShell or bash) — it needs a model backend (the compose
 Ollama on `:11434`) and a running apiApp (the compile authority), not a GPU.
 
+> On a CPU these models generate at ~14 s/token, so a full run is impractical rather than
+> slow. To evaluate the PUBLISHED models on throwaway cloud GPU hardware instead — or to run
+> the same job on a box that already has a GPU — see "Running the evaluation only" in
+> [RUNBOOK.md](RUNBOOK.md) and [infra/eval-run.sh](infra/eval-run.sh).
+
 ```bash
 npx tsx nl-assist-finetune/eval/baseline.ts                              # stock base model
 NL_EVAL_MODEL=phi4-f8-mini npx tsx nl-assist-finetune/eval/baseline.ts   # a fine-tuned model
