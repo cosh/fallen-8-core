@@ -481,11 +481,13 @@ function Invoke-AzureRun([pscustomobject]$L) {
         $vars += 'DESTROY_ON_FINISH=0'
         Write-Warning 'no publish target: DESTROY_ON_FINISH=0, so the resource group survives and YOU must delete it (az group delete -n <rg> --yes).'
     }
-    if ($EvalAfterTrain) { $vars += 'EVAL_AFTER_TRAIN=1' }
     else {
         $vars += "PUBLISH_PREFIX='$PublishPrefix'"
         if ($script:OllamaKeyResolved) { $vars += "OLLAMA_KEY_FILE='$(ConvertTo-LauncherPath $script:OllamaKeyResolved $L.Kind)'" }
     }
+    # Independent of publishing: inserting this between the if and its else made the else bind
+    # HERE, so asking for a post-train measurement silently dropped PUBLISH_PREFIX.
+    if ($EvalAfterTrain) { $vars += 'EVAL_AFTER_TRAIN=1' }
 
     $body = "set -e`ncd '$infra'`n" + ($vars -join ' ') + " bash ./deploy.sh`n"
     Write-Note 'command:'
