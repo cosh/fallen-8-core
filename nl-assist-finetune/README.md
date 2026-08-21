@@ -7,6 +7,9 @@ run Fallen-8, and no weights or datasets are ever committed (spec FT-5): the rep
 **generator, trainer config, Modelfile template, and eval harness** — you produce the model
 on your own machine.
 
+Running a round from a Windows box: [RUNBOOK.md](RUNBOOK.md) is the ordered checklist and
+[Start-Finetune.ps1](Start-Finetune.ps1) the preflight + launcher.
+
 ## State
 
 | Phase | What                                                                              | Status |
