@@ -109,6 +109,67 @@ diagnostics name a quota error clearly.
   <https://docs.fallen-8.com>; this is contributor tooling, like the fine-tune runner, which has
   no entry either.
 
+## Adversarial review, 2026-08-21
+
+A 14-agent review (five angles, then a skeptic per finding instructed to refute it) produced 47
+raw findings, 37 unique; the 9 highest-severity were verified, of which **7 were confirmed and 2
+refuted**. It found two defects that would have cost money or a measurement, and both were in the
+parts this spec had claimed were safe.
+
+1. **The eval VM's cost backstop was inert.** The shared `teardown.sh` discovers its resource
+   group only from `/etc/f8-finetune.env`, which this job never writes, and its systemd unit
+   passed no `EnvironmentFile`, so the timer-fired teardown exited 1 on empty `AZ_*` with no
+   retry. Worse, `teardown.sh` exits 0 when `DESTROY_ON_FINISH != 1`, which this job sets to 0 as
+   its *normal* state, so even supplying the env file would not have deleted anything. The only
+   working teardown was the launch box's happy path, so a timeout, a Ctrl-C, a sleeping laptop or
+   a Spot eviction left an A10 running indefinitely, while this spec, the RUNBOOK and
+   `infra/README.md` all promised a 4 h cap. Fixed: `teardown.sh` reads both jobs' env files and
+   honours a dedicated `F8_BACKSTOP=1` that overrides `DESTROY_ON_FINISH`, which the eval unit
+   sets. Exercised locally in both directions, including that the fine-tune job's deliberate
+   keep-the-VM debug mode still behaves as before.
+2. **The runner deleted the previous measurement before proving it could produce a new one.**
+   `evaluate()` removed `baseline-<model>.json` before the GPU assertion, so on a non-NVIDIA box
+   the guaranteed CPU failure destroyed the only copy of the July ledger (`eval/results/` is
+   gitignored). Fixed: the file is moved aside with a timestamp, never deleted, and only after
+   GPU residency is proven.
+
+The review also refuted a claim I had made while designing the fix: that the 4 h backstop would
+delete un-fetched results. That path cannot execute, precisely because the backstop never fired.
+
+Also fixed, in `eval-run.sh` unless noted: `grep -F` matched `phi4-f8` inside `phi4-f8-mini`, so
+one model's processor was reported as the other's (now an exact `awk` match on the NAME column);
+stale `line-*.json` from an earlier run were folded into this run's summary; a failed *optional*
+baseline pull aborted a completed measurement of the real variants (now contained in a subshell);
+a timed-out model's partial file was never staged where the launch box fetches from; the
+completeness assertion never checked that the FT-8 gate produced any verdicts at all. In
+`eval-deploy.sh`: `REGISTRY` was honoured locally but never reached the VM; the fetch's success
+test was "the directory is non-empty"; `RUNNING` was inferred purely from marker absence, so a
+dead job billed the whole window (now a `DEAD` state read from the unit); and the private key is
+copied to a 0600 file, because under WSL a key on `/mnt/c` presents as 0777 and OpenSSH would
+refuse it *at fetch time*, after the GPU hour is spent. In `bootstrap.sh`: the marker was written
+after the eval, so a reboot mid-measurement retrained everything; `systemctl restart ollama` was
+unguarded under `set -Euo pipefail`, able to abort a run whose models were already published; and
+the post-train eval is capped at 30m per model to fit inside the unchanged 8 h backstop. In
+`Start-Finetune.ps1`: `-AttachRg` was blocked by its own `-EvalPrefix` requirement, so the
+documented recovery command failed its own preflight; a hardcoded `-EvalWaitMin 180` would have
+overridden the derived budget with less than the worst case; the Eval stage blocked on
+`dotnet`/`node`/`npm` it never uses; an unreachable `origin` was reported as "branch not pushed";
+interpolated values containing an apostrophe are now refused rather than silently breaking the
+generated shell command; and `-EvalAfterTrain` exists at all.
+
+**The time budget.** Three numbers were hardcoded independently and did not nest: three default
+models at 60m each consumed the entire 180m wait, before ~30m of GRID install, the toolchain, a
+Release build and ~14 GB of pulls. `eval-deploy.sh` now derives them - models x per-model cap +
+a setup allowance is the wait, and the VM's backstop is armed an hour beyond that - and prints the
+arithmetic before creating anything. Deriving the backstop from the wait made the nesting check
+vacuous, so it was replaced with an 8 h cost ceiling that refuses a typo'd `EVAL_WAIT_MIN=1000`
+instead of silently provisioning an 18 h one.
+
+**Not fixed:** 28 lower-severity findings were reported but not individually verified, and one
+remains open by choice: a Spot eviction has no on-VM reaper at all, because a deallocated VM runs
+no timers. That is now documented as a reason not to use `-Spot` for this job, rather than the
+recommendation it previously was.
+
 ## Verification, and what remains unverified
 
 Checked without paying for a run: all five shell scripts parse under both Git Bash and WSL

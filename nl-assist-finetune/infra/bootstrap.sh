@@ -254,22 +254,41 @@ done
 # the summary into this log - the only copy that survives a self-destructing VM.
 # A failure here does NOT fail the run: the models are already trained and published, so only
 # the measurement is missing, and pretending otherwise would misreport the artifact.
+# The marker goes down BEFORE the evaluation, not after: it means "the models are built and
+# published", which is true at this point. Leaving it until after an up-to-2h eval meant a reboot
+# in that window re-entered the unit and retrained everything.
+touch "$MARKER"
+
 if [ "${EVAL_AFTER_TRAIN:-0}" = "1" ]; then
   log "================  post-train evaluation  ================"
   # The daemon was installed before the GPU driver, so it has no CUDA until restarted; without
   # this it serves every draft from the CPU at ~14 s/token. (bootstrap-eval.sh, note 2.)
-  systemctl restart ollama
+  systemctl restart ollama || log "WARNING: 'systemctl restart ollama' failed; the eval may fall back to CPU."
   for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
-  if EVAL_PREFIX="" VARIANTS="$VARIANTS" EVAL_BASELINES=""      RESULTS_OUT="$WORK/eval-results" NL_EVAL_F8=http://localhost:5000 REPO_DIR="$WORK/repo"      bash "$WORK/repo/nl-assist-finetune/infra/eval-run.sh"; then
+  # 30m per model, not eval-run.sh's 60m default: this rides on top of training's 2 x 3h inside
+  # an UNCHANGED 8h backstop, and a 23-row eval on an A10 takes minutes.
+  if EVAL_PREFIX="" VARIANTS="$VARIANTS" EVAL_BASELINES="" EVAL_TIMEOUT="${EVAL_TIMEOUT:-30m}" \
+     RESULTS_OUT="$WORK/eval-results" NL_EVAL_F8=http://localhost:5000 REPO_DIR="$WORK/repo" \
+     bash "$WORK/repo/nl-assist-finetune/infra/eval-run.sh"; then
     log "post-train evaluation summary:"
     cat "$WORK/eval-results/summary.md" || true
-    log "(the JSON is in $WORK/eval-results and dies with this VM; the table above is the copy that survives)"
+    # An earlier version of this claimed the log was the surviving copy. It is not:
+    # /var/log/f8-finetune.log lives on the OS disk that the resource-group delete removes, so a
+    # self-destruct on success destroyed the measurement it had just produced. So when the
+    # operator asked for a measurement, keep the box until they have it; the f8-teardown.timer
+    # backstop still caps the cost.
+    if [ "$DESTROY_ON_FINISH" = "1" ]; then
+      DESTROY_ON_FINISH=0
+      log "EVAL_AFTER_TRAIN=1 -> NOT self-destructing, because that would delete the measurement."
+      log "Fetch it, then delete the group:"
+      log "  scp -r ${ADMIN_USER:-azureuser}@<this-ip>:$WORK/eval-results ./  &&  az group delete -n $AZ_RESOURCE_GROUP --yes"
+      log "(the f8-teardown.timer backstop deletes everything anyway ~8h after boot)"
+    fi
   else
     log "WARNING: the post-train evaluation FAILED. The models were still trained and published;"
     log "         only the measurement is missing. See the reason above."
   fi
 fi
 
-touch "$MARKER"
 log "SUCCESS - variants [$VARIANTS] produced${PUBLISH_PREFIX:+ and published under $PUBLISH_PREFIX/}."
 # teardown runs via the EXIT trap (rc = 0)

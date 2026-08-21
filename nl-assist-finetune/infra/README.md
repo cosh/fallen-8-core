@@ -104,8 +104,16 @@ Two differences from the fine-tune runner that matter, both explained at the top
 `bootstrap-eval.sh`: this VM does **not** self-destruct on success (its artifact is a small JSON
 file, so the launch box tears down only after fetching it), and the ollama daemon is restarted
 after the GPU driver is confirmed (installed before it, the daemon would serve every draft from
-the CPU). The operator-facing procedure is in [../RUNBOOK.md](../RUNBOOK.md); the feature record
-is [features/done/eval-runner/](../../features/done/eval-runner/).
+the CPU).
+
+Because this job runs with `DESTROY_ON_FINISH=0` as its NORMAL state, the shared `teardown.sh`
+grew a separate `F8_BACKSTOP=1` path: the timer unit has to delete the group even though that flag
+says "keep". Without it the eval VM's cost backstop was inert, and it also read only
+`/etc/f8-finetune.env`, which this job never writes. `teardown.sh` now reads both jobs' env files,
+and the timer's deadline is derived from the run's own time budget rather than hardcoded.
+
+The operator-facing procedure is in [../RUNBOOK.md](../RUNBOOK.md); the feature record is
+[features/done/eval-runner/](../../features/done/eval-runner/).
 
 ## Cost, teardown, and caveats
 

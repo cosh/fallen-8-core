@@ -122,34 +122,47 @@ fetched. Re-attach with the resource group name the run printed:
 powershell -File nl-assist-finetune\Start-Finetune.ps1 -Stage Eval -AttachRg rg-f8-eval-xxxxxx
 ```
 
-A genuinely abandoned run is capped by the VM's own teardown timer, 4 h after boot.
+A genuinely abandoned run is capped by the VM's own teardown timer, whose deadline is **derived**
+from the time budget rather than fixed: `eval-deploy.sh` computes models x per-model cap + a setup
+allowance, waits that long, and arms the VM's backstop an hour beyond it. It prints that arithmetic
+before creating anything, and refuses a budget that would exceed an 8 h cost ceiling.
 
 Useful switches: `-Variants 'phi4-f8-mini'` for one model, `-EvalBaselines ''` to skip the stock
-comparison, `-Spot` (an eval is short and re-runnable, so eviction costs little), `-EvalWaitMin`.
+comparison, `-EvalWaitMin` to override the derived wait.
+
+> **`-Spot` is not recommended for this job**, even though an eval is short and re-runnable. An
+> evicted Spot VM is *deallocated*, and a deallocated VM runs no systemd timers, so its own
+> teardown backstop cannot fire. Eviction leaves the resource group standing until you or the
+> launch box delete it.
 
 ### On a box you already have
 
 The job needs no Azure. Given a GPU, an ollama daemon and an apiApp on `:5000`,
 [`infra/eval-run.sh`](infra/eval-run.sh) is the whole thing:
 
+`RESULTS_OUT` defaults to `/opt/f8/eval-results`, which is right on the VM and needs root anywhere
+else, so set it on a workstation:
+
 ```bash
 # pull the published variants and evaluate them, plus the stock base for comparison
-EVAL_PREFIX=<ns> nl-assist-finetune/infra/eval-run.sh
+RESULTS_OUT=~/f8-eval EVAL_PREFIX=<ns> nl-assist-finetune/infra/eval-run.sh
 
 # or evaluate models that are already local, by name, and skip the comparison
-EVAL_PREFIX= VARIANTS="phi4-f8-mini" EVAL_BASELINES= nl-assist-finetune/infra/eval-run.sh
+RESULTS_OUT=~/f8-eval EVAL_PREFIX= VARIANTS="phi4-f8-mini" EVAL_BASELINES=   nl-assist-finetune/infra/eval-run.sh
 ```
 
-Results land in `eval/results/` as usual plus a combined `summary.md` in `RESULTS_OUT`
-(`/opt/f8/eval-results` by default; set it to somewhere writable on a workstation). For a single
+Per-model results land in `eval/results/` as usual (an existing file for the same model is moved
+aside, never deleted) plus a combined `summary.md` in `RESULTS_OUT`. For a single
 model with no orchestration at all, call the harness directly, as described under "Evaluation" in
 [README.md](README.md).
 
 ### As part of a fine-tune run
 
-Pass `EVAL_AFTER_TRAIN=1` to `deploy.sh` and the same evaluation runs on the training VM before
-teardown, against the models it just built, with no registry round-trip. Its summary goes into
-the run log, which is the only copy that survives that VM self-destructing.
+Use `-EvalAfterTrain` (or `EVAL_AFTER_TRAIN=1` for `deploy.sh` directly) and the same evaluation
+runs on the training VM after publishing, against the models it just built, with no registry
+round-trip. Because that measurement would otherwise be destroyed along with the VM, such a run
+**does not self-destruct on success**: it prints the `scp` and `az group delete` commands and
+leaves the box for you, with the 8 h backstop still capping the cost.
 
 ## Before you spend the GPU hours
 
@@ -169,6 +182,8 @@ None of this blocks a run. It decides what the run is worth.
   the contract sources itself. No stale corpus can travel to the VM. But on a box that already
   has a `dataset/train.jsonl`, `run.sh dataset` **reuses it and nothing verifies its
   `sourceHash`** - which is why the local-GPU sequence (`-Stage Local`) begins by deleting it.
+- **An evicted Spot VM never reaps itself**, because a deallocated VM runs no timers. That is why
+  `-Spot` is not recommended here, and why the launch box owns teardown on the happy path.
 - **Port 5000 must be free** for the Consolidate stage, or pass `-ApiPort <free port>`. If
   something already answers `/status` there the script refuses to continue, because the compile
   gate decides which rows enter the corpus and a stranger's build is not a gate you chose. This

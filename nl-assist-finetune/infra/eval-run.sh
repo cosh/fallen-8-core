@@ -68,6 +68,9 @@ note() { echo "[eval]   $*"; }
 fail() { echo "[eval] ERROR: $*" >&2; exit 1; }
 
 mkdir -p "$RESULTS_OUT"
+# Per-model lines from an EARLIER run would otherwise be folded into this run's summary table as
+# if they were measured now.
+rm -f "$RESULTS_OUT"/line-*.json
 
 # ---------------------------------------------------------------------------------------------
 # Preflight. Everything cheap that can invalidate the run happens before any model is pulled.
@@ -159,8 +162,12 @@ acquire() { # <local name> -> ensures the model exists locally under exactly tha
 assert_gpu_inference() { # <local model name>
   local model="$1" line
   note "loading '$model' to confirm the daemon serves it from the GPU..."
-  curl -sf --max-time 600 "$NL_EVAL_ENDPOINT/api/generate"     -H 'Content-Type: application/json'     -d "{\"model\":\"$model\",\"prompt\":\"1\",\"stream\":false,\"options\":{\"num_predict\":1}}"     >/dev/null || fail "the ollama daemon could not generate with '$model' at $NL_EVAL_ENDPOINT."
-  line="$(ollama ps 2>/dev/null | grep -F "$model" | head -1 || true)"
+  curl -sf --max-time 600 "$NL_EVAL_ENDPOINT/api/generate" \
+    -H 'Content-Type: application/json' \
+    -d "{\"model\":\"$model\",\"prompt\":\"1\",\"stream\":false,\"options\":{\"num_predict\":1}}"     >/dev/null || fail "the ollama daemon could not generate with '$model' at $NL_EVAL_ENDPOINT."
+  # Exact match on the NAME column: "phi4-f8" is a prefix of "phi4-f8-mini", so a substring
+  # match reports one model's processor as the other's.
+  line="$(ollama ps 2>/dev/null | awk -v m="$model" 'NR>1 && ($1==m || $1==m":latest"){print; exit}')"
   if [ -z "$line" ]; then
     note "WARNING: 'ollama ps' does not list '$model' after a load; cannot confirm the processor."
     return 0
@@ -183,15 +190,18 @@ evaluate() { # <local model name>
   local model="$1"
   local out="$FT/eval/results/baseline-${model//[^[:alnum:]._-]/_}.json"
 
-  # Start from nothing for this model: a leftover results file is RESUMED row-by-row, which
-  # would silently mix a previous model build's drafts into a run whose whole point is that it
-  # measures the freshly pulled one.
-  if [ -f "$out" ]; then
-    note "removing a pre-existing $(basename "$out") so the run cannot resume into it."
-    rm -f "$out"
-  fi
-
   assert_gpu_inference "$model"
+
+  # A leftover results file would be RESUMED row-by-row, mixing a previous build's drafts into a
+  # run whose whole point is measuring the freshly pulled one. So it must not stay - but it must
+  # not be DELETED either: eval/results/ is gitignored, so it can be the only copy of an earlier
+  # measurement, and everything from here to the copy at the end of this function can still fail.
+  # Move it aside instead. (This runs after the GPU proof for the same reason.)
+  if [ -f "$out" ]; then
+    local kept="$out.pre-$(date -u +%Y%m%dT%H%M%SZ)"
+    mv "$out" "$kept"
+    note "kept the previous $(basename "$out") as $(basename "$kept")."
+  fi
 
   log "evaluating '$model' (delegate + plugin rows, --semantic)"
   local started ended rc=0
@@ -206,16 +216,18 @@ evaluate() { # <local model name>
   set -e
   ended="$(date -u +%s)"
 
+  stage_partial(){ [ -f "$out" ] && cp "$out" "$RESULTS_OUT/partial-$(basename "$out")" 2>/dev/null || true; }
   if [ "$rc" = 124 ]; then
-    fail "'$model' hit the $EVAL_TIMEOUT per-model cap. Partial results are in $out."
+    stage_partial
+    fail "'$model' hit the $EVAL_TIMEOUT per-model cap. The partial set was staged into $RESULTS_OUT."
   fi
-  [ "$rc" = 0 ] || fail "baseline.ts exited $rc for '$model' (a harness error, not a low score)."
+  [ "$rc" = 0 ] || { stage_partial; fail "baseline.ts exited $rc for '$model' (a harness error, not a low score)."; }
   [ -f "$out" ] || fail "baseline.ts reported success for '$model' but wrote no $out."
 
   # Honest status. baseline.ts exits 0 on a run where every single row FAILED, and a resumed or
   # empty run summarises over zero rows (percent() prints "-"), so the count is the only thing
   # that separates "measured and bad" from "never measured".
-  node --input-type=commonjs - "$out" "$EXPECT_ROWS" "$EXPECT_PLUGIN_ROWS" "$model" "$((ended - started))" <<'NODE'
+  node --input-type=commonjs - "$out" "$EXPECT_ROWS" "$EXPECT_PLUGIN_ROWS" "$model" "$((ended - started))" <<'NODE' || { stage_partial; exit 1; }
 // Script comes in on STDIN, so argv is [node, '-', ...args]: args start at 2, NOT at 1 as
 // they do for `node -e` (which count_rows above relies on). Getting this wrong shifts every
 // argument and the verdict misreads a complete run as an empty one.
@@ -226,6 +238,9 @@ const plugins = Array.isArray(r.pluginRows) ? r.pluginRows : [];
 const problems = [];
 if (rows.length !== Number(wantRows)) problems.push(`evaluated ${rows.length} delegate rows, expected ${wantRows}`);
 if (plugins.length !== Number(wantPlugins)) problems.push(`evaluated ${plugins.length} plugin rows, expected ${wantPlugins}`);
+// --semantic is always passed by this script, so no applicable verdicts at all means the FT-8
+// element-set gate silently did nothing (a fixture or /subgraph problem), not that it passed.
+if (!rows.some((x) => x.semanticApplicable)) problems.push('no FT-8 semantic verdicts were produced at all');
 if (problems.length) {
   console.error(`[eval] ERROR: '${model}' produced an INCOMPLETE result set: ${problems.join('; ')}.`);
   console.error('[eval]        Refusing to record it as a run - a partial set reads as a real measurement.');
@@ -266,11 +281,20 @@ for v in $VARIANTS; do
   EVALUATED="$EVALUATED $v"
 done
 
+# These are a comparison courtesy, not the measurement. A failure here must never discard a
+# completed evaluation of the real variants, so each runs in a subshell that contains fail()'s
+# exit, and the summary is still written below.
 for b in $EVAL_BASELINES; do
   log "baseline comparison model: $b"
-  pull_retry "$b" || fail "could not pull the comparison model '$b'."
-  evaluate "$b"
-  EVALUATED="$EVALUATED $b"
+  if ! pull_retry "$b"; then
+    note "WARNING: could not pull the comparison model '$b'; skipping it."
+    continue
+  fi
+  if ( evaluate "$b" ); then
+    EVALUATED="$EVALUATED $b"
+  else
+    note "WARNING: the comparison model '$b' failed to evaluate; continuing without it."
+  fi
 done
 
 # ---------------------------------------------------------------------------------------------
