@@ -80,10 +80,27 @@ one variant, `-Location`, `-Spot`, `-NoPublish` (then the group survives and you
 
 `deploy.sh` prints the ssh line for watching; the VM's own log is `/var/log/f8-finetune.log`.
 
-## Evaluating the published models on cloud GPU
+## 5. After the run
 
-Same box, same launcher, different job. Measuring needs a GPU because CPU inference for these
-models is roughly 14 s/token, and it needs the models to be published first (step 4 above).
+1. Confirm both models are pushed (`ollama pull <ns>/phi4-f8-mini`, and the registry page).
+2. Run the phase-4 eval (README, "Evaluation") and compare against the previous
+   `eval/results/baseline-*.json`.
+3. Close the `RETRAIN-LOG.md` entries this round actually absorbed, recording the measured
+   verdict per variant. Entries the eval shows are still failing stay `PENDING` - that is the
+   log working, not a formality.
+
+## Running the evaluation only
+
+No training, no publishing: this measures models that are **already published** and does nothing
+else. It is a standalone job, so nothing above in this runbook is a prerequisite except that the
+models exist in the registry (step 4). It needs a GPU, because on a CPU these models generate at
+roughly 14 s/token, which makes a full run impractical rather than slow.
+
+A full run evaluates `phi4-f8-mini`, `phi4-f8` and the stock `phi4-mini` on one GPU in one
+session. Delegate rows, whole-type plugin rows and the FT-8 element-set gate are all one
+invocation of the harness, so there is nothing else to trigger.
+
+### On throwaway cloud hardware
 
 ```powershell
 # what it would create, without creating it:
@@ -110,21 +127,29 @@ A genuinely abandoned run is capped by the VM's own teardown timer, 4 h after bo
 Useful switches: `-Variants 'phi4-f8-mini'` for one model, `-EvalBaselines ''` to skip the stock
 comparison, `-Spot` (an eval is short and re-runnable, so eviction costs little), `-EvalWaitMin`.
 
-To measure the models **as part of** a fine-tune run instead, pass `EVAL_AFTER_TRAIN=1` to
-`deploy.sh`: the same evaluation runs on the training VM before teardown and its summary goes
-into the run log. That log is the only copy, since that VM self-destructs.
+### On a box you already have
 
-The job itself lives in [`infra/eval-run.sh`](infra/eval-run.sh) and needs no Azure: on a box
-that already has a GPU, an ollama daemon and an apiApp, run it directly.
+The job needs no Azure. Given a GPU, an ollama daemon and an apiApp on `:5000`,
+[`infra/eval-run.sh`](infra/eval-run.sh) is the whole thing:
 
-## 5. After the run
+```bash
+# pull the published variants and evaluate them, plus the stock base for comparison
+EVAL_PREFIX=<ns> nl-assist-finetune/infra/eval-run.sh
 
-1. Confirm both models are pushed (`ollama pull <ns>/phi4-f8-mini`, and the registry page).
-2. Run the phase-4 eval (README, "Evaluation") and compare against the previous
-   `eval/results/baseline-*.json`.
-3. Close the `RETRAIN-LOG.md` entries this round actually absorbed, recording the measured
-   verdict per variant. Entries the eval shows are still failing stay `PENDING` - that is the
-   log working, not a formality.
+# or evaluate models that are already local, by name, and skip the comparison
+EVAL_PREFIX= VARIANTS="phi4-f8-mini" EVAL_BASELINES= nl-assist-finetune/infra/eval-run.sh
+```
+
+Results land in `eval/results/` as usual plus a combined `summary.md` in `RESULTS_OUT`
+(`/opt/f8/eval-results` by default; set it to somewhere writable on a workstation). For a single
+model with no orchestration at all, call the harness directly, as described under "Evaluation" in
+[README.md](README.md).
+
+### As part of a fine-tune run
+
+Pass `EVAL_AFTER_TRAIN=1` to `deploy.sh` and the same evaluation runs on the training VM before
+teardown, against the models it just built, with no registry round-trip. Its summary goes into
+the run log, which is the only copy that survives that VM self-destructing.
 
 ## Before you spend the GPU hours
 

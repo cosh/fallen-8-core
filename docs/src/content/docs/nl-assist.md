@@ -65,14 +65,14 @@ train/         QLoRA config, trainer, merge, Modelfile template
 run.sh         deps -> dataset -> train -> merge -> gguf -> ollama create -> provenance
 eval/          held-out eval set, scored on compile plus a semantic gate
 feedback/      fold captured thumbs-up drafts back into the corpus
-infra/         provision a throwaway cloud GPU, train both variants, self-delete
+infra/         provision a throwaway cloud GPU: train both variants, or evaluate the published ones
 ```
 
 | Stage        | Needs                                                     | Roughly                                                              |
 | ------------ | --------------------------------------------------------- | -------------------------------------------------------------------- |
 | Dataset      | Node plus a running apiApp as the compile authority        | `npx tsx nl-assist-finetune/dataset-gen/generate.ts`                 |
 | Train        | Linux or WSL2 with an NVIDIA GPU, Python 3.13, CUDA torch  | `./run.sh all` (add `VARIANT=phi4-f8` for the 14B)                   |
-| Evaluate     | A model backend plus the apiApp, no GPU                    | `npx tsx nl-assist-finetune/eval/baseline.ts --semantic`             |
+| Evaluate     | A model backend plus the apiApp; a GPU in practice         | `npx tsx nl-assist-finetune/eval/baseline.ts --semantic`             |
 | Publish      | An ollama.com account                                      | `PUBLISH_REPO=<ns>/phi4-f8-mini ./run.sh publish`                    |
 
 The dataset stage is deterministic, so a GPU-only box can copy `dataset/train.jsonl` from wherever it was
@@ -81,9 +81,19 @@ generated and skip Node and the apiApp entirely. `./run.sh all` emits an Ollama 
 hash, so the licence position travels with the artifact. Point Studio at the result by setting the NL
 assist `model` field: no Fallen-8 code changes.
 
+Evaluation needs no GPU to *start*, but on a CPU these models generate at roughly 14 seconds per token,
+which makes a full run impractical rather than merely slow. So the evaluation has the same cloud path as
+training: `infra/eval-deploy.sh` provisions a throwaway GPU VM, pulls the published models, runs the full
+held-out evaluation on them, copies the results back to your machine and only then deletes the
+infrastructure. Because the artifact is a small JSON file rather than a registry push, that VM deliberately
+does not delete itself. The same job runs on any box that already has a GPU, an Ollama daemon and an
+apiApp, via `infra/eval-run.sh`.
+
 The pipeline's own README covers the toolchain in full, including the Ubuntu prerequisite script, the
 Python-version and CUDA-wheel traps, and the WSL2 driver rule (install the NVIDIA driver on Windows, never
-inside the distro).
+inside the distro). The step-by-step operator procedure, including how to run the evaluation on its own,
+is in its
+[RUNBOOK](https://github.com/cosh/fallen-8-core/blob/main/nl-assist-finetune/RUNBOOK.md).
 
 ## Evaluation is a gate, not a vibe
 
