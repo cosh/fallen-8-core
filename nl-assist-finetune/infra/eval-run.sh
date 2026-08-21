@@ -67,7 +67,9 @@ log() { printf '\n\033[1;36m[eval] %s\033[0m\n' "$*"; }
 note() { echo "[eval]   $*"; }
 fail() { echo "[eval] ERROR: $*" >&2; exit 1; }
 
-mkdir -p "$RESULTS_OUT"
+# The default lives under /opt, which is right on the VM and needs root anywhere else. A bare
+# "mkdir: permission denied" sent the operator looking in the wrong place.
+mkdir -p "$RESULTS_OUT" 2>/dev/null || fail "cannot create RESULTS_OUT='$RESULTS_OUT'. The default /opt/f8/eval-results needs root; set RESULTS_OUT to a directory you can write."
 # Per-model lines from an EARLIER run would otherwise be folded into this run's summary table as
 # if they were measured now.
 rm -f "$RESULTS_OUT"/line-*.json
