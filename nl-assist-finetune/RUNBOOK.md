@@ -92,9 +92,21 @@ one variant, `-Location`, `-Spot`, `-NoPublish` (then the group survives and you
 ## Running the evaluation only
 
 No training, no publishing: this measures models that are **already published** and does nothing
-else. It is a standalone job, so nothing above in this runbook is a prerequisite except that the
-models exist in the registry (step 4). It needs a GPU, because on a CPU these models generate at
-roughly 14 s/token, which makes a full run impractical rather than slow.
+else. It needs a GPU, because on a CPU these models generate at roughly 14 s/token, which makes a
+full run impractical rather than slow.
+
+**What it does require**, despite being a separate job:
+
+- **Step 0's Azure setup** in full: a bash with `az` *inside it*, `az login` pointed at the right
+  subscription, NVadsA10v5 quota, and an SSH keypair. Unlike the fine-tune job this one also needs
+  the **private** half, because it copies the results back over SSH.
+- **A pushed branch** (step 1). The VM clones `REPO_REF` from origin, so an unpushed commit is not
+  what gets evaluated. The preflight blocks on this.
+- **The models published** (step 4), under the namespace you pass as `-EvalPrefix`. The preflight
+  checks each one's registry manifest before creating anything.
+
+It does *not* need step 2 or step 3 (the captures and the consolidation are training inputs), and
+`-AttachRg` needs only the Azure items, since a re-attach clones and pulls nothing.
 
 A full run evaluates `phi4-f8-mini`, `phi4-f8` and the stock `phi4-mini` on one GPU in one
 session. Delegate rows, whole-type plugin rows and the FT-8 element-set gate are all one
@@ -142,8 +154,14 @@ comparison, `-EvalWaitMin` to override the derived wait.
 
 ### On a box you already have
 
-The job needs no Azure. Given a GPU, an ollama daemon and an apiApp on `:5000`,
-[`infra/eval-run.sh`](infra/eval-run.sh) is the whole thing:
+The job needs no Azure. It needs a GPU, an ollama daemon, and an apiApp on `:5000` as the compile
+authority - start that one the same way the dataset step does:
+
+```bash
+Fallen8__Durability__Volatile=true ASPNETCORE_URLS=http://localhost:5000   dotnet run --project fallen-8-core-apiApp -c Release &
+```
+
+Then [`infra/eval-run.sh`](infra/eval-run.sh) is the whole thing:
 
 `RESULTS_OUT` defaults to `/opt/f8/eval-results`, which is right on the VM and needs root anywhere
 else, so set it on a workstation:
