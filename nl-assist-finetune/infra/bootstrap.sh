@@ -68,7 +68,18 @@ teardown(){
 }
 trap 'teardown $?' EXIT
 
-if [ -f "$MARKER" ]; then log "marker present -> already completed on a previous boot; tearing down."; exit 0; fi
+if [ -f "$MARKER" ]; then
+  # The marker means "models built and published". If a post-train measurement is still sitting on
+  # this box uncollected, tearing down here would destroy it - the marker is now written BEFORE the
+  # eval, so this path is reachable with results present.
+  if [ -f "$WORK/.keep-for-fetch" ]; then
+    log "marker present, but a post-train measurement is still awaiting collection -> keeping the VM."
+    DESTROY_ON_FINISH=0
+  else
+    log "marker present -> already completed on a previous boot; tearing down."
+  fi
+  exit 0
+fi
 
 # Never depend on a specific Linux user: derive HOME from the RUNNING user's passwd entry
 # (immune to a leaked/incorrect HOME in the environment). systemd runs this as root -> /root,
@@ -265,8 +276,10 @@ if [ "${EVAL_AFTER_TRAIN:-0}" = "1" ]; then
   # this it serves every draft from the CPU at ~14 s/token. (bootstrap-eval.sh, note 2.)
   systemctl restart ollama || log "WARNING: 'systemctl restart ollama' failed; the eval may fall back to CPU."
   for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
-  # 30m per model, not eval-run.sh's 60m default: this rides on top of training's 2 x 3h inside
-  # an UNCHANGED 8h backstop, and a 23-row eval on an A10 takes minutes.
+  # 30m per model, not eval-run.sh's 60m default. Be honest about the budget: training is capped
+  # at 3h per variant, so two variants plus setup plus 2 x 30m of eval reaches the UNCHANGED 8h
+  # backstop in the worst case. The backstop is the cap, and the eval is what gets cut - which is
+  # why the cap here is 30m and not 60m. A 23-row eval on an A10 takes minutes in practice.
   if EVAL_PREFIX="" VARIANTS="$VARIANTS" EVAL_BASELINES="" EVAL_TIMEOUT="${EVAL_TIMEOUT:-30m}" \
      RESULTS_OUT="$WORK/eval-results" NL_EVAL_F8=http://localhost:5000 REPO_DIR="$WORK/repo" \
      bash "$WORK/repo/nl-assist-finetune/infra/eval-run.sh"; then
@@ -279,14 +292,27 @@ if [ "${EVAL_AFTER_TRAIN:-0}" = "1" ]; then
     # backstop still caps the cost.
     if [ "$DESTROY_ON_FINISH" = "1" ]; then
       DESTROY_ON_FINISH=0
+      # Persisted, because the in-process assignment does not survive a reboot into the
+      # marker-present path above.
+      date -u +%FT%TZ > "$WORK/.keep-for-fetch"
       log "EVAL_AFTER_TRAIN=1 -> NOT self-destructing, because that would delete the measurement."
       log "Fetch it, then delete the group:"
-      log "  scp -r ${ADMIN_USER:-azureuser}@<this-ip>:$WORK/eval-results ./  &&  az group delete -n $AZ_RESOURCE_GROUP --yes"
+      # 'azureuser' literally: deploy.sh's ADMIN_USER default is not exported into this process,
+      # so interpolating it here would have printed the default while implying it was read.
+      log "  scp -r azureuser@<this-ip>:$WORK/eval-results ./  &&  az group delete -n $AZ_RESOURCE_GROUP --yes"
       log "(the f8-teardown.timer backstop deletes everything anyway ~8h after boot)"
     fi
   else
     log "WARNING: the post-train evaluation FAILED. The models were still trained and published;"
     log "         only the measurement is missing. See the reason above."
+    # Keep the box for this too: the operator asked for a measurement, and the reason it failed is
+    # in this log and in any partial output - both of which live on the disk a teardown removes.
+    if [ "$DESTROY_ON_FINISH" = "1" ]; then
+      DESTROY_ON_FINISH=0
+      date -u +%FT%TZ > "$WORK/.keep-for-fetch"
+      log "keeping the VM so the failure is readable. Delete it when done:"
+      log "  az group delete -n $AZ_RESOURCE_GROUP --yes"
+    fi
   fi
 fi
 

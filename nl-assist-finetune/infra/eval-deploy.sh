@@ -45,8 +45,10 @@
 #                    set to "" for none.
 #   LOCATION         default westeurope        VM_SIZE default Standard_NV36ads_A10_v5
 #   OS_DISK_GB       default 128 (no training scratch is needed, unlike the fine-tune job)
-#   F8_SPOT          1 = Spot (an eval is short and re-runnable, so Spot is attractive here)
-#   EVAL_WAIT_MIN    how long to wait for the run, default 180
+#   F8_SPOT          1 = Spot. NOT recommended: an evicted Spot VM is deallocated, and a
+#                    deallocated VM runs no timers, so its own teardown backstop cannot fire.
+#   EVAL_WAIT_MIN    how long to wait for the run. Default: DERIVED as models x per-model cap
+#                    plus a setup allowance, printed before anything is created.
 #   EVAL_TIMEOUT     per-model cap passed through to eval-run.sh, default 60m
 #   RESULTS_DIR      where to put the fetched results; default
 #                    nl-assist-finetune/eval/results/cloud-<UTC stamp>/
@@ -77,21 +79,42 @@ EVAL_TIMEOUT="${EVAL_TIMEOUT:-60m}"
 # the VM's backstop deletes everything. They were hardcoded independently and did not nest: three
 # default models at 60m each already consumed the entire 180m wait, before ~30m of GRID driver
 # install, the toolchain, a Release dotnet build and ~14GB of pulls. So derive them.
-_to_min(){ case "$1" in *h) echo $(( ${1%h} * 60 ));; *m) echo "${1%m}";; *s) echo $(( (${1%s} + 59) / 60 ));; *) echo "$1";; esac; }
+# Validate the digits BEFORE any arithmetic: feeding unvalidated text into $(( )) means bash
+# reports its own syntax error and exits, so the friendly message below was unreachable for
+# exactly the inputs it was written for.
+_to_min(){
+  local v="$1" n
+  case "$v" in
+    *h) n="${v%h}"; case "$n" in ''|*[!0-9]*) echo ""; return;; esac; echo $(( n * 60 )) ;;
+    *m) n="${v%m}"; case "$n" in ''|*[!0-9]*) echo ""; return;; esac; echo "$n" ;;
+    *s) n="${v%s}"; case "$n" in ''|*[!0-9]*) echo ""; return;; esac; echo $(( (n + 59) / 60 )) ;;
+    *)  case "$v" in ''|*[!0-9]*) echo ""; return;; esac; echo "$v" ;;
+  esac
+}
 PER_MODEL_MIN="$(_to_min "$EVAL_TIMEOUT")"
 case "$PER_MODEL_MIN" in ''|*[!0-9]*) die "EVAL_TIMEOUT='$EVAL_TIMEOUT' is not a duration I can parse (use e.g. 45m or 2h)." ;; esac
 MODEL_COUNT="$(printf '%s %s
 ' "$VARIANTS" "$EVAL_BASELINES" | wc -w | tr -d ' ')"
 [ "$MODEL_COUNT" -gt 0 ] || die "nothing to evaluate: both VARIANTS and EVAL_BASELINES are empty."
-SETUP_ALLOWANCE_MIN="${SETUP_ALLOWANCE_MIN:-60}"   # GRID gate (<=30m) + toolchain + Release build + pulls
+# What this has to cover before the first draft is generated: the GRID driver gate (up to 30m by
+# its own loop), apt plus install-prereqs.sh, a cold NuGet restore and Release build of the apiApp
+# (up to 10m by its own gate), and pulling ~14GB of models. 60m was optimistic for the sum.
+SETUP_ALLOWANCE_MIN="${SETUP_ALLOWANCE_MIN:-75}"
 WORST_CASE_MIN=$(( MODEL_COUNT * PER_MODEL_MIN + SETUP_ALLOWANCE_MIN ))
 EVAL_WAIT_MIN="${EVAL_WAIT_MIN:-$WORST_CASE_MIN}"
 case "$EVAL_WAIT_MIN" in ''|*[!0-9]*) die "EVAL_WAIT_MIN='$EVAL_WAIT_MIN' is not a number of minutes." ;; esac
-# The backstop is derived from the wait plus an hour, so it outlives it BY CONSTRUCTION - it can
-# never delete the results while we are still fetching them. What that construction cannot do is
-# notice an absurd wait, so the ceiling below is the check that actually bites: without it a
-# typo'd EVAL_WAIT_MIN=1000 silently provisions an 18h cost ceiling on an A10.
-BACKSTOP_H=$(( (EVAL_WAIT_MIN + 60 + 59) / 60 ))
+# The reaper is armed from the LARGER of the wait and the run's own worst case. Deriving it from
+# the wait alone meant a deliberately short wait (-EvalWaitMin 60 with four models) shortened the
+# reaper below the run's own duration, so the timer deleted the group - and the results - while the
+# eval was still going, right after telling the operator "Nothing was deleted".
+#
+# It is armed OnBootSec on the VM, i.e. boot-relative, while the wait below is invocation-relative.
+# Those clocks only coincide on a fresh run, which is why wait_and_collect stops the timer once it
+# is attached and re-arms it if it gives up. Do NOT claim a nesting invariant here; there is none
+# across invocations.
+_budget_min=$EVAL_WAIT_MIN
+[ "$WORST_CASE_MIN" -gt "$_budget_min" ] && _budget_min=$WORST_CASE_MIN
+BACKSTOP_H=$(( (_budget_min + 60 + 59) / 60 ))
 [ "$BACKSTOP_H" -ge 4 ] || BACKSTOP_H=4
 MAX_BACKSTOP_H="${MAX_BACKSTOP_H:-8}"   # the fine-tune job's cap; an eval has no business exceeding it
 [ "$BACKSTOP_H" -le "$MAX_BACKSTOP_H" ] || die "EVAL_WAIT_MIN=$EVAL_WAIT_MIN derives a ${BACKSTOP_H}h cost ceiling, above the ${MAX_BACKSTOP_H}h limit for this job. Lower EVAL_WAIT_MIN or EVAL_TIMEOUT, drop a model, or raise MAX_BACKSTOP_H deliberately."
@@ -147,6 +170,33 @@ RESULTS_DIR="${RESULTS_DIR:-$FT/eval/results/cloud-$(date -u +%Y%m%dT%H%M%SZ)}"
 # Poll / fetch / teardown. Used by a fresh run and by EVAL_ATTACH_RG alike.
 # ---------------------------------------------------------------------------------------------
 
+# The VM's reaper is boot-relative and this wait is not, so while we are attached WE own teardown:
+# stop the timer, and re-arm a late one if we give up. If sudo is unavailable the clamp below is the
+# fallback - we at least stop over-waiting past a deadline we cannot see.
+disarm_backstop(){
+  if ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'sudo -n systemctl stop f8-teardown.timer' 2>/dev/null; then
+    step "stopped the VM's teardown timer for the duration of this wait (we tear down instead)."
+    return 0
+  fi
+  step "WARNING: could not stop the VM's teardown timer; clamping this wait to its own deadline."
+  return 1
+}
+
+rearm_backstop(){ # <minutes from now>
+  ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'sudo -n systemd-run --on-active=$1m \
+    --unit=f8-teardown-late --setenv=F8_BACKSTOP=1 /opt/f8/teardown.sh' >/dev/null 2>&1 \
+    && step "re-armed a teardown backstop on the VM for ~$1m from now." \
+    || step "WARNING: could not re-arm the VM backstop. Delete it yourself: az group delete -n $RG --yes"
+}
+
+remote_backstop_epoch(){ # -> epoch seconds the VM intends to reap itself, or empty
+  local us
+  us="$(ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'systemctl show -p NextElapseUSecRealtime --value f8-teardown.timer 2>/dev/null' 2>/dev/null || true)"
+  case "$us" in ''|*[!0-9]*) echo ""; return;; esac
+  [ "$us" = 0 ] && { echo ""; return; }
+  echo $(( us / 1000000 ))
+}
+
 remote_state(){ # -> "DONE" | "FAILED" | "DEAD" | "RUNNING" | "UNREACHABLE" line 1, liveness line 2
   # -n so the loop's stdin is never consumed by ssh. The unit check matters: without it a crashed
   # or SIGKILLed job is indistinguishable from a slow one, and we bill the whole window.
@@ -176,11 +226,23 @@ fetch_results(){ # copies whatever exists; non-zero unless the real artifacts ar
   [ "$rc" = 0 ] || step "scp of the results exited $rc: ${msg:-<no output>}"
   rc=0; msg="$(scp "${SSH_OPTS[@]}" "$ADMIN_USER@$IP:/var/log/f8-eval.log" "$RESULTS_DIR/f8-eval.log" 2>&1)" || rc=$?
   [ "$rc" = 0 ] || step "scp of the run log exited $rc: ${msg:-<no output>}"
-  # "Non-empty" is not "got the results": a partial scp that only brought the log down passed.
-  # Require the summary AND at least one per-model result file.
-  [ -s "$RESULTS_DIR/summary.md" ] && [ -s "$RESULTS_DIR/summary.json" ] || return 1
-  ls "$RESULTS_DIR"/baseline-*.json >/dev/null 2>&1 || return 1
-  return 0
+  # Three outcomes, not two: 0 = the complete set, 2 = something arrived but not a finished run
+  # (e.g. only partial-*.json and the log, which is exactly what a FAILED run leaves), 1 = nothing.
+  # Collapsing 2 into 1 made the failure path report "(nothing to fetch)" over real artifacts.
+  if [ -s "$RESULTS_DIR/summary.md" ] && [ -s "$RESULTS_DIR/summary.json" ] \
+     && ls "$RESULTS_DIR"/baseline-*.json >/dev/null 2>&1; then
+    return 0
+  fi
+  [ -n "$(ls -A "$RESULTS_DIR" 2>/dev/null)" ] && return 2
+  return 1
+}
+
+report_fetched(){ # after a non-success outcome, say what actually came down
+  local rc=$1
+  case "$rc" in
+    0|2) step "fetched into $RESULTS_DIR:"; ls -1 "$RESULTS_DIR" | sed 's/^/    /' ;;
+    *)   step "(nothing could be fetched)" ;;
+  esac
 }
 
 delete_rg(){
@@ -195,6 +257,7 @@ delete_rg(){
 
 wait_and_collect(){
   local deadline state live last_live="" unreachable=0 nsg_repinned=0 now_ip=""
+  local disarmed=0 attached=0 reaper=""
   deadline=$(( $(date +%s) + EVAL_WAIT_MIN * 60 ))
   step "waiting for the run (up to ${EVAL_WAIT_MIN}m). Watch it live with:"
   step "  ssh ${ADMIN_USER}@${IP} 'tail -f /var/log/f8-eval.log'"
@@ -205,8 +268,13 @@ wait_and_collect(){
     case "$state" in
       DONE)
         step "the VM reports DONE."
-        fetch_results || die "the run finished but NOTHING could be fetched from $IP. The VM is still up - copy /opt/f8/eval-results by hand before deleting '$RG'."
-        [ -s "$RESULTS_DIR/summary.md" ] || die "fetched files but no summary.md - treating this as a failed run. The VM is still up; inspect $RESULTS_DIR and the VM."
+        fetch_results; fetch_rc=$?
+        case "$fetch_rc" in
+          0) : ;;
+          2) report_fetched 2
+             die "the run finished but the fetched set is INCOMPLETE (no summary or no per-model results). The VM is still up - copy /opt/f8/eval-results by hand before deleting '$RG'." ;;
+          *) die "the run finished but NOTHING could be fetched from $IP. The VM is still up - copy /opt/f8/eval-results by hand before deleting '$RG'." ;;
+        esac
         echo ""
         cat "$RESULTS_DIR/summary.md"
         echo ""
@@ -217,9 +285,9 @@ wait_and_collect(){
       FAILED)
         step "the VM reports FAILED. Reason:"
         ssh "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'cat /opt/f8/.eval-failed 2>/dev/null; echo; tail -n 40 /var/log/f8-eval.log 2>/dev/null' 2>/dev/null || true
-        fetch_results || step "(nothing to fetch)"
+        fetch_results; report_fetched $?
         if [ "$DESTROY_ON_FAILURE" = "1" ]; then delete_rg; else
-          step "keeping '$RG' so you can investigate. The VM's own backstop deletes it ~4h after boot."
+          step "keeping '$RG' so you can investigate. The VM's own backstop deletes it ~${BACKSTOP_H}h after boot."
           step "  ssh ${ADMIN_USER}@${IP} 'less /var/log/f8-eval.log'"
           step "  az group delete --name $RG --yes"
         fi
@@ -228,7 +296,7 @@ wait_and_collect(){
       DEAD)
         step "the f8-eval unit stopped without writing a marker - it died (OOM, kill, or a crash)."
         ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'tail -n 40 /var/log/f8-eval.log 2>/dev/null; systemctl status --no-pager f8-eval.service 2>/dev/null | head -n 15' 2>/dev/null || true
-        fetch_results || step "(nothing to fetch)"
+        fetch_results; report_fetched $?
         if [ "$DESTROY_ON_FAILURE" = "1" ]; then delete_rg; else
           step "keeping '$RG' to investigate; the VM's backstop deletes it ~${BACKSTOP_H}h after boot."
         fi
@@ -237,13 +305,30 @@ wait_and_collect(){
       UNREACHABLE)
         unreachable=$(( unreachable + 1 ))
         if [ "$unreachable" = 1 ]; then step "no SSH yet; waiting ..."; fi
+        # Six misses (~3m) is long enough to be worth one authoritative check: if the group is
+        # gone, every further poll and the NSG re-pin below would be aimed at nothing.
+        if [ $(( unreachable % 6 )) = 0 ]; then
+          if ! az group exists --name "$RG" 2>/dev/null | grep -qx true; then
+            step "the resource group '$RG' no longer exists - something deleted it (the VM's own"
+            step "backstop, or a hand-run az group delete). Anything not already in"
+            step "$RESULTS_DIR is gone."
+            return 34
+          fi
+        fi
         # The NSG was pinned to the launch box's public IP when the group was created. On a
-        # re-attach from a different network - or after a DHCP change - that rule now names
-        # somebody else's address and NOTHING will ever connect. Re-pin it once, rather than
-        # spending the whole wait window talking to a firewall.
+        # re-attach from another network - or after a DHCP change - that rule names somebody
+        # else's address and NOTHING will ever connect. Re-pin it once.
         if [ "$unreachable" = 4 ] && [ "$nsg_repinned" = 0 ]; then
           nsg_repinned=1
           now_ip="$(curl -fsS https://api.ipify.org 2>/dev/null || true)"
+          # If the rule was deliberately left open (no IP could be detected at create time),
+          # re-pinning it to a /32 would narrow access rather than restore it.
+          # :- because the attach path reaches this before the fresh-run block assigns it;
+          # unset means "unknown", which must NOT be treated as "open".
+          if [ "${ALLOWED_SSH_CIDR:-}" = "*" ]; then
+            step "the AllowSSH rule is open (*), so a re-pin would only restrict it; leaving it."
+            now_ip=""
+          fi
           if [ -n "$now_ip" ]; then
             step "still unreachable after 2m - re-pinning the NSG to your current IP ($now_ip/32)."
             az network nsg rule update -g "$RG" --nsg-name "${VM_NAME}-nsg" -n AllowSSH \
@@ -254,13 +339,26 @@ wait_and_collect(){
         ;;
       *)
         unreachable=0
+        if [ "$attached" = 0 ]; then
+          attached=1
+          if disarm_backstop; then
+            disarmed=1
+          else
+            reaper="$(remote_backstop_epoch)"
+            if [ -n "$reaper" ] && [ "$(( reaper - 300 ))" -lt "$deadline" ]; then
+              deadline=$(( reaper - 300 ))
+              step "clamped this wait to 5m before the VM reaps itself ($(( (deadline - $(date +%s)) / 60 ))m from now)."
+            fi
+          fi
+        fi
         if [ "$live" != "$last_live" ] && [ -n "$live" ]; then step "$live"; last_live="$live"; fi
         ;;
     esac
     sleep 30
   done
   echo "" >&2
-  step "TIMEOUT after ${EVAL_WAIT_MIN}m. Nothing was deleted."
+  if [ "$disarmed" = 1 ]; then rearm_backstop 60; fi
+  step "TIMEOUT after ${EVAL_WAIT_MIN}m. Nothing was deleted yet."
   step "Re-attach (this is also how you recover if this box slept):"
   step "  EVAL_ATTACH_RG=$RG $HERE/eval-deploy.sh"
   step "If that cannot connect, your public IP likely changed since the NSG was pinned to it:"

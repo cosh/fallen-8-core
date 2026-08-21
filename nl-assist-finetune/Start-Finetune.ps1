@@ -469,6 +469,10 @@ function Invoke-Consolidate {
 function Invoke-AzureRun([pscustomobject]$L) {
     Write-Head 'launch the Azure A10 runner (infra/deploy.sh)'
 
+    foreach ($pair in @(@('-Location', $Location), @('-Variants', $Variants),
+            @('-PublishPrefix', $PublishPrefix))) {
+        Assert-ShellSafe $pair[0] $pair[1]
+    }
     $infra = ConvertTo-LauncherPath (Join-Path $Ft 'infra') $L.Kind
     $vars = @()
     $vars += "LOCATION='$Location'"
@@ -495,7 +499,13 @@ function Invoke-AzureRun([pscustomobject]$L) {
     if ($DryRun) { Write-Note '-DryRun: not launching.'; return }
 
     Invoke-Bash $L $body
-    if ($LASTEXITCODE -ne 0) { throw "deploy.sh exited $LASTEXITCODE. On failure the VM keeps itself for 1 h so the log is readable, then self-deletes; check /var/log/f8-finetune.log over ssh." }
+    if ($LASTEXITCODE -ne 0) {
+        # What happens next depends on the flags this run used, so do not assert one outcome.
+        if ($NoPublish -or $EvalAfterTrain) {
+            throw "deploy.sh exited $LASTEXITCODE. This run was configured NOT to self-destruct, so the resource group is still there: read /var/log/f8-finetune.log over ssh, then 'az group delete -n <rg> --yes'."
+        }
+        throw "deploy.sh exited $LASTEXITCODE. On failure the VM keeps itself for 1 h so the log is readable, then self-deletes; check /var/log/f8-finetune.log over ssh."
+    }
     Write-Note 'deploy.sh finished. Next: verify the pushed models, run the phase-4 eval (README), then close the RETRAIN-LOG entries it absorbed.'
 }
 
@@ -582,7 +592,13 @@ switch ($Stage) {
     'Consolidate' { $blockingScopes = @('Tools') }
     # A cloud eval runs nothing locally: no dotnet, no node, no npm. Blocking on them would stop a
     # perfectly good run from a box that only has git, az and ssh.
-    'Eval' { $blockingScopes = @('Repo', 'Azure') }
+    'Eval' {
+        # A re-attach clones nothing and pulls nothing, so the Repo checks (which exist because
+        # the VM clones REPO_REF) are irrelevant to it. Blocking on them made the documented
+        # recovery command fail its own preflight.
+        if ($AttachRg) { $blockingScopes = @('Azure') }
+        else { $blockingScopes = @('Repo', 'Azure') }
+    }
     'Local' { $blockingScopes = @() }
     default { $blockingScopes = @('Tools', 'Repo', 'Azure') }
 }

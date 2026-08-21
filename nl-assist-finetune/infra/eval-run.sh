@@ -70,9 +70,11 @@ fail() { echo "[eval] ERROR: $*" >&2; exit 1; }
 # The default lives under /opt, which is right on the VM and needs root anywhere else. A bare
 # "mkdir: permission denied" sent the operator looking in the wrong place.
 mkdir -p "$RESULTS_OUT" 2>/dev/null || fail "cannot create RESULTS_OUT='$RESULTS_OUT'. The default /opt/f8/eval-results needs root; set RESULTS_OUT to a directory you can write."
-# Per-model lines from an EARLIER run would otherwise be folded into this run's summary table as
-# if they were measured now.
-rm -f "$RESULTS_OUT"/line-*.json
+# Anything an EARLIER run left here would otherwise be presented as part of this one: the per-model
+# lines get folded into the summary table, and a stale summary or partial-* would be fetched as if
+# it described this run.
+rm -f "$RESULTS_OUT"/line-*.json "$RESULTS_OUT"/partial-*.json \
+      "$RESULTS_OUT"/summary.md "$RESULTS_OUT"/summary.json
 
 # ---------------------------------------------------------------------------------------------
 # Preflight. Everything cheap that can invalidate the run happens before any model is pulled.
@@ -218,10 +220,17 @@ evaluate() { # <local model name>
   set -e
   ended="$(date -u +%s)"
 
-  stage_partial(){ [ -f "$out" ] && cp "$out" "$RESULTS_OUT/partial-$(basename "$out")" 2>/dev/null || true; }
+  # Returns 0 only when something was actually staged, so the messages below can tell the truth.
+  stage_partial(){
+    [ -f "$out" ] || return 1
+    cp "$out" "$RESULTS_OUT/partial-$(basename "$out")" 2>/dev/null || return 1
+    return 0
+  }
   if [ "$rc" = 124 ]; then
-    stage_partial
-    fail "'$model' hit the $EVAL_TIMEOUT per-model cap. The partial set was staged into $RESULTS_OUT."
+    if stage_partial; then
+      fail "'$model' hit the $EVAL_TIMEOUT per-model cap. The partial set was staged into $RESULTS_OUT."
+    fi
+    fail "'$model' hit the $EVAL_TIMEOUT per-model cap before writing any results."
   fi
   [ "$rc" = 0 ] || { stage_partial; fail "baseline.ts exited $rc for '$model' (a harness error, not a low score)."; }
   [ -f "$out" ] || fail "baseline.ts reported success for '$model' but wrote no $out."
