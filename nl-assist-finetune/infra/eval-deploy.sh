@@ -160,11 +160,16 @@ remote_state(){ # -> "DONE" | "FAILED" | "DEAD" | "RUNNING" | "UNREACHABLE" line
   ' 2>/dev/null || echo UNREACHABLE
 }
 
-fetch_results(){ # copies whatever exists; returns non-zero only if nothing came down
+fetch_results(){ # copies whatever exists; non-zero unless the real artifacts arrived
   mkdir -p "$RESULTS_DIR"
   step "fetching results into $RESULTS_DIR ..."
-  scp "${SSH_OPTS[@]}" -r "$ADMIN_USER@$IP:/opt/f8/eval-results/." "$RESULTS_DIR/" 2>/dev/null || true
-  scp "${SSH_OPTS[@]}" "$ADMIN_USER@$IP:/var/log/f8-eval.log" "$RESULTS_DIR/f8-eval.log" 2>/dev/null || true
+  # Keep scp's own diagnosis. Discarding it made a partial transfer indistinguishable from a clean
+  # one, and left the operator nothing to act on.
+  local msg rc
+  rc=0; msg="$(scp "${SSH_OPTS[@]}" -r "$ADMIN_USER@$IP:/opt/f8/eval-results/." "$RESULTS_DIR/" 2>&1)" || rc=$?
+  [ "$rc" = 0 ] || step "scp of the results exited $rc: ${msg:-<no output>}"
+  rc=0; msg="$(scp "${SSH_OPTS[@]}" "$ADMIN_USER@$IP:/var/log/f8-eval.log" "$RESULTS_DIR/f8-eval.log" 2>&1)" || rc=$?
+  [ "$rc" = 0 ] || step "scp of the run log exited $rc: ${msg:-<no output>}"
   # "Non-empty" is not "got the results": a partial scp that only brought the log down passed.
   # Require the summary AND at least one per-model result file.
   [ -s "$RESULTS_DIR/summary.md" ] && [ -s "$RESULTS_DIR/summary.json" ] || return 1
@@ -183,7 +188,7 @@ delete_rg(){
 }
 
 wait_and_collect(){
-  local deadline state live last_live=""
+  local deadline state live last_live="" unreachable=0 nsg_repinned=0 now_ip=""
   deadline=$(( $(date +%s) + EVAL_WAIT_MIN * 60 ))
   step "waiting for the run (up to ${EVAL_WAIT_MIN}m). Watch it live with:"
   step "  ssh ${ADMIN_USER}@${IP} 'tail -f /var/log/f8-eval.log'"
@@ -224,8 +229,25 @@ wait_and_collect(){
         return 33
         ;;
       UNREACHABLE)
-        [ "$last_live" = "" ] && step "waiting for SSH to come up ..." ;;
+        unreachable=$(( unreachable + 1 ))
+        if [ "$unreachable" = 1 ]; then step "no SSH yet; waiting ..."; fi
+        # The NSG was pinned to the launch box's public IP when the group was created. On a
+        # re-attach from a different network - or after a DHCP change - that rule now names
+        # somebody else's address and NOTHING will ever connect. Re-pin it once, rather than
+        # spending the whole wait window talking to a firewall.
+        if [ "$unreachable" = 4 ] && [ "$nsg_repinned" = 0 ]; then
+          nsg_repinned=1
+          now_ip="$(curl -fsS https://api.ipify.org 2>/dev/null || true)"
+          if [ -n "$now_ip" ]; then
+            step "still unreachable after 2m - re-pinning the NSG to your current IP ($now_ip/32)."
+            az network nsg rule update -g "$RG" --nsg-name "${VM_NAME}-nsg" -n AllowSSH \
+              --source-address-prefixes "$now_ip/32" -o none 2>/dev/null \
+              || step "could not update the NSG rule; do it by hand if this keeps failing."
+          fi
+        fi
+        ;;
       *)
+        unreachable=0
         if [ "$live" != "$last_live" ] && [ -n "$live" ]; then step "$live"; last_live="$live"; fi
         ;;
     esac
@@ -274,6 +296,13 @@ detected_ip="$(curl -fsS https://api.ipify.org 2>/dev/null || true)"
 ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-${detected_ip:+$detected_ip/32}}"
 ALLOWED_SSH_CIDR="${ALLOWED_SSH_CIDR:-*}"
 [ "$ALLOWED_SSH_CIDR" = "*" ] && echo "[eval-deploy] WARNING: could not detect your public IP; opening SSH to 0.0.0.0/0 (key-only auth)." >&2
+
+if [ "$USE_SPOT" = "1" ]; then
+  echo "[eval-deploy] WARNING: Spot is requested. An evicted Spot VM is DEALLOCATED, and a" >&2
+  echo "[eval-deploy]          deallocated VM runs no systemd timers - so its own teardown" >&2
+  echo "[eval-deploy]          backstop cannot fire. If it is evicted, this resource group" >&2
+  echo "[eval-deploy]          survives until you or a re-attach delete it." >&2
+fi
 
 RAND="$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"
 RG="rg-f8-eval-$RAND"
