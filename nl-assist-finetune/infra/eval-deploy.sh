@@ -72,7 +72,29 @@ VM_NAME=f8-eval
 VARIANTS="${VARIANTS:-phi4-f8-mini phi4-f8}"
 EVAL_BASELINES="${EVAL_BASELINES-phi4-mini}"
 EVAL_TIMEOUT="${EVAL_TIMEOUT:-60m}"
-EVAL_WAIT_MIN="${EVAL_WAIT_MIN:-180}"
+
+# The three time bounds have to nest: per-model cap x models + setup <= how long we wait <= when
+# the VM's backstop deletes everything. They were hardcoded independently and did not nest: three
+# default models at 60m each already consumed the entire 180m wait, before ~30m of GRID driver
+# install, the toolchain, a Release dotnet build and ~14GB of pulls. So derive them.
+_to_min(){ case "$1" in *h) echo $(( ${1%h} * 60 ));; *m) echo "${1%m}";; *s) echo $(( (${1%s} + 59) / 60 ));; *) echo "$1";; esac; }
+PER_MODEL_MIN="$(_to_min "$EVAL_TIMEOUT")"
+case "$PER_MODEL_MIN" in ''|*[!0-9]*) die "EVAL_TIMEOUT='$EVAL_TIMEOUT' is not a duration I can parse (use e.g. 45m or 2h)." ;; esac
+MODEL_COUNT="$(printf '%s %s
+' "$VARIANTS" "$EVAL_BASELINES" | wc -w | tr -d ' ')"
+[ "$MODEL_COUNT" -gt 0 ] || die "nothing to evaluate: both VARIANTS and EVAL_BASELINES are empty."
+SETUP_ALLOWANCE_MIN="${SETUP_ALLOWANCE_MIN:-60}"   # GRID gate (<=30m) + toolchain + Release build + pulls
+WORST_CASE_MIN=$(( MODEL_COUNT * PER_MODEL_MIN + SETUP_ALLOWANCE_MIN ))
+EVAL_WAIT_MIN="${EVAL_WAIT_MIN:-$WORST_CASE_MIN}"
+case "$EVAL_WAIT_MIN" in ''|*[!0-9]*) die "EVAL_WAIT_MIN='$EVAL_WAIT_MIN' is not a number of minutes." ;; esac
+# The backstop is derived from the wait plus an hour, so it outlives it BY CONSTRUCTION - it can
+# never delete the results while we are still fetching them. What that construction cannot do is
+# notice an absurd wait, so the ceiling below is the check that actually bites: without it a
+# typo'd EVAL_WAIT_MIN=1000 silently provisions an 18h cost ceiling on an A10.
+BACKSTOP_H=$(( (EVAL_WAIT_MIN + 60 + 59) / 60 ))
+[ "$BACKSTOP_H" -ge 4 ] || BACKSTOP_H=4
+MAX_BACKSTOP_H="${MAX_BACKSTOP_H:-8}"   # the fine-tune job's cap; an eval has no business exceeding it
+[ "$BACKSTOP_H" -le "$MAX_BACKSTOP_H" ] || die "EVAL_WAIT_MIN=$EVAL_WAIT_MIN derives a ${BACKSTOP_H}h cost ceiling, above the ${MAX_BACKSTOP_H}h limit for this job. Lower EVAL_WAIT_MIN or EVAL_TIMEOUT, drop a model, or raise MAX_BACKSTOP_H deliberately."
 USE_SPOT="${F8_SPOT:-0}"
 ADMIN_USER="${ADMIN_USER:-azureuser}"
 GIT_TOKEN="${GIT_TOKEN:-}"
@@ -95,9 +117,16 @@ SSH_KEY_FILE="${SSH_KEY_FILE:-${SSH_PUBKEY_FILE%.pub}}"
 [ -f "$SSH_KEY_FILE" ] || die "no SSH PRIVATE key at '$SSH_KEY_FILE' - this job must ssh back in to fetch the results. Set SSH_KEY_FILE."
 SSH_PUBKEY="$(cat "$SSH_PUBKEY_FILE")"
 
+# OpenSSH ignores a private key whose permissions are group/other-readable. Under WSL a key on
+# /mnt/c presents as 0777, so ssh would refuse it - and the first thing that needs it is the
+# result FETCH, i.e. after the GPU hour is already paid for. Work from a private copy on the
+# local filesystem. (Unverified locally: outbound :22 is blocked here, so this is defensive.)
+KEY_TMP="$(mktemp)"; chmod 600 "$KEY_TMP"; cat "$SSH_KEY_FILE" > "$KEY_TMP"
+trap 'rm -f "$KEY_TMP"' EXIT
+
 # Ephemeral, single-use hosts: a recycled Azure IP whose old host key is in known_hosts would
 # otherwise abort every connection with a spoofing warning.
-SSH_OPTS=(-i "$SSH_KEY_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+SSH_OPTS=(-i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
           -o LogLevel=ERROR -o ConnectTimeout=15 -o BatchMode=yes)
 
 command -v az >/dev/null 2>&1 || die "the Azure CLI is not on PATH."
@@ -118,10 +147,14 @@ RESULTS_DIR="${RESULTS_DIR:-$FT/eval/results/cloud-$(date -u +%Y%m%dT%H%M%SZ)}"
 # Poll / fetch / teardown. Used by a fresh run and by EVAL_ATTACH_RG alike.
 # ---------------------------------------------------------------------------------------------
 
-remote_state(){ # -> "DONE" | "FAILED" | "RUNNING" | "UNREACHABLE" on line 1, liveness on line 2
-  ssh "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" '
+remote_state(){ # -> "DONE" | "FAILED" | "DEAD" | "RUNNING" | "UNREACHABLE" line 1, liveness line 2
+  # -n so the loop's stdin is never consumed by ssh. The unit check matters: without it a crashed
+  # or SIGKILLed job is indistinguishable from a slow one, and we bill the whole window.
+  ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" '
     if [ -f /opt/f8/.eval-done ]; then echo DONE
     elif [ -f /opt/f8/.eval-failed ]; then echo FAILED
+    elif systemctl is-failed --quiet f8-eval.service; then echo DEAD
+    elif ! systemctl is-active --quiet f8-eval.service && [ -f /var/log/f8-eval.log ]; then echo DEAD
     else echo RUNNING; fi
     tail -n 1 /var/log/f8-eval.log 2>/dev/null || true
   ' 2>/dev/null || echo UNREACHABLE
@@ -132,7 +165,11 @@ fetch_results(){ # copies whatever exists; returns non-zero only if nothing came
   step "fetching results into $RESULTS_DIR ..."
   scp "${SSH_OPTS[@]}" -r "$ADMIN_USER@$IP:/opt/f8/eval-results/." "$RESULTS_DIR/" 2>/dev/null || true
   scp "${SSH_OPTS[@]}" "$ADMIN_USER@$IP:/var/log/f8-eval.log" "$RESULTS_DIR/f8-eval.log" 2>/dev/null || true
-  [ -n "$(ls -A "$RESULTS_DIR" 2>/dev/null)" ]
+  # "Non-empty" is not "got the results": a partial scp that only brought the log down passed.
+  # Require the summary AND at least one per-model result file.
+  [ -s "$RESULTS_DIR/summary.md" ] && [ -s "$RESULTS_DIR/summary.json" ] || return 1
+  ls "$RESULTS_DIR"/baseline-*.json >/dev/null 2>&1 || return 1
+  return 0
 }
 
 delete_rg(){
@@ -177,6 +214,15 @@ wait_and_collect(){
         fi
         return 33
         ;;
+      DEAD)
+        step "the f8-eval unit stopped without writing a marker - it died (OOM, kill, or a crash)."
+        ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'tail -n 40 /var/log/f8-eval.log 2>/dev/null; systemctl status --no-pager f8-eval.service 2>/dev/null | head -n 15' 2>/dev/null || true
+        fetch_results || step "(nothing to fetch)"
+        if [ "$DESTROY_ON_FAILURE" = "1" ]; then delete_rg; else
+          step "keeping '$RG' to investigate; the VM's backstop deletes it ~${BACKSTOP_H}h after boot."
+        fi
+        return 33
+        ;;
       UNREACHABLE)
         [ "$last_live" = "" ] && step "waiting for SSH to come up ..." ;;
       *)
@@ -189,6 +235,8 @@ wait_and_collect(){
   step "TIMEOUT after ${EVAL_WAIT_MIN}m. Nothing was deleted."
   step "Re-attach (this is also how you recover if this box slept):"
   step "  EVAL_ATTACH_RG=$RG $HERE/eval-deploy.sh"
+  step "If that cannot connect, your public IP likely changed since the NSG was pinned to it:"
+  step "  az network nsg rule update -g $RG --nsg-name ${VM_NAME}-nsg -n AllowSSH --source-address-prefixes \$(curl -fsS https://api.ipify.org)/32"
   return 1
 }
 
@@ -237,6 +285,8 @@ echo "  repo           : $REPO_URL @ $REPO_REF"
 echo "  pulling        : $EVAL_PREFIX/{$(echo "$VARIANTS" | tr ' ' ',')}"
 echo "  baselines      : ${EVAL_BASELINES:-<none>}"
 echo "  results        : $RESULTS_DIR"
+echo "  time budget    : ${MODEL_COUNT} model(s) x ${PER_MODEL_MIN}m + ${SETUP_ALLOWANCE_MIN}m setup = ${WORST_CASE_MIN}m worst case;"
+echo "                   waiting ${EVAL_WAIT_MIN}m, the VM self-reaps at ${BACKSTOP_H}h"
 echo ""
 
 BOOTSTRAP_B64="$(b64 < "$HERE/bootstrap-eval.sh")"
@@ -257,6 +307,7 @@ write_files:
       VARIANTS="${VARIANTS}"
       EVAL_BASELINES="${EVAL_BASELINES}"
       EVAL_TIMEOUT="${EVAL_TIMEOUT}"
+      REGISTRY="${REGISTRY}"
       GIT_TOKEN="${GIT_TOKEN}"
       AZ_RESOURCE_GROUP="${RG}"
       AZ_SUBSCRIPTION="${SUB}"
@@ -294,14 +345,16 @@ write_files:
       Wants=network-online.target
       [Service]
       Type=oneshot
+      EnvironmentFile=-/etc/f8-eval.env
+      Environment=F8_BACKSTOP=1
       ExecStart=/opt/f8/teardown.sh
   - path: /etc/systemd/system/f8-teardown.timer
     permissions: '0644'
     content: |
       [Unit]
-      Description=Fire the F8 teardown backstop 4h after boot (an eval is ~1h; this caps an abandoned run)
+      Description=Fire the F8 teardown backstop ${BACKSTOP_H}h after boot (caps an abandoned run; derived from the wait)
       [Timer]
-      OnBootSec=4h
+      OnBootSec=${BACKSTOP_H}h
       Unit=f8-teardown.service
       [Install]
       WantedBy=timers.target

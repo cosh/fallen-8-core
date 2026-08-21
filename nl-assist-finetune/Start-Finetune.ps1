@@ -70,7 +70,8 @@ param(
     [string]$EvalPrefix,
     [string]$EvalBaselines = 'phi4-mini',
     [string]$AttachRg,
-    [int]$EvalWaitMin = 180,
+    [int]$EvalWaitMin = 0,          # 0 = let eval-deploy.sh derive it from models x per-model cap
+    [switch]$EvalAfterTrain,        # -Stage Azure/Run: also measure the models before teardown
     [string]$SshPubKeyFile,
     [string]$SshKeyFile,
     [string]$OllamaKeyFile,
@@ -159,6 +160,14 @@ function Test-ApiAnswering([int]$Port) {
     catch { return $false }
 }
 
+# Every value below is interpolated into a single-quoted bash word. An apostrophe would end that
+# quoting and turn the rest into shell syntax, so refuse rather than generate something clever.
+function Assert-ShellSafe([string]$Name, [string]$Value) {
+    if ($Value -and $Value.Contains("'")) {
+        throw "$Name contains a single quote, which cannot be passed safely to the shell: $Value"
+    }
+}
+
 function Get-LineCount([string]$Path) {
     if (-not (Test-Path $Path)) { return 0 }
     return (Get-Content -LiteralPath $Path | Measure-Object -Line).Lines
@@ -191,7 +200,13 @@ function Invoke-Preflight([pscustomobject]$L, [string]$Job) {
         # The VM trains what origin has, so the direction of any divergence decides the verdict:
         # ahead (unpushed) is fatal, behind only means you are not looking at what will train.
         $lsRemote = (& git ls-remote origin ('refs/heads/' + $branch)) -join "`n"
-        if ([string]::IsNullOrWhiteSpace($lsRemote)) {
+        $lsExit = $LASTEXITCODE
+        if ($lsExit -ne 0) {
+            # A network failure and a missing branch both produce empty output. Conflating them
+            # reported a pushed branch as unpushed and blocked a legitimate run.
+            Add-Check 'git: branch on origin' $false "could not reach origin (git ls-remote exited $lsExit), so whether '$branch' is pushed is unknown" 'Repo' -Soft
+        }
+        elseif ([string]::IsNullOrWhiteSpace($lsRemote)) {
             Add-Check 'git: branch on origin' $false "'$branch' is not on origin - the VM clones REPO_REF, so push it first" 'Repo'
         }
         else {
@@ -268,11 +283,19 @@ function Invoke-Preflight([pscustomobject]$L, [string]$Job) {
         # here even though the fine-tune job never needs it.
         $priv = $SshKeyFile
         if (-not $priv -and $sshKey) { $priv = ($sshKey -replace '\.pub$', '') }
-        if ($priv -and (Test-Path $priv)) { Add-Check 'eval: ssh private key' $true $priv 'Azure' }
+        if ($priv -and (Test-Path $priv)) {
+            $head = ''
+            try { $head = (Get-Content -LiteralPath $priv -TotalCount 1 -ErrorAction Stop) } catch { $head = '' }
+            if ($head -like '*BEGIN*PRIVATE KEY*') { Add-Check 'eval: ssh private key' $true $priv 'Azure' }
+            else { Add-Check 'eval: ssh private key' $false "$priv is not a private key (first line: '$head'). Pass -SshKeyFile" 'Azure' }
+        }
         else { Add-Check 'eval: ssh private key' $false 'not found; the run cannot fetch its results. Pass -SshKeyFile' 'Azure' }
         $script:SshPrivResolved = $priv
 
-        if ($EvalPrefix) {
+        if ($AttachRg) {
+            Add-Check 'eval: re-attach' $true "$AttachRg (registry checks skipped: nothing new is pulled)" 'Azure'
+        }
+        elseif ($EvalPrefix) {
             # Cheapest possible failure: a variant that was never published. Same auth-free
             # manifest GET the publish step uses, before any VM exists.
             foreach ($v in ($Variants -split '\s+' | Where-Object { $_ })) {
@@ -458,6 +481,7 @@ function Invoke-AzureRun([pscustomobject]$L) {
         $vars += 'DESTROY_ON_FINISH=0'
         Write-Warning 'no publish target: DESTROY_ON_FINISH=0, so the resource group survives and YOU must delete it (az group delete -n <rg> --yes).'
     }
+    if ($EvalAfterTrain) { $vars += 'EVAL_AFTER_TRAIN=1' }
     else {
         $vars += "PUBLISH_PREFIX='$PublishPrefix'"
         if ($script:OllamaKeyResolved) { $vars += "OLLAMA_KEY_FILE='$(ConvertTo-LauncherPath $script:OllamaKeyResolved $L.Kind)'" }
@@ -476,6 +500,10 @@ function Invoke-AzureRun([pscustomobject]$L) {
 function Invoke-EvalRun([pscustomobject]$L) {
     Write-Head 'launch the cloud evaluation (infra/eval-deploy.sh)'
 
+    foreach ($pair in @(@('-EvalPrefix', $EvalPrefix), @('-EvalBaselines', $EvalBaselines),
+            @('-Variants', $Variants), @('-Location', $Location), @('-AttachRg', $AttachRg))) {
+        Assert-ShellSafe $pair[0] $pair[1]
+    }
     $infra = ConvertTo-LauncherPath (Join-Path $Ft 'infra') $L.Kind
     $vars = @()
     if ($AttachRg) {
@@ -491,7 +519,8 @@ function Invoke-EvalRun([pscustomobject]$L) {
         $vars += "REPO_URL='$($script:RepoUrl)'"
         $vars += "REPO_REF='$($script:Branch)'"
     }
-    $vars += "EVAL_WAIT_MIN='$EvalWaitMin'"
+    # Only override the shell's derived budget when the operator actually asked for a number.
+    if ($EvalWaitMin -gt 0) { $vars += "EVAL_WAIT_MIN='$EvalWaitMin'" }
     if ($script:SshKeyResolved) { $vars += "SSH_PUBKEY_FILE='$(ConvertTo-LauncherPath $script:SshKeyResolved $L.Kind)'" }
     if ($script:SshPrivResolved) { $vars += "SSH_KEY_FILE='$(ConvertTo-LauncherPath $script:SshPrivResolved $L.Kind)'" }
 
@@ -500,7 +529,8 @@ function Invoke-EvalRun([pscustomobject]$L) {
     Write-Host $body
     if ($DryRun) { Write-Note '-DryRun: not launching.'; return }
 
-    Write-Note "this stage WAITS (up to $EvalWaitMin min) because the results have to be copied down before the"
+    if ($EvalWaitMin -gt 0) { $waitText = "$EvalWaitMin min" } else { $waitText = 'the budget it prints below' }
+    Write-Note "this stage WAITS (up to $waitText) because the results have to be copied down before the"
     Write-Note 'resource group is deleted. If this box sleeps, re-attach with -Stage Eval -AttachRg <rg>.'
     Invoke-Bash $L $body
     if ($LASTEXITCODE -ne 0) { throw "eval-deploy.sh exited $LASTEXITCODE - see the output above; the resource group was deliberately kept unless it printed otherwise." }
@@ -548,6 +578,9 @@ $script:Checks | Format-Table -AutoSize | Out-String -Width 240 | Write-Host
 # local apiApp does not care what origin has, or whether Azure is reachable.
 switch ($Stage) {
     'Consolidate' { $blockingScopes = @('Tools') }
+    # A cloud eval runs nothing locally: no dotnet, no node, no npm. Blocking on them would stop a
+    # perfectly good run from a box that only has git, az and ssh.
+    'Eval' { $blockingScopes = @('Repo', 'Azure') }
     'Local' { $blockingScopes = @() }
     default { $blockingScopes = @('Tools', 'Repo', 'Azure') }
 }

@@ -9,10 +9,26 @@
 # and is SIGKILLed, where a bash trap would not run).
 set -uo pipefail
 
-. /etc/f8-finetune.env 2>/dev/null || true
+# Both jobs' env files, because this script is shared: the fine-tune job writes
+# /etc/f8-finetune.env, the eval job writes /etc/f8-eval.env. Sourcing only the first one made
+# the eval job's backstop timer exit 1 on empty AZ_* - i.e. an abandoned GPU VM was never
+# reaped, while every doc promised it was.
+for _envfile in /etc/f8-finetune.env /etc/f8-eval.env; do
+  # shellcheck disable=SC1090
+  [ -f "$_envfile" ] && . "$_envfile" 2>/dev/null
+done
 : "${AZ_SUBSCRIPTION:=}"; : "${AZ_RESOURCE_GROUP:=}"; : "${DESTROY_ON_FINISH:=1}"
-# Honor debug mode so the backstop timer doesn't delete a VM you deliberately kept.
-[ "$DESTROY_ON_FINISH" = "1" ] || { echo "[teardown] DESTROY_ON_FINISH != 1 -> keeping resources (debug mode)."; exit 0; }
+: "${F8_BACKSTOP:=0}"
+# Honor debug mode so the backstop timer doesn't delete a VM you deliberately kept - EXCEPT when
+# invoked as the unconditional cost backstop (F8_BACKSTOP=1, set by that systemd unit only). The
+# eval job runs with DESTROY_ON_FINISH=0 as its NORMAL state, because its launch box tears down
+# after fetching the results, so for that job "0" must not disarm the cost cap. To keep an eval
+# VM past the timer deliberately: systemctl stop f8-teardown.timer.
+if [ "$F8_BACKSTOP" = "1" ]; then
+  echo "[teardown] invoked as the unconditional cost backstop; DESTROY_ON_FINISH=$DESTROY_ON_FINISH is ignored."
+else
+  [ "$DESTROY_ON_FINISH" = "1" ] || { echo "[teardown] DESTROY_ON_FINISH != 1 -> keeping resources (debug mode)."; exit 0; }
+fi
 [ -n "$AZ_SUBSCRIPTION" ] && [ -n "$AZ_RESOURCE_GROUP" ] || { echo "[teardown] missing AZ_SUBSCRIPTION/AZ_RESOURCE_GROUP"; exit 1; }
 
 tok="$(curl -s --max-time 30 -H 'Metadata:true' \

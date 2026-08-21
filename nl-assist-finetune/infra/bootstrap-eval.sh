@@ -178,8 +178,11 @@ cd "$WORK/repo"
 Fallen8__Durability__Volatile=true \
 ASPNETCORE_URLS=http://localhost:5000 \
   dotnet run --project fallen-8-core-apiApp -c Release >/var/log/f8-apiapp.log 2>&1 &
-for _ in $(seq 1 100); do curl -sf http://localhost:5000/status >/dev/null 2>&1 && break; sleep 3; done
-curl -sf http://localhost:5000/status >/dev/null 2>&1 || fail "apiApp did not become healthy (see /var/log/f8-apiapp.log)" 21
+# 200 x 3s = 10 min. The fine-tune job gets away with 100 because run.sh has already restored and
+# built the solution by then; here this is the FIRST dotnet invocation on the box, so it pays for
+# a cold NuGet restore plus a Release build.
+for _ in $(seq 1 200); do curl -sf http://localhost:5000/status >/dev/null 2>&1 && break; sleep 3; done
+curl -sf http://localhost:5000/status >/dev/null 2>&1 || fail "apiApp did not become healthy within ~10 min (see /var/log/f8-apiapp.log)" 21
 log "apiApp healthy."
 
 # --- the job itself: one home for the evaluation logic, taken from the clone ------------------
