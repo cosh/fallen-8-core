@@ -97,9 +97,17 @@ diagnostics name a quota error clearly.
   invocation behaves identically.
 - **`Start-Finetune.ps1` / `RUNBOOK.md`:** updated in this change (`-Stage Eval`, plus an
   `-AttachRg` re-attach path and a runbook section).
-- **Docs site and architecture diagrams:** deliberately not touched. This is operator tooling,
-  like the fine-tune runner, which likewise has no docs-site page; it does not change how any
-  client reaches Fallen-8, so neither architecture diagram is stale.
+- **Docs site:** [`nl-assist.md`](../../../docs/src/content/docs/nl-assist.md) updated. It
+  documents this offline pipeline, and two of its claims went stale: the pipeline table's
+  Evaluate row said "no GPU", which is the misleading half of the truth once a GPU path exists
+  (it *starts* without one and then generates at ~14 s/token), and the `infra/` line described
+  training only. It now also points at the runbook's evaluation-only section. The link-checked
+  docs build was re-run green.
+- **Architecture diagrams:** not touched, and not stale. This changes where an evaluation runs,
+  not how any client reaches Fallen-8 or what ships in the deployable.
+- **Root README "Key features":** no entry. That list is for user-facing features on
+  <https://docs.fallen-8.com>; this is contributor tooling, like the fine-tune runner, which has
+  no entry either.
 
 ## Verification, and what remains unverified
 
