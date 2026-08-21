@@ -25,8 +25,10 @@
 
 <#
 .SYNOPSIS
-  Windows launch box for a fine-tune round: preflight, consolidate captured feedback, then hand
-  the whole session to the Azure A10 runner (infra/deploy.sh).
+  Windows launch box for the nl-assist model pipeline. Two jobs: a fine-tune round (preflight,
+  consolidate captured feedback, then hand the session to infra/deploy.sh), and an EVALUATION of
+  the already-published models on throwaway cloud GPU (-Stage Eval, via infra/eval-deploy.sh),
+  which waits for the results and brings them home before tearing the infrastructure down.
 
 .DESCRIPTION
   The ordered procedure and the cross-machine carry live in RUNBOOK.md; the pipeline itself is
@@ -286,7 +288,37 @@ function Invoke-Preflight([pscustomobject]$L, [string]$Job) {
         if ($priv -and (Test-Path $priv)) {
             $head = ''
             try { $head = (Get-Content -LiteralPath $priv -TotalCount 1 -ErrorAction Stop) } catch { $head = '' }
-            if ($head -like '*BEGIN*PRIVATE KEY*') { Add-Check 'eval: ssh private key' $true $priv 'Azure' }
+            if ($head -like '*BEGIN*PRIVATE KEY*') {
+                # The shape test cannot distinguish an ENCRYPTED OpenSSH key: its first line is
+                # byte-identical. But every ssh/scp in the eval job runs BatchMode=yes from a
+                # non-interactive shell with no agent, so a passphrase key can NEVER authenticate,
+                # and that only shows up at the fetch - after the GPU hour is paid. So ask
+                # ssh-keygen whether it opens with an empty passphrase. Nothing is transmitted and
+                # no key material is printed; this only derives the public half.
+                $pk = ConvertTo-LauncherPath $priv $L.Kind
+                Assert-ShellSafe '-SshKeyFile' $pk
+                # Test a 0600 COPY, exactly as eval-deploy.sh will use it. Testing the original
+                # path conflates two different failures: a key on /mnt/c presents as 0777, which
+                # OpenSSH refuses for permissions, and reporting that as "needs a passphrase" sends
+                # the operator to fix the wrong thing. (Measured: that is what happens here.)
+                $probeKey = @"
+k='$pk'
+t="`$(mktemp)"; chmod 600 "`$t"; cat "`$k" > "`$t"
+if ! command -v ssh-keygen >/dev/null 2>&1; then echo key=unknown; rm -f "`$t"; exit 0; fi
+if ssh-keygen -y -P '' -f "`$t" >/dev/null 2>&1; then echo key=usable; else echo key=passphrase; fi
+rm -f "`$t"
+"@
+                $kr = @(Invoke-Bash $L $probeKey -Capture)
+                if ($kr -contains 'key=usable') {
+                    Add-Check 'eval: ssh private key' $true "$priv (opens without a passphrase)" 'Azure'
+                }
+                elseif ($kr -contains 'key=passphrase') {
+                    Add-Check 'eval: ssh private key' $false "$priv could not be opened with an empty passphrase (tested on a 0600 copy, so this is not a file-permission problem). Every ssh here uses BatchMode=yes with no agent, so the results could never be fetched. Use a passphrase-free key: ssh-keygen -t ed25519 -N '' -f ~/.ssh/f8_eval, then pass -SshKeyFile" 'Azure'
+                }
+                else {
+                    Add-Check 'eval: ssh private key' $false "$priv looks like a private key, but ssh-keygen is absent so its usability is unverified" 'Azure' -Soft
+                }
+            }
             else { Add-Check 'eval: ssh private key' $false "$priv is not a private key (first line: '$head'). Pass -SshKeyFile" 'Azure' }
         }
         else { Add-Check 'eval: ssh private key' $false 'not found; the run cannot fetch its results. Pass -SshKeyFile' 'Azure' }

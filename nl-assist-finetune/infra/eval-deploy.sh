@@ -53,7 +53,8 @@
 #   RESULTS_DIR      where to put the fetched results; default
 #                    nl-assist-finetune/eval/results/cloud-<UTC stamp>/
 #   DESTROY_ON_FAILURE  1 = delete the RG even when the eval failed (default 0: keep it so the
-#                    VM's log is readable; the VM's own 4h backstop still caps the cost)
+#                    VM's log is readable). The VM's backstop is DERIVED, not 4h - see the budget
+#                    block below - and if this script stopped that timer it re-arms it first.
 #   REPO_URL/REPO_REF, SSH_PUBKEY_FILE, SSH_KEY_FILE, ADMIN_USER, ALLOWED_SSH_CIDR, GIT_TOKEN,
 #   F8_DEBUG         as in deploy.sh.
 set -euo pipefail
@@ -147,6 +148,19 @@ SSH_PUBKEY="$(cat "$SSH_PUBKEY_FILE")"
 KEY_TMP="$(mktemp)"; chmod 600 "$KEY_TMP"; cat "$SSH_KEY_FILE" > "$KEY_TMP"
 trap 'rm -f "$KEY_TMP"' EXIT
 
+# Every ssh/scp below runs with BatchMode=yes, and the launcher starts this script in a
+# non-interactive shell with no agent, so a PASSPHRASE-PROTECTED key can never authenticate. That
+# failure would surface only at the fetch - after the GPU hour is paid - as an indistinguishable
+# "no SSH yet". So prove the key is usable now, locally, before anything is created.
+# ssh-keygen only derives the public half; nothing is transmitted and no key material is printed.
+if command -v ssh-keygen >/dev/null 2>&1; then
+  if ! ssh-keygen -y -P '' -f "$KEY_TMP" >/dev/null 2>&1; then
+    die "the private key '$SSH_KEY_FILE' cannot be used without a passphrase, and every ssh/scp here runs with BatchMode=yes (no agent, non-interactive). The results could never be fetched. Point SSH_KEY_FILE at a passphrase-free key, or create one: ssh-keygen -t ed25519 -N '' -f ~/.ssh/f8_eval"
+  fi
+else
+  step "WARNING: no ssh-keygen, so the private key's usability could not be checked up front."
+fi
+
 # Ephemeral, single-use hosts: a recycled Azure IP whose old host key is in known_hosts would
 # otherwise abort every connection with a spoofing warning.
 SSH_OPTS=(-i "$KEY_TMP" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
@@ -182,19 +196,37 @@ disarm_backstop(){
   return 1
 }
 
-rearm_backstop(){ # <minutes from now>
-  ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'sudo -n systemd-run --on-active=$1m \
-    --unit=f8-teardown-late --setenv=F8_BACKSTOP=1 /opt/f8/teardown.sh' >/dev/null 2>&1 \
-    && step "re-armed a teardown backstop on the VM for ~$1m from now." \
-    || step "WARNING: could not re-arm the VM backstop. Delete it yourself: az group delete -n $RG --yes"
+rearm_backstop(){ # <minutes from now> - hand the reaper back before we stop watching
+  local mins="$1" out rc=0
+  # DOUBLE quotes: this was single-quoted, so $1 never expanded and the VM received
+  # "--on-active=m", which systemd rejects. Combined with the stop above, that left the box with
+  # no reaper at all - the one outcome this whole design exists to prevent. No --unit either: a
+  # fixed name collides on a second re-arm, and we never need to address it again.
+  out="$(ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" \
+    "sudo -n systemd-run --on-active=${mins}m --setenv=F8_BACKSTOP=1 /opt/f8/teardown.sh" 2>&1)" || rc=$?
+  if [ "$rc" = 0 ]; then
+    step "re-armed a teardown backstop on the VM for ~${mins}m from now."
+    return 0
+  fi
+  step "WARNING: could not re-arm the VM backstop (${out:-no output}). DELETE IT YOURSELF:"
+  step "  az group delete -n $RG --yes"
+  return 1
 }
 
-remote_backstop_epoch(){ # -> epoch seconds the VM intends to reap itself, or empty
-  local us
-  us="$(ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'systemctl show -p NextElapseUSecRealtime --value f8-teardown.timer 2>/dev/null' 2>/dev/null || true)"
-  case "$us" in ''|*[!0-9]*) echo ""; return;; esac
-  [ "$us" = 0 ] && { echo ""; return; }
-  echo $(( us / 1000000 ))
+remote_backstop_remaining(){ # -> seconds until the VM reaps itself, or empty
+  # RELATIVE seconds, computed on the VM. The timer is armed OnBootSec, i.e. MONOTONIC, so
+  # NextElapseUSecRealtime is 0 for it and an earlier version of this always returned empty -
+  # silently disabling the clamp it was written to provide. Monotonic also means no clock-skew
+  # arithmetic between the two machines.
+  local secs
+  secs="$(ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" '
+    n="$(systemctl show -p NextElapseUSecMonotonic --value f8-teardown.timer 2>/dev/null)"
+    case "$n" in ""|*[!0-9]*) exit 0;; esac
+    [ "$n" = 0 ] && exit 0
+    u="$(awk "{print int(\$1)}" /proc/uptime)"
+    echo $(( n / 1000000 - u ))' 2>/dev/null || true)"
+  case "$secs" in ''|*[!0-9-]*) echo ""; return;; esac
+  echo "$secs"
 }
 
 remote_state(){ # -> "DONE" | "FAILED" | "DEAD" | "RUNNING" | "UNREACHABLE" line 1, liveness line 2
@@ -256,7 +288,7 @@ delete_rg(){
 }
 
 wait_and_collect(){
-  local deadline state live last_live="" unreachable=0 nsg_repinned=0 now_ip=""
+  local deadline state live last_live="" unreachable=0 nsg_repinned=0 now_ip="" diag=""
   local disarmed=0 attached=0 reaper=""
   deadline=$(( $(date +%s) + EVAL_WAIT_MIN * 60 ))
   step "waiting for the run (up to ${EVAL_WAIT_MIN}m). Watch it live with:"
@@ -287,7 +319,9 @@ wait_and_collect(){
         ssh "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'cat /opt/f8/.eval-failed 2>/dev/null; echo; tail -n 40 /var/log/f8-eval.log 2>/dev/null' 2>/dev/null || true
         fetch_results; report_fetched $?
         if [ "$DESTROY_ON_FAILURE" = "1" ]; then delete_rg; else
-          step "keeping '$RG' so you can investigate. The VM's own backstop deletes it ~${BACKSTOP_H}h after boot."
+          # If we stopped its reaper, hand it back before walking away.
+          if [ "$disarmed" = 1 ]; then rearm_backstop 60; fi
+          step "keeping '$RG' so you can investigate."
           step "  ssh ${ADMIN_USER}@${IP} 'less /var/log/f8-eval.log'"
           step "  az group delete --name $RG --yes"
         fi
@@ -298,13 +332,21 @@ wait_and_collect(){
         ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'tail -n 40 /var/log/f8-eval.log 2>/dev/null; systemctl status --no-pager f8-eval.service 2>/dev/null | head -n 15' 2>/dev/null || true
         fetch_results; report_fetched $?
         if [ "$DESTROY_ON_FAILURE" = "1" ]; then delete_rg; else
-          step "keeping '$RG' to investigate; the VM's backstop deletes it ~${BACKSTOP_H}h after boot."
+          if [ "$disarmed" = 1 ]; then rearm_backstop 60; fi
+          step "keeping '$RG' to investigate."
         fi
         return 33
         ;;
       UNREACHABLE)
         unreachable=$(( unreachable + 1 ))
         if [ "$unreachable" = 1 ]; then step "no SSH yet; waiting ..."; fi
+        # remote_state discards stderr, so authentication failures and a booting VM look identical.
+        # Once, early, run a diagnostic that KEEPS stderr, so "Permission denied (publickey)" is
+        # seen in the first minute instead of after the entire wait.
+        if [ "$unreachable" = 2 ]; then
+          diag="$(ssh -n "${SSH_OPTS[@]}" -o ConnectTimeout=10 "$ADMIN_USER@$IP" true 2>&1)" || true
+          [ -n "$diag" ] && step "ssh says: $diag"
+        fi
         # Six misses (~3m) is long enough to be worth one authoritative check: if the group is
         # gone, every further poll and the NSG re-pin below would be aimed at nothing.
         if [ $(( unreachable % 6 )) = 0 ]; then
@@ -344,10 +386,13 @@ wait_and_collect(){
           if disarm_backstop; then
             disarmed=1
           else
-            reaper="$(remote_backstop_epoch)"
-            if [ -n "$reaper" ] && [ "$(( reaper - 300 ))" -lt "$deadline" ]; then
-              deadline=$(( reaper - 300 ))
-              step "clamped this wait to 5m before the VM reaps itself ($(( (deadline - $(date +%s)) / 60 ))m from now)."
+            reaper="$(remote_backstop_remaining)"
+            if [ -n "$reaper" ] && [ "$reaper" -gt 0 ]; then
+              local hard=$(( $(date +%s) + reaper - 300 ))
+              if [ "$hard" -lt "$deadline" ]; then
+                deadline=$hard
+                step "clamped this wait to 5m before the VM reaps itself ($(( (reaper - 300) / 60 ))m from now)."
+              fi
             fi
           fi
         fi

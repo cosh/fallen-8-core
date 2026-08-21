@@ -27,6 +27,8 @@ dataset-gen/         phase 2 — generate.ts: contract -> validated (intent, fra
 eval/                phases 1+4 — baseline.ts (+ --semantic), fixture.ts (FT-8 gate), eval-set.json (held-out)
 train/               phase 3 — requirements.txt, train-config.<variant>.json, train_lora.py, merge.py, Modelfile.template
 run.sh               phase 3 orchestrator (WSL2): dataset -> train -> merge -> gguf -> ollama create -> provenance
+feedback/            FL-3 - consolidate.ts: judged captures -> extra training rows
+infra/               throwaway Azure GPU for either job: train both variants, or evaluate the published ones
 dataset/ adapter/ merged/ *.gguf Modelfile PROVENANCE.*.md   generated, gitignored (spec FT-5)
 ```
 
@@ -246,7 +248,8 @@ retrain folds your real-usage feedback in; re-run the eval gate to confirm it st
 ## Evaluation (baseline / comparison runs)
 
 This runs on the host (Windows PowerShell or bash) — it needs a model backend (the compose
-Ollama on `:11434`) and a running apiApp (the compile authority), not a GPU.
+Ollama on `:11434`) and a running apiApp (the compile authority). It *starts* without a GPU, but
+see the caveat below before planning a full run on one.
 
 > On a CPU these models generate at ~14 s/token, so a full run is impractical rather than
 > slow. To evaluate the PUBLISHED models on throwaway cloud GPU hardware instead — or to run
