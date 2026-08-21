@@ -13,6 +13,11 @@ set -uo pipefail
 # /etc/f8-finetune.env, the eval job writes /etc/f8-eval.env. Sourcing only the first one made
 # the eval job's backstop timer exit 1 on empty AZ_* - i.e. an abandoned GPU VM was never
 # reaped, while every doc promised it was.
+# A host only ever runs one of the two jobs. If both files exist, the later one silently wins for
+# every shared name (AZ_RESOURCE_GROUP included), so make that visible rather than mysterious.
+if [ -f /etc/f8-finetune.env ] && [ -f /etc/f8-eval.env ]; then
+  echo "[teardown] WARNING: both job env files exist; /etc/f8-eval.env wins where they disagree."
+fi
 for _envfile in /etc/f8-finetune.env /etc/f8-eval.env; do
   # shellcheck disable=SC1090
   [ -f "$_envfile" ] && . "$_envfile" 2>/dev/null

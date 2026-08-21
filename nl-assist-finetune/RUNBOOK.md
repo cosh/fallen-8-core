@@ -114,18 +114,23 @@ It evaluates `phi4-f8-mini`, `phi4-f8` and the stock `phi4-mini` on one GPU in o
 copies the results into `nl-assist-finetune/eval/results/cloud-<UTC stamp>/` and deletes the
 resource group. Your existing `baseline-*.json` ledger is never overwritten.
 
-**If this box sleeps or you lose the connection**, nothing is lost and nothing is leaked: the VM
-keeps running and holds the results, and the resource group is not deleted until they are
-fetched. Re-attach with the resource group name the run printed:
+**If this box sleeps or you lose the connection**, the VM keeps running and holds the results, and
+you re-attach with the resource group name the run printed:
 
 ```powershell
 powershell -File nl-assist-finetune\Start-Finetune.ps1 -Stage Eval -AttachRg rg-f8-eval-xxxxxx
 ```
 
 A genuinely abandoned run is capped by the VM's own teardown timer, whose deadline is **derived**
-from the time budget rather than fixed: `eval-deploy.sh` computes models x per-model cap + a setup
-allowance, waits that long, and arms the VM's backstop an hour beyond it. It prints that arithmetic
-before creating anything, and refuses a budget that would exceed an 8 h cost ceiling.
+from the time budget rather than fixed: `eval-deploy.sh` arms it an hour beyond the larger of your
+wait and the run's own worst case, prints that arithmetic before creating anything, and refuses a
+budget that would exceed an 8 h cost ceiling.
+
+That timer is boot-relative while the wait is not, so **while the launch box is attached it takes
+the timer over**: it stops it on first contact and re-arms it if it gives up. The honest limit is
+therefore this - if you never come back, the VM reaps itself on that derived deadline and takes
+the results with it. Coming back before then is what preserves them, and a re-attach that finds
+the group already deleted now says so instead of polling a corpse.
 
 Useful switches: `-Variants 'phi4-f8-mini'` for one model, `-EvalBaselines ''` to skip the stock
 comparison, `-EvalWaitMin` to override the derived wait.

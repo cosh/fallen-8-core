@@ -42,8 +42,10 @@ so there is nothing else to orchestrate.
    destroy the only copy, which is the exact shape of the 2026-07-30 loss. So the VM is deployed
    with `DESTROY_ON_FINISH=0` and `eval-deploy.sh` deletes the resource group only after the
    results are on disk locally. `EVAL_ATTACH_RG=<rg>` re-attaches, which is the answer to "my
-   laptop slept"; the VM's own `f8-teardown.timer` (4 h after boot, versus the fine-tune job's
-   8 h) caps a genuinely abandoned run.
+   laptop slept"; the VM's own `f8-teardown.timer` caps a genuinely abandoned run, on a deadline
+   derived from the time budget (an hour beyond the larger of the wait and the run's worst case,
+   ceiling 8 h) rather than a fixed 4 h. Because that timer is boot-relative and the wait is not,
+   the launch box stops it while attached and re-arms it if it gives up.
 3. **Results land in a per-run directory.** `eval/results/` is gitignored, so the existing
    `baseline-*.json` files are the only copy of the July ledger. Fetching into that directory
    would overwrite them, so results go to `eval/results/cloud-<UTC stamp>/`.
@@ -169,6 +171,49 @@ instead of silently provisioning an 18 h one.
 remains open by choice: a Spot eviction has no on-VM reaper at all, because a deallocated VM runs
 no timers. That is now documented as a reason not to use `-Spot` for this job, rather than the
 recommendation it previously was.
+
+## Second adversarial pass, over the fixes
+
+Because the first pass's fixes were written fast and the code spends money, a second 12-agent pass
+audited the FIXES themselves: did each close its defect, did any introduce a new one, did the
+shared `teardown.sh` and `bootstrap.sh` regress the proven path, and were any new claims false. 39
+raw findings, 32 unique, 5 confirmed of the 8 verified. It was worth more than the first pass per
+finding, because two of the defects were mine and recent.
+
+- **A fix resurrected a hazard the first pass had refuted.** Making the backstop actually delete
+  (it had been inert) revived the cross-clock problem: the timer is armed `OnBootSec` on the VM,
+  the wait is invocation-relative on the launch box, and the re-attach path armed a fresh
+  full-length wait knowing nothing about the VM's remaining timer. So the reaper could delete the
+  group, with the results, while a re-attached waiter believed it had hours. My comment asserting
+  the nesting held "BY CONSTRUCTION" was true only within one fresh invocation. Fixed: the launch
+  box stops the timer on first contact and re-arms it if it gives up, falls back to clamping its
+  own deadline when it cannot stop it, and treats a vanished resource group as a terminal state
+  instead of an unreachable host.
+- **The reaper was derived from the wait alone**, so `-EvalWaitMin 60` with four models armed a 4 h
+  reaper for a 6 h run. Now derived from the larger of the wait and the worst case.
+- **The keep-the-box decision did not survive a reboot.** `EVAL_AFTER_TRAIN=1` set
+  `DESTROY_ON_FINISH=0` in-process only, while the same commit moved the marker to *before* the
+  eval - so a reboot after a measured run hit the marker-present early exit and tore down the
+  measurement. Now persisted as a marker that the early-exit path honours. The eval-failure branch
+  keeps the box too: the operator asked for a measurement, and the reason it failed is on that disk.
+- **The stricter fetch test could never pass for a failed run**, because a failure stages
+  `partial-*.json` and never writes a summary, so the failure path reported "(nothing to fetch)"
+  over real artifacts. Fetching now has three outcomes, and prints what arrived.
+- **`-AttachRg` still blocked on the `Repo` scope**, whose checks exist because the VM clones a
+  ref - irrelevant to a re-attach, which pulls nothing.
+
+Also corrected from that pass: `_to_min` fed unvalidated text into `$(( ))`, so the friendly error
+was unreachable for exactly the inputs it was written for; the staleness sweep cleared only
+`line-*.json` and left a previous run's summary and partials to be fetched as if they described
+this run; the timeout message asserted a partial set had been staged when there might be nothing to
+stage; a message hardcoded "~4h" after the backstop became derived; the usage header still
+documented the removed fixed default and still sold Spot; `${ADMIN_USER:-azureuser}` implied a
+substitution that never happens on the VM; the apostrophe guard covered only the eval launcher; and
+the post-train budget comment did not survive its own arithmetic.
+
+Two earlier claims in this document were also wrong and are fixed above: the backstop was described
+as a 4 h cap when it is derived, and the "results are not deleted until fetched" promise in the
+RUNBOOK held only while the launch box is attached.
 
 ## Verification, and what remains unverified
 
