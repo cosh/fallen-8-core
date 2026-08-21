@@ -7,6 +7,10 @@ Ollama, and then **deletes the entire resource group itself**. You only watch. T
 generated once and shared across both variants. The VM is **on-demand** by default (Spot A10
 quota is usually unavailable); set `F8_SPOT=1` to try Spot.
 
+From a Windows launch box, drive this through [../RUNBOOK.md](../RUNBOOK.md) +
+[../Start-Finetune.ps1](../Start-Finetune.ps1), which preflight the prerequisites below and pass
+`REPO_URL`/`REPO_REF` and the key paths explicitly.
+
 ## What gets created
 
 A dedicated resource group `rg-f8-finetune-<rand>` containing: a `Standard_NV36ads_A10_v5`
