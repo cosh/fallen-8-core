@@ -87,6 +87,26 @@ Boot diagnostics are on, so you can also watch the serial console in the portal 
 | `DESTROY_ON_FAILURE` | `0` | `0` keeps the VM on failure to debug (8h backstop still deletes it); `1` self-destructs on failure too |
 | `F8_DEBUG` | `0` | `1` = `set -x` trace in deploy.sh and in the VM's `/var/log/f8-finetune.log` |
 
+## The sibling: evaluating published models (eval-deploy.sh)
+
+`eval-deploy.sh` + `bootstrap-eval.sh` spin up the same class of GPU VM to run the FULL
+evaluation of the **published** models, then bring the results home and delete the group. They
+reuse `main.bicep` and `teardown.sh` unchanged, and the evaluation logic itself lives once in
+[`eval-run.sh`](eval-run.sh), which both this job and the fine-tune job's optional
+`EVAL_AFTER_TRAIN=1` stage call.
+
+```bash
+EVAL_PREFIX=<your-ollama-namespace> ./eval-deploy.sh
+EVAL_ATTACH_RG=rg-f8-eval-xxxxxx ./eval-deploy.sh     # re-attach after a lost connection
+```
+
+Two differences from the fine-tune runner that matter, both explained at the top of
+`bootstrap-eval.sh`: this VM does **not** self-destruct on success (its artifact is a small JSON
+file, so the launch box tears down only after fetching it), and the ollama daemon is restarted
+after the GPU driver is confirmed (installed before it, the daemon would serve every draft from
+the CPU). The operator-facing procedure is in [../RUNBOOK.md](../RUNBOOK.md); the feature record
+is [features/done/eval-runner/](../../features/done/eval-runner/).
+
 ## Cost, teardown, and caveats
 
 - **Teardown is automatic and defended three ways**: (1) on **success** the bootstrap's EXIT
