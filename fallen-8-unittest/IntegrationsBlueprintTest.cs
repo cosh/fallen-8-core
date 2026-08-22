@@ -1390,23 +1390,44 @@ namespace NoSQL.GraphDB.Tests
                     "a provider never declares a strength for its own claim type");
             }
 
-            var relationTypes = new List<String>();
+            // Every claimed path, so a relation TARGET can be checked to name something the snapshot
+            // actually describes. Without this the targets were never asserted at all, and every edge
+            // could have pointed at its own source or at a path the file never had.
+            var claimed = new HashSet<String>(StringComparer.Ordinal);
             foreach (var entity in snapshot.Entities)
             {
+                claimed.Add(entity.Claims[0].Value);
+            }
+
+            var edges = new List<String>();
+            foreach (var entity in snapshot.Entities)
+            {
+                var owner = entity.Claims[0].Value;
                 foreach (var relation in entity.Relations)
                 {
-                    relationTypes.Add(relation.Type);
                     Assert.AreEqual(AutosarArxmlProvider.PathClaimType, relation.Target.Type,
                         "a relation addresses its target by claim rather than by element id, so the provider " +
                         "never needs to know whether the target exists yet");
+                    Assert.IsTrue(claimed.Contains(relation.Target.Value),
+                        "the '" + relation.Type + "' edge from " + owner + " points at '" +
+                        relation.Target.Value + "', which no entity in this snapshot claims. The runtime " +
+                        "would drop it as an unresolvable target, so the graph would silently lose the " +
+                        "topology this provider exists to describe");
+                    Assert.AreNotEqual(owner, relation.Target.Value,
+                        "no edge here is a self-loop, and one would mean the resolution wired an element " +
+                        "to itself");
+                    edges.Add(relation.Type + " " + owner + " -> " + relation.Target.Value);
                 }
             }
 
-            CollectionAssert.Contains(relationTypes, "attachedTo");
-            CollectionAssert.Contains(relationTypes, "sends");
-            CollectionAssert.Contains(relationTypes, "contains");
-            CollectionAssert.Contains(relationTypes, "implements");
-            CollectionAssert.Contains(relationTypes, "scaledBy");
+            // The exact topology of the small fixture, so a rewiring is visible rather than merely a
+            // change in counts.
+            CollectionAssert.Contains(edges, "attachedTo /EcuInstances/ALPHA_CTRL -> /Clusters/DEMOBUS");
+            CollectionAssert.Contains(edges, "sends /EcuInstances/ALPHA_CTRL -> /Frames/FRM_Main");
+            CollectionAssert.Contains(edges, "contains /Frames/FRM_Main -> /Pdus/PDU_DistanceReport");
+            CollectionAssert.Contains(edges, "contains /Pdus/PDU_DistanceReport -> /ISignals/SIG_OdoTotalDist");
+            CollectionAssert.Contains(edges, "implements /ISignals/SIG_OdoTotalDist -> /SystemSignals/SYS_OdoTotalDist");
+            CollectionAssert.Contains(edges, "scaledBy /SystemSignals/SYS_OdoTotalDist -> /CompuMethods/CM_TotalDistance");
         }
 
         [TestMethod]
@@ -1417,11 +1438,16 @@ namespace NoSQL.GraphDB.Tests
 
             // The template is the whole semantic surface (spec section 9), so its holes are asserted
             // rather than assumed: dropping one silently narrows what a query can ever match.
-            Assert.AreEqual("{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, unit {arxml.unit}", template,
+            Assert.AreEqual("{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, {arxml.unit}", template,
                 "the four holes are the semantic payload: the name an engineer already knows, both " +
                 "language descriptions because the prose is bilingual and a query arrives in either, and " +
                 "the unit, which is the ONLY thing connecting an odometer whose description says " +
                 "'accumulated distance' to somebody searching for kilometers");
+            Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(template, "[A-Za-z]+ *\\{"),
+                "no LITERAL WORD may sit next to a hole. Hole collapse removes the punctuation around a " +
+                "hole an element cannot fill but it cannot remove a word, so 'unit {arxml.unit}' would " +
+                "end every ECU, frame and PDU summary with a dangling 'unit' and embed the shape of the " +
+                "template instead of the description of the thing");
 
             await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(), files: ArxmlFiles(HappyArxml),
                 cancellationToken: CancellationToken.None);
@@ -1478,6 +1504,15 @@ namespace NoSQL.GraphDB.Tests
             var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(),
                 files: ArxmlFiles("this is not xml at all"),
                 cancellationToken: CancellationToken.None);
+
+            // The assertion that can actually fail: the provider must have produced NO document. A
+            // report-only check cannot distinguish "the run failed as required" from "the run
+            // succeeded and described an empty network", which is the exact mistake this test exists
+            // to catch, and an empty complete snapshot deletes the whole network.
+            Assert.IsNull(provider.LastSnapshot,
+                "the provider returned a snapshot for a file that is not XML. If that snapshot declares " +
+                "completeness, reconciliation withdraws every element this identity ever claimed and then " +
+                "deletes them, which is the one mutation re-running cannot undo");
 
             AssertWithdrewNothing(report,
                 "an unreadable file must fail the run rather than describe an empty network");

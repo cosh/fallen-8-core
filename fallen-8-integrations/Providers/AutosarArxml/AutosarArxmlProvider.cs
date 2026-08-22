@@ -119,9 +119,15 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             // signal's name is the identifier an engineer already knows, its two descriptions are the
             // only prose in the file and arrive in either language, and its unit is what connects an
             // odometer whose description says "accumulated distance" to somebody searching for
-            // kilometers. A hole the element cannot fill collapses.
+            // kilometers.
+            //
+            // Every hole is a HOLE and there is no literal text between them beyond punctuation,
+            // deliberately: hole collapse removes the punctuation around a hole an element cannot
+            // fill, but it cannot remove a word, so a template reading "unit {arxml.unit}" would end
+            // every ECU, frame and PDU summary with a dangling "unit" and embed the shape of the
+            // template instead of the description of the thing.
             EntitySummaryTemplate =
-                "{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, unit {arxml.unit}",
+                "{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, {arxml.unit}",
         };
 
         /// <summary>What this provider is, as data.</summary>
@@ -259,6 +265,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     return DiagnosticCodes.ArxmlUnresolvedReference;
                 case ArxmlDiagnosticKind.DuplicatePath:
                     return DiagnosticCodes.ArxmlDuplicatePath;
+                case ArxmlDiagnosticKind.UndecidablePortDirection:
+                    return DiagnosticCodes.ArxmlUndecidablePortDirection;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(kind), kind,
                         "Every reader diagnostic kind needs a wire code, or a report would carry one " +
