@@ -174,7 +174,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     if (String.Equals(name, ShortNameElement, StringComparison.Ordinal) &&
                         stack.Count > 0 && stack[stack.Count - 1].ShortName == null)
                     {
-                        stack[stack.Count - 1].ShortName = reader.ReadElementContentAsString();
+                        // Trimmed, and a blank one leaves the frame UNNAMED rather than naming it the
+                        // empty string: an empty segment would compose a path with a double slash that
+                        // no reference in the file can match, so every element below it would silently
+                        // lose its identity.
+                        stack[stack.Count - 1].ShortName = Clean(reader.ReadElementContentAsString());
                         advanced = false;
                         continue;
                     }
@@ -794,6 +798,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 return;
             }
 
+            String? languageNeutral = null;
+
             foreach (var variant in description.Elements(Ar + "L-2"))
             {
                 var language = (String?)variant.Attribute("L");
@@ -804,6 +810,26 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 else if (String.Equals(language, "EN", StringComparison.Ordinal))
                 {
                     element[ArxmlProperties.DescriptionEn] = Clean(variant.Value);
+                }
+                else if (String.Equals(language, "FOR-ALL", StringComparison.Ordinal))
+                {
+                    // The standard's LANGUAGE-NEUTRAL variant: text meant for every locale. Kept as a
+                    // fallback rather than a third property, because an element described only this way
+                    // would otherwise carry no prose at all and drop out of every semantic query.
+                    languageNeutral = Clean(variant.Value);
+                }
+            }
+
+            if (languageNeutral != null)
+            {
+                if (element[ArxmlProperties.DescriptionEn] == null)
+                {
+                    element[ArxmlProperties.DescriptionEn] = languageNeutral;
+                }
+
+                if (element[ArxmlProperties.DescriptionDe] == null)
+                {
+                    element[ArxmlProperties.DescriptionDe] = languageNeutral;
                 }
             }
         }
