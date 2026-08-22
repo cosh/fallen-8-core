@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // IdentifierVocabulary.cs
 //
@@ -396,6 +396,12 @@ namespace NoSQL.GraphDB.Integrations.Identity
             new Dictionary<String, Func<String, String>>(StringComparer.Ordinal)
             {
                 ["lowerHexStripSeparators"] = LowerHexStripSeparators,
+
+                // Case-PRESERVING, which is the whole reason it exists beside the two folding ones: an
+                // identifier whose source defines it as case-sensitive must not be folded, because folding
+                // composes ONE key for two values the source considers different, and the run then attaches
+                // one element's data to the other. An AUTOSAR short-name is such an identifier.
+                ["trim"] = value => value.Trim(),
                 ["trimUpper"] = value => value.Trim().ToUpperInvariant(),
                 ["trimLower"] = value => value.Trim().ToLowerInvariant(),
                 ["digitsOnly"] = DigitsOnly,
