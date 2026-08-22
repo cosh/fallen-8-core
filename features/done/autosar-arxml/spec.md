@@ -1,9 +1,10 @@
 # AUTOSAR ARXML integration (autosar-arxml)
 
-Status: open, IMPLEMENTED on `feature/autosar-arxml` and awaiting the review gate. Phases 0 to 4 of
-[plan.md](plan.md) landed: the vocabulary entry, the reader, the provider registered as the fourth
-shipped blueprint, the docs and the recaptured screenshot. Move this record to `features/done/` when
-the branch merges.
+Status: DONE, merged to `main` on 2026-08-22. Phases 0 to 4 of [plan.md](plan.md) landed: the
+vocabulary entry, the reader, the provider registered as the fourth shipped blueprint, the docs and
+the recaptured screenshot. An adversarial review of the implementation found and fixed five
+correctness defects and four assertions that could not fail; what it changed is recorded below and
+in the plan's own progress section.
 
 Two contract points below were CHANGED by what the implementation and its adversarial review found,
 and the changed statement is the one that holds:

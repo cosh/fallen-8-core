@@ -44,8 +44,41 @@ Carried over from the integrations plan, because they were paid for there:
 
 ## Progress
 
-- [ ] Phase 0: vocabulary
-- [ ] Phase 1: the parser
-- [ ] Phase 2: the provider
-- [ ] Phase 3: docs and captures
-- [ ] Phase 4: the merge gate
+- [x] Phase 0: vocabulary. The `trim` canonicaliser and the `arxml-path` entry, mutation-checked by
+      making `trim` fold case and watching the case-preservation test go red.
+- [x] Phase 1: the parser, with the synthetic fixture and its reader suite. Mutation-checked by
+      inverting the port direction.
+- [x] Phase 2: the provider, registered fourth. The count assertions that enumerated three ids now
+      read one shared list, so the next provider is added once.
+- [x] Phase 3: docs and captures. The docs page gained the first worked `POST /embedding/search`
+      example on the site; `screen-integrations.png` recaptured.
+- [x] Phase 4: the merge gate. Full suite green, docs link check green, web UI typecheck and vitest
+      green, both hygiene sweeps clean.
+
+## What the merge gate's adversarial pass found
+
+It ran five independent lenses over the branch and verified each finding with two skeptics. It found
+real defects the green suite could not see, which is the entire argument for running it:
+
+| Found | The defect |
+| --- | --- |
+| Reader | A frame's slot, base cycle and repetition were searched for independently, so a frame scheduled twice reported a schedule appearing in the file nowhere |
+| Reader | A refused duplicate path left its references behind, giving the survivor the twin's unit chain and both twins' edges |
+| Reader | A direction that was neither IN nor OUT became IN, turning a receiver into a sender |
+| Reader | Five reference reads skipped the trim the others applied, so an indented reference dropped the topology |
+| Reader | A blank ancestor short name composed a path with an empty segment that no reference can match |
+| Reader | The standard's language-neutral description variant was dropped, leaving such elements with no prose at all |
+| Provider | The summary template's literal word `unit` survives hole collapse, so every ECU, frame and PDU summary would have ended in a dangling "unit" |
+| Tests | Four assertions could not fail: a PDU-kind tautology, a language check that filtered out what it counted, an unreadable-file test that could not tell failure from an empty description, and relation targets asserted nowhere |
+
+Two lessons are worth keeping. **The tests that could not fail were all written in the same sitting
+as the code they cover**, which is exactly when a test is most likely to restate the implementation
+instead of constraining it. And **three of the verification commands used during this feature lied**:
+a case-insensitive grep for manufacturer identifiers matched "namespace" containing "esp", a
+directory listing on a path missing a segment reported a populated directory as empty, and a
+PowerShell text round-trip re-encoded three comment characters into mojibake. Prefer byte-safe IO,
+assert the path resolves, and match identifiers case-sensitively with word boundaries.
+
+Consciously left open, all low severity: two frame triggerings that disagree about a schedule resolve
+by document order without a diagnostic; the no-cluster refusal tests for a cluster element rather
+than for a populated matrix; and two refusal tests assert little beyond "it threw".
