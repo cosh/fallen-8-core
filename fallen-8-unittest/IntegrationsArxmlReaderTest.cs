@@ -804,6 +804,197 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void ARefusedDuplicate_TakesItsReferencesWithIt()
+        {
+            var network = ArxmlReader.Read("""
+                <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+                  <AR-PACKAGES>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>SystemSignals</SHORT-NAME>
+                      <ELEMENTS>
+                        <SYSTEM-SIGNAL><SHORT-NAME>SYS_First</SHORT-NAME></SYSTEM-SIGNAL>
+                        <SYSTEM-SIGNAL><SHORT-NAME>SYS_Second</SHORT-NAME></SYSTEM-SIGNAL>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>ISignals</SHORT-NAME>
+                      <ELEMENTS>
+                        <I-SIGNAL>
+                          <SHORT-NAME>SIG_Twice</SHORT-NAME>
+                          <SYSTEM-SIGNAL-REF DEST="SYSTEM-SIGNAL">/SystemSignals/SYS_First</SYSTEM-SIGNAL-REF>
+                        </I-SIGNAL>
+                        <I-SIGNAL>
+                          <SHORT-NAME>SIG_Twice</SHORT-NAME>
+                          <SYSTEM-SIGNAL-REF DEST="SYSTEM-SIGNAL">/SystemSignals/SYS_Second</SYSTEM-SIGNAL-REF>
+                        </I-SIGNAL>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                  </AR-PACKAGES>
+                </AUTOSAR>
+                """);
+
+            var implementsEdges = network.Relations
+                .Where(r => r.Type == ArxmlRelations.Implements)
+                .Select(r => r.ToPath)
+                .ToList();
+
+            CollectionAssert.AreEqual(new[] { "/SystemSignals/SYS_First" }, implementsEdges,
+                "the refused twin's reference must be dropped with it. The element table refused the " +
+                "second signal, but its SYSTEM-SIGNAL-REF is keyed by the same path, so recording it " +
+                "anyway gave the SURVIVING element an edge from a twin that is invisible in the " +
+                "element list: the graph would carry topology no described element accounts for");
+            Assert.AreEqual(1, network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.DuplicatePath));
+        }
+
+        [TestMethod]
+        public void APortWhoseDirectionIsNeitherInNorOut_DropsTheEdgeAndSaysSo()
+        {
+            var network = ArxmlReader.Read("""
+                <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+                  <AR-PACKAGES>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>Frames</SHORT-NAME>
+                      <ELEMENTS>
+                        <FLEXRAY-FRAME><SHORT-NAME>FRM_X</SHORT-NAME></FLEXRAY-FRAME>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>EcuInstances</SHORT-NAME>
+                      <ELEMENTS>
+                        <ECU-INSTANCE>
+                          <SHORT-NAME>ECU_X</SHORT-NAME>
+                          <CONNECTORS>
+                            <FLEXRAY-COMMUNICATION-CONNECTOR>
+                              <SHORT-NAME>CONN_X</SHORT-NAME>
+                              <ECU-COMM-PORT-INSTANCES>
+                                <FRAME-PORT>
+                                  <SHORT-NAME>FP_Weird</SHORT-NAME>
+                                  <COMMUNICATION-DIRECTION>INOUT</COMMUNICATION-DIRECTION>
+                                </FRAME-PORT>
+                                <FRAME-PORT>
+                                  <SHORT-NAME>FP_Silent</SHORT-NAME>
+                                </FRAME-PORT>
+                              </ECU-COMM-PORT-INSTANCES>
+                            </FLEXRAY-COMMUNICATION-CONNECTOR>
+                          </CONNECTORS>
+                        </ECU-INSTANCE>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>Clusters</SHORT-NAME>
+                      <ELEMENTS>
+                        <FLEXRAY-CLUSTER>
+                          <SHORT-NAME>BUS</SHORT-NAME>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>CH</SHORT-NAME>
+                              <FRAME-TRIGGERINGS>
+                                <FLEXRAY-FRAME-TRIGGERING>
+                                  <SHORT-NAME>FT_X</SHORT-NAME>
+                                  <FRAME-PORT-REFS>
+                                    <FRAME-PORT-REF DEST="FRAME-PORT">/EcuInstances/ECU_X/CONN_X/FP_Weird</FRAME-PORT-REF>
+                                    <FRAME-PORT-REF DEST="FRAME-PORT">/EcuInstances/ECU_X/CONN_X/FP_Silent</FRAME-PORT-REF>
+                                  </FRAME-PORT-REFS>
+                                  <FRAME-REF DEST="FLEXRAY-FRAME">/Frames/FRM_X</FRAME-REF>
+                                </FLEXRAY-FRAME-TRIGGERING>
+                              </FRAME-TRIGGERINGS>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                  </AR-PACKAGES>
+                </AUTOSAR>
+                """);
+
+            Assert.AreEqual(0, network.Relations.Count(r =>
+                    r.Type == ArxmlRelations.Sends || r.Type == ArxmlRelations.DeliversTo),
+                "neither port says IN or OUT, so no flow edge may be invented. Defaulting an unknown " +
+                "word to IN turns a sender into a receiver, and a wrong edge answers an impact query " +
+                "confidently while a missing one shows up as a gap");
+
+            var undecidable = network.Diagnostics
+                .Where(d => d.Kind == ArxmlDiagnosticKind.UndecidablePortDirection)
+                .Select(d => d.Subject)
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .ToList();
+            CollectionAssert.AreEqual(
+                new[] { "/EcuInstances/ECU_X/CONN_X/FP_Silent", "/EcuInstances/ECU_X/CONN_X/FP_Weird" },
+                undecidable,
+                "both cases are reported, and each names the PORT: a port that exists with an unusable " +
+                "direction is a different problem from a port the file never defined, and reporting the " +
+                "second for the first sends an operator looking for a missing package");
+        }
+
+        [TestMethod]
+        public void AFrameScheduledTwice_TakesItsWholeScheduleFromOneTiming()
+        {
+            var network = ArxmlReader.Read("""
+                <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+                  <AR-PACKAGES>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>Frames</SHORT-NAME>
+                      <ELEMENTS>
+                        <FLEXRAY-FRAME><SHORT-NAME>FRM_Twice</SHORT-NAME></FLEXRAY-FRAME>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>Clusters</SHORT-NAME>
+                      <ELEMENTS>
+                        <FLEXRAY-CLUSTER>
+                          <SHORT-NAME>BUS</SHORT-NAME>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>CH</SHORT-NAME>
+                              <FRAME-TRIGGERINGS>
+                                <FLEXRAY-FRAME-TRIGGERING>
+                                  <SHORT-NAME>FT_Twice</SHORT-NAME>
+                                  <FRAME-REF DEST="FLEXRAY-FRAME">/Frames/FRM_Twice</FRAME-REF>
+                                  <ABSOLUTELY-SCHEDULED-TIMINGS>
+                                    <FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING>
+                                      <COMMUNICATION-CYCLE>
+                                        <CYCLE-REPETITION>
+                                          <BASE-CYCLE>0</BASE-CYCLE>
+                                          <CYCLE-REPETITION>CYCLE-REPETITION-2</CYCLE-REPETITION>
+                                        </CYCLE-REPETITION>
+                                      </COMMUNICATION-CYCLE>
+                                      <SLOT-ID>11</SLOT-ID>
+                                    </FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING>
+                                    <FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING>
+                                      <COMMUNICATION-CYCLE>
+                                        <CYCLE-REPETITION>
+                                          <BASE-CYCLE>1</BASE-CYCLE>
+                                          <CYCLE-REPETITION>CYCLE-REPETITION-8</CYCLE-REPETITION>
+                                        </CYCLE-REPETITION>
+                                      </COMMUNICATION-CYCLE>
+                                      <SLOT-ID>22</SLOT-ID>
+                                    </FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING>
+                                  </ABSOLUTELY-SCHEDULED-TIMINGS>
+                                </FLEXRAY-FRAME-TRIGGERING>
+                              </FRAME-TRIGGERINGS>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                  </AR-PACKAGES>
+                </AUTOSAR>
+                """);
+
+            var frame = Element(network, "/Frames/FRM_Twice");
+
+            // The two timings are deliberately disjoint in every field, so a per-field search would
+            // report slot 11 with base cycle 0 and repetition 2 only by luck of ordering; any mixing
+            // shows up here as a combination that appears in the file nowhere.
+            Assert.AreEqual("11", frame[ArxmlProperties.SlotId]);
+            Assert.AreEqual("0", frame[ArxmlProperties.BaseCycle]);
+            Assert.AreEqual("CYCLE-REPETITION-2", frame[ArxmlProperties.CycleRepetition],
+                "the three fields must describe ONE scheduled transmission. Searching the triggering per " +
+                "field takes each from wherever it first appears, which for a frame scheduled twice " +
+                "invents a schedule the file does not contain");
+        }
+
+        [TestMethod]
         public void AReferenceToSomethingTheFileDoesNotDefine_DropsTheEdgeAndReportsIt()
         {
             var network = ArxmlReader.Read("""
