@@ -62,13 +62,13 @@ All properties carry the `arxml.` prefix. An absent value is absent, never an em
 
 | Kind | One per | Properties |
 | --- | --- | --- |
-| `network` | `FLEXRAY-CLUSTER` | `arxml.name`, `arxml.protocol` (`flexray`) |
+| `network` | `FLEXRAY-CLUSTER` | `arxml.name`, `arxml.protocol` (`flexray`), `arxml.channelCount`. The network is the CLUSTER and never a channel: FlexRay channels A and B are physical redundancy of one bus carrying one schedule, so an element per channel would split one network in two and double every frame |
 | `ecu` | `ECU-INSTANCE` | `arxml.name` |
 | `frame` | `FLEXRAY-FRAME` | `arxml.name`, `arxml.frameLengthBytes`, `arxml.slotId`, `arxml.baseCycle`, `arxml.cycleRepetition` (timing from the frame's triggering) |
 | `pdu` | each PDU element (`I-SIGNAL-I-PDU`, `NM-PDU`, `N-PDU`, `DCM-I-PDU`, `SECURED-I-PDU`, `CONTAINER-I-PDU`, `GENERAL-PURPOSE-PDU`, `GENERAL-PURPOSE-I-PDU`, `USER-DEFINED-I-PDU`, `USER-DEFINED-PDU`, `MULTIPLEXED-I-PDU`) | `arxml.name`, `arxml.pduKind` (the element name), `arxml.lengthBytes`, `arxml.descDe`, `arxml.descEn` |
 | `signal` | `I-SIGNAL` | `arxml.name`, `arxml.lengthBits`, `arxml.initValue`, `arxml.baseType`, `arxml.descDe`, `arxml.descEn`, `arxml.unit` (denormalised at parse time through `implements` then `scaledBy`; absent when the chain is incomplete) |
 | `system-signal` | `SYSTEM-SIGNAL` | `arxml.name`, `arxml.descDe`, `arxml.descEn` |
-| `compu-method` | `COMPU-METHOD` | `arxml.name`, `arxml.category`, `arxml.unit` |
+| `compu-method` | `COMPU-METHOD` | `arxml.name`, `arxml.category`, `arxml.unit`. The unit is the referenced `UNIT`'s **display name** (`km`), falling back to its short name when it has none: `UNIT_KM` is an identifier and would defeat the semantic query of section 9, which is the reason the unit is read at all |
 
 `descDe`/`descEn` are the `DESC/L-2` language variants; only `DE` and `EN` are read, others
 are dropped without a diagnostic (they are prose variants, not data).
