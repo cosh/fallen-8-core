@@ -33,6 +33,7 @@ using NoSQL.GraphDB.Integrations.Configuration;
 using NoSQL.GraphDB.Integrations.Contract;
 using NoSQL.GraphDB.Integrations.Credentials;
 using NoSQL.GraphDB.Integrations.Identity;
+using NoSQL.GraphDB.Integrations.Providers.AutosarArxml;
 using NoSQL.GraphDB.Integrations.Providers.CsvDeviceList;
 using NoSQL.GraphDB.Integrations.Providers.FroniusSolar;
 using NoSQL.GraphDB.Integrations.Providers.UnifiNetwork;
@@ -86,12 +87,17 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             services.AddSingleton<IdentityResolver>();
             services.AddSingleton<SnapshotApplier>();
 
-            // The shipped blueprints. Three, because three is the smallest number that measures the
-            // contract: one with no credential, no paging and one entity kind; one with many entity kinds,
-            // paging and topology; one with no strong identifier overlap at all.
+            // The shipped blueprints, each measuring something the others do not: one with no
+            // credential, no paging and one entity kind; one with many entity kinds, paging and
+            // topology; one with no strong identifier overlap at all; and one whose source is a
+            // published STANDARD, so its identity is defined by the standard rather than invented by a
+            // vendor and its entities are overwhelmingly related rather than merely listed.
+            //
+            // The ORDER is part of the pinned descriptor snapshot, so a new provider is appended.
             services.AddSingleton<IIntegrationProvider, CsvDeviceListProvider>();
             services.AddSingleton<IIntegrationProvider, UnifiNetworkProvider>();
             services.AddSingleton<IIntegrationProvider, FroniusSolarProvider>();
+            services.AddSingleton<IIntegrationProvider, AutosarArxmlProvider>();
             services.AddSingleton(provider => new ProviderCatalog(
                 provider.GetServices<IIntegrationProvider>(),
                 provider.GetRequiredService<IdentifierVocabulary>()));

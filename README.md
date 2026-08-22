@@ -51,7 +51,8 @@ Each feature has a deep-dive doc — follow the link.
 - **[Bulk import/export](https://docs.fallen-8.com/bulk-import-export/)** — stream whole graphs as newline-delimited
   JSON that round-trips exactly.
 - **[Integrations](https://docs.fallen-8.com/integrations/)**: a sidecar that reads a system on
-  your own network (a CSV inventory, a UniFi console, a Fronius inverter) and writes what it saw into a
+  your own network (a CSV inventory, a UniFi console, a Fronius inverter, an AUTOSAR vehicle-network
+  extract) and writes what it saw into a
   namespace, with credentials that are held for one run and never stored, and exact-match identity.
 - **[Live change feed](https://docs.fallen-8.com/change-feed/)** — committed mutations as Server-Sent Events, in
   commit order, with in-band resync.
@@ -144,7 +145,7 @@ flowchart TB
     sidecar["Model backend<br/>local Ollama sidecar or remote gateway"]:::ext
     docling["Document sidecar<br/>docling-serve"]:::ext
     nlp["NLP sidecar<br/>spaCy · entities + terms"]:::ext
-    sources["Your network<br/>CSV · UniFi console · Fronius inverter"]:::ext
+    sources["Your network<br/>CSV · UniFi console · Fronius inverter · ARXML extract"]:::ext
     obs["Observability<br/>Collector · Prometheus · Tempo · Loki · Grafana"]:::obs
 
     agents -->|MCP| mcp

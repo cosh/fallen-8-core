@@ -238,5 +238,25 @@ namespace NoSQL.GraphDB.Integrations.Contract
         /// <summary><c>fronius-solar</c>: <c>GetLoggerInfo</c> failed the documented way, which is a fact
         /// about the device rather than a failed run.</summary>
         public const String LoggerInfoUnavailable = "loggerInfoUnavailable";
+
+        /// <summary>
+        ///   <c>autosar-arxml</c>: the extract references an AUTOSAR path it does not define, so whatever
+        ///   pointed at it was dropped. The usual cause is a partial export: an extract referencing a
+        ///   package it did not include.
+        /// </summary>
+        public const String ArxmlUnresolvedReference = "arxmlUnresolvedReference";
+
+        /// <summary>
+        ///   <c>autosar-arxml</c>: two elements compose one AUTOSAR reference path. The first was kept,
+        ///   because keeping both would make which one wins depend on the order the file is written in.
+        /// </summary>
+        public const String ArxmlDuplicatePath = "arxmlDuplicatePath";
+
+        /// <summary>
+        ///   <c>autosar-arxml</c>: a port exists but declares no direction the reader understands, so the
+        ///   flow edge is dropped rather than pointed by a guess. A guessed direction would invert a
+        ///   sender and a receiver, and a wrong edge answers a query confidently.
+        /// </summary>
+        public const String ArxmlUndecidablePortDirection = "arxmlUndecidablePortDirection";
     }
 }
