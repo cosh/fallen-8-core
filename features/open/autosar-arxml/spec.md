@@ -1,6 +1,19 @@
 # AUTOSAR ARXML integration (autosar-arxml)
 
-Status: open. Spec and plan only; nothing is implemented.
+Status: open, IMPLEMENTED on `feature/autosar-arxml` and awaiting the review gate. Phases 0 to 4 of
+[plan.md](plan.md) landed: the vocabulary entry, the reader, the provider registered as the fourth
+shipped blueprint, the docs and the recaptured screenshot. Move this record to `features/done/` when
+the branch merges.
+
+Two contract points below were CHANGED by what the implementation and its adversarial review found,
+and the changed statement is the one that holds:
+
+- The summary template carries **no literal word next to a hole** (section 9). Hole collapse removes
+  the punctuation around a hole an element cannot fill but it cannot remove a word, so the earlier
+  `unit {arxml.unit}` would have ended every ECU, frame and PDU summary with a dangling "unit".
+- The reader reports a **third diagnostic**, `arxmlUndecidablePortDirection` (section 7), because a
+  port whose direction is neither IN nor OUT cannot decide which way its edge points, and defaulting
+  silently turned a receiver into a sender.
 
 ## 1. What this is, and what it is for
 
@@ -166,8 +179,9 @@ Named diagnostics (ride the snapshot into the job report, entity-level, never fa
 
 | Code | When | Subject |
 | --- | --- | --- |
-| `unresolvedReference` | a collected reference names a path the file does not define; the relation is dropped | the referenced path |
-| `duplicatePath` | two elements compose the same AR path; the second is skipped | the path |
+| `arxmlUnresolvedReference` | a collected reference names a path the file does not define; the relation is dropped. Also raised when a compu method's unit is undefined, where the unit's short name stands in for its display name | the referenced path |
+| `arxmlDuplicatePath` | two elements compose the same AR path; the second is skipped, and nothing it referenced is recorded either | the path |
+| `arxmlUndecidablePortDirection` | a port a triggering names declares a direction that is neither IN nor OUT, so the flow edge is dropped rather than pointed by a guess | the port path |
 
 ## 8. Scale, honestly
 
@@ -202,7 +216,7 @@ vectors, and `POST /embedding/search` embeds a query text once and runs constrai
 against it. The provider's entire contribution is putting the right text into the summary.
 
 **Why the template has exactly these holes** (`{kind} {arxml.name}, {arxml.descEn},
-{arxml.descDe}, unit {arxml.unit}`):
+{arxml.descDe}, {arxml.unit}`, with no literal word beside any hole):
 
 - `arxml.name`: the identifier engineers already know, so name fragments also hit.
 - `arxml.descEn` **and** `arxml.descDe`: the source prose is bilingual and queries arrive

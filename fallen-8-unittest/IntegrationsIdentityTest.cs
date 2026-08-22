@@ -560,8 +560,9 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(path.TryCanonicalise("/ISignals/SIG_VehSpd/", out _),
                 "a trailing slash names an empty final segment, which is not an element");
             Assert.IsFalse(path.TryCanonicalise("/" + new String('a', 512), out _),
-                "a path past the bound is refused rather than substituted into a property key, because the " +
-                "claim key it composes is written to the graph as a property name");
+                "a path past the bound is refused rather than keyed: the composed claim key becomes a " +
+                "property value that nothing truncates, so one malformed path would otherwise carry an " +
+                "unbounded string into every index holding that key");
         }
 
         private static String Compose(IdentifierType identifier, String value)

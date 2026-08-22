@@ -136,6 +136,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         /// <summary>Two elements composing one reference path. The first was kept.</summary>
         DuplicatePath = 1,
+
+        /// <summary>
+        ///   A port a triggering names exists but declares no direction this reader understands, so which
+        ///   way the flow edge points cannot be decided. Reported rather than guessed: defaulting would
+        ///   silently invert a sender and a receiver, which is worse than a missing edge because a wrong
+        ///   edge answers a query confidently.
+        /// </summary>
+        UndecidablePortDirection = 2,
     }
 
     /// <summary>

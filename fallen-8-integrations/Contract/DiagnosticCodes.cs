@@ -251,5 +251,12 @@ namespace NoSQL.GraphDB.Integrations.Contract
         ///   because keeping both would make which one wins depend on the order the file is written in.
         /// </summary>
         public const String ArxmlDuplicatePath = "arxmlDuplicatePath";
+
+        /// <summary>
+        ///   <c>autosar-arxml</c>: a port exists but declares no direction the reader understands, so the
+        ///   flow edge is dropped rather than pointed by a guess. A guessed direction would invert a
+        ///   sender and a receiver, and a wrong edge answers a query confidently.
+        /// </summary>
+        public const String ArxmlUndecidablePortDirection = "arxmlUndecidablePortDirection";
     }
 }

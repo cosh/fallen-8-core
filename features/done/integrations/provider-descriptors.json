@@ -152,6 +152,6 @@
     ],
     "canObserveCompleteState": true,
     "readOnly": true,
-    "entitySummaryTemplate": "{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, unit {arxml.unit}"
+    "entitySummaryTemplate": "{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, {arxml.unit}"
   }
 ]

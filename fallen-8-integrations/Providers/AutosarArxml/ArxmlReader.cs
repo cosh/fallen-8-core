@@ -63,7 +63,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         // The PDU kinds worth describing. A PDU is a PDU whatever its flavour, so the flavour becomes a
         // property rather than a kind: a query for "what does this frame carry" must not have to enumerate
-        // eleven labels, and a twelfth flavour must not become a twelfth entity kind.
+        // one label per flavour, and the next flavour the standard adds must not become another kind.
         private static readonly HashSet<String> PduElements = new HashSet<String>(StringComparer.Ordinal)
         {
             "I-SIGNAL-I-PDU",
@@ -259,16 +259,24 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 case "UNIT":
                     // Not an entity: a unit exists so a signal can say "km" rather than "UNIT_KM", which is
                     // the difference between a semantic query for a distance finding the odometer and not.
-                    collected.UnitDisplayNames[path] =
-                        Text(element.Element(Ar + "DISPLAY-NAME")) ?? shortName;
+                    // First wins here too, for the same reason a duplicate element path does.
+                    if (!collected.UnitDisplayNames.ContainsKey(path))
+                    {
+                        collected.UnitDisplayNames[path] =
+                            Text(element.Element(Ar + "DISPLAY-NAME")) ?? shortName;
+                    }
+
                     break;
             }
         }
 
         private static void CollectEcu(String path, String shortName, XElement element, Collected collected)
         {
-            collected.Add(new ArxmlElement(path, ArxmlKinds.Ecu) { [ArxmlProperties.Name] = shortName },
-                collected.Ecus);
+            if (!collected.Add(new ArxmlElement(path, ArxmlKinds.Ecu) { [ArxmlProperties.Name] = shortName },
+                    collected.Ecus))
+            {
+                return;
+            }
 
             foreach (var connector in Descendants(element, n => n.EndsWith("COMMUNICATION-CONNECTOR",
                          StringComparison.Ordinal)))
@@ -286,14 +294,18 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                              n => n == "FRAME-PORT" || n == "I-PDU-PORT" || n == "I-SIGNAL-PORT"))
                 {
                     var portName = Text(port.Element(Ar + ShortNameElement));
-                    var direction = Text(port.Element(Ar + "COMMUNICATION-DIRECTION"));
-                    if (portName == null || direction == null)
+                    if (portName == null)
                     {
                         continue;
                     }
 
+                    // The RAW direction word is kept, not a boolean. A port with no direction, or one
+                    // carrying a word this reader does not know, is registered anyway so that resolution
+                    // can tell "the file never defined this port" from "the port is there and its
+                    // direction is unusable". Collapsing both into a boolean made every unrecognised
+                    // word mean IN, which silently inverts a sender and a receiver.
                     collected.Ports[connectorPath + "/" + portName] =
-                        String.Equals(direction, "OUT", StringComparison.Ordinal);
+                        Text(port.Element(Ar + "COMMUNICATION-DIRECTION")) ?? String.Empty;
                 }
             }
         }
@@ -305,19 +317,30 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             // physical redundancy of one bus carrying one schedule, so an element per channel would split a
             // single network into two that no ECU on it experiences as separate, and would double every
             // frame. The channel still matters internally, because a PDU triggering's path runs through it.
+            // Counted by DISTINCT short name, not by element: a cluster's variants each repeat the same
+            // physical channels, so counting elements would report a two-channel bus as having four.
             var channels = new List<XElement>();
+            var channelNames = new HashSet<String>(StringComparer.Ordinal);
             foreach (var channel in Descendants(element, n => n == "FLEXRAY-PHYSICAL-CHANNEL"))
             {
                 channels.Add(channel);
+                var name = Text(channel.Element(Ar + ShortNameElement));
+                if (name != null)
+                {
+                    channelNames.Add(name);
+                }
             }
 
-            collected.Add(new ArxmlElement(path, ArxmlKinds.Network)
+            if (!collected.Add(new ArxmlElement(path, ArxmlKinds.Network)
+                {
+                    [ArxmlProperties.Name] = shortName,
+                    [ArxmlProperties.Protocol] = ArxmlProperties.FlexRayProtocol,
+                    [ArxmlProperties.ChannelCount] =
+                        channelNames.Count.ToString(CultureInfo.InvariantCulture),
+                }, collected.Networks))
             {
-                [ArxmlProperties.Name] = shortName,
-                [ArxmlProperties.Protocol] = ArxmlProperties.FlexRayProtocol,
-                [ArxmlProperties.ChannelCount] =
-                    channels.Count.ToString(CultureInfo.InvariantCulture),
-            }, collected.Networks);
+                return;
+            }
 
             foreach (var channel in channels)
             {
@@ -331,7 +354,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
                 foreach (var reference in Descendants(channel, n => n == "COMMUNICATION-CONNECTOR-REF"))
                 {
-                    collected.ConnectorAttachments.Add(new Pair(path, reference.Value));
+                    var connector = Clean(reference.Value);
+                    if (connector != null)
+                    {
+                        collected.ConnectorAttachments.Add(new Pair(path, connector));
+                    }
                 }
 
                 foreach (var triggering in Descendants(channel, n => n == "FLEXRAY-FRAME-TRIGGERING"))
@@ -349,7 +376,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
                     foreach (var portRef in Descendants(triggering, n => n == "I-SIGNAL-PORT-REF"))
                     {
-                        collected.FlowByPort.Add(new Pair(signalRef, portRef.Value));
+                        var port = Clean(portRef.Value);
+                        if (port != null)
+                        {
+                            collected.FlowByPort.Add(new Pair(signalRef, port));
+                        }
                     }
                 }
 
@@ -375,29 +406,46 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
             foreach (var portRef in Descendants(triggering, n => n == "FRAME-PORT-REF"))
             {
-                collected.FlowByPort.Add(new Pair(frameRef, portRef.Value));
+                var port = Clean(portRef.Value);
+                if (port != null)
+                {
+                    collected.FlowByPort.Add(new Pair(frameRef, port));
+                }
             }
 
             // Schedule. Recorded against the FRAME, because a frame's slot is the fact an engineer asks for
             // and the triggering is the standard's indirection rather than a thing anybody names.
+            //
+            // Read from ONE timing element rather than by searching the triggering for each field
+            // separately: a frame may be scheduled more than once (two slots, or a slot per cycle), and
+            // independent searches would take the slot from the first timing and the cycle from whichever
+            // happened to carry one, reporting a schedule that appears in the file nowhere.
             if (!collected.FrameSchedules.ContainsKey(frameRef))
             {
-                var slot = First(triggering, "SLOT-ID");
-                var baseCycle = First(triggering, "BASE-CYCLE");
-                String? repetition = null;
-                foreach (var candidate in Descendants(triggering, n => n == "CYCLE-REPETITION"))
+                foreach (var timing in Descendants(triggering,
+                             n => n == "FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING"))
                 {
-                    var value = candidate.Value;
-                    if (value.StartsWith("CYCLE-REPETITION", StringComparison.Ordinal))
+                    var slot = First(timing, "SLOT-ID");
+                    var baseCycle = First(timing, "BASE-CYCLE");
+                    String? repetition = null;
+                    foreach (var candidate in Descendants(timing, n => n == "CYCLE-REPETITION"))
                     {
-                        repetition = value;
-                        break;
+                        var value = Clean(candidate.Value);
+                        if (value != null && value.StartsWith("CYCLE-REPETITION", StringComparison.Ordinal))
+                        {
+                            repetition = value;
+                            break;
+                        }
                     }
-                }
 
-                if (slot != null || baseCycle != null || repetition != null)
-                {
-                    collected.FrameSchedules[frameRef] = new Schedule(slot, baseCycle, repetition);
+                    if (slot != null || baseCycle != null || repetition != null)
+                    {
+                        collected.FrameSchedules[frameRef] = new Schedule(slot, baseCycle, repetition);
+                    }
+
+                    // The first timing wins, and only the first is read at all, so the three fields
+                    // always describe one scheduled transmission.
+                    break;
                 }
             }
         }
@@ -405,11 +453,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         private static void CollectFrame(String path, String shortName, XElement element,
             Collected collected)
         {
-            collected.Add(new ArxmlElement(path, ArxmlKinds.Frame)
+            if (!collected.Add(new ArxmlElement(path, ArxmlKinds.Frame)
+                {
+                    [ArxmlProperties.Name] = shortName,
+                    [ArxmlProperties.FrameLengthBytes] = Text(element.Element(Ar + "FRAME-LENGTH")),
+                }, collected.Frames))
             {
-                [ArxmlProperties.Name] = shortName,
-                [ArxmlProperties.FrameLengthBytes] = Text(element.Element(Ar + "FRAME-LENGTH")),
-            }, collected.Frames);
+                return;
+            }
 
             foreach (var mapping in Descendants(element, n => n == "PDU-TO-FRAME-MAPPING"))
             {
@@ -431,7 +482,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 [ArxmlProperties.LengthBytes] = Text(element.Element(Ar + "LENGTH")),
             };
             Describe(pdu, element);
-            collected.Add(pdu, collected.Pdus);
+            if (!collected.Add(pdu, collected.Pdus))
+            {
+                return;
+            }
 
             foreach (var mapping in Descendants(element, n => n == "I-SIGNAL-TO-I-PDU-MAPPING"))
             {
@@ -446,13 +500,17 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             // resolve through the channel's triggering map instead of the element table.
             foreach (var reference in Descendants(element, n => n == "CONTAINED-PDU-TRIGGERING-REF"))
             {
-                collected.Pending.Add(new Pending(path, ArxmlRelations.Carries, reference.Value, true));
+                var contained = Clean(reference.Value);
+                if (contained != null)
+                {
+                    collected.Pending.Add(new Pending(path, ArxmlRelations.Carries, contained, true));
+                }
             }
 
-            var payload = element.Element(Ar + "PAYLOAD-REF");
+            var payload = Text(element.Element(Ar + "PAYLOAD-REF"));
             if (payload != null)
             {
-                collected.Pending.Add(new Pending(path, ArxmlRelations.Secures, payload.Value, true));
+                collected.Pending.Add(new Pending(path, ArxmlRelations.Secures, payload, true));
             }
         }
 
@@ -467,7 +525,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 [ArxmlProperties.BaseType] = LastSegment(First(element, "BASE-TYPE-REF")),
             };
             Describe(signal, element);
-            collected.Add(signal, collected.Signals);
+            if (!collected.Add(signal, collected.Signals))
+            {
+                return;
+            }
 
             var systemSignalRef = Text(element.Element(Ar + "SYSTEM-SIGNAL-REF"));
             if (systemSignalRef != null)
@@ -485,7 +546,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 [ArxmlProperties.Name] = shortName,
             };
             Describe(systemSignal, element);
-            collected.Add(systemSignal, collected.SystemSignals);
+            if (!collected.Add(systemSignal, collected.SystemSignals))
+            {
+                return;
+            }
 
             var compuRef = First(element, "COMPU-METHOD-REF");
             if (compuRef != null)
@@ -498,11 +562,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         private static void CollectCompuMethod(String path, String shortName, XElement element,
             Collected collected)
         {
-            collected.Add(new ArxmlElement(path, ArxmlKinds.CompuMethod)
+            if (!collected.Add(new ArxmlElement(path, ArxmlKinds.CompuMethod)
+                {
+                    [ArxmlProperties.Name] = shortName,
+                    [ArxmlProperties.Category] = Text(element.Element(Ar + "CATEGORY")),
+                }, collected.CompuMethods))
             {
-                [ArxmlProperties.Name] = shortName,
-                [ArxmlProperties.Category] = Text(element.Element(Ar + "CATEGORY")),
-            }, collected.CompuMethods);
+                return;
+            }
 
             var unitRef = First(element, "UNIT-REF");
             if (unitRef != null)
@@ -524,9 +591,26 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             var unitOfCompuMethod = new Dictionary<String, String>(StringComparer.Ordinal);
             foreach (var pair in collected.CompuMethodToUnit)
             {
-                var display = collected.UnitDisplayNames.TryGetValue(pair.Value, out var found)
-                    ? found
-                    : LastSegment(pair.Value);
+                String? display;
+                if (collected.UnitDisplayNames.TryGetValue(pair.Value, out var found))
+                {
+                    display = found;
+                }
+                else
+                {
+                    // The unit is not in the file. Its short name is still the best available label, so it
+                    // is used, but the substitution is REPORTED: silently showing "UNIT_KM" where every
+                    // other signal shows "km" would look like data rather than like a missing package,
+                    // and it is the semantic payload that degrades.
+                    display = LastSegment(pair.Value);
+                    network.Diagnostics.Add(new ArxmlDiagnostic(
+                        ArxmlDiagnosticKind.UnresolvedReference,
+                        "The file names a unit it does not define, so the unit's short name was used as its " +
+                        "label instead of the display name a person would recognise. The usual cause is a " +
+                        "partial export that left the unit package out.",
+                        pair.Value));
+                }
+
                 if (display != null)
                 {
                     unitOfCompuMethod[pair.Key] = display;
@@ -590,7 +674,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             // receiver never has to traverse an edge backwards.
             foreach (var flow in collected.FlowByPort)
             {
-                if (!collected.Ports.TryGetValue(flow.Right, out var isOut))
+                if (!collected.Ports.TryGetValue(flow.Right, out var direction))
                 {
                     network.Diagnostics.Add(Unresolved("a triggering's port", flow.Right));
                     continue;
@@ -603,13 +687,27 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     continue;
                 }
 
-                if (isOut)
+                if (String.Equals(direction, "OUT", StringComparison.Ordinal))
                 {
                     Relate(network, ecuPath, ArxmlRelations.Sends, flow.Left);
                 }
-                else
+                else if (String.Equals(direction, "IN", StringComparison.Ordinal))
                 {
                     Relate(network, flow.Left, ArxmlRelations.DeliversTo, ecuPath);
+                }
+                else
+                {
+                    // Neither word. The edge is DROPPED and named rather than pointed by a guess:
+                    // guessing makes a receiver look like a sender, and a wrong edge answers an impact
+                    // query confidently while a missing one at least shows up as a gap.
+                    network.Diagnostics.Add(new ArxmlDiagnostic(
+                        ArxmlDiagnosticKind.UndecidablePortDirection,
+                        String.Format(CultureInfo.InvariantCulture,
+                            "This port declares the communication direction '{0}', which is neither IN nor " +
+                            "OUT, so which way the data flows through it cannot be decided and the edge was " +
+                            "dropped. A direction is how this reader tells a sender from a receiver.",
+                            direction.Length == 0 ? "(none)" : direction),
+                        flow.Right));
                 }
             }
 
@@ -908,8 +1006,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             public Dictionary<String, String> UnitDisplayNames { get; } =
                 new Dictionary<String, String>(StringComparer.Ordinal);
 
-            public Dictionary<String, Boolean> Ports { get; } =
-                new Dictionary<String, Boolean>(StringComparer.Ordinal);
+            public Dictionary<String, String> Ports { get; } =
+                new Dictionary<String, String>(StringComparer.Ordinal);
 
             public Dictionary<String, String> ConnectorToEcu { get; } =
                 new Dictionary<String, String>(StringComparer.Ordinal);
@@ -947,22 +1045,30 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             /// <summary>
             ///   Records an element unless its path is already taken. A repeat is a diagnostic and the FIRST
             ///   wins: the alternative is a silent overwrite whose result depends on file order.
+            ///
+            ///   <para>Returns FALSE when the element was refused, and every caller must stop there. The
+            ///   caller's remaining work records the element's REFERENCES keyed by that same path, so
+            ///   carrying on would give the surviving element the refused twin's unit chain and both
+            ///   twins' edges: the twin would be invisible in the element list and present in the graph
+            ///   anyway.</para>
             /// </summary>
-            public void Add(ArxmlElement element, Dictionary<String, ArxmlElement> byKind)
+            public Boolean Add(ArxmlElement element, Dictionary<String, ArxmlElement> byKind)
             {
                 if (!Paths.Add(element.Path))
                 {
                     Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.DuplicatePath,
-                        "Two elements compose this same reference path, so only the first was described. " +
-                        "One path is one thing in the standard's own terms, and keeping both would make " +
-                        "which one wins depend on the order the file happens to be written in.",
+                        "Two elements compose this same reference path, so only the first was described, " +
+                        "and nothing the later one referenced was recorded either. One path is one thing " +
+                        "in the standard's own terms, and keeping both would make which one wins depend " +
+                        "on the order the file happens to be written in.",
                         element.Path));
-                    return;
+                    return false;
                 }
 
                 byKind[element.Path] = element;
                 All[element.Path] = element;
                 Order.Add(element.Path);
+                return true;
             }
 
             /// <summary>The elements in the order the file described them, which keeps a run reproducible.</summary>

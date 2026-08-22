@@ -662,10 +662,16 @@ namespace NoSQL.GraphDB.Tests
             var speed = Element(network, "/SystemSignals/SYS_VehicleSpeed");
             Assert.AreEqual("Fahrzeuggeschwindigkeit", speed[ArxmlProperties.DescriptionDe]);
             Assert.AreEqual("Vehicle speed", speed[ArxmlProperties.DescriptionEn]);
-            Assert.AreEqual(2, speed.Properties.Keys.Count(k =>
-                    k == ArxmlProperties.DescriptionDe || k == ArxmlProperties.DescriptionEn),
-                "the fixture also carries a French variant, which is prose in a language nothing here " +
-                "reads and must not land as a third description property");
+
+            // The fixture also carries a French variant. Asserting "exactly two of the two keys I am
+            // willing to look at" would be a tautology, so the whole property set is pinned: a third
+            // language landing under any key at all fails here.
+            CollectionAssert.AreEquivalent(
+                new[] { ArxmlProperties.Name, ArxmlProperties.DescriptionDe, ArxmlProperties.DescriptionEn },
+                speed.Properties.Keys.ToList(),
+                "a language nothing here reads must not land as a property. The system signal's whole " +
+                "property set is pinned rather than filtered, because a filter that only admits the " +
+                "expected keys can never see an unexpected one");
         }
 
         [TestMethod]
@@ -676,9 +682,27 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("CONTAINER-I-PDU", Element(network, "/Pdus/PDU_AlphaContainer")[ArxmlProperties.PduKind]);
             Assert.AreEqual("SECURED-I-PDU", Element(network, "/Pdus/PDU_DistanceReport_Secured")[ArxmlProperties.PduKind]);
             Assert.AreEqual("NM-PDU", Element(network, "/Pdus/PDU_NetworkManagement")[ArxmlProperties.PduKind]);
-            Assert.IsTrue(network.Elements.Where(e => e.Kind == ArxmlKinds.Pdu).All(e => e.Kind == ArxmlKinds.Pdu),
-                "eleven PDU flavours must not become eleven labels: a query for what a frame carries " +
-                "would then have to enumerate them, and a twelfth flavour would break it");
+
+            // The real invariant: the fixture carries three DIFFERENT flavours and they all arrive under
+            // the one kind, so no flavour leaked into the label. Asserting that PDUs are PDUs would be a
+            // tautology; asserting that three distinct flavours share one kind cannot pass by accident.
+            var flavours = network.Elements
+                .Where(e => e.Kind == ArxmlKinds.Pdu)
+                .Select(e => e[ArxmlProperties.PduKind])
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            Assert.IsTrue(flavours.Count >= 3,
+                "the fixture must exercise several flavours for this to mean anything; it carries " +
+                flavours.Count);
+
+            var kinds = network.Elements.Select(e => e.Kind).Distinct(StringComparer.Ordinal).ToList();
+            foreach (var flavour in flavours)
+            {
+                CollectionAssert.DoesNotContain(kinds, flavour,
+                    "the PDU flavour '" + flavour + "' became an entity kind. A dozen flavours must not " +
+                    "become a dozen labels: a query for what a frame carries would have to enumerate " +
+                    "them all, and the next flavour the standard adds would silently fall outside it");
+            }
         }
 
         [TestMethod]
@@ -701,14 +725,23 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ADocumentCarryingADtd_IsRefused()
         {
-            var thrown = Refused(
+            // The DOCTYPE carries an entity, and the same document WITHOUT it parses, so what is being
+            // pinned is that the DTD itself is the cause of the refusal. Asserting that the message
+            // mentions "DTD" would prove nothing: the reader appends that sentence to every XML failure.
+            const String withEntity =
                 "<?xml version=\"1.0\"?><!DOCTYPE AUTOSAR [<!ENTITY x \"y\">]>" +
-                "<AUTOSAR xmlns=\"http://autosar.org/schema/r4.0\"><AR-PACKAGES /></AUTOSAR>");
+                "<AUTOSAR xmlns=\"http://autosar.org/schema/r4.0\"><AR-PACKAGES /></AUTOSAR>";
+            const String withoutEntity =
+                "<?xml version=\"1.0\"?>" +
+                "<AUTOSAR xmlns=\"http://autosar.org/schema/r4.0\"><AR-PACKAGES /></AUTOSAR>";
 
-            Assert.IsTrue(thrown.Message.Contains("DTD", StringComparison.Ordinal),
-                "the refusal must name the DTD, because entity expansion and external-entity resolution " +
-                "are how an XML reader turns a data file into a fetch or a memory exhaustion, and an " +
-                "extract has no legitimate use for either. Message was: " + thrown.Message);
+            Refused(withEntity);
+
+            var accepted = ArxmlReader.Read(withoutEntity);
+            Assert.AreEqual(0, accepted.Elements.Count,
+                "the control document is the same file with the DOCTYPE removed: it must be READ (an " +
+                "extract with no packages describes nothing, which is a different outcome from a " +
+                "refusal), or this test would pass for a reader that rejects everything");
         }
 
         [TestMethod]
