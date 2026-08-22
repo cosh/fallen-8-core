@@ -148,9 +148,9 @@ renders, in a trailing group, so a key added later cannot vanish.
 
 ## 5. Interaction contract
 
-**Opening.** One button, `config-configure`, enabled only once `GET /config` has answered. While the
-read is pending or failed it is disabled with a title, and the card's existing unavailable note is the
-explanation.
+**Opening.** One button, `config-configure`, rendered only once `GET /config` has answered. While the
+read is pending or failed there is no button at all, because a dialog listing nothing is worse than
+the card's own checking or unavailable note, which is the whole explanation.
 
 **Search** matches the key, the rule and the reason, case-insensitively, and never the value (a value
 can be an endpoint or a path, and a value search would turn the box into a way to fish for them). A
@@ -158,9 +158,16 @@ non-empty query shows matches **across all sections** as a flat, section-labelle
 search that silently searched only the selected section would be a trap. The nav shows per-section
 match counts while a query is active.
 
-**Filters** are `all` (default), `writable`, `needs restart`, `not writable`, `set here`, `from the
-environment`. `not writable` keys on the tier, never on an absent value. A filter never hides rows
-silently: the pane always states "N of M settings" for what it is showing.
+**Filters** are `all` (default), `writable here`, the restart-pending chip's own wording, `not
+writable`, `set here`, `from the environment`. `not writable` keys on the tier, never on an absent
+value. A filter never hides rows silently: the pane always states "N of M settings" for what it is
+showing.
+
+**Neither control is offered when there is nothing to narrow.** On an instance that publishes no
+settings inventory the search box and the filter strip are absent, because the only section with
+anything to say there is Observability, which reads its values off the observability block rather
+than off descriptors, and any narrowing could only subtract it. For the same reason that section keeps
+its hand-authored layout under a filter whenever it has no descriptors of its own.
 
 **Closing with unsaved edits keeps the draft.** Escape and a scrim click stay Radix defaults. The
 card keeps showing the unsaved-changes marker and the poll stays suspended; reopening restores the

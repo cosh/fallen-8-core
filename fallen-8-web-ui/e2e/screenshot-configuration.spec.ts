@@ -47,14 +47,18 @@ import { expect, test } from "@playwright/test";
 const API_KEY = process.env.F8_E2E_API_KEY ?? "e2e-key";
 const AUTH = { Authorization: `Bearer ${API_KEY}` };
 
-// A RESTART-tier key in a small section, so one written value puts all three things this surface
-// exists for on the picture at once: the "set here" source badge, the restart-to-apply chip on the
-// row, and the pending list naming the running and the pending value. It has to be restart-tier for
-// the pending state to appear at all (a live key applies immediately and is correctly never pending),
-// and its section has to be small enough that the whole of it is in frame.
-const WRITTEN_KEY = "Fallen8:Analytics:MaxTimeBudgetSeconds";
-const WRITTEN_ROW = "config-setting-fallen8-analytics-maxtimebudgetseconds";
-const WRITTEN_SECTION = "config-section-analytics";
+// A RESTART-tier key, so one written value puts all three things this surface exists for on the
+// picture at once: the "set here" source badge, the restart-to-apply chip on the row, and the pending
+// list naming the running and the pending value. It has to be restart-tier for the pending state to
+// appear at all (a live key applies immediately and is correctly never pending).
+//
+// Change feed rather than a smaller section: its five keys fill the pane and cover three of the
+// control shapes a reader should see (a checkbox for a bool, numeric fields, and a live-tier row
+// beside restart-tier ones), while still fitting without scrolling.
+const WRITTEN_KEY = "Fallen8:ChangeFeed:BufferSize";
+const WRITTEN_VALUE = "16384";
+const WRITTEN_ROW = "config-setting-fallen8-changefeed-buffersize";
+const WRITTEN_SECTION = "config-section-changefeed";
 
 test.skip(process.env.F8_SCREENSHOT !== "1", "docs screenshot capture (set F8_SCREENSHOT=1)");
 
@@ -67,7 +71,7 @@ test("capture the configuration surface", async ({ page, request }) => {
   // a settled state, not of a form mid-edit.
   const written = await request.patch("/config", {
     headers: AUTH,
-    data: { settings: { [WRITTEN_KEY]: "600" } },
+    data: { settings: { [WRITTEN_KEY]: WRITTEN_VALUE } },
   });
   expect(
     written.ok(),
@@ -107,7 +111,7 @@ test("capture the configuration surface", async ({ page, request }) => {
   await expect(
     page.getByTestId(WRITTEN_ROW),
     "the stored value did not survive to the read surface.",
-  ).toHaveValue("600");
+  ).toHaveValue(WRITTEN_VALUE);
   await expect(
     page.getByTestId("config-pending-restart-detail"),
     "the pending-restart list is absent: a restart-tier value must differ from what this process " +

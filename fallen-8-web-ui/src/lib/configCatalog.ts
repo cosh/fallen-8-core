@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 import type { ConfigSettingSource, SettingREST } from "../api/types";
+import { RESTART_PENDING_CHIP } from "./restartCopy";
 
 /**
  * The client's view of the server's setting catalog (feature configuration-surface): how the
@@ -383,7 +384,9 @@ export const CONFIG_FILTERS: readonly { id: ConfigFilterId; label: string; title
   },
   {
     id: "restartPending",
-    label: "restart to apply",
+    // The chip it selects, not a second phrasing of it: restartCopy.ts is the one home for how Studio
+    // talks about a setting that is waiting on a restart.
+    label: RESTART_PENDING_CHIP,
     title: "Settings whose stored value is not the value this process is running with",
   },
   { id: "notWritable", label: "not writable", title: "Settings excluded from writes by a rule, with the reason" },
