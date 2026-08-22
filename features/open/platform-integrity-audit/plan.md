@@ -86,8 +86,16 @@ Intent: nothing that lost state reports success.
   stays reachable; document the resync-equals-rebuild contract.
 - [ ] W8: the roughly twelve missing *try/finally* blocks in *SingleValueIndex*. Mechanical, and
   deliberately **not** the rejected rewrite.
-- [ ] W5: a durability block on `/status` (degraded, replay integrity, last checkpoint) and a
-  *Durable* signal on write responses.
+- [x] W5: a durability block on `/status` (degraded, replay integrity, last checkpoint).
+- [ ] W5: a *Durable* signal on write responses. Start with the bodies that already exist
+  (`POST /bulk/import`, where a fenced WAL can leave a whole import memory-only behind a 200 with
+  full counts); the 202-returning singular writes need a body before they can carry one.
+- [ ] W5: an out-of-process KILL test. Every existing "crash" is an in-process dispose, so the one
+  failure class the D1 apparatus is for is covered by nothing.
+- [ ] W5: assert the DEFAULT durability path resolution, on the resolved paths rather than by running
+  a durable instance at the shared default location.
+- [ ] W5: say on *Fallen8DurabilityOptions.WalPath* and in the setting catalog that it binds the
+  default namespace only, which is what the code does and the docs page already says.
 - [ ] Phase 0's W3, W5 and W8 tests invert.
 
 ## Phase 4 - W4: rebuild from element state [M] (REPAIR HALF DONE)
