@@ -1,8 +1,8 @@
 # Configuration surface
 
-**Status:** implemented on `feature/configuration-surface` and through the council gate; still under
-`features/open/` because it is not merged to `main` yet. Move this directory to `features/done/` when
-it lands.
+**Status:** implemented and merged. The living doc for this surface is
+[`docs/src/content/docs/configuration.md`](../../../docs/src/content/docs/configuration.md); this spec
+is the historical record.
 
 ## 1. Problem
 
