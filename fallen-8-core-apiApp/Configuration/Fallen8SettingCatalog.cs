@@ -305,7 +305,8 @@ namespace NoSQL.GraphDB.App.Configuration
                 + "every checkpoint this instance has already taken."));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Durability:WalPath", Fallen8SettingKind.String, "R2",
                 "Moving the write-ahead log orphans the commits it holds that no checkpoint has "
-                + "absorbed yet, which loses acknowledged writes."));
+                + "absorbed yet, which loses acknowledged writes. It also binds the DEFAULT namespace "
+                + "only: every other namespace keeps its own log under the storage directory."));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Durability:Volatile", Fallen8SettingKind.Bool, "R2",
                 "It selects which engine constructor runs at boot, so it decides whether this "
                 + "instance persists anything at all."));

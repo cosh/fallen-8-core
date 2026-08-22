@@ -908,7 +908,8 @@ namespace NoSQL.GraphDB.Tests
                 {
                     VerticesCreated = 10000,
                     EdgesCreated = 25000,
-                    LinesRead = 35001
+                    LinesRead = 35001,
+                    Durable = true
                 }, "BulkImportResultREST"),
                 (new ChangeEventREST
                 {
