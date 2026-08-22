@@ -26,8 +26,8 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Docs screenshot capture: the Configuration panel as an EDITOR (feature
- * writable-instance-config). Capture-only.
+ * Docs screenshot capture: the configuration SURFACE as an editor (features
+ * writable-instance-config and configuration-surface). Capture-only.
  *
  *   F8_SCREENSHOT=1 F8_UI_URL=http://127.0.0.1:<port> npx playwright test e2e/screenshot-configuration.spec.ts
  *
@@ -38,23 +38,28 @@ import { expect, test } from "@playwright/test";
  * "set here" badges and a phantom restart banner.
  *
  * Output: docs/src/assets/images/screen-configuration.png.
+ *
+ * Playwright runs the capture specs in filename order, so this one goes first and its PATCH below is
+ * what puts a stored value and a restart-pending state into the two frames captured after it. That is
+ * load-bearing rather than incidental: run it first if you run them individually.
  */
 
 const API_KEY = process.env.F8_E2E_API_KEY ?? "e2e-key";
 const AUTH = { Authorization: `Bearer ${API_KEY}` };
 
-// A RESTART-tier key that sits in the FIRST few catalogued rows, so one written value puts all three
-// things this panel exists for on the picture at once: the "set here" source badge, the restart-to-apply
-// chip on the row, and the banner naming the running and the pending value. It has to be restart-tier
-// for the banner to appear at all: a live key applies immediately and is correctly never pending, and
-// it has to be near the top because the settings list caps its own height and scrolls.
+// A RESTART-tier key in a small section, so one written value puts all three things this surface
+// exists for on the picture at once: the "set here" source badge, the restart-to-apply chip on the
+// row, and the pending list naming the running and the pending value. It has to be restart-tier for
+// the pending state to appear at all (a live key applies immediately and is correctly never pending),
+// and its section has to be small enough that the whole of it is in frame.
 const WRITTEN_KEY = "Fallen8:Analytics:MaxTimeBudgetSeconds";
 const WRITTEN_ROW = "config-setting-fallen8-analytics-maxtimebudgetseconds";
+const WRITTEN_SECTION = "config-section-analytics";
 
 test.skip(process.env.F8_SCREENSHOT !== "1", "docs screenshot capture (set F8_SCREENSHOT=1)");
 
-test("capture the Configuration editor", async ({ page, request }) => {
-  await page.setViewportSize({ width: 1280, height: 1000 });
+test("capture the configuration surface", async ({ page, request }) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
 
   // A stored value, so the shot shows what the feature is actually for: a row whose value came from
   // this instance's own configuration, its "set here" badge, and the restart banner naming both the
@@ -80,7 +85,17 @@ test("capture the Configuration editor", async ({ page, request }) => {
 
   await page.goto("/");
   await expect(page.getByTestId("configuration-panel")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByText("checking…")).toHaveCount(0, { timeout: 20_000 });
+  // A POSITIVE load gate. Waiting for "checking…" to disappear stopped meaning anything once the
+  // spinner moved inside the surface: it passes at zero matches, so the shot could catch a half
+  // loaded card.
+  await expect(page.getByTestId("config-settings-summary")).toContainText(/set here/, {
+    timeout: 20_000,
+  });
+
+  // Open the surface and navigate to the section holding the written key.
+  await page.getByTestId("config-configure").click();
+  await expect(page.getByTestId("config-surface")).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId(WRITTEN_SECTION).click();
 
   // GUARDS: each one names what to set, because a silently degraded picture is the failure mode this
   // capture has to avoid.
@@ -94,21 +109,21 @@ test("capture the Configuration editor", async ({ page, request }) => {
     "the stored value did not survive to the read surface.",
   ).toHaveValue("600");
   await expect(
-    page.getByTestId("config-pending-restart"),
-    "the restart banner is absent: a restart-tier value must differ from what this process booted " +
-      "with, so start the capture app with a FRESH Fallen8__Metadata__Directory.",
+    page.getByTestId("config-pending-restart-detail"),
+    "the pending-restart list is absent: a restart-tier value must differ from what this process " +
+      "booted with, so start the capture app with a FRESH Fallen8__Metadata__Directory.",
   ).toBeVisible();
-  await expect(page.getByTestId("config-pending-restart")).toContainText(WRITTEN_KEY);
-  // The written row must be IN the picture, not below the list's scroll cap: the source badge is what
-  // shows that a value came from this instance's own configuration.
+  await expect(page.getByTestId("config-pending-restart-detail")).toContainText(WRITTEN_KEY);
+  // The written row must be IN the picture: its source badge is what shows that a value came from
+  // this instance's own configuration.
   await expect(
     page.getByTestId(WRITTEN_ROW),
-    "the written row is below the settings list's scroll cap, so the shot would not show a stored value.",
+    "the written row is below the section pane's scroll, so the shot would not show a stored value.",
   ).toBeInViewport();
+  // The section nav is the other half of what this image documents.
+  await expect(page.getByTestId("config-section-nav")).toBeInViewport();
 
-  // Scroll the panel into frame and shoot it alone: the settings list is the subject, and a
-  // whole-page shot at this height would reduce it to a band.
-  const panel = page.getByTestId("configuration-panel");
-  await panel.scrollIntoViewIfNeeded();
-  await panel.screenshot({ path: "../docs/src/assets/images/screen-configuration.png" });
+  // A whole-page shot: the surface is a modal, so a portal is NOT a descendant of the Connect card,
+  // and locating that card would photograph a summary with no settings on it.
+  await page.screenshot({ path: "../docs/src/assets/images/screen-configuration.png" });
 });

@@ -3,15 +3,27 @@ title: "Configuration"
 description: "Read every setting this instance binds, change the ones that are safe to change, and see which changes need a restart."
 ---
 
-Fallen-8 reads its configuration the way any ASP.NET Core application does: from `appsettings.json`, from `Fallen8__Section__Key` environment variables, from the command line. What this page is about is the other half, added later: an instance can now **show you every setting it binds** and let you **change the ones that are safe to change**, from the Configuration panel in [F8 Studio](/studio/) or over REST.
+Fallen-8 reads its configuration the way any ASP.NET Core application does: from `appsettings.json`, from `Fallen8__Section__Key` environment variables, from the command line. What this page is about is the other half, added later: an instance can now **show you every setting it binds** and let you **change the ones that are safe to change**, from the configuration surface in [F8 Studio](/studio/) or over REST.
 
 That distinction matters more than it sounds. Before this, the only way to know what a running instance was actually configured with was to go and read the files you deployed it with, and the only way to change anything was to edit them and restart. Now the instance itself is the authority on its own configuration, and it will tell you where each value came from.
 
-![The Configuration panel in F8 Studio, listing settings with their source and tier](../../assets/images/screen-configuration.png)
+![The configuration surface in F8 Studio: a section list on the left, the selected section's settings with their source and tier on the right](../../assets/images/screen-configuration.png)
+
+## Two surfaces, and why
+
+An instance binds about a hundred settings. In Studio they live behind **Configure** on the Connect screen's Configuration card, in a surface of their own, because they used to be one flat list on that screen and a hundred rows in a scrolling window is not something anyone reads.
+
+The card stays a **summary**: the semantic providers and whether their models are loaded, how many settings there are and how many this instance has stored itself, whether anything is waiting for a restart, and what it is exporting. That is what you want when you open Connect to check which instance you are pointed at.
+
+The surface is where the settings are, organised three ways at once:
+
+- **Sections**, grouped under a handful of headings, one section on screen at a time. The grouping follows the key's own section (`Fallen8:ChangeFeed:…` is Change feed), with four merges where the server's split is not one a reader would make: the metadata directory sits with storage and durability, the NLP sidecar with the document pipeline it serves, and the plugin and stored-query ceilings together. Every section carries one line on what it governs, and a section this version of Studio does not know still shows up, under **Other**, rather than vanishing.
+- **Search**, across every section at once, matching a setting's key, its exclusion rule and the reason it is excluded. It does not match values, because a value here can be an endpoint or a filesystem path. It also cannot match what a key *does*: the instance publishes no description for a setting, and the empty state says so rather than leaving you guessing.
+- **Filters**: writable here, restart to apply, not writable, set here, from the environment. A filter never hides a row silently, so the pane always states how many of how many it is showing.
 
 ## What you can change, and what you cannot
 
-Every setting falls into one of three tiers, and the panel shows which:
+Every setting falls into one of three tiers, and the surface shows which:
 
 | Tier | What it means |
 |---|---|
@@ -19,9 +31,9 @@ Every setting falls into one of three tiers, and the panel shows which:
 | **restart** | Writable, and it takes effect at the next boot. Stored immediately; nothing changes until you restart. |
 | **not writable** | Cannot be changed over REST at all. The instance publishes the key, the rule that excludes it and the reason, but not its value. |
 
-Most writable settings are restart-tier, and the panel says so per setting rather than letting you assume otherwise. **A wrong "this applied" claim is the worst thing this surface could do**, because you would only find out when the behaviour you expected never arrived, so the tier is derived from what the running code can actually honour, not from what would be convenient.
+Most writable settings are restart-tier, and the surface says so per setting rather than letting you assume otherwise. **A wrong "this applied" claim is the worst thing this surface could do**, because you would only find out when the behaviour you expected never arrived, so the tier is derived from what the running code can actually honour, not from what would be convenient.
 
-The live tier is narrower still, and honest about it. The settings that are live today are all **caps that are consulted when work starts**: the change feed's subscriber limit and queue depth, its keep-alive period, the plugin and stored-query registration ceilings, and the namespace ceiling. Raising one governs the next subscribe, the next registration, the next namespace immediately. Lowering one **evicts nothing**: an open change-feed stream keeps its slot, a registered plugin stays registered, an existing namespace is not deleted. The panel reports that as "in effect for new work" rather than a bare "applied", because for anything already running the old limit is still the one that matters.
+The live tier is narrower still, and honest about it. The settings that are live today are all **caps that are consulted when work starts**: the change feed's subscriber limit and queue depth, its keep-alive period, the plugin and stored-query registration ceilings, and the namespace ceiling. Raising one governs the next subscribe, the next registration, the next namespace immediately. Lowering one **evicts nothing**: an open change-feed stream keeps its slot, a registered plugin stays registered, an existing namespace is not deleted. The surface reports that as "in effect for new work" rather than a bare "applied", because for anything already running the old limit is still the one that matters.
 
 ### Why so much is not writable
 
@@ -47,11 +59,11 @@ Every setting reports its **source**, and this is the field worth reading first 
 | `environment` | A `Fallen8__…` environment variable. |
 | `commandLine` | A command-line argument. |
 | `host` | An in-process host setting (a test host, or an embedding host). |
-| `override` | This instance's own stored value, written through the panel. |
+| `override` | This instance's own stored value, written through the surface. |
 
 **Two of those mean you cannot change the setting here: `environment` and `commandLine`.** A stored value can never outrank a variable you set where the instance is deployed, and that is deliberate: the shipped compose environment declares a couple of dozen `Fallen8__` variables, and the documentation tells you to set more by hand for the settings that have no `F8_*` shorthand. If stored configuration quietly won over those, your deployment would stop describing your instance.
 
-So instead of storing a value that could never take effect, a write to such a setting is **refused**, and the refusal names the exact variable to remove. The alternative would be a time bomb: a stored value that does nothing until the day someone removes the variable, and then changes behaviour for reasons nobody can trace. A row like that renders read-only in the panel with the variable named underneath it.
+So instead of storing a value that could never take effect, a write to such a setting is **refused**, and the refusal names the exact variable to remove. The alternative would be a time bomb: a stored value that does nothing until the day someone removes the variable, and then changes behaviour for reasons nobody can trace. A row like that renders read-only in the surface with the variable named underneath it.
 
 Note that a variable declared *empty* still counts as declared. Compose writes `Fallen8__Security__ApiKey=${F8_API_KEY:-}`, so on a default deployment that variable exists with an empty value, and treating "unset" as "no opinion" would let stored configuration override a blank someone chose on purpose.
 
@@ -65,7 +77,7 @@ A `config.overrides.json` that cannot be read does **not** stop the instance fro
 
 ## Restart required
 
-When a stored value differs from the value the process started with, the panel says so: a banner names how many settings are waiting, and each one shows both the value **running now** and the value the **next boot** will use.
+When a stored value differs from the value the process started with, Studio says so twice over, and deliberately not the same way. The Configuration card carries the **count**: how many settings are waiting, and that a restart applies them. The surface carries the **disclosure**: each waiting key with the value **running now** beside the value the **next boot** will use. The card is a summary, and a list of keys is the thing it exists not to be.
 
 That signal is **derived, never stored**. The instance snapshots every setting's effective value once at startup and compares against it, which means there is no marker file to go stale, nothing to clean up, and the pending set clears exactly when the process restarts. It is recomputed on every read, so it survives a page reload, a closed tab, a different browser and a reconnect.
 
@@ -82,7 +94,9 @@ Changing configuration over REST takes **two independent acts**, and neither is 
 
 Without a key the write is refused whatever the second says. Every other capability in Fallen-8 requires authentication only when a key is configured, which is the right shape for them, but it is the wrong shape here: it would make configuration anonymously writable on a default deployment. An unauthenticated instance already allows anonymous code execution, which is why the startup log warns about it in capital letters, but that is *per request*. A configuration write persists a change to this instance's posture that outlives the process, and the difference is worth one extra deliberate act.
 
-The panel explains the requirement instead of showing a Save button that would always be refused.
+The surface explains the requirement instead of showing a Save button that would always be refused.
+
+One thing worth knowing once writes are on: an unsaved edit **survives** closing the surface. The Configuration card keeps showing that there are unsaved changes and its Refresh control becomes a **Discard**, which is the one way to drop them, and the ten-second poll that keeps model residency fresh stays suspended the whole time, so nothing can overwrite a half-typed field. Preserving someone's work beats asking them to confirm a dismissal.
 
 ## Reading configuration is not gated the same way
 

@@ -165,14 +165,18 @@ describe("host knobs", () => {
     expect(el.querySelector('[data-testid="namespaces-panel"]')).toBeNull();
     // The startup-load policy control lives in that panel, and it is the one affordance that
     // re-plans the HOST's next boot rather than this session (feature namespace-startup-load),
-    // so it is asserted by name: a future panel-less home for it must not resurface it here.
+    // so it is asserted by name: a future panel-less home for it must not resurface it here. Note
+    // that this sweep does NOT reach the same policy keys inside the configuration surface, for the
+    // reason below.
     expect(el.querySelector('[data-testid^="namespace-startup-"]')).toBeNull();
-    // The Configuration panel's setting editor is deliberately NOT asserted here, and the reason is
-    // worth stating: this suite stubs fetch to throw, so GET /config always fails and the panel
-    // renders config-unavailable with zero setting rows whether or not its gate exists. An assertion
-    // would pass for the wrong reason and read as coverage. The gates that matter (the editable region
-    // on lockInstances, and the two namespace-policy keys additionally on lockNamespace) are asserted
-    // against a panel with real data in tests/connect-config-editor.test.tsx.
+    // The configuration settings editor is deliberately NOT asserted here, and the reason is worth
+    // stating: this suite stubs fetch to throw, so GET /config always fails, the Configuration card
+    // renders config-unavailable, and it offers no Configure button at all - so the surface holding
+    // those rows can never be opened in this suite and an assertion about them would be doubly
+    // vacuous. The gates that matter (the editable region on lockInstances, and the namespace-policy
+    // keys additionally on lockNamespace) are asserted against a card with real data in
+    // tests/connect-config-editor.test.tsx, and the portal-container gate the surface needs is in
+    // tests/connect-config.test.tsx.
     expect([...el.querySelectorAll("button")].map((b) => b.textContent)).not.toContain("Edit");
     const radio = el.querySelector<HTMLInputElement>('input[type="radio"][name="active-instance"]');
     expect(radio).not.toBeNull();
