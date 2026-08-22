@@ -54,8 +54,12 @@ namespace NoSQL.GraphDB.App.Configuration
         public String CheckpointBaseName { get; set; } = "Temp.f8s";
 
         /// <summary>
-        ///   Path of the write-ahead log. When null/blank it defaults to
+        ///   Path of the write-ahead log OF THE DEFAULT NAMESPACE ONLY. When null/blank it defaults to
         ///   <c>&lt;StorageDirectory&gt;/fallen8.wal</c>.
+        ///
+        ///   <para>The scope is explicit because the name is not: every other namespace gets its own log
+        ///   at <c>&lt;StorageDirectory&gt;/namespaces/&lt;id&gt;/fallen8.wal</c> and this value is never
+        ///   consulted for one, so an operator setting it does not move or disable their logs.</para>
         /// </summary>
         public String WalPath { get; set; }
 

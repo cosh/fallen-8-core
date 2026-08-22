@@ -502,7 +502,7 @@
           "Bulk"
         ],
         "summary": "Imports a fallen8-jsonl stream into an EMPTY graph, assigning fresh engine ids.",
-        "description": "The body is read as a stream and processed line by line; lines batch into large\r\ncreate transactions (Fallen8:BulkIO:ImportBatchSize per transaction = one WAL entry +\r\none fsync each). File ids are remapped unconditionally: they are references within the\r\nfile, resolved for edge endpoints, never preserved as engine ids. A leading meta line\r\nis optional (grep-filtered subset files stay valid); when present, its counts act as a\r\ntruncation guard.\r\n\r\nFAIL-FAST (honest): the first invalid line aborts the import with its exact line\r\nnumber. Batches committed before the failure STAY COMMITTED (each batch is atomic and\r\nWAL-logged; the file is not one transaction) - the error body reports the committed\r\ncounts, and because import requires an empty graph, recovery is always \"/tabularasa,\r\nfix the line, retry\".\r\n\r\nNOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real\r\nKestrel host may enforce it at the transport layer and answer 413 before this action's\r\nown check runs - the status is the same, but the problem body with committed counts is\r\nonly guaranteed when the application-level check fires first.",
+        "description": "The body is read as a stream and processed line by line; lines batch into large\r\ncreate transactions (Fallen8:BulkIO:ImportBatchSize per transaction = one WAL entry +\r\none fsync each). File ids are remapped unconditionally: they are references within the\r\nfile, resolved for edge endpoints, never preserved as engine ids. A leading meta line\r\nis optional (grep-filtered subset files stay valid); when present, its counts act as a\r\ntruncation guard.\r\n\r\nDURABILITY (honest): \"one WAL entry + one fsync each\" holds while the log is healthy. A\r\nDEGRADED log (a tripped failure fence, or one awaiting its paired snapshot load) still\r\ncommits every batch in memory, so the counts stay real, but those batches are not in the\r\nlog and a kill would lose them. The response therefore carries \"durable\" (W5): false\r\nmeans take a checkpoint before trusting the import to survive a restart.\r\n\r\nFAIL-FAST (honest): the first invalid line aborts the import with its exact line\r\nnumber. Batches committed before the failure STAY COMMITTED (each batch is atomic and\r\nWAL-logged; the file is not one transaction) - the error body reports the committed\r\ncounts and the same \"durable\" flag, and because import requires an empty graph, recovery\r\nis always \"/tabularasa, fix the line, retry\".\r\n\r\nNOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real\r\nKestrel host may enforce it at the transport layer and answer 413 before this action's\r\nown check runs - the status is the same, but the problem body with committed counts is\r\nonly guaranteed when the application-level check fires first.",
         "parameters": [
           {
             "name": "api-version",
@@ -521,7 +521,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The import completed; the body carries created counts",
+            "description": "The import completed; the body carries created counts and whether\r\n     every batch reached the write-ahead log",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -541,7 +541,7 @@
             }
           },
           "400": {
-            "description": "A line was invalid (malformed JSON, unknown fields, bad property\r\n     type/value, duplicate file id, unresolved edge endpoint, over-long line, meta-count\r\n     mismatch) - the problem body carries lineNumber and the committed counts",
+            "description": "A line was invalid (malformed JSON, unknown fields, bad property\r\n     type/value, duplicate file id, unresolved edge endpoint, over-long line, meta-count\r\n     mismatch) - the problem body carries lineNumber, the committed counts and durable",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -6030,7 +6030,7 @@
           "Bulk"
         ],
         "summary": "Imports a fallen8-jsonl stream into an EMPTY graph, assigning fresh engine ids.",
-        "description": "The body is read as a stream and processed line by line; lines batch into large\r\ncreate transactions (Fallen8:BulkIO:ImportBatchSize per transaction = one WAL entry +\r\none fsync each). File ids are remapped unconditionally: they are references within the\r\nfile, resolved for edge endpoints, never preserved as engine ids. A leading meta line\r\nis optional (grep-filtered subset files stay valid); when present, its counts act as a\r\ntruncation guard.\r\n\r\nFAIL-FAST (honest): the first invalid line aborts the import with its exact line\r\nnumber. Batches committed before the failure STAY COMMITTED (each batch is atomic and\r\nWAL-logged; the file is not one transaction) - the error body reports the committed\r\ncounts, and because import requires an empty graph, recovery is always \"/tabularasa,\r\nfix the line, retry\".\r\n\r\nNOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real\r\nKestrel host may enforce it at the transport layer and answer 413 before this action's\r\nown check runs - the status is the same, but the problem body with committed counts is\r\nonly guaranteed when the application-level check fires first.",
+        "description": "The body is read as a stream and processed line by line; lines batch into large\r\ncreate transactions (Fallen8:BulkIO:ImportBatchSize per transaction = one WAL entry +\r\none fsync each). File ids are remapped unconditionally: they are references within the\r\nfile, resolved for edge endpoints, never preserved as engine ids. A leading meta line\r\nis optional (grep-filtered subset files stay valid); when present, its counts act as a\r\ntruncation guard.\r\n\r\nDURABILITY (honest): \"one WAL entry + one fsync each\" holds while the log is healthy. A\r\nDEGRADED log (a tripped failure fence, or one awaiting its paired snapshot load) still\r\ncommits every batch in memory, so the counts stay real, but those batches are not in the\r\nlog and a kill would lose them. The response therefore carries \"durable\" (W5): false\r\nmeans take a checkpoint before trusting the import to survive a restart.\r\n\r\nFAIL-FAST (honest): the first invalid line aborts the import with its exact line\r\nnumber. Batches committed before the failure STAY COMMITTED (each batch is atomic and\r\nWAL-logged; the file is not one transaction) - the error body reports the committed\r\ncounts and the same \"durable\" flag, and because import requires an empty graph, recovery\r\nis always \"/tabularasa, fix the line, retry\".\r\n\r\nNOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real\r\nKestrel host may enforce it at the transport layer and answer 413 before this action's\r\nown check runs - the status is the same, but the problem body with committed counts is\r\nonly guaranteed when the application-level check fires first.",
         "parameters": [
           {
             "name": "ns",
@@ -6057,7 +6057,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The import completed; the body carries created counts",
+            "description": "The import completed; the body carries created counts and whether\r\n     every batch reached the write-ahead log",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -6077,7 +6077,7 @@
             }
           },
           "400": {
-            "description": "A line was invalid (malformed JSON, unknown fields, bad property\r\n     type/value, duplicate file id, unresolved edge endpoint, over-long line, meta-count\r\n     mismatch) - the problem body carries lineNumber and the committed counts",
+            "description": "A line was invalid (malformed JSON, unknown fields, bad property\r\n     type/value, duplicate file id, unresolved edge endpoint, over-long line, meta-count\r\n     mismatch) - the problem body carries lineNumber, the committed counts and durable",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -17665,6 +17665,11 @@
             "description": "The number of lines read from the request body (including meta and blank lines).",
             "format": "int64",
             "example": 35001
+          },
+          "durable": {
+            "type": "boolean",
+            "description": "Whether every committed batch is durable in the write-ahead log (feature\r\nplatform-integrity-audit W5). `true` in the normal case and whenever the WAL is\r\ndisabled, since durability is then by explicit checkpoint.\r\n\r\nfalse means the elements ARE in memory and the counts above are real, but at\r\nleast one batch did not reach the log: the log is degraded (a tripped failure fence, or one\r\nawaiting its paired snapshot load), so a kill would lose those batches even though this\r\nresponse says 200. Take a checkpoint (PUT /save) to re-establish a durable baseline;\r\nGET /status carries the durability detail.",
+            "example": true
           }
         },
         "description": "The success summary of a bulk JSONL import (feature bulk-import-export)."

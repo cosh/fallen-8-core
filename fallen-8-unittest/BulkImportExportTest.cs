@@ -858,6 +858,110 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Import_UnderAHealthyWal_ReportsDurableTrue()
+        {
+            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_bulkdurable_" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(tempDir);
+            var walPath = System.IO.Path.Combine(tempDir, "durable.wal");
+            try
+            {
+                using var factory = new BulkFactory(new Dictionary<string, string>
+                {
+                    ["Fallen8:Durability:Volatile"] = "false",
+                    ["Fallen8:Durability:StorageDirectory"] = tempDir,
+                    ["Fallen8:Durability:WalPath"] = walPath,
+                    ["Fallen8:Durability:SaveOnShutdown"] = "false",
+                    ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(tempDir, "metadata")
+                });
+
+                const string file =
+                    "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":2,\"creationDate\":1}\n";
+
+                using var client = factory.CreateClient();
+                using var response = await Import(client, file);
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+
+                var summary = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+                Assert.AreEqual(2, summary.GetProperty("verticesCreated").GetInt32());
+                Assert.IsTrue(summary.GetProperty("durable").GetBoolean(),
+                    "a healthy log must report durable true, or the flag would be useless noise that " +
+                    "callers learn to ignore before it ever matters");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(tempDir, true); } catch { /* best effort */ }
+            }
+        }
+
+        [TestMethod]
+        public async Task Import_UnderADegradedWal_Reports200WithFullCounts_AndDurableFalse()
+        {
+            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_bulknondurable_" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(tempDir);
+            var walPath = System.IO.Path.Combine(tempDir, "nondurable.wal");
+            try
+            {
+                using var factory = new BulkFactory(new Dictionary<string, string>
+                {
+                    ["Fallen8:Durability:Volatile"] = "false",
+                    ["Fallen8:Durability:StorageDirectory"] = tempDir,
+                    ["Fallen8:Durability:WalPath"] = walPath,
+                    ["Fallen8:Durability:SaveOnShutdown"] = "false",
+                    ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(tempDir, "metadata"),
+                    ["Fallen8:BulkIO:ImportBatchSize"] = "2"
+                });
+
+                using var client = factory.CreateClient();
+
+                // The premise is asserted, not assumed: the log is opened (and its header written) at
+                // boot, and if it were absent the read-only trick below would fence nothing and this
+                // test would pass for the wrong reason.
+                Assert.IsTrue(System.IO.File.Exists(walPath),
+                    "the write-ahead log must exist before the fence can be tripped");
+
+                // Trip the sticky failure fence exactly as WriteAheadLogHardeningTest does: a read-only
+                // file makes the next flush's open throw.
+                System.IO.File.SetAttributes(walPath, System.IO.FileAttributes.ReadOnly);
+
+                const string file =
+                    "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":2,\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":3,\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":4,\"creationDate\":1}\n";
+
+                using var response = await Import(client, file);
+
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                    "a degraded log does not fail the import: every batch is still applied in memory, " +
+                    "which is exactly why the response has to say so out loud");
+
+                var summary = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+                Assert.AreEqual(4, summary.GetProperty("verticesCreated").GetInt32(),
+                    "the counts stay real: the elements are in the graph");
+                Assert.AreEqual(4, EngineOf(factory).VertexCount, "live state agrees with the report");
+                Assert.IsFalse(summary.GetProperty("durable").GetBoolean(),
+                    "W5: this is the whole point. Without this flag the caller receives a 200 with full " +
+                    "counts over elements a kill would lose, and the only signal that anything is wrong " +
+                    "is a durability field on GET /status that nothing obliges them to read");
+
+                System.IO.File.SetAttributes(walPath, System.IO.FileAttributes.Normal);
+            }
+            finally
+            {
+                try
+                {
+                    foreach (var f in System.IO.Directory.GetFiles(tempDir, "*", System.IO.SearchOption.AllDirectories))
+                    {
+                        try { System.IO.File.SetAttributes(f, System.IO.FileAttributes.Normal); } catch { /* best effort */ }
+                    }
+                    System.IO.Directory.Delete(tempDir, true);
+                }
+                catch { /* best effort */ }
+            }
+        }
+
+        [TestMethod]
         public async Task Import_WithWalEnabled_ReplaysToTheSameGraph_PerCommittedBatch()
         {
             var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_bulkwal_" + Guid.NewGuid().ToString("N"));

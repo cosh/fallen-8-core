@@ -56,5 +56,23 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   Whether every committed batch is durable in the write-ahead log (feature
+        ///   platform-integrity-audit W5). <c>true</c> in the normal case and whenever the WAL is
+        ///   disabled, since durability is then by explicit checkpoint.
+        ///
+        ///   <para><c>false</c> means the elements ARE in memory and the counts above are real, but at
+        ///   least one batch did not reach the log: the log is degraded (a tripped failure fence, or one
+        ///   awaiting its paired snapshot load), so a kill would lose those batches even though this
+        ///   response says 200. Take a checkpoint (<c>PUT /save</c>) to re-establish a durable baseline;
+        ///   <c>GET /status</c> carries the durability detail.</para>
+        /// </summary>
+        /// <example>true</example>
+        [JsonPropertyName("durable")]
+        public Boolean Durable
+        {
+            get; set;
+        }
     }
 }
