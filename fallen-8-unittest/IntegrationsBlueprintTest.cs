@@ -44,7 +44,7 @@ using NoSQL.GraphDB.Integrations.Run;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   The three shipped blueprints (feature integrations, spec section 14): every trap row and every
+    ///   The shipped blueprints (feature integrations, spec section 14; autosar-arxml): every trap row and every
     ///   vendor finding is a test here, because each of them is a thing a provider written from a summary
     ///   gets wrong and every one of those mistakes DELETES data rather than merely reporting it wrongly.
     ///

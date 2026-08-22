@@ -13,15 +13,16 @@ be pointed at a scratch graph or at a shared instance on another host. That sepa
 tidiness. Jobs hand this container credentials that belong to your controllers, so it holds no host
 port at all and the browser reaches it only through the API's authenticated proxy.
 
-Three integrations ship. Three is the smallest number that proves the contract is the right
-shape rather than merely a working one, because the fourth is meant to be written without the
-people who built this in the loop.
+The shipped integrations are deliberately unalike, because each one measures whether the contract
+is the right shape rather than merely a working one: the next one is meant to be written without
+the people who built this in the loop.
 
 | Integration | Reads | Needs |
 | --- | --- | --- |
 | `csv-device-list` | a CSV file in the runtime's files directory: MAC, name, note, hostname | nothing but the file |
 | `unifi-network` | a UniFi console's integration API, locally or through the cloud connector: sites, adopted devices, clients, and the uplink topology between them | an API key for the front door you point it at, and the two differ: a local console's key comes from the Network application under Settings then Integrations, while `api.ui.com` takes a Site Manager key from unifi.ui.com under Settings then API Keys |
 | `fronius-solar` | a Fronius Solar API on your own network: inverters and the logging device in front of them | nothing. The local Solar API is unauthenticated |
+| `autosar-arxml` | an AUTOSAR system extract (`.arxml`) in the runtime's files directory: a vehicle network's FlexRay communication matrix, so its ECUs, frames, PDUs, signals and the flow between them ([below](#reading-a-vehicle-network)) | nothing but the file |
 
 ## Running one
 
@@ -53,7 +54,7 @@ curl -sS -X POST http://localhost:8080/integrations/job \
 
 Ask `GET /integrations/providers` what each integration's settings are; every one carries a
 label, a kind and a sentence saying where to find the value in the source system. That is
-deliberately enough to render a form from, so a fourth integration needs no new UI code when a
+deliberately enough to render a form from, so a new integration needs no new UI code when a
 screen for it arrives.
 
 There is deliberately **no schedule, no interval and no run history** anywhere in the runtime.
@@ -261,7 +262,54 @@ The dimension and the metric are read from the instance's own embedding configur
 nothing here pins a model. If the instance has no embedding provider, or it is switched off, the
 run still succeeds and the summaries are simply **absent**, with a diagnostic saying so.
 
-## Writing the fourth one
+## Reading a vehicle network
+
+`autosar-arxml` reads an **AUTOSAR system extract**, the XML file the automotive industry uses to
+exchange the communication matrix of a vehicle network, and describes the FlexRay bus it carries.
+One file per run, named by the `file` setting like the CSV integration's, and the runtime opens
+it.
+
+What lands in the graph is the network itself, its ECUs, the frames on the bus, the PDUs inside
+those frames (including the container and secured layers), the signals inside the PDUs, the
+system signals they implement and the scaling methods that give them a unit. The edges are the
+questions people actually ask: `sends` and `deliversTo` point **with** the data flow, so a path
+from a sending ECU to a receiving one never traverses an edge backwards, while `contains`,
+`carries` and `secures` walk down the protocol stack from a frame to a single signal.
+
+Identity is the element's **AUTOSAR reference path**, which the standard already makes both its
+identity and the way every cross-reference in the file addresses it. Nothing is matched by name
+or similarity. Because an extract is by construction the complete description of its network,
+running the next release into the same namespace withdraws exactly what the release removed, so
+the [change feed](/change-feed/) becomes the release diff without anything extra.
+
+Two limits worth knowing up front. This version reads **FlexRay** clusters, and a readable
+extract carrying none fails the run rather than reporting an empty network, because an empty
+complete snapshot would delete the network a previous run described. And the software-component
+level (the data mappings between components) is deliberately not read: this is the network view.
+
+### Finding a signal you cannot name
+
+Signal names in a real matrix are unguessable codes, which is exactly what the optional summary
+embedding above is for. The template covers a signal's name, both language descriptions and its
+**unit**, and the unit is the point: an odometer's description says "accumulated distance" and
+never "kilometer", so its unit is the only thing connecting it to somebody searching for one.
+
+With `"embedSummaries": true` on the job and an embedding provider configured, create a
+[vector index](/vector-search/) bound to that embedding name and ask in words:
+
+```bash
+curl -sf -X POST http://localhost:8080/ns/vehicle/embedding/search \
+     -H "Content-Type: application/json" \
+     -d '{"indexId":"arxml-summary","text":"kilometer","k":10,"label":"signal"}'
+```
+
+The hits are element ids, so they feed straight into the traversal surface: "who receives the
+kilometer signal" is that query followed by one `deliversTo` hop. A multilingual embedding model
+matters here, since the prose in these files is routinely German and English in the same
+element; the compose environment's default model is multilingual, and a single-language one
+degrades the German half.
+
+## Writing the next one
 
 An integration is a data descriptor plus one method that observes its source and returns what it
 saw. It never resolves identity, never sees the graph or an element id, never opens a file, and

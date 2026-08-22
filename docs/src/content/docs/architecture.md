@@ -46,7 +46,7 @@ flowchart TB
     nlp["NLP sidecar (spaCy)<br/>named entities + key terms"]:::ext
     integrations["Integrations runtime · fallen-8-integrations<br/>separate deployable · no host port · writes via REST"]:::mcp
     files["Files mount<br/>/files · read only"]:::ext
-    sources["Your network<br/>CSV · UniFi console · Fronius inverter"]:::ext
+    sources["Your network<br/>CSV · UniFi console · Fronius inverter · ARXML extract"]:::ext
 
     subgraph obs["Observability · one Grafana pane"]
         direction TB
