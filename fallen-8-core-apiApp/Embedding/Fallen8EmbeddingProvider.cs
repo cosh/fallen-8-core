@@ -54,6 +54,10 @@ namespace NoSQL.GraphDB.App.Embedding
         private readonly Fallen8EmbeddingOptions _options;
         private readonly Lazy<IEmbeddingGenerator<String, Embedding<Single>>> _generator;
 
+        /// <summary>The per-call backend options; <c>null</c> for the in-process backends. See
+        /// <see cref="BuildGenerationOptions" /> - it carries exactly one thing.</summary>
+        private readonly EmbeddingGenerationOptions _generationOptions;
+
         /// <summary>Latched fatal validation failure (e.g. the first output's dimension
         /// contradicts the configuration) - the provider stays down until config changes.</summary>
         private volatile String _latchedFailure;
@@ -63,6 +67,7 @@ namespace NoSQL.GraphDB.App.Embedding
         {
             _options = options.Value;
             _generator = generator;
+            _generationOptions = BuildGenerationOptions(_options.Backend);
             Identity = BuildIdentity(_options);
 
             // A typo'd metric must not silently become Cosine INSIDE the identity stamp that
@@ -80,6 +85,48 @@ namespace NoSQL.GraphDB.App.Embedding
         private static Boolean IsKnownMetric(String metric)
         {
             return metric is null or "Cosine" or "DotProduct" or "L2";
+        }
+
+        /// <summary>
+        ///   THE one home for what the Ollama-protocol backends are asked to do per call, and it is
+        ///   one thing: <c>truncate: false</c>.
+        ///
+        ///   <para><b>Why.</b> That flag defaults to TRUE on both the local Ollama sidecar and on
+        ///   Nahil, and what it really means is "shorten anything that does not fit, and answer as
+        ///   though it had fitted". Neither backend honours the 8192-token window <c>bge-m3</c>'s own
+        ///   <c>/api/show</c> advertises - measured, both stop at 2048 - so an over-long chunk came
+        ///   back as a perfectly valid-looking 1024-dimension vector describing only its first ~2046
+        ///   tokens. Nothing distinguished that from a correct embedding: not the response, not the
+        ///   dimension check below, not any log line. The chunk was indexed, searchable, and quietly
+        ///   wrong about its own tail. With the flag off the backend refuses instead, which is the
+        ///   whole point - a failed ingest is re-runnable, a silently truncated vector is not even
+        ///   visible. <c>Fallen8:Ingestion:ChunkMaxChars</c> is what keeps ordinary documents away
+        ///   from that refusal; this is the backstop for everything else.</para>
+        ///
+        ///   <para><b>How.</b> Via <see cref="EmbeddingGenerationOptions.AdditionalProperties" />,
+        ///   which OllamaSharp's abstraction mapper binds onto <c>EmbedRequest.Truncate</c> by name
+        ///   (verified against 5.4.27: the key reaches the request body as <c>"truncate": false</c>,
+        ///   case-insensitively, while an unrecognised key is dropped rather than passed through).
+        ///   <see cref="EmbeddingGenerationOptions.RawRepresentationFactory" /> reads like the
+        ///   intended route and is IGNORED by that mapper - it produced a body with no
+        ///   <c>truncate</c> member at all, i.e. the silent-truncation default, which is exactly the
+        ///   failure this method exists to remove. Re-check both on an OllamaSharp upgrade.</para>
+        ///
+        ///   <para>The in-process backends get <c>null</c>: ONNX truncates deliberately at
+        ///   <c>Fallen8:Embedding:Onnx:MaxTokens</c> (operator-chosen and documented as such), and
+        ///   neither it nor LLamaSharp reads these options at all.</para>
+        /// </summary>
+        private static EmbeddingGenerationOptions BuildGenerationOptions(String backend)
+        {
+            if (backend is not ("Ollama" or "Nahil"))
+            {
+                return null;
+            }
+
+            return new EmbeddingGenerationOptions
+            {
+                AdditionalProperties = new AdditionalPropertiesDictionary { ["truncate"] = false }
+            };
         }
 
         /// <summary>Whether the capability flag is on.</summary>
@@ -154,7 +201,7 @@ namespace NoSQL.GraphDB.App.Embedding
             GeneratedEmbeddings<Embedding<Single>> generated;
             try
             {
-                generated = await generator.GenerateAsync(texts, options: null, timeoutCts.Token);
+                generated = await generator.GenerateAsync(texts, _generationOptions, timeoutCts.Token);
             }
             catch (Helper.NahilWarmupTimeoutException ex)
             {
@@ -181,7 +228,8 @@ namespace NoSQL.GraphDB.App.Embedding
             {
                 // Transient by assumption (e.g. the Ollama sidecar is down): 503, NOT latched.
                 throw new EmbeddingProviderUnavailableException(
-                    String.Format("The embedding backend '{0}' failed to generate: {1}", _options.Backend, ex.Message), ex);
+                    String.Format("The embedding backend '{0}' failed to generate: {1}{2}",
+                        _options.Backend, ex.Message, OverLongInputHint(ex)), ex);
             }
 
             if (generated == null || generated.Count != texts.Count)
@@ -222,6 +270,37 @@ namespace NoSQL.GraphDB.App.Embedding
             }
 
             return vectors;
+        }
+
+        /// <summary>
+        ///   Names what to change when the backend refuses an over-long input. That refusal exists
+        ///   only because <see cref="BuildGenerationOptions" /> turns truncation off, and the
+        ///   backend's own wording ("the input length exceeds the context length") says nothing
+        ///   about which Fallen-8 setting produced the input - so this is a 503 "not usable right
+        ///   now" that carries a fix, rather than an operator guessing which of three surfaces was
+        ///   too long.
+        ///   <para>Matching on the message is deliberate and degrades safely: the sentence belongs
+        ///   to the backend, so if it ever changes the operator still gets the raw reason exactly as
+        ///   before, only without the pointer.</para>
+        /// </summary>
+        private static String OverLongInputHint(Exception ex)
+        {
+            if (ex.Message == null
+                || !ex.Message.Contains("exceeds the context length", StringComparison.OrdinalIgnoreCase))
+            {
+                return String.Empty;
+            }
+
+            // The backend's sentence ends without punctuation, so the two would otherwise run
+            // together into one unreadable line.
+            var separator = ex.Message.TrimEnd().EndsWith('.') ? " " : ". ";
+
+            return separator
+                + "One input exceeds the model's per-input token ceiling (2048 for bge-m3 on both the"
+                + " Ollama sidecar and Nahil, whatever /api/show advertises). Fallen-8 asks the"
+                + " backend NOT to truncate, so this is reported instead of a vector for part of the"
+                + " input: lower Fallen8:Ingestion:ChunkMaxChars for documents, or shorten the text"
+                + " for /embedding and semantic queryText.";
         }
 
         /// <summary>Applies the configured query prefix (query-time embeddings only).</summary>

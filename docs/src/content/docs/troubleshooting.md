@@ -96,6 +96,24 @@ undocumented 100-second transport timeout pre-empted it and surfaced as a `500`.
 raising `Fallen8:Chat:TimeoutSeconds` past 10 minutes has no effect in the editor. That ceiling also
 bounds a **custom** browser-direct backend, which has no Fallen-8 budget in front of it at all.
 
+### "the input length exceeds the context length"
+
+A `503` from the embedding surface carrying that sentence means one input was over the model's
+per-input token ceiling - **2048 tokens for `bge-m3`**, on the local Ollama sidecar and on Nahil
+alike, whatever `/api/show` advertises. Fallen-8 asks the backend never to truncate, so this is
+reported rather than answered with a vector for part of the input. The message names what to
+change; the short version:
+
+| Where the text came from | What to do |
+| --- | --- |
+| Document ingestion | Lower `Fallen8:Ingestion:ChunkMaxChars` (default 3,600). A CJK corpus wants ~1,800 |
+| `POST /embedding/...` | Shorten the item. `Fallen8:Embedding:MaxTextLength` only rejects the hopeless |
+| `semantic.queryText` on `/path`, `/subgraph`, document search | Shorten the query - a query this long is not doing what you think anyway |
+
+Nothing is written until every chunk of a document has a vector, so a failed ingest is
+re-runnable rather than half-indexed. Background, including the measured chars-per-token table:
+[the input ceiling](/semantic-traversal/#the-input-ceiling-2048-tokens-not-8192).
+
 This is why a [Nahil](/nahil/) deployment sets the budget to **600** seconds and
 not more: 600 s is exactly that 10-minute ceiling, so anything larger only moves the give-up from
 the server, which explains itself in the response, to the browser, which cannot.
