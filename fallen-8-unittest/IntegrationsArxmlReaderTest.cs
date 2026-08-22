@@ -804,6 +804,72 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void ALanguageNeutralDescription_FillsBothLanguages_RatherThanNeither()
+        {
+            var network = ArxmlReader.Read("""
+                <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+                  <AR-PACKAGES>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>ISignals</SHORT-NAME>
+                      <ELEMENTS>
+                        <I-SIGNAL>
+                          <SHORT-NAME>SIG_Neutral</SHORT-NAME>
+                          <DESC>
+                            <L-2 L="FOR-ALL">Odometer reading</L-2>
+                          </DESC>
+                        </I-SIGNAL>
+                        <I-SIGNAL>
+                          <SHORT-NAME>SIG_Mixed</SHORT-NAME>
+                          <DESC>
+                            <L-2 L="FOR-ALL">Neutral text</L-2>
+                            <L-2 L="EN">English text</L-2>
+                          </DESC>
+                        </I-SIGNAL>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                  </AR-PACKAGES>
+                </AUTOSAR>
+                """);
+
+            var neutral = Element(network, "/ISignals/SIG_Neutral");
+            Assert.AreEqual("Odometer reading", neutral[ArxmlProperties.DescriptionEn],
+                "an element described ONLY in the standard's language-neutral variant must still carry " +
+                "prose, or it drops out of every semantic query for reasons no reader of the file could " +
+                "guess");
+            Assert.AreEqual("Odometer reading", neutral[ArxmlProperties.DescriptionDe]);
+
+            var mixed = Element(network, "/ISignals/SIG_Mixed");
+            Assert.AreEqual("English text", mixed[ArxmlProperties.DescriptionEn],
+                "a real language must win over the neutral fallback where both exist");
+            Assert.AreEqual("Neutral text", mixed[ArxmlProperties.DescriptionDe],
+                "and the fallback still fills the language that is genuinely absent");
+        }
+
+        [TestMethod]
+        public void ABlankShortName_LeavesItsElementUnnamed_RatherThanNamingItNothing()
+        {
+            var network = ArxmlReader.Read("""
+                <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+                  <AR-PACKAGES>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>   </SHORT-NAME>
+                      <ELEMENTS>
+                        <I-SIGNAL>
+                          <SHORT-NAME>SIG_Orphaned</SHORT-NAME>
+                        </I-SIGNAL>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                  </AR-PACKAGES>
+                </AUTOSAR>
+                """);
+
+            Assert.AreEqual("/SIG_Orphaned", network.Elements.Single().Path,
+                "a blank ancestor short name must contribute NO segment. Naming it the empty string " +
+                "composes '//SIG_Orphaned', which no reference in the file can ever match, so the " +
+                "element and everything pointing at it would silently lose its identity");
+        }
+
+        [TestMethod]
         public void ARefusedDuplicate_TakesItsReferencesWithIt()
         {
             var network = ArxmlReader.Read("""
