@@ -40,11 +40,12 @@ const AUTH = { Authorization: `Bearer ${API_KEY}` };
 test.skip(process.env.F8_SCREENSHOT !== "1", "docs screenshot capture (set F8_SCREENSHOT=1)");
 
 test("capture the Connect screen", async ({ page, request }) => {
-  // Taller than the 900 this used to be. The Configuration panel now carries the settings editor
-  // (feature writable-instance-config), which adds a height-capped list between the provider cards
-  // and the observability line, and at 900 that pushed the Namespaces panel off the bottom while
-  // every assertion below still passed: the picture would have degraded silently.
-  await page.setViewportSize({ width: 1440, height: 1600 });
+  // Back down from the 1600 the inline settings list needed: those rows moved into the configuration
+  // surface (feature configuration-surface), so the Configuration card is a summary again. Still
+  // taller than the original 900, because the card carries the two provider cards and the
+  // Namespaces panel below it has to stay in frame. Both toBeInViewport guards below are the
+  // tripwire: at 900 the Namespaces rows went off the bottom while every assertion still passed.
+  await page.setViewportSize({ width: 1440, height: 1200 });
 
   await request.head("/tabularasa/all", { headers: AUTH });
 
@@ -104,17 +105,34 @@ test("capture the Connect screen", async ({ page, request }) => {
     "the Chat card is unconfigured: wire Fallen8__Chat__* on the capture app.",
   ).toContainText("Ollama");
 
-  // GUARD: the settings editor is now part of this shot, and it only renders when the capture app
-  // can actually accept a write. Without it the picture would show a read-only list and document
-  // the wrong thing.
+  // GUARD: the settings themselves are NOT on this shot any more, and asserting a row here would be
+  // false by construction (they are in a modal). What this shot documents is the summary and the way
+  // in, so the inventory count and the Configure button are the things that have to be real: the
+  // count is only non-zero when the capture app actually published an inventory.
+  // The count has to be NON-ZERO: "0 set here" is what an app with no stored configuration prints, and
+  // this shot exists partly to show that an instance can hold its own settings. A bare /set here/
+  // matched that degraded string.
   await expect(
-    page.getByTestId("config-setting-fallen8-plugins-maxcount"),
-    "the settings editor is missing: run the capture app with Fallen8__Security__ApiKey, " +
-      "Fallen8__Security__EnableConfigurationWrite=true and Fallen8__Metadata__Directory.",
-  ).toBeVisible({ timeout: 20_000 });
+    page.getByTestId("config-settings-summary"),
+    "the inventory reports nothing stored here: run e2e/screenshot-configuration.spec.ts FIRST (it " +
+      "writes the value), against a capture app with Fallen8__Security__EnableConfigurationWrite=true " +
+      "and a FRESH Fallen8__Metadata__Directory.",
+  ).toContainText(/[1-9]\d* set here/, { timeout: 20_000 });
+  await expect(page.getByTestId("config-configure")).toBeVisible();
+  // Same prerequisite, stated as its own guard so a missing restart notice is not silently accepted:
+  // the card's restart count is part of what this frame documents.
+  await expect(
+    page.getByTestId("config-pending-restart"),
+    "the restart notice is absent: same prerequisite as above, and the metadata directory must be " +
+      "fresh so the stored value really differs from what this process booted with.",
+  ).toBeVisible();
+  await expect(
+    page.locator('[data-testid^="config-setting-"]'),
+    "a settings row is on the Connect screen, so the configuration surface did not take them.",
+  ).toHaveCount(0);
   await expect(
     page.getByTestId("namespaces-panel"),
-    "the Namespaces panel is off the picture: the viewport is too short for the settings editor.",
+    "the Namespaces panel is off the picture: the viewport is too short.",
   ).toBeVisible();
   // Every namespace row in frame, not just the first two: the "at startup" column is part of what this
   // shot documents, and the inheriting row is the one that shows what inherit resolves to.

@@ -26,9 +26,11 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Docs screenshot capture (feature studio-obs-config): the observability config overlay, grouped
- * into Push (OTLP) / Pull (Prometheus scrape) / Statistics sections. Run against a live apiApp
- * that has an OTLP endpoint configured, so the Push section shows a real endpoint:
+ * Docs screenshot capture (features studio-obs-config and configuration-surface): the Observability
+ * section of the configuration surface, grouped into Push (OTLP) / Pull (Prometheus scrape) /
+ * Statistics sections. It used to be a dialog of its own with its own Configure button; it is now one
+ * section of the one configuration surface. Run against a live apiApp that has an OTLP endpoint
+ * configured, so the Push section shows a real endpoint:
  *
  *   F8_UI_URL=http://127.0.0.1:5000 npx playwright test e2e/screenshot-observability.spec.ts
  *
@@ -42,7 +44,7 @@ const API_KEY = process.env.F8_E2E_API_KEY ?? "e2e-key";
 // OTLP-configured app: F8_SCREENSHOT=1 F8_UI_URL=http://127.0.0.1:5000 npx playwright test.
 test.skip(process.env.F8_SCREENSHOT !== "1", "docs screenshot capture (set F8_SCREENSHOT=1)");
 
-test("capture the observability config overlay", async ({ page }) => {
+test("capture the observability configuration section", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
 
   // Register a secured same-origin instance through the real Connect screen.
@@ -55,15 +57,19 @@ test("capture the observability config overlay", async ({ page }) => {
   await page.getByRole("radio", { name: "activate e2e" }).check();
   await expect(page.getByTestId("active-endpoint")).toContainText("same origin");
 
-  // Wait for the read-only Configuration panel, then open the observability overlay.
+  // Wait for the read-only Configuration card, then open the surface and navigate to the section.
+  // There is ONE Configure button now: the old config-observability-configure is gone on purpose, so
+  // a spec still clicking it fails loudly instead of photographing the wrong surface.
   await page.getByTestId("config-embedding").waitFor();
-  await page.getByTestId("config-observability-configure").click();
+  await page.getByTestId("config-configure").click();
+  await page.getByTestId("config-surface").waitFor();
+  await page.getByTestId("config-section-observability").click();
   await page.getByTestId("config-observability-overlay").waitFor();
   await expect(page.getByText("Push (OTLP)")).toBeVisible();
   await expect(page.getByText("Pull (Prometheus scrape)")).toBeVisible();
   await expect(page.getByText("Statistics snapshot")).toBeVisible();
 
-  // Capture the overlay over the dimmed Connect screen (matches how a user sees it).
+  // Capture the surface over the dimmed Connect screen (matches how a user sees it).
   // GUARD: this frame exists to show a REAL push endpoint. Without one the row renders "off" and
   // the capture silently degrades the published image - which happened five times before this
   // assertion existed. /config echoes the configured string, so no collector has to be listening.
@@ -73,6 +79,14 @@ test("capture the observability config overlay", async ({ page }) => {
       "Fallen8__Observability__Otlp__Endpoint set (a configured string is enough). Do not assert " +
       'on the whole overlay: the Prometheus scrape row reads "off" by design.',
   ).not.toHaveText("off");
+
+  // GUARD: the LAST row of the LAST group has to be in frame. Without this the first recapture after
+  // the fold-in published a frame clipped one row short, showing five of the six keys, and every
+  // other assertion here still passed: toBeVisible() is true for a row below the pane's scroll.
+  await expect(
+    page.getByTestId("config-setting-fallen8-observability-statisticstopn"),
+    "the top-N row is below the section pane's scroll, so the shot would document five of six keys.",
+  ).toBeInViewport();
 
   await page.screenshot({ path: "../docs/src/assets/images/screen-connect-observability.png" });
 });
