@@ -279,21 +279,30 @@ namespace NoSQL.GraphDB.App.Controllers
         /// is optional (grep-filtered subset files stay valid); when present, its counts act as a
         /// truncation guard.
         ///
+        /// DURABILITY (honest): "one WAL entry + one fsync each" holds while the log is healthy. A
+        /// DEGRADED log (a tripped failure fence, or one awaiting its paired snapshot load) still
+        /// commits every batch in memory, so the counts stay real, but those batches are not in the
+        /// log and a kill would lose them. The response therefore carries "durable" (W5): false
+        /// means take a checkpoint before trusting the import to survive a restart.
+        ///
         /// FAIL-FAST (honest): the first invalid line aborts the import with its exact line
         /// number. Batches committed before the failure STAY COMMITTED (each batch is atomic and
         /// WAL-logged; the file is not one transaction) - the error body reports the committed
-        /// counts, and because import requires an empty graph, recovery is always "/tabularasa,
-        /// fix the line, retry".
+        /// counts and the same "durable" flag, and because import requires an empty graph, recovery
+        /// is always "/tabularasa, fix the line, retry".
         ///
         /// NOTE on the body cap: when Fallen8:BulkIO:MaxImportRequestBytes is configured, a real
         /// Kestrel host may enforce it at the transport layer and answer 413 before this action's
         /// own check runs - the status is the same, but the problem body with committed counts is
         /// only guaranteed when the application-level check fires first.
         /// </remarks>
-        /// <response code="200">The import completed; the body carries created counts</response>
+        /// <response code="200">The import completed; the body carries created counts and "durable",
+        /// which is false only when a batch was committed in memory without reaching a DEGRADED log.
+        /// It is true when there is no log to reach (Volatile, or WAL disabled), where durability is
+        /// by explicit checkpoint instead</response>
         /// <response code="400">A line was invalid (malformed JSON, unknown fields, bad property
         /// type/value, duplicate file id, unresolved edge endpoint, over-long line, meta-count
-        /// mismatch) - the problem body carries lineNumber and the committed counts</response>
+        /// mismatch) - the problem body carries lineNumber, the committed counts and durable</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="409">The graph is not empty (import requires an empty target; use
         /// /tabularasa or a fresh instance)</response>
@@ -406,7 +415,8 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 VerticesCreated = session.VerticesCreated,
                 EdgesCreated = session.EdgesCreated,
-                LinesRead = session.LinesRead
+                LinesRead = session.LinesRead,
+                Durable = session.Durable
             });
         }
 
@@ -449,6 +459,10 @@ namespace NoSQL.GraphDB.App.Controllers
                 }
                 problem.Extensions["verticesCommitted"] = session.VerticesCreated;
                 problem.Extensions["edgesCommitted"] = session.EdgesCreated;
+
+                // The committed counts are only half the story on the failure path too: a partial import
+                // whose batches never reached the log leaves even less behind than the counts suggest (W5).
+                problem.Extensions["durable"] = session.Durable;
             });
         }
 
@@ -537,6 +551,13 @@ namespace NoSQL.GraphDB.App.Controllers
             internal long LinesRead;
             internal int VerticesCreated;
             internal int EdgesCreated;
+
+            /// <summary>
+            ///   Whether every batch committed so far reached the write-ahead log (W5). Starts true and
+            ///   only ever goes false, because one non-durable batch out of many still means a kill loses
+            ///   part of the import: an AND over the batches is the only reading a caller can act on.
+            /// </summary>
+            internal bool Durable = true;
 
             internal ImportSession(IFallen8 fallen8, Fallen8BulkIOOptions options)
             {
@@ -699,6 +720,10 @@ namespace NoSQL.GraphDB.App.Controllers
                     return ImportError.Batch(_pendingVertexBatchLastLine, info.FailureReason, "vertex");
                 }
 
+                // A committed-but-not-logged batch is reported, not swallowed (W5): without this the
+                // response is a 200 with full counts over elements a kill would lose.
+                Durable &= info.Durable;
+
                 var created = tx.GetCreatedVertices();
                 for (var i = 0; i < created.Count; i++)
                 {
@@ -721,6 +746,8 @@ namespace NoSQL.GraphDB.App.Controllers
                 {
                     return ImportError.Batch(_pendingEdgeBatchLastLine, info.FailureReason, "edge");
                 }
+
+                Durable &= info.Durable;
 
                 EdgesCreated += tx.GetCreatedEdges().Count;
                 _pendingEdges.Clear();

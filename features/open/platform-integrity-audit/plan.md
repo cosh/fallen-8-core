@@ -87,9 +87,16 @@ Intent: nothing that lost state reports success.
 - [ ] W8: the roughly twelve missing *try/finally* blocks in *SingleValueIndex*. Mechanical, and
   deliberately **not** the rejected rewrite.
 - [x] W5: a durability block on `/status` (degraded, replay integrity, last checkpoint).
-- [ ] W5: a *Durable* signal on write responses. Start with the bodies that already exist
-  (`POST /bulk/import`, where a fenced WAL can leave a whole import memory-only behind a 200 with
-  full counts); the 202-returning singular writes need a body before they can carry one.
+- [x] W5: a *Durable* signal on the bulk-import response, on BOTH its bodies (the 200 summary and
+  the 400 problem body next to the committed counts), each pinned in both polarities by a
+  degraded-log test and hand mutation-checked. Honest limit: the vertex-batch and edge-batch halves
+  of the fold cannot be mutation-checked SEPARATELY, because the WAL failure fence is sticky, so no
+  single request can have one batch durable and the next not. Both halves execute on the covered
+  path; one mechanism proves them.
+- [ ] W5: the same signal on the remaining write responses. The 202-returning singular and batch
+  writes have no body to carry one, so that is a response-shape decision and not a wiring change.
+- [ ] W5: Studio surfaces it. The import result is shown from the Save games screen, so a
+  non-durable import is currently as silent in the UI as it used to be over REST.
 - [ ] W5: an out-of-process KILL test. Every existing "crash" is an in-process dispose, so the one
   failure class the D1 apparatus is for is covered by nothing.
 - [ ] W5: assert the DEFAULT durability path resolution, on the resolved paths rather than by running

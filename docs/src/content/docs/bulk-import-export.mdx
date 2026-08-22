@@ -21,7 +21,7 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 | export | `200` | The NDJSON stream |
 | export | `401` | No valid credential |
 | export | `422` | An element carries a null value, a property whose type is outside the exportable allow-list, or a `String`/`Char` holding invalid UTF-16; the body names `elementId`/`propertyKey`. Sent *before* any bytes stream |
-| import | `200` | Completed; the body is the created-counts summary |
+| import | `200` | Completed; the body is the created-counts summary plus `durable` |
 | import | `400` | An invalid line; the body carries `lineNumber` and the committed counts |
 | import | `401` | No valid credential |
 | import | `409` | The target graph is not empty |
@@ -90,15 +90,16 @@ Import reads the request body line by line and batches lines into `CreateVertice
 - **Empty target only.** A non-empty graph answers `409`. Clear it first with `HEAD /tabularasa` (the addressed namespace) or import into a fresh instance. That erase is only *enqueued*, and the import's emptiness check reads the live counts, so on a large graph confirm it landed (`GET /vertex/count` and `GET /edge/count` back at `0`) before posting the file, otherwise the attempt can `409` again.
 - **File ids are references, never engine ids.** Every id is remapped to a fresh engine id; edges are wired to the images of their `source`/`target`. Gappy, high, or out-of-order ids are fine; a duplicate file id (across all vertices *and* edges) is a `400`. Edges may be interleaved with vertices as long as each edge's endpoints appear earlier in the file: export's vertices-then-edges layout is the fast path.
 - **Batched writes.** Each batch of `ImportBatchSize` elements is one transaction = one write-ahead-log entry + one fsync, so a crash mid-import replays exactly the committed batches.
+- **Durability is reported, not assumed.** That fsync holds while the log is healthy. If the log is degraded (a tripped failure fence, or one awaiting its paired snapshot load) every batch still commits **in memory**, so the counts stay true, but those batches are not in the log and a kill would lose them. The response therefore carries `durable`: `false` means take a checkpoint ([save games](/save-games/)) before trusting the import to survive a restart. `GET /status` carries the durability detail.
 - **Fail-fast, partial-commit.** The first invalid line aborts the import with its exact `lineNumber`; batches committed before it **stay committed** (the file is not one transaction). The problem body reports `verticesCommitted`/`edgesCommitted`; because the target had to be empty, recovery is always: `HEAD /tabularasa`, fix the line, retry. A line is invalid on malformed JSON, an unknown `type` or field, a bad or missing required field, an unknown property type or unconvertible value, a duplicate id, an unresolved edge endpoint, an over-long line, or a meta-count mismatch.
 
 On success the body is the created-counts summary:
 
 ```json
-{"verticesCreated":34,"edgesCreated":78,"linesRead":113}
+{"verticesCreated":34,"edgesCreated":78,"linesRead":113,"durable":true}
 ```
 
-`linesRead` counts every line, including the meta line and blank lines (blank lines are tolerated).
+`linesRead` counts every line, including the meta line and blank lines (blank lines are tolerated). `durable` is `true` in the normal case and whenever the write-ahead log is disabled (durability is then by explicit checkpoint); see the durability note above for what `false` means. The `400` problem body carries the same flag next to its committed counts.
 
 ## Round-trip example
 
@@ -116,7 +117,7 @@ curl -sf http://localhost:8080/bulk/export -o graph.jsonl
 curl -sf -X POST http://localhost:8080/bulk/import \
      -H "Content-Type: application/x-ndjson" \
      --data-binary @graph.jsonl
-# -> {"verticesCreated":34,"edgesCreated":78,"linesRead":113}
+# -> {"verticesCreated":34,"edgesCreated":78,"linesRead":113,"durable":true}
 ```
 
 </TabItem>
