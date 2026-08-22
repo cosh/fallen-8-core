@@ -857,6 +857,91 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
+        /// <summary>
+        ///   The 400 path carries the same flag, and it is the path where it matters most: a partial
+        ///   import whose committed batches never reached the log leaves even less behind than its
+        ///   reported counts. Both polarities are asserted here, because a flag that is only ever
+        ///   observed false cannot be shown to mean anything.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow(true, DisplayName = "healthy log reports durable true")]
+        [DataRow(false, DisplayName = "degraded log reports durable false")]
+        public async Task Import_FailingMidFile_CarriesDurableInTheProblemBody(Boolean healthy)
+        {
+            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                "f8_bulkproblemdurable_" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(tempDir);
+            var walPath = System.IO.Path.Combine(tempDir, "problem.wal");
+            try
+            {
+                using var factory = new BulkFactory(new Dictionary<string, string>
+                {
+                    ["Fallen8:Durability:Volatile"] = "false",
+                    ["Fallen8:Durability:StorageDirectory"] = tempDir,
+                    ["Fallen8:Durability:WalPath"] = walPath,
+                    ["Fallen8:Durability:SaveOnShutdown"] = "false",
+                    ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(tempDir, "metadata"),
+                    ["Fallen8:BulkIO:ImportBatchSize"] = "2"
+                });
+
+                using var client = factory.CreateClient();
+                Assert.IsTrue(System.IO.File.Exists(walPath),
+                    "the log must exist before the fence can be tripped, or the degraded case would be " +
+                    "testing nothing");
+
+                if (!healthy)
+                {
+                    System.IO.File.SetAttributes(walPath, System.IO.FileAttributes.ReadOnly);
+                }
+
+                // Batch size 2, so a vertex batch AND an edge batch both flush before line 5 fails. The
+                // edge flush is what carries the second half of the AND over batches.
+                const string file =
+                    "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":2,\"creationDate\":1}\n" +
+                    "{\"type\":\"edge\",\"id\":11,\"edgePropertyId\":\"knows\",\"source\":1,\"target\":2,\"creationDate\":1}\n" +
+                    "{\"type\":\"edge\",\"id\":12,\"edgePropertyId\":\"knows\",\"source\":2,\"target\":1,\"creationDate\":1}\n" +
+                    "this is not json\n";
+
+                using var response = await Import(client, file);
+                Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+
+                var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+                Assert.AreEqual(5, problem.GetProperty("lineNumber").GetInt32());
+                Assert.AreEqual(2, problem.GetProperty("verticesCommitted").GetInt32());
+                Assert.AreEqual(2, problem.GetProperty("edgesCommitted").GetInt32(),
+                    "an edge batch must have flushed, or the edge half of the durability fold is not on " +
+                    "this test's path at all");
+
+                Assert.IsTrue(problem.TryGetProperty("durable", out var durable),
+                    "the problem body must carry durable: the committed counts alone tell a caller how " +
+                    "much landed, not whether any of it would survive a restart");
+                Assert.AreEqual(healthy, durable.GetBoolean(),
+                    healthy
+                        ? "a healthy log must report true here, or the flag is just noise on every failure"
+                        : "a degraded log must report false: this is the case where the counts above are " +
+                          "real but a kill loses them, and the caller is already being told something " +
+                          "went wrong, so telling them the rest is free");
+
+                if (!healthy)
+                {
+                    System.IO.File.SetAttributes(walPath, System.IO.FileAttributes.Normal);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    foreach (var f in System.IO.Directory.GetFiles(tempDir, "*", System.IO.SearchOption.AllDirectories))
+                    {
+                        try { System.IO.File.SetAttributes(f, System.IO.FileAttributes.Normal); } catch { /* best effort */ }
+                    }
+                    System.IO.Directory.Delete(tempDir, true);
+                }
+                catch { /* best effort */ }
+            }
+        }
+
         [TestMethod]
         public async Task Import_UnderAHealthyWal_ReportsDurableTrue()
         {
