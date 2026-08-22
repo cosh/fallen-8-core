@@ -88,8 +88,11 @@ Intent: nothing that lost state reports success.
   deliberately **not** the rejected rewrite.
 - [x] W5: a durability block on `/status` (degraded, replay integrity, last checkpoint).
 - [x] W5: a *Durable* signal on the bulk-import response, on BOTH its bodies (the 200 summary and
-  the 400 problem body next to the committed counts), pinned by a degraded-log test and hand
-  mutation-checked.
+  the 400 problem body next to the committed counts), each pinned in both polarities by a
+  degraded-log test and hand mutation-checked. Honest limit: the vertex-batch and edge-batch halves
+  of the fold cannot be mutation-checked SEPARATELY, because the WAL failure fence is sticky, so no
+  single request can have one batch durable and the next not. Both halves execute on the covered
+  path; one mechanism proves them.
 - [ ] W5: the same signal on the remaining write responses. The 202-returning singular and batch
   writes have no body to carry one, so that is a response-shape decision and not a wiring change.
 - [ ] W5: Studio surfaces it. The import result is shown from the Save games screen, so a

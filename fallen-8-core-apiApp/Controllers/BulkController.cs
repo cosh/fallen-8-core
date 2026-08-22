@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // BulkController.cs
 //
@@ -296,8 +296,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// own check runs - the status is the same, but the problem body with committed counts is
         /// only guaranteed when the application-level check fires first.
         /// </remarks>
-        /// <response code="200">The import completed; the body carries created counts and whether
-        /// every batch reached the write-ahead log</response>
+        /// <response code="200">The import completed; the body carries created counts and "durable",
+        /// which is false only when a batch was committed in memory without reaching a DEGRADED log.
+        /// It is true when there is no log to reach (Volatile, or WAL disabled), where durability is
+        /// by explicit checkpoint instead</response>
         /// <response code="400">A line was invalid (malformed JSON, unknown fields, bad property
         /// type/value, duplicate file id, unresolved edge endpoint, over-long line, meta-count
         /// mismatch) - the problem body carries lineNumber, the committed counts and durable</response>
@@ -520,7 +522,7 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        ///   The state of one streaming import: pending batches, the file-id â†’ engine-id map,
+        ///   The state of one streaming import: pending batches, the file-id → engine-id map,
         ///   committed counts, and the optional meta counts (the truncation guard).
         /// </summary>
         private sealed class ImportSession
@@ -537,7 +539,7 @@ namespace NoSQL.GraphDB.App.Controllers
             private long _pendingVertexBatchLastLine;
             private long _pendingEdgeBatchLastLine;
 
-            /// <summary>File id â†’ engine id. The only structure that grows with file size.</summary>
+            /// <summary>File id → engine id. The only structure that grows with file size.</summary>
             private readonly Dictionary<Int32, Int32> _idMap = new Dictionary<Int32, Int32>();
 
             /// <summary>Every file id seen (vertices AND edges) - duplicates are an error.</summary>
@@ -705,7 +707,7 @@ namespace NoSQL.GraphDB.App.Controllers
             /// <summary>
             ///   One batch = one transaction = one WAL entry + one group-commit fsync. On commit,
             ///   construct-then-commit order (transaction-atomicity) guarantees
-            ///   <c>created[i] â†” batch[i]</c>, which is what makes the id map exact.
+            ///   <c>created[i] ↔ batch[i]</c>, which is what makes the id map exact.
             /// </summary>
             private async Task<ImportError> FlushVerticesAsync()
             {

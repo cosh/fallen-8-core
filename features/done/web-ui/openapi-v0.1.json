@@ -521,7 +521,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The import completed; the body carries created counts and whether\r\n     every batch reached the write-ahead log",
+            "description": "The import completed; the body carries created counts and \"durable\",\r\n     which is false only when a batch was committed in memory without reaching a DEGRADED log.\r\n     It is true when there is no log to reach (Volatile, or WAL disabled), where durability is\r\n     by explicit checkpoint instead",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
@@ -6057,7 +6057,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The import completed; the body carries created counts and whether\r\n     every batch reached the write-ahead log",
+            "description": "The import completed; the body carries created counts and \"durable\",\r\n     which is false only when a batch was committed in memory without reaching a DEGRADED log.\r\n     It is true when there is no log to reach (Volatile, or WAL disabled), where durability is\r\n     by explicit checkpoint instead",
             "content": {
               "text/plain; ver=0.1": {
                 "schema": {
