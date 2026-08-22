@@ -160,6 +160,12 @@ export interface BulkImportResultREST {
   verticesCreated: number;
   edgesCreated: number;
   linesRead: number;
+  /**
+   * Whether every committed batch reached the write-ahead log (platform-integrity-audit W5).
+   * `false` means the counts above are real but a restart would lose part of the import, so the
+   * graph needs a checkpoint. Optional because an older server does not send it.
+   */
+  durable?: boolean;
 }
 
 /**
