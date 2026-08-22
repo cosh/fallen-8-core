@@ -327,6 +327,40 @@ re-syncing cannot undo.
 a *Durable* signal on write responses. This is the whole D1 apparatus made reachable; the engine
 already computes all of it.
 
+**Status:** the `/status` half LANDED (*StatusREST* carries the durability block). The write-response
+half did not, and the zero-hit claim above is still exactly true: *AwaitAndAccept*, *AwaitBatch* and
+both bulk-import batch flushes read *TransactionState* only. Precedent for the shape exists in two
+places, so this needs no new pattern: *SaveGameREST* already reports a partial success in a 200 body,
+and the index-backfill result already counts what it silently skipped.
+
+**What a real kill confirmed, and the three gaps it exposed.** On 2026-08-21 an apiApp dev instance
+was killed abnormally (exit 255, no shutdown hook, so no *SaveOnShutdown*) after a 40k-element bulk
+import into a namespace created at runtime and never checkpointed. Recovery was CORRECT and complete:
+the per-namespace WAL held five CRC-valid frames ending exactly at EOF, the next boot logged
+*Recovered 5 transaction(s)*, and the namespace came back at its exact counts with element ids and
+query results identical to before. So the durable-before-ack contract holds in practice, and this
+item is about OBSERVABILITY, not about a durability defect. What the incident exposed:
+
+- **No test kills a process.** Every "crash" in the suite is an in-process `Dispose` (or simply
+  abandoning the object), across at least ten sites. The one failure class that matters most to the
+  D1 apparatus, a hard kill with no unwinding at all, is exercised by nothing. It is also cheap to
+  cover: the apiApp binary and its shipped *appsettings.json* are already in the test output
+  directory, `Program.cs` exposes readiness probes a child can poll, and the WAL keeps no long-lived
+  handle, so a killed process leaves a readable log.
+- **The shipped default durability config is never exercised, and deliberately so.** Every durable
+  test redirects *StorageDirectory*; exactly four files set `Volatile=false` and all four redirect.
+  That is not an oversight to "fix" by pointing a test at the default location: the default location
+  is shared mutable state across the whole suite, one existing test already writes a checkpoint
+  there, and boot treats the registry it finds as authoritative and ABORTS when a registered restore
+  fails. So the honest gap is narrower than it first looks: what is unverified is the default
+  RESOLUTION (that with no *StorageDirectory* set, a runtime-created namespace's directory and WAL
+  path land where the options say), which is assertable on the resolved paths without a durable run
+  at the default location.
+- **`WalPath` does not say it is default-namespace-only.** The docs page states the scope; the XML
+  comment on *Fallen8DurabilityOptions.WalPath* and the setting-catalog note do not, and the code
+  calls `ResolveWalPath()` from exactly one site, the default namespace. An operator reading the
+  comment would expect it to bind every namespace's log.
+
 #### W6. The zero-mutation invariant made provable [M]
 
 Four verified obstacles, all of which must be settled in the spec before the test is written or
