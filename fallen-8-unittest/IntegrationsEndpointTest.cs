@@ -69,6 +69,17 @@ namespace NoSQL.GraphDB.Tests
         private const String CsvProviderId = "csv-device-list";
         private const String UnifiProviderId = "unifi-network";
         private const String FroniusProviderId = "fronius-solar";
+        private const String ArxmlProviderId = "autosar-arxml";
+
+        /// <summary>
+        ///   Every shipped provider id, in registration order, which is the order the descriptor snapshot
+        ///   pins. One list, so a new provider is added once rather than in each assertion that enumerates
+        ///   them and silently stops covering the newest one.
+        /// </summary>
+        private static readonly String[] ShippedProviderIds =
+        {
+            CsvProviderId, UnifiProviderId, FroniusProviderId, ArxmlProviderId,
+        };
 
         #endregion
 
@@ -298,7 +309,7 @@ namespace NoSQL.GraphDB.Tests
                 "the probe leaked a configured path, host or target URL, which tells an unauthenticated " +
                 "caller where this container reads provider files from and which graph it writes into");
 
-            foreach (var providerId in new[] { CsvProviderId, UnifiProviderId, FroniusProviderId })
+            foreach (var providerId in ShippedProviderIds)
             {
                 Assert.IsFalse(lowered.Contains(providerId),
                     "the probe named " + providerId + ", so an unauthenticated caller learns which " +
@@ -307,10 +318,12 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        /// Three providers ship, because three is the smallest number that measures the contract.
+        /// Each shipped provider measures something the others do not: one with no credential, no paging
+        /// and one entity kind; one with many entity kinds, paging and topology; one with no strong
+        /// identifier overlap at all; one whose source is a published standard.
         /// </summary>
         [TestMethod]
-        public async Task TheProviderCatalogListsExactlyTheThreeShippedIntegrations()
+        public async Task TheProviderCatalogListsExactlyTheShippedIntegrations()
         {
             using var factory = new RuntimeFactory();
             using var client = factory.CreateClient();
@@ -326,8 +339,7 @@ namespace NoSQL.GraphDB.Tests
                 ids.Add(Text(descriptor, "id"));
             }
 
-            CollectionAssert.AreEquivalent(new List<String> { CsvProviderId, UnifiProviderId, FroniusProviderId },
-                ids,
+            CollectionAssert.AreEquivalent(ShippedProviderIds.ToList(), ids,
                 "a provider id appears inside every provider-scoped claim key, so an id that appeared, " +
                 "vanished or was renamed here renames every identity that provider ever asserted");
         }
@@ -428,13 +440,14 @@ namespace NoSQL.GraphDB.Tests
         /// which uniqueness domain, and what each accepts.
         /// </summary>
         [TestMethod]
-        public async Task TheVocabularyPublishesTheElevenIdentifierTypes_WithStrengthScopeCanonicalAndAccept()
+        public async Task TheVocabularyPublishesEveryIdentifierType_WithStrengthScopeCanonicalAndAccept()
         {
             var expected = new List<String>
             {
                 "mac", "serial", "imei", "ipv4", "ipv6", "hostname",
                 "unifi-site-id", "unifi-device-id", "unifi-client-id",
                 "fronius-unique-id", "fronius-logger-id",
+                "arxml-path",
             };
 
             using var factory = new RuntimeFactory();

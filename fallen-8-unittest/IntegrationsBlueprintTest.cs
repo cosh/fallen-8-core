@@ -35,6 +35,7 @@ using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Integrations.Conformance;
 using NoSQL.GraphDB.Integrations.Contract;
+using NoSQL.GraphDB.Integrations.Providers.AutosarArxml;
 using NoSQL.GraphDB.Integrations.Providers.CsvDeviceList;
 using NoSQL.GraphDB.Integrations.Providers.FroniusSolar;
 using NoSQL.GraphDB.Integrations.Providers.UnifiNetwork;
@@ -1201,6 +1202,303 @@ namespace NoSQL.GraphDB.Tests
         private static readonly String HappyInverters = Inverters(Inverter("1",
             "\"UniqueID\":\"1234567\",\"CustomName\":\"Carport\",\"DT\":192,\"ErrorCode\":-1," +
             "\"PVPower\":5000,\"Show\":1,\"StatusCode\":7"));
+
+        // --- autosar-arxml: through the verifier, which runs the real stack -------------------------
+
+        private const String ArxmlFileName = "network.arxml";
+
+        /// <summary>
+        ///   A minimal invented FlexRay network: one bus, one sending ECU, one frame, one PDU and one
+        ///   signal that carries both descriptions and a unit two hops away. Small on purpose, because
+        ///   the reader's own suite owns the parsing rules; what this fixture has to support is a
+        ///   conforming RUN and a summary with every hole filled.
+        /// </summary>
+        private const String HappyArxml = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Units</SHORT-NAME>
+                  <ELEMENTS>
+                    <UNIT><SHORT-NAME>UNIT_KM</SHORT-NAME><DISPLAY-NAME>km</DISPLAY-NAME></UNIT>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>CompuMethods</SHORT-NAME>
+                  <ELEMENTS>
+                    <COMPU-METHOD>
+                      <SHORT-NAME>CM_TotalDistance</SHORT-NAME>
+                      <CATEGORY>LINEAR</CATEGORY>
+                      <UNIT-REF DEST="UNIT">/Units/UNIT_KM</UNIT-REF>
+                    </COMPU-METHOD>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>SystemSignals</SHORT-NAME>
+                  <ELEMENTS>
+                    <SYSTEM-SIGNAL>
+                      <SHORT-NAME>SYS_OdoTotalDist</SHORT-NAME>
+                      <PHYSICAL-PROPS>
+                        <SW-DATA-DEF-PROPS-VARIANTS>
+                          <SW-DATA-DEF-PROPS-CONDITIONAL>
+                            <COMPU-METHOD-REF DEST="COMPU-METHOD">/CompuMethods/CM_TotalDistance</COMPU-METHOD-REF>
+                          </SW-DATA-DEF-PROPS-CONDITIONAL>
+                        </SW-DATA-DEF-PROPS-VARIANTS>
+                      </PHYSICAL-PROPS>
+                    </SYSTEM-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>ISignals</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL>
+                      <SHORT-NAME>SIG_OdoTotalDist</SHORT-NAME>
+                      <DESC>
+                        <L-2 L="DE">Gesamtstrecke seit Auslieferung</L-2>
+                        <L-2 L="EN">Accumulated distance travelled since delivery</L-2>
+                      </DESC>
+                      <LENGTH>32</LENGTH>
+                      <SYSTEM-SIGNAL-REF DEST="SYSTEM-SIGNAL">/SystemSignals/SYS_OdoTotalDist</SYSTEM-SIGNAL-REF>
+                    </I-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Pdus</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL-I-PDU>
+                      <SHORT-NAME>PDU_DistanceReport</SHORT-NAME>
+                      <LENGTH>8</LENGTH>
+                      <I-SIGNAL-TO-PDU-MAPPINGS>
+                        <I-SIGNAL-TO-I-PDU-MAPPING>
+                          <SHORT-NAME>MAP_Odo</SHORT-NAME>
+                          <I-SIGNAL-REF DEST="I-SIGNAL">/ISignals/SIG_OdoTotalDist</I-SIGNAL-REF>
+                        </I-SIGNAL-TO-I-PDU-MAPPING>
+                      </I-SIGNAL-TO-PDU-MAPPINGS>
+                    </I-SIGNAL-I-PDU>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Frames</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-FRAME>
+                      <SHORT-NAME>FRM_Main</SHORT-NAME>
+                      <FRAME-LENGTH>32</FRAME-LENGTH>
+                      <PDU-TO-FRAME-MAPPINGS>
+                        <PDU-TO-FRAME-MAPPING>
+                          <SHORT-NAME>FMAP_Main</SHORT-NAME>
+                          <PDU-REF DEST="I-SIGNAL-I-PDU">/Pdus/PDU_DistanceReport</PDU-REF>
+                        </PDU-TO-FRAME-MAPPING>
+                      </PDU-TO-FRAME-MAPPINGS>
+                    </FLEXRAY-FRAME>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>EcuInstances</SHORT-NAME>
+                  <ELEMENTS>
+                    <ECU-INSTANCE>
+                      <SHORT-NAME>ALPHA_CTRL</SHORT-NAME>
+                      <CONNECTORS>
+                        <FLEXRAY-COMMUNICATION-CONNECTOR>
+                          <SHORT-NAME>ALPHA_CONN</SHORT-NAME>
+                          <ECU-COMM-PORT-INSTANCES>
+                            <FRAME-PORT>
+                              <SHORT-NAME>FP_Main_Out</SHORT-NAME>
+                              <COMMUNICATION-DIRECTION>OUT</COMMUNICATION-DIRECTION>
+                            </FRAME-PORT>
+                          </ECU-COMM-PORT-INSTANCES>
+                        </FLEXRAY-COMMUNICATION-CONNECTOR>
+                      </CONNECTORS>
+                    </ECU-INSTANCE>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>DEMOBUS</SHORT-NAME>
+                      <FLEXRAY-CLUSTER-VARIANTS>
+                        <FLEXRAY-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>DEMOBUS_CH_A</SHORT-NAME>
+                              <COMM-CONNECTORS>
+                                <COMMUNICATION-CONNECTOR-REF-CONDITIONAL>
+                                  <COMMUNICATION-CONNECTOR-REF DEST="FLEXRAY-COMMUNICATION-CONNECTOR">/EcuInstances/ALPHA_CTRL/ALPHA_CONN</COMMUNICATION-CONNECTOR-REF>
+                                </COMMUNICATION-CONNECTOR-REF-CONDITIONAL>
+                              </COMM-CONNECTORS>
+                              <FRAME-TRIGGERINGS>
+                                <FLEXRAY-FRAME-TRIGGERING>
+                                  <SHORT-NAME>FT_Main</SHORT-NAME>
+                                  <FRAME-PORT-REFS>
+                                    <FRAME-PORT-REF DEST="FRAME-PORT">/EcuInstances/ALPHA_CTRL/ALPHA_CONN/FP_Main_Out</FRAME-PORT-REF>
+                                  </FRAME-PORT-REFS>
+                                  <FRAME-REF DEST="FLEXRAY-FRAME">/Frames/FRM_Main</FRAME-REF>
+                                  <ABSOLUTELY-SCHEDULED-TIMINGS>
+                                    <FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING>
+                                      <SLOT-ID>3</SLOT-ID>
+                                    </FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING>
+                                  </ABSOLUTELY-SCHEDULED-TIMINGS>
+                                </FLEXRAY-FRAME-TRIGGERING>
+                              </FRAME-TRIGGERINGS>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER-CONDITIONAL>
+                      </FLEXRAY-CLUSTER-VARIANTS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        [TestMethod]
+        public async Task TheShippedArxmlBlueprintConforms()
+        {
+            var provider = new AutosarArxmlProvider();
+
+            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(),
+                files: ArxmlFiles(HappyArxml), cancellationToken: CancellationToken.None);
+
+            Assert.IsTrue(report.Conforms,
+                "the standards blueprint must pass every check, or the suite that licenses a fifth " +
+                "integration without an identity review is not trustworthy: " + Failures(report));
+        }
+
+        [TestMethod]
+        public async Task TheArxmlRunDescribesTheWholeMatrix_WithItsFlowAndContainment()
+        {
+            var provider = new AutosarArxmlProvider();
+
+            await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(), files: ArxmlFiles(HappyArxml),
+                cancellationToken: CancellationToken.None);
+
+            var snapshot = SnapshotOf(provider);
+            Assert.AreEqual(SnapshotCompleteness.Complete, snapshot.Declares,
+                "a system extract IS the complete description of its network, and that declaration is the " +
+                "whole reason this is an integration rather than a converter: it is what makes the next " +
+                "release's run withdraw exactly what the release removed");
+            Assert.AreEqual(1, CountByKind(snapshot, "network"));
+            Assert.AreEqual(1, CountByKind(snapshot, "ecu"));
+            Assert.AreEqual(1, CountByKind(snapshot, "signal"));
+
+            foreach (var entity in snapshot.Entities)
+            {
+                Assert.AreEqual(1, entity.Claims.Count,
+                    "every element is claimed by exactly its AUTOSAR path, which the standard makes both " +
+                    "its identity and the way every cross-reference addresses it");
+                Assert.AreEqual(AutosarArxmlProvider.PathClaimType, entity.Claims[0].Type);
+                Assert.IsNull(entity.Claims[0].DeclaredStrength,
+                    "a provider never declares a strength for its own claim type");
+            }
+
+            var relationTypes = new List<String>();
+            foreach (var entity in snapshot.Entities)
+            {
+                foreach (var relation in entity.Relations)
+                {
+                    relationTypes.Add(relation.Type);
+                    Assert.AreEqual(AutosarArxmlProvider.PathClaimType, relation.Target.Type,
+                        "a relation addresses its target by claim rather than by element id, so the provider " +
+                        "never needs to know whether the target exists yet");
+                }
+            }
+
+            CollectionAssert.Contains(relationTypes, "attachedTo");
+            CollectionAssert.Contains(relationTypes, "sends");
+            CollectionAssert.Contains(relationTypes, "contains");
+            CollectionAssert.Contains(relationTypes, "implements");
+            CollectionAssert.Contains(relationTypes, "scaledBy");
+        }
+
+        [TestMethod]
+        public async Task TheSummaryTemplateAndTheSignalsProperties_AgreeOnEveryHole()
+        {
+            var provider = new AutosarArxmlProvider();
+            var template = provider.Descriptor.EntitySummaryTemplate;
+
+            // The template is the whole semantic surface (spec section 9), so its holes are asserted
+            // rather than assumed: dropping one silently narrows what a query can ever match.
+            Assert.AreEqual("{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, unit {arxml.unit}", template,
+                "the four holes are the semantic payload: the name an engineer already knows, both " +
+                "language descriptions because the prose is bilingual and a query arrives in either, and " +
+                "the unit, which is the ONLY thing connecting an odometer whose description says " +
+                "'accumulated distance' to somebody searching for kilometers");
+
+            await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(), files: ArxmlFiles(HappyArxml),
+                cancellationToken: CancellationToken.None);
+
+            var signal = SnapshotOf(provider).Entities
+                .Single(e => e.Kind == "signal");
+
+            foreach (var key in new[] { "arxml.name", "arxml.descEn", "arxml.descDe", "arxml.unit" })
+            {
+                Assert.IsTrue(signal.Properties.ContainsKey(key),
+                    "the template names {" + key + "} and the signal does not carry it, so that hole " +
+                    "collapses and the embedded text is narrower than the template promises");
+            }
+
+            Assert.AreEqual("km", signal.Properties["arxml.unit"],
+                "the unit has to arrive as the display name; 'UNIT_KM' is an identifier and would match " +
+                "nothing a person searches for");
+        }
+
+        [TestMethod]
+        public async Task AnExtractWithNoBus_FailsTheRun_AndWithdrawsNothing()
+        {
+            var provider = new AutosarArxmlProvider();
+
+            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(),
+                files: ArxmlFiles("""
+                    <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+                      <AR-PACKAGES>
+                        <AR-PACKAGE>
+                          <SHORT-NAME>ISignals</SHORT-NAME>
+                          <ELEMENTS>
+                            <I-SIGNAL><SHORT-NAME>SIG_Lonely</SHORT-NAME><LENGTH>8</LENGTH></I-SIGNAL>
+                          </ELEMENTS>
+                        </AR-PACKAGE>
+                      </AR-PACKAGES>
+                    </AUTOSAR>
+                    """),
+                cancellationToken: CancellationToken.None);
+
+            AssertWithdrewNothing(report,
+                "a readable extract that carries no bus has not been observed, it has failed to be " +
+                "observed: reporting it as an empty COMPLETE snapshot would withdraw and then delete the " +
+                "whole network a previous run described");
+            Assert.IsTrue(Refusal(report).Contains("FlexRay", StringComparison.OrdinalIgnoreCase),
+                "the refusal must say which shape of file it wanted, since the file itself is valid " +
+                "AUTOSAR: " + Refusal(report));
+        }
+
+        [TestMethod]
+        public async Task AnUnreadableExtract_FailsTheRun_AndWithdrawsNothing()
+        {
+            var provider = new AutosarArxmlProvider();
+
+            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(),
+                files: ArxmlFiles("this is not xml at all"),
+                cancellationToken: CancellationToken.None);
+
+            AssertWithdrewNothing(report,
+                "an unreadable file must fail the run rather than describe an empty network");
+        }
+
+        private static IReadOnlyDictionary<String, String> ArxmlFiles(String content)
+        {
+            return new Dictionary<String, String>(StringComparer.Ordinal) { [ArxmlFileName] = content };
+        }
+
+        private static IntegrationJob ArxmlJob()
+        {
+            var job = new IntegrationJob
+            {
+                ProviderId = AutosarArxmlProvider.ProviderId,
+                IntegrationInstanceId = Instance,
+            };
+
+            job.Settings[AutosarArxmlProvider.FileSetting] = ArxmlFileName;
+            return job;
+        }
 
         private static IReadOnlyDictionary<String, String> Files(String content)
         {
