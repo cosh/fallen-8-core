@@ -185,6 +185,33 @@ describe("Connect Configuration card", () => {
     expect(screen.getByTestId("config-settings-summary")).toHaveTextContent(
       "publishes no settings inventory",
     );
+
+    // Nothing to narrow, so the two controls that could only ever subtract this one section are not
+    // offered at all. Without this, one filter click blanked the pane and the exporter view was gone.
+    expect(screen.queryByTestId("config-search")).toBeNull();
+    expect(screen.queryByTestId("config-filter-writable")).toBeNull();
+    // And the nav shows no number beside it: a "0" next to a pane that does have content is a lie.
+    expect(screen.getByTestId("config-section-observability")).not.toHaveTextContent("0");
+  });
+
+  it("keeps the exporter view under a filter when the section itself has no descriptors", async () => {
+    // The instance publishes settings, but none under Fallen8:Observability, so the filter strip IS
+    // offered. The hand-authored layout has to survive it: the generic row path would render nothing
+    // at all for a section with no descriptors, leaving a blank pane under a section heading.
+    const user = userEvent.setup();
+    getConfigMock.mockResolvedValue(config({ settings: [setting("Fallen8:Plugins:MaxCount")] }));
+    renderPanel();
+    await screen.findByTestId("config-embedding");
+
+    await openConfig(user);
+    await selectSection(user, "observability");
+    await screen.findByTestId("config-observability-overlay");
+
+    await user.click(screen.getByTestId("config-filter-writable"));
+    await waitFor(() =>
+      expect(screen.getByTestId("config-observability-overlay")).toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("config-otlp-endpoint")).toHaveTextContent("http://otel-collector:4317");
   });
 
   it("hides GPU when unknown, shows off states, and reports no exporter", async () => {

@@ -176,7 +176,50 @@ council review gate on the branch.
 | P4 tests | done. 65 cases across the three config suites, 1008 in the whole suite, `tsc -b` clean. All four mutation checks fail the suite as intended. |
 | P5 e2e + screenshots | done. Three specs retargeted and parse-checked; three images recaptured against an isolated app on port 17451 with a fresh metadata directory. |
 | P6 docs | done. Docs build green, all internal links valid. |
-| P7 gates + council | gates done: vitest, tsc, build:apiapp, build:lib, docs build, `dotnet build` (0 errors, only the pre-existing IL2026 trim warnings). Council pending. |
+| P7 gates + council | done. Gates: vitest 1009, tsc, build:apiapp, build:lib, docs build, `dotnet build` (0 errors, only the pre-existing IL2026 trim warnings). Council: 4 lenses, 19 candidate findings, 8 confirmed after adversarial verification, all 8 addressed below. |
+
+## Council round
+
+Four review lenses (correctness and state, regression against HEAD~1, house rules and duplication,
+the untested e2e and embed surfaces), then one refutation pass per finding. 19 candidates, 11 refuted,
+8 confirmed. Two were flagged must-fix. What changed:
+
+1. **The exporter view vanished under a search or a filter on an instance with no inventory** (major).
+   `withObservability` injects the section precisely so an older server keeps that view, but the
+   hand-authored layout was gated on `filter === "all" && !searching`, and the injected section has no
+   descriptors, so the generic path rendered nothing while the note above it still promised the
+   exporter was "readable below". Fixed three ways: the search box and filter strip are not rendered
+   when there is nothing to narrow, the layout survives any filter for a section with no descriptors
+   (reachable with an inventory too), and the false promise clause is gone. Two new cases pin it.
+2. **The recaptured observability screenshot was clipped one row short** (major). It published five of
+   the six keys, and every guard passed, because `toBeVisible()` is true for a row below the pane's
+   scroll. Added a `toBeInViewport()` guard on the last row of the last group, and raised the dialog
+   height cap from 48rem to 56rem so it fits. The cap was a real product limit, not just a capture
+   problem: a six-row section with group hints did not fit on a screen that had the space.
+3. **A false "0" beside the injected Observability nav entry.** `count={counts.get(id) ?? 0}` collapsed
+   the null before `NavEntry`'s suppression guard could see it, making the guard, its prop doc and the
+   comment above `counts` all dead code. One-line fix, plus an assertion.
+4. **The restart-pending filter label was re-authored** as a literal instead of importing
+   `RESTART_PENDING_CHIP`, which is the declared one home for that wording. The filter now equals the
+   chip it selects by construction.
+5. **The Connect capture's inventory guard could not fail.** `/set here/` also matches the degraded
+   "0 set here" an app with no stored configuration prints. Tightened to `/[1-9]\d* set here/`, added a
+   restart-notice guard, and both messages now name the real prerequisite (run the configuration
+   capture first, against a fresh metadata directory) instead of the wrong one.
+6. **The spec promised a disabled Configure button** while the read is pending; the card renders no
+   button at all, which its own test pins. Spec corrected to the shipped contract.
+7. **The docs claimed the surface shows each setting's tier per row.** It does not: a row carries the
+   source badge, a restart-pending chip, and for a never-writable key the rule and reason. The page now
+   says the surface shows the consequence rather than the label, and the image alt matches.
+8. The configuration capture was repointed from Analytics (3 rows) to Change feed (5), so the published
+   image covers a checkbox, numeric fields and a live-tier row beside restart-tier ones, and fills the
+   taller dialog instead of leaving two thirds of it empty.
+
+One process note worth recording: a verify agent left its own one-line fix in the working tree rather
+than reverting it, and a `prettier --write` run reformatted two files to an 80 column width this repo
+does not use. Both were caught by reading `git diff` before committing. Do not trust a review agent to
+leave the tree clean, and do not run prettier here: there is no config, so its defaults are not the
+house style.
 
 ## Found while doing this, and fixed
 

@@ -109,12 +109,23 @@ test("capture the Connect screen", async ({ page, request }) => {
   // false by construction (they are in a modal). What this shot documents is the summary and the way
   // in, so the inventory count and the Configure button are the things that have to be real: the
   // count is only non-zero when the capture app actually published an inventory.
+  // The count has to be NON-ZERO: "0 set here" is what an app with no stored configuration prints, and
+  // this shot exists partly to show that an instance can hold its own settings. A bare /set here/
+  // matched that degraded string.
   await expect(
     page.getByTestId("config-settings-summary"),
-    "the settings inventory is missing: run the capture app with Fallen8__Metadata__Directory so it " +
-      "has somewhere to store configuration.",
-  ).toContainText(/set here/, { timeout: 20_000 });
+    "the inventory reports nothing stored here: run e2e/screenshot-configuration.spec.ts FIRST (it " +
+      "writes the value), against a capture app with Fallen8__Security__EnableConfigurationWrite=true " +
+      "and a FRESH Fallen8__Metadata__Directory.",
+  ).toContainText(/[1-9]\d* set here/, { timeout: 20_000 });
   await expect(page.getByTestId("config-configure")).toBeVisible();
+  // Same prerequisite, stated as its own guard so a missing restart notice is not silently accepted:
+  // the card's restart count is part of what this frame documents.
+  await expect(
+    page.getByTestId("config-pending-restart"),
+    "the restart notice is absent: same prerequisite as above, and the metadata directory must be " +
+      "fresh so the stored value really differs from what this process booted with.",
+  ).toBeVisible();
   await expect(
     page.locator('[data-testid^="config-setting-"]'),
     "a settings row is on the Connect screen, so the configuration surface did not take them.",

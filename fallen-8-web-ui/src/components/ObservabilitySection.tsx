@@ -41,8 +41,8 @@ import { SettingRow } from "./SettingRow";
  *
  * Two row shapes, for a reason. The exporter switches and the endpoint decide the security posture of
  * a metrics surface, so they are never writable and the server withholds their descriptor value; their
- * effective value arrives on the observability block instead, which is what EnvRow reads. The three
- * bounds beside them ARE writable, so they render as ordinary setting rows.
+ * effective value arrives on the observability block instead, which is what EnvRow reads. The sampling
+ * ratio and the two statistics bounds beside them ARE writable, so they render as ordinary setting rows.
  */
 
 function EnvRow({ label, value, envKey }: { label: string; value: string; envKey: string }) {
@@ -136,7 +136,7 @@ export function ObservabilitySection({
       <p className="text-fg-dim text-[12px]">
         The exporter switches and the endpoint are read-only wherever you look at them: each decides
         the security posture of a metrics surface, so they are set where the instance is deployed. The
-        three bounds beside them are writable here.
+        sampling ratio and the two statistics bounds beside them are writable here.
       </p>
 
       <ObsSection

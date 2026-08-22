@@ -80,5 +80,13 @@ test("capture the observability configuration section", async ({ page }) => {
       'on the whole overlay: the Prometheus scrape row reads "off" by design.',
   ).not.toHaveText("off");
 
+  // GUARD: the LAST row of the LAST group has to be in frame. Without this the first recapture after
+  // the fold-in published a frame clipped one row short, showing five of the six keys, and every
+  // other assertion here still passed: toBeVisible() is true for a row below the pane's scroll.
+  await expect(
+    page.getByTestId("config-setting-fallen8-observability-statisticstopn"),
+    "the top-N row is below the section pane's scroll, so the shot would document five of six keys.",
+  ).toBeInViewport();
+
   await page.screenshot({ path: "../docs/src/assets/images/screen-connect-observability.png" });
 });

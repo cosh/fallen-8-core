@@ -7,7 +7,7 @@ Fallen-8 reads its configuration the way any ASP.NET Core application does: from
 
 That distinction matters more than it sounds. Before this, the only way to know what a running instance was actually configured with was to go and read the files you deployed it with, and the only way to change anything was to edit them and restart. Now the instance itself is the authority on its own configuration, and it will tell you where each value came from.
 
-![The configuration surface in F8 Studio: a section list on the left, the selected section's settings with their source and tier on the right](../../assets/images/screen-configuration.png)
+![The configuration surface in F8 Studio: a section list on the left, the selected section's settings on the right with the layer each value came from and whether one is waiting for a restart](../../assets/images/screen-configuration.png)
 
 ## Two surfaces, and why
 
@@ -23,7 +23,7 @@ The surface is where the settings are, organised three ways at once:
 
 ## What you can change, and what you cannot
 
-Every setting falls into one of three tiers, and the surface shows which:
+Every setting falls into one of three tiers:
 
 | Tier | What it means |
 |---|---|
@@ -31,7 +31,7 @@ Every setting falls into one of three tiers, and the surface shows which:
 | **restart** | Writable, and it takes effect at the next boot. Stored immediately; nothing changes until you restart. |
 | **not writable** | Cannot be changed over REST at all. The instance publishes the key, the rule that excludes it and the reason, but not its value. |
 
-Most writable settings are restart-tier, and the surface says so per setting rather than letting you assume otherwise. **A wrong "this applied" claim is the worst thing this surface could do**, because you would only find out when the behaviour you expected never arrived, so the tier is derived from what the running code can actually honour, not from what would be convenient.
+The surface does not print the tier as a label on every row. It shows the consequence instead: a never-writable setting has no control at all, only its rule and its reason, and a writable one whose stored value is not the value in force carries a restart-to-apply chip. Most writable settings are restart-tier, and nothing here implies otherwise. **A wrong "this applied" claim is the worst thing this surface could do**, because you would only find out when the behaviour you expected never arrived, so the tier is derived from what the running code can actually honour, not from what would be convenient.
 
 The live tier is narrower still, and honest about it. The settings that are live today are all **caps that are consulted when work starts**: the change feed's subscriber limit and queue depth, its keep-alive period, the plugin and stored-query registration ceilings, and the namespace ceiling. Raising one governs the next subscribe, the next registration, the next namespace immediately. Lowering one **evicts nothing**: an open change-feed stream keeps its slot, a registered plugin stays registered, an existing namespace is not deleted. The surface reports that as "in effect for new work" rather than a bare "applied", because for anything already running the old limit is still the one that matters.
 

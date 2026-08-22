@@ -94,7 +94,10 @@ export function ConfigurationSurface(props: ConfigurationSurfaceProps) {
         <Dialog.Content
           aria-describedby={undefined}
           data-testid="config-surface"
-          className="panel modal-center flex h-[min(48rem,90vh)] w-[min(74rem,94vw)] flex-col overflow-hidden"
+          // 56rem rather than 48: at 48 a six-row section with group hints did not fit, which is not
+          // just a screenshot problem - it is rows an operator has to scroll for on a screen that had
+          // the space. 90vh still wins on a short window.
+          className="panel modal-center flex h-[min(56rem,90vh)] w-[min(74rem,94vw)] flex-col overflow-hidden"
         >
           {/* Mounted UNDER Dialog.Content on purpose: Radix unmounts this subtree on close, which is
               what resets the section, the query and the filter. */}
@@ -195,30 +198,35 @@ function SurfaceBody({
         </div>
       )}
 
-      <div className="border-line flex shrink-0 flex-wrap items-center gap-1.5 border-b p-2">
-        <input
-          className="input w-56 shrink-0"
-          data-testid="config-search"
-          type="search"
-          placeholder="search keys and reasons"
-          aria-label="search settings"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        {CONFIG_FILTERS.map((entry) => (
-          <button
-            key={entry.id}
-            type="button"
-            title={entry.title}
-            aria-pressed={filter === entry.id}
-            data-testid={`config-filter-${entry.id}`}
-            className={filter === entry.id ? "btn btn-accent normal-case" : "btn normal-case"}
-            onClick={() => setFilter(entry.id)}
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
+      {/* No inventory means nothing to narrow, and a filter here could only ever subtract the one
+          section that still has something to say. Hiding the controls is what keeps `filter` at "all"
+          and `query` empty on such an instance. */}
+      {settings.length > 0 && (
+        <div className="border-line flex shrink-0 flex-wrap items-center gap-1.5 border-b p-2">
+          <input
+            className="input w-56 shrink-0"
+            data-testid="config-search"
+            type="search"
+            placeholder="search keys and reasons"
+            aria-label="search settings"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+          {CONFIG_FILTERS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              title={entry.title}
+              aria-pressed={filter === entry.id}
+              data-testid={`config-filter-${entry.id}`}
+              className={filter === entry.id ? "btn btn-accent normal-case" : "btn normal-case"}
+              onClick={() => setFilter(entry.id)}
+            >
+              {entry.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         {/* w-60 is the width at which the longest section label ("Chat and language model") fits
@@ -242,7 +250,7 @@ function SurfaceBody({
                   <NavEntry
                     key={entry.section.id}
                     entry={entry}
-                    count={counts.get(entry.section.id) ?? 0}
+                    count={counts.get(entry.section.id) ?? null}
                     active={!searching && entry.section.id === selected?.section.id}
                     onSelect={() => {
                       setSectionId(entry.section.id);
@@ -258,8 +266,7 @@ function SurfaceBody({
         <div className="min-w-0 flex-1 overflow-y-auto p-3" data-testid="config-section-pane">
           {settings.length === 0 && (
             <p className="text-fg-faint mb-3 text-[11px]" data-testid="config-no-inventory">
-              This instance publishes no settings inventory, so nothing here can be changed. What it is
-              exporting is still readable below.
+              This instance publishes no settings inventory, so nothing here can be changed.
             </p>
           )}
           {panes.length === 0 ? (
@@ -409,7 +416,11 @@ function SectionPane({
   // Observability keeps its hand-authored layout, which explains what its keys are for and shows the
   // effective value of the three whose descriptor withholds it. A query or a filter falls back to the
   // generic rows, so searching and filtering behave the same in every section.
-  const custom = entry.section.id === "observability" && !searching && filter === "all";
+  // A section with NO descriptors keeps this layout whatever the filter says, because the generic row
+  // path would render nothing at all for it. Reachable with an inventory too: an instance can publish
+  // settings and none of them under Fallen8:Observability.
+  const custom =
+    entry.section.id === "observability" && !searching && (filter === "all" || entry.settings.length === 0);
 
   return (
     <section>
