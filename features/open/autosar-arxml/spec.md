@@ -1,6 +1,19 @@
 # AUTOSAR ARXML integration (autosar-arxml)
 
-Status: open. Spec and plan only; nothing is implemented.
+Status: open, IMPLEMENTED on `feature/autosar-arxml` and awaiting the review gate. Phases 0 to 4 of
+[plan.md](plan.md) landed: the vocabulary entry, the reader, the provider registered as the fourth
+shipped blueprint, the docs and the recaptured screenshot. Move this record to `features/done/` when
+the branch merges.
+
+Two contract points below were CHANGED by what the implementation and its adversarial review found,
+and the changed statement is the one that holds:
+
+- The summary template carries **no literal word next to a hole** (section 9). Hole collapse removes
+  the punctuation around a hole an element cannot fill but it cannot remove a word, so the earlier
+  `unit {arxml.unit}` would have ended every ECU, frame and PDU summary with a dangling "unit".
+- The reader reports a **third diagnostic**, `arxmlUndecidablePortDirection` (section 7), because a
+  port whose direction is neither IN nor OUT cannot decide which way its edge points, and defaulting
+  silently turned a receiver into a sender.
 
 ## 1. What this is, and what it is for
 
@@ -62,13 +75,13 @@ All properties carry the `arxml.` prefix. An absent value is absent, never an em
 
 | Kind | One per | Properties |
 | --- | --- | --- |
-| `network` | `FLEXRAY-CLUSTER` | `arxml.name`, `arxml.protocol` (`flexray`) |
+| `network` | `FLEXRAY-CLUSTER` | `arxml.name`, `arxml.protocol` (`flexray`), `arxml.channelCount`. The network is the CLUSTER and never a channel: FlexRay channels A and B are physical redundancy of one bus carrying one schedule, so an element per channel would split one network in two and double every frame |
 | `ecu` | `ECU-INSTANCE` | `arxml.name` |
 | `frame` | `FLEXRAY-FRAME` | `arxml.name`, `arxml.frameLengthBytes`, `arxml.slotId`, `arxml.baseCycle`, `arxml.cycleRepetition` (timing from the frame's triggering) |
 | `pdu` | each PDU element (`I-SIGNAL-I-PDU`, `NM-PDU`, `N-PDU`, `DCM-I-PDU`, `SECURED-I-PDU`, `CONTAINER-I-PDU`, `GENERAL-PURPOSE-PDU`, `GENERAL-PURPOSE-I-PDU`, `USER-DEFINED-I-PDU`, `USER-DEFINED-PDU`, `MULTIPLEXED-I-PDU`) | `arxml.name`, `arxml.pduKind` (the element name), `arxml.lengthBytes`, `arxml.descDe`, `arxml.descEn` |
 | `signal` | `I-SIGNAL` | `arxml.name`, `arxml.lengthBits`, `arxml.initValue`, `arxml.baseType`, `arxml.descDe`, `arxml.descEn`, `arxml.unit` (denormalised at parse time through `implements` then `scaledBy`; absent when the chain is incomplete) |
 | `system-signal` | `SYSTEM-SIGNAL` | `arxml.name`, `arxml.descDe`, `arxml.descEn` |
-| `compu-method` | `COMPU-METHOD` | `arxml.name`, `arxml.category`, `arxml.unit` |
+| `compu-method` | `COMPU-METHOD` | `arxml.name`, `arxml.category`, `arxml.unit`. The unit is the referenced `UNIT`'s **display name** (`km`), falling back to its short name when it has none: `UNIT_KM` is an identifier and would defeat the semantic query of section 9, which is the reason the unit is read at all |
 
 `descDe`/`descEn` are the `DESC/L-2` language variants; only `DE` and `EN` are read, others
 are dropped without a diagnostic (they are prose variants, not data).
@@ -166,8 +179,9 @@ Named diagnostics (ride the snapshot into the job report, entity-level, never fa
 
 | Code | When | Subject |
 | --- | --- | --- |
-| `unresolvedReference` | a collected reference names a path the file does not define; the relation is dropped | the referenced path |
-| `duplicatePath` | two elements compose the same AR path; the second is skipped | the path |
+| `arxmlUnresolvedReference` | a collected reference names a path the file does not define; the relation is dropped. Also raised when a compu method's unit is undefined, where the unit's short name stands in for its display name | the referenced path |
+| `arxmlDuplicatePath` | two elements compose the same AR path; the second is skipped, and nothing it referenced is recorded either | the path |
+| `arxmlUndecidablePortDirection` | a port a triggering names declares a direction that is neither IN nor OUT, so the flow edge is dropped rather than pointed by a guess | the port path |
 
 ## 8. Scale, honestly
 
@@ -202,7 +216,7 @@ vectors, and `POST /embedding/search` embeds a query text once and runs constrai
 against it. The provider's entire contribution is putting the right text into the summary.
 
 **Why the template has exactly these holes** (`{kind} {arxml.name}, {arxml.descEn},
-{arxml.descDe}, unit {arxml.unit}`):
+{arxml.descDe}, {arxml.unit}`, with no literal word beside any hole):
 
 - `arxml.name`: the identifier engineers already know, so name fragments also hit.
 - `arxml.descEn` **and** `arxml.descDe`: the source prose is bilingual and queries arrive

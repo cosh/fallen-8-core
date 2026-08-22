@@ -37,7 +37,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Drift guard for the three shipped provider descriptors, in the same shape as the pinned
+    /// Drift guard for the shipped provider descriptors, in the same shape as the pinned
     /// OpenAPI snapshot: <c>features/done/integrations/provider-descriptors.json</c> is what
     /// <c>GET /integration/providers</c> serves, and this test fails when the runtime no longer
     /// serves it.

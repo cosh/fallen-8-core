@@ -89,6 +89,14 @@
       "canonical": "trimUpper",
       "accept": "^[A-Z0-9]{1,32}(\\.[A-Z0-9]{1,32})?$",
       "description": "Fronius logging-device UniqueID: a datamanager card, a hybridmanager, or whatever else fronts the Solar API. A separate entry rather than a reuse of fronius-unique-id because the vendor's own example of a logger id is 240.107620 and the inverter type's pattern rejects the dot, so sharing the type would leave every logging device with no identity and a diagnostic nobody reads. The two id spaces are also not documented as disjoint, so one type for both would let a logger and an inverter reporting the same value resolve to one element inside a single instance."
+    },
+    {
+      "type": "arxml-path",
+      "strength": "strong",
+      "scope": "instance",
+      "canonical": "trim",
+      "accept": "^(?=.{1,512}$)(/[A-Za-z][A-Za-z0-9_]*)+$",
+      "description": "An AUTOSAR reference path: the slash-separated chain of short-names from the package root to one element. The standard makes this path both an element's identity and the way every cross-reference in a file addresses it, so it is unique within one extract by construction and resolves by exact string equality. Case is PRESERVED, which is why this entry needs the trim canonicaliser rather than one of the folding ones: an AUTOSAR short-name is a case-sensitive identifier, so folding could compose one key for two elements the standard allows to differ only by case. Instance scope because the paths are not globally unique at all: every extract contains /AUTOSAR_Platform/BaseTypes/uint8, so provider or global scope would assert that two vehicles' networks share those elements, and one release import would reconcile away another's. The 512-character bound is hygiene rather than a platform limit: the composed claim key becomes a property VALUE and nothing truncates it, so the bound exists only to keep one malformed path from carrying an unbounded string into every index that holds the key."
     }
   ]
 }
