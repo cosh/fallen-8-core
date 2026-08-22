@@ -106,7 +106,8 @@ dotnet run --project fallen-8-core-apiApp
   [features/done/embedding-provider/](features/done/embedding-provider/).
 - **External systems reach a graph through the integrations runtime, a separate deployable.**
   `fallen-8-integrations` runs ONE job per request: it reads a system on the operator's own network
-  (a CSV inventory, a UniFi console, a Fronius inverter), describes what it saw as a snapshot, and
+  (a CSV inventory, a UniFi console, a Fronius inverter, an AUTOSAR system extract), describes what
+  it saw as a snapshot, and
   writes that into one namespace over the REST API. It keeps no schedule, no run history and no
   credential: **a credential arrives with the job that needs it and is dropped when the run ends**,
   so the container has no credential mount and nothing to rotate. Its container port is never
@@ -139,7 +140,7 @@ dotnet run --project fallen-8-core-apiApp
 - **OpenAPI snapshot**: regenerate with `powershell -File scripts/update-openapi-snapshot.ps1` whenever
   a controller's routes or XML docs change; review the printed diff - additions are
   expected, removals only where a deliberately edited remark shrank.
-- **Provider-descriptor snapshot**: the three shipped integration descriptors are pinned in
+- **Provider-descriptor snapshot**: the shipped integration descriptors are pinned in
   `features/done/integrations/provider-descriptors.json` (the JSON the providers route
   actually returns), and `ProviderDescriptorSnapshotTest` fails the suite when a shipped
   descriptor drifts from it. Regenerate with
