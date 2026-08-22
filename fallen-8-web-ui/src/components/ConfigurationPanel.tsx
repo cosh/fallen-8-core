@@ -23,11 +23,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import * as Dialog from "@radix-ui/react-dialog";
+import { useCallback, useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance } from "../instances/registry";
-import { usePortalContainer, useStudioConfig } from "../app/studioConfig";
+import { useStudioConfig } from "../app/studioConfig";
 import { useConfig } from "../state/status";
 import { writeConfig } from "../api/endpoints";
 import type { ApiError } from "../api/client";
@@ -37,26 +36,29 @@ import type {
   ObservabilityConfigREST,
 } from "../api/types";
 import { Truncated } from "./Truncated";
-import { SettingRow } from "./SettingRow";
+import { ConfigurationSurface } from "./ConfigurationSurface";
 import { restartBannerSummary } from "../lib/restartCopy";
 import { ErrorBox } from "./ErrorBox";
 
 /**
- * Connect · Configuration (features instance-config and writable-instance-config): the
- * instance-scoped configuration home, between Instances and Namespaces. It lists every setting this
- * instance binds with its tier, effective value and source, lets an operator edit the writable ones,
- * and shows the semantic providers plus the observability posture with a details overlay.
+ * Connect · Configuration (features instance-config, writable-instance-config and
+ * configuration-surface): the instance-scoped configuration home, between Instances and Namespaces.
  *
- * Most settings only take effect at the next boot, and the panel says so per row rather than implying
- * a restart is never needed. It is the codebase's first dirty-state form, which is why the config poll
- * is suspended while there are unsaved edits.
+ * This is the SUMMARY: the semantic providers with their live model residency, whether anything is
+ * waiting for a restart, what the instance is exporting, and one Configure button. The settings
+ * themselves live behind that button, in ConfigurationSurface. They used to be inline here as one flat
+ * list of every catalogued key, which is what made the Connect screen unreadable.
+ *
+ * The card keeps owning the server state, because it outlives the dialog: the draft, the write
+ * mutation, the poll suspension and the lock gating are all here. Most settings only take effect at the
+ * next boot, and the surface says so per row rather than implying a restart is never needed.
  *
  * The browser's NL routing preference does NOT live here, despite what this docstring claimed for a
  * while: it is a per-browser choice and has its own home.
  */
 
 /**
- * Namespace-policy keys are instance-wide settings, so they sit in this panel, but an embed that
+ * Namespace-policy keys are instance-wide settings, so they sit behind this card, but an embed that
  * locked namespace management must not be able to re-plan the host's namespaces through them either,
  * so they take the namespace lock on top of the instance lock. A prefix rule rather than a key list:
  * the server encodes the grouping in the key itself, and a list would silently miss the next key
@@ -185,7 +187,7 @@ function observabilitySummary(o: ObservabilityConfigREST): string {
 
 export function ConfigurationPanel() {
   const instance = useActiveInstance();
-  const [showObservability, setShowObservability] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   // The draft holds only the rows the operator touched. A key mapped to null is a pending CLEAR.
   const [draft, setDraft] = useState<Record<string, string | null>>({});
   const [writeError, setWriteError] = useState<ApiError | Error | null>(null);
@@ -196,7 +198,8 @@ export function ConfigurationPanel() {
   const activeOrPlaceholder =
     instance ?? ({ id: "none", name: "", baseUrl: "", auth: { kind: "none" } } as never);
   // Suspended while dirty: a ten second refetch would otherwise replace a value under a half-typed
-  // field. It exists for model residency, which is never worth losing someone's input over.
+  // field. It exists for model residency, which is never worth losing someone's input over. The
+  // suspension has to hold with the surface CLOSED too, because closing it keeps the draft.
   const config = useConfig(activeOrPlaceholder, { poll: !dirty });
 
   const write = useMutation({
@@ -217,11 +220,13 @@ export function ConfigurationPanel() {
   });
 
   // The draft belongs to the instance it was typed against. Switching the active instance must drop
-  // it, or Save would write one instance's intended values into another's configuration.
+  // it, or Save would write one instance's intended values into another's configuration. The surface
+  // closes with it: leaving it open would show one instance's rows while the other's are refetched.
   const instanceId = instance?.id;
   useEffect(() => {
     setDraft({});
     setWriteError(null);
+    setShowSettings(false);
   }, [instanceId]);
 
   const onRowChange = useCallback((key: string, value: string) => {
@@ -244,9 +249,9 @@ export function ConfigurationPanel() {
   // A blanked numeric field is neither a value nor a clear, and the server refuses the WHOLE batch
   // over it; Save waits until the field says something.
   const kinds = new Map(settings.map((setting) => [setting.key, setting.kind]));
-  const blankNumericDrafts = Object.entries(draft).filter(
+  const blankNumericKey = Object.entries(draft).find(
     ([key, value]) => value === "" && (kinds.get(key) === "int" || kinds.get(key) === "double"),
-  );
+  )?.[0];
 
   return (
     <section className="panel" data-testid="configuration-panel">
@@ -309,66 +314,17 @@ export function ConfigurationPanel() {
                 className="border-warn/50 text-warn rounded border p-2 text-[11px]"
                 data-testid="config-pending-restart"
               >
-                <div className="font-medium">{restartBannerSummary(pendingRestart.length)}</div>
-                <ul className="text-fg-dim mt-1 space-y-0.5">
-                  {pendingRestart.map((entry) => (
-                    <li key={entry.key}>
-                      <code className="text-[10px]">{entry.key}</code>: running{" "}
-                      <span className="text-fg">{entry.runningValue ?? "unset"}</span>, pending{" "}
-                      <span className="text-fg">{entry.pendingValue ?? "unset"}</span>
-                    </li>
-                  ))}
-                </ul>
+                {/* The count only. Which keys, running against pending, is the surface's disclosure:
+                    it is a list, and a list is what this card exists not to be. */}
+                {restartBannerSummary(pendingRestart.length)}
               </div>
             )}
 
-            {settings.length > 0 && (
-              <div>
-                <div className="text-fg-faint mb-2 flex items-center gap-2 text-[10px] tracking-widest uppercase">
-                  settings
-                  <span className="normal-case tracking-normal">
-                    {writesAllowed
-                      ? ""
-                      : "(read-only: writes need an API key and Fallen8:Security:EnableConfigurationWrite)"}
-                  </span>
-                  {editable && dirty && (
-                    <button
-                      type="button"
-                      className="btn-accent btn ml-auto normal-case"
-                      data-testid="config-save"
-                      disabled={write.isPending || blankNumericDrafts.length > 0}
-                      title={
-                        blankNumericDrafts.length > 0
-                          ? `${blankNumericDrafts[0][0]} is empty: type a number, or discard the edit`
-                          : undefined
-                      }
-                      onClick={() => write.mutate(draft)}
-                    >
-                      {write.isPending ? "saving…" : `Save ${Object.keys(draft).length}`}
-                    </button>
-                  )}
-                </div>
-
-                {writeError && (
-                  <div className="mb-2" data-testid="config-settings-error">
-                    <ErrorBox error={writeError} />
-                  </div>
-                )}
-
-                <div className="scroll-list">
-                  {settings.map((setting) => (
-                    <SettingRow
-                      key={setting.key}
-                      setting={setting}
-                      draft={draft[setting.key]}
-                      disabled={
-                        !editable || !writesAllowed || isNamespacePolicy(setting.key, lockNamespace)
-                      }
-                      onChange={onRowChange}
-                      onClear={onRowClear}
-                    />
-                  ))}
-                </div>
+            {/* A failed write is reported here as well as in the surface, because someone can close the
+                surface on a refusal and the card must not look like the save went through. */}
+            {writeError && !showSettings && (
+              <div data-testid="config-settings-error">
+                <ErrorBox error={writeError} />
               </div>
             )}
 
@@ -380,140 +336,55 @@ export function ConfigurationPanel() {
                 <span className="text-fg-dim min-w-0 text-[12px]" data-testid="config-observability-summary">
                   <Truncated text={observabilitySummary(config.data.observability)} max={80} />
                 </span>
-                <button
-                  type="button"
-                  className="btn ml-auto shrink-0"
-                  data-testid="config-observability-configure"
-                  onClick={() => setShowObservability(true)}
-                >
-                  Configure…
-                </button>
               </div>
+            </div>
+
+            <div className="border-line flex items-center gap-2 border-t pt-3">
+              <span className="text-fg-faint min-w-0 text-[11px]" data-testid="config-settings-summary">
+                {settings.length === 0
+                  ? "This instance publishes no settings inventory."
+                  : `${settings.length} setting${settings.length === 1 ? "" : "s"}, ${
+                      settings.filter((s) => s.source === "override").length
+                    } set here`}
+              </span>
+              <button
+                type="button"
+                className="btn ml-auto shrink-0"
+                data-testid="config-configure"
+                onClick={() => setShowSettings(true)}
+              >
+                Configure…
+              </button>
             </div>
           </>
         )}
       </div>
 
       {config.data && (
-        <ObservabilityOverlay
-          open={showObservability}
+        <ConfigurationSurface
+          open={showSettings}
+          onClose={() => setShowSettings(false)}
+          instanceName={instance.name}
+          settings={settings}
+          pendingRestart={pendingRestart}
           observability={config.data.observability}
-          onClose={() => setShowObservability(false)}
+          draft={draft}
+          dirtyCount={Object.keys(draft).length}
+          onChange={onRowChange}
+          onClear={onRowClear}
+          onSave={() => write.mutate(draft)}
+          saving={write.isPending}
+          writeError={writeError}
+          writesAllowed={writesAllowed}
+          editable={editable}
+          isRowDisabled={isRowDisabled}
+          blankNumericKey={blankNumericKey}
         />
       )}
     </section>
   );
-}
 
-function EnvRow({ label, value, envKey }: { label: string; value: string; envKey: string }) {
-  // Every row gets a stable handle derived from its label (the shape DelegateSlot.tsx already uses),
-  // so a docs capture can assert that the row it photographs is actually configured without this
-  // component growing one prop per screenshot. "OTLP endpoint" -> config-otlp-endpoint.
-  const testId = `config-${label.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
-  return (
-    <div className="border-line grid grid-cols-[10rem_1fr] items-baseline gap-2 border-b py-1.5 text-[12px] last:border-b-0">
-      <span className="text-fg-dim">{label}</span>
-      <div className="min-w-0">
-        <div className="text-fg wrap-break-word" data-testid={testId}>
-          {value}
-        </div>
-        <code className="text-fg-faint text-[10px]">{envKey}</code>
-      </div>
-    </div>
-  );
-}
-
-function ObsSection({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="text-accent text-[10px] font-bold tracking-widest uppercase">{title}</div>
-      <p className="text-fg-faint mt-0.5 mb-1 text-[11px]">{hint}</p>
-      <div>{children}</div>
-    </div>
-  );
-}
-
-function ObservabilityOverlay({
-  open,
-  observability,
-  onClose,
-}: {
-  open: boolean;
-  observability: ObservabilityConfigREST;
-  onClose: () => void;
-}) {
-  const portalContainer = usePortalContainer();
-  return (
-    <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Dialog.Portal container={portalContainer}>
-        <Dialog.Overlay className="modal-overlay" />
-        <Dialog.Content className="panel modal-center flex max-h-[90vh] w-[34rem] max-w-[92vw] flex-col p-4">
-          <Dialog.Title className="text-fg text-sm font-bold">Observability</Dialog.Title>
-          <Dialog.Description className="text-fg-dim mt-1 text-[12px]">
-            What this instance is exporting right now. These particular values are read-only: the
-            exporter switches and the endpoint decide the security posture of a metrics surface, so
-            they are set where the instance is deployed. The statistics bounds beside them ARE editable,
-            in the Settings list above.
-          </Dialog.Description>
-          <div
-            className="mt-3 min-h-0 flex-1 space-y-4 overflow-y-auto pr-1"
-            data-testid="config-observability-overlay"
-          >
-            <ObsSection
-              title="Push (OTLP)"
-              hint="Metrics, traces, and logs pushed to a collector. This is the live path in the default environment."
-            >
-              <EnvRow
-                label="OTLP endpoint"
-                value={observability.otlpEnabled ? (observability.otlpEndpoint ?? "(set)") : "off"}
-                envKey="Fallen8__Observability__Otlp__Endpoint"
-              />
-              <EnvRow
-                label="trace sampling"
-                value={observability.tracingSamplingRatio.toString()}
-                envKey="Fallen8__Observability__TracingSamplingRatio"
-              />
-            </ObsSection>
-
-            <ObsSection
-              title="Pull (Prometheus scrape)"
-              hint="An optional GET /metrics endpoint a Prometheus server scrapes. Off by default and independent of the push above; leave it off when pushing."
-            >
-              <EnvRow
-                label="scrape endpoint"
-                value={observability.prometheusEnabled ? "on (GET /metrics)" : "off"}
-                envKey="Fallen8__Observability__Prometheus__Enabled"
-              />
-              <EnvRow
-                label="requires API key"
-                value={observability.prometheusRequireApiKey ? "yes" : "no"}
-                envKey="Fallen8__Observability__Prometheus__RequireApiKey"
-              />
-            </ObsSection>
-
-            <ObsSection
-              title="Statistics snapshot"
-              hint="Bounds for the on-demand GET /statistics graph-shape snapshot. Not an exporter."
-            >
-              <EnvRow
-                label="element budget"
-                value={observability.statisticsElementBudget.toLocaleString()}
-                envKey="Fallen8__Observability__StatisticsElementBudget"
-              />
-              <EnvRow
-                label="top-N"
-                value={observability.statisticsTopN.toString()}
-                envKey="Fallen8__Observability__StatisticsTopN"
-              />
-            </ObsSection>
-          </div>
-          <div className="mt-4 flex justify-end">
-            <button type="button" className="btn" onClick={onClose}>
-              Close
-            </button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
+  function isRowDisabled(key: string): boolean {
+    return !editable || !writesAllowed || isNamespacePolicy(key, lockNamespace);
+  }
 }

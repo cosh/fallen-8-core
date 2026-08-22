@@ -448,7 +448,7 @@ export function NamespacesPanel() {
               at startup = whether the next boot loads this namespace; it {TAKES_EFFECT_ON_RESTART},
               so nothing is loaded or unloaded in the running process. A namespace that was not
               loaded reports no counts and answers 503 on every route but /status. The instance-wide
-              default is a setting in the Configuration panel.
+              default is a setting under Configure, in the Namespaces section.
             </p>
             {message && (
               <div className="text-accent text-[12px]" data-testid="namespace-message">

@@ -87,9 +87,9 @@ Every field is optional; omitting all of them is exactly the standalone app.
 | --- | --- | --- |
 | `instances` | The instances Studio offers, supplied by the host. Host-supplied instances are managed: never persisted, re-created on every mount | the same-origin instance |
 | `activeInstanceId` | Which instance starts active | the first |
-| `lockInstances` | Hides register/edit/remove and the activation radios; the shell shows a static label | `false` |
+| `lockInstances` | Hides register/edit/remove and the activation radios; the shell shows a static label, and every setting in the configuration surface is read-only | `false` |
 | `namespace` | Seeds the active namespace when nothing is remembered for the instance | `default` |
-| `lockNamespace` | Hides the namespace switcher and management; forces the pin over a remembered choice | `false` |
+| `lockNamespace` | Hides the namespace switcher and management; forces the pin over a remembered choice; also makes the `Fallen8:Namespaces:` settings read-only, so the host's next boot cannot be re-planned through them | `false` |
 | `basepath` | Router prefix when Studio lives under a host route | `""` |
 | `history` | `"memory"` keeps Studio's navigation out of the host's address bar | `"browser"` |
 | `storageNamespace` | Prefix for every `localStorage` key, so embeds and the standalone app never share state | `""` |

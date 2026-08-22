@@ -24,7 +24,8 @@
 // SOFTWARE.
 
 import { memo } from "react";
-import type { SettingREST, ConfigSettingSource } from "../api/types";
+import type { SettingREST } from "../api/types";
+import { environmentSpelling, isEnvironmentLocked, settingTestId } from "../lib/configCatalog";
 import { RESTART_PENDING_CHIP } from "../lib/restartCopy";
 
 /**
@@ -35,24 +36,11 @@ import { RESTART_PENDING_CHIP } from "../lib/restartCopy";
  * The row explains itself rather than the setting: what the value is, where it came from, and why it
  * cannot be edited when it cannot. It deliberately carries NO description of what a key means, because
  * that lives on the server's own documentation for the key and a second copy here would drift.
+ *
+ * The rules it reads from a descriptor (the test handle, the environment spelling, whether a source
+ * outranks a stored value) live in lib/configCatalog.ts, because the configuration surface selects and
+ * groups by the same rules and a second copy of them here would be the thing that drifts.
  */
-
-/** The two sources a stored value can never outrank, so their rows are read-only. */
-const AUTHORITY_SOURCES: ConfigSettingSource[] = ["environment", "commandLine"];
-
-/** The environment-variable spelling an operator has to remove to manage a key here instead. */
-export function environmentSpelling(key: string): string {
-  return key.replace(/:/g, "__");
-}
-
-export function isEnvironmentLocked(setting: SettingREST): boolean {
-  return AUTHORITY_SOURCES.includes(setting.source);
-}
-
-/** A stable, key-derived handle: Fallen8:Plugins:MaxCount -> config-setting-fallen8-plugins-maxcount. */
-export function settingTestId(key: string): string {
-  return `config-setting-${key.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
-}
 
 function SourceBadge({ setting }: { setting: SettingREST }) {
   const locked = isEnvironmentLocked(setting);
@@ -70,8 +58,9 @@ function SourceBadge({ setting }: { setting: SettingREST }) {
   );
 }
 
-// Memoised, and the callbacks carry the key so the panel can pass ONE stable pair: without that,
-// every keystroke into any field re-renders all ~95 rows because each would get fresh closures.
+// Memoised, and the callbacks carry the key so the surface can pass ONE stable pair: without that,
+// every keystroke into any field re-renders every row in the open section because each would get
+// fresh closures. Anything rendering these must keep its callbacks stable across a keystroke.
 export const SettingRow = memo(function SettingRow({
   setting,
   draft,
@@ -119,7 +108,7 @@ export const SettingRow = memo(function SettingRow({
           <>
             {renderControl()}
             {locked && (
-              <div className="text-fg-faint mt-1 text-[10px]">
+              <div className="text-fg-faint mt-1 text-[10px]" data-testid={`${testId}-env`}>
                 set by <code className="text-fg-faint text-[10px]">{environmentSpelling(setting.key)}</code> in
                 the environment, which outranks anything stored here
               </div>
