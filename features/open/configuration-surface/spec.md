@@ -1,6 +1,8 @@
 # Configuration surface
 
-**Status:** specced, not yet implemented.
+**Status:** implemented on `feature/configuration-surface` and through the council gate; still under
+`features/open/` because it is not merged to `main` yet. Move this directory to `features/done/` when
+it lands.
 
 ## 1. Problem
 
