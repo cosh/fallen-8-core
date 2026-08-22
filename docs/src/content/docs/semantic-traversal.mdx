@@ -186,16 +186,69 @@ Configure it under `Fallen8:Embedding` (off unless `Enabled`):
 | Key | Default | Meaning |
 |---|---|---|
 | `Enabled` | `false` | Master switch; endpoints answer 403 when off |
-| `Backend` | `Onnx` | `Onnx` \| `LLamaSharp` \| `Ollama`: the whole backend swap |
+| `Backend` | `Onnx` | `Onnx` \| `LLamaSharp` \| `Ollama` \| [`Nahil`](/nahil/): the whole backend swap |
 | `ModelName` / `ModelVersion` | (none) | Identity name (required when enabled) + optional version |
 | `Dimension` | (none) | Declared output length; a mismatch against real output latches 503 |
 | `IntendedMetric` | `Cosine` | Metric the vectors are meant for |
-| `MaxBatchSize` / `MaxTextLength` | 64 / 8192 | Request bounds |
+| `MaxBatchSize` / `MaxTextLength` | 64 / 8192 | Request bounds, in items and **chars**. `MaxTextLength` is not a token window - see below |
 | `QueryPrefix` | `""` | Retrieval prefix applied to **query-time** embeddings only |
 | `Onnx.{ModelPath,VocabPath,…}`, `LLamaSharp.ModelPath`, `Ollama.{Endpoint,Model}` | (none) | Backend-specific settings |
 
 The provider's biggest consumer is [unstructured ingestion](/unstructured-ingestion/):
 document chunks embed through it on the way into the graph.
+
+### The input ceiling (2048 tokens, not 8192)
+
+`bge-m3` reports an 8192-token context and **nothing serves it**. Measured: an input of about
+1,880 tokens answers `200`, one of about 2,120 answers `400`. The real ceiling is **2048 tokens
+per input**, and it is the same on the local Ollama sidecar and on [Nahil](/nahil/) - so this is a
+property of the backend, not of running the model remotely.
+
+What makes it worth knowing is what used to happen above the line. The Ollama embedding API takes a
+`truncate` flag that **defaults to true**, and what it really means is *shorten anything that does
+not fit and answer as though it had fitted*. An over-long chunk came back as a perfectly ordinary
+1024-dimension vector describing only its first ~2,046 tokens. Nothing marked it: not the response,
+not the dimension check, not a log line. The chunk was indexed, searchable, and quietly wrong about
+its own tail - the failure mode where retrieval gets worse and no error ever appears.
+
+Two things stop it, and they only work as a pair:
+
+- **Fallen-8 sends `truncate: false` on every embedding request.** An input over the ceiling is
+  refused, with a `503` naming the ceiling and which setting to lower. A failed ingest is
+  re-runnable; a silently truncated vector is not even visible.
+- **`Fallen8:Ingestion:ChunkMaxChars` defaults to 3,600** (it was 4,000, derived from the advertised
+  8192). That is a token budget wearing a char unit: it holds a chunk under ~1,800 tokens at
+  2.0 chars/token, the worst case measured over markdown tables (2.10), ARXML (2.23) and
+  punctuation-dense text (2.04).
+
+Without the second, the first would turn silent degradation into failed ingests - which is why the
+default moved and not just the flag.
+
+To be exact about the old value rather than alarmed about it: 4,000 was *inside* the ceiling for
+every Latin-script, table and XML sample measured - but by under 70 tokens at the densest of them
+(~1,980 of 2,048), which is no margin at all for a denser page - and already *outside* it for
+Korean (~2,400) and Chinese (~3,010). 3,600 buys ~250 tokens of margin and costs prose nothing.
+
+Measured `bge-m3` density, for setting the bound yourself:
+
+| Text | chars/token |
+|---|---|
+| Latin prose (English 4.01, German 4.11), Russian 3.98, Arabic 3.56 | ~4 |
+| C#-style identifiers | 3.41 |
+| ARXML 2.23, markdown tables 2.10, punctuation-dense 2.04, Japanese 2.02 | ~2 |
+| Korean 1.67, **Chinese 1.33** | ~1.5 |
+
+So a **CJK corpus wants `ChunkMaxChars` around 1,800**. Left at 3,600 it fails the ingest loudly,
+which is the point, but it fails.
+
+`MaxTextLength` (8192 chars) is deliberately *not* this ceiling, though it is the same number and
+that is where it came from. Read it as the bound above which an input cannot fit 2048 tokens even
+at the most token-efficient text there is (~4.1 chars/token): it rejects the hopeless early with a
+`400`. Everything under it is the backend's call, and the backend is now honest about it.
+
+One case the chunker does not cap: a single table **row** longer than `ChunkMaxChars` is still
+emitted whole, because a row-window always carries at least one body row and the alternative is
+cutting a row in half. That too is now a loud failure rather than a silent one.
 
 ## The chat gateway (its sibling)
 

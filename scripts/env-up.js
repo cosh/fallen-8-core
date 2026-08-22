@@ -57,7 +57,13 @@ function main() {
   const gpu = hostHasNvidiaGpu();
   // Decided before the banners below: with Nahil on there is no local sidecar to put on a GPU and
   // nothing to pull, so printing either would contradict the paragraph after it.
-  const nahil = (process.env.F8_NAHIL_URL || '').trim() !== '';
+  // Either variable turns it on. F8_NAHIL_URL alone used to be the selector, back when the
+  // overlay had no default endpoint; it does now (https://api.nahil.dev), so a deployment that
+  // only supplies the credential - which is the normal case - would otherwise have set the one
+  // thing Nahil needs and quietly got the local sidecar.
+  const nahil =
+    (process.env.F8_NAHIL_URL || '').trim() !== '' ||
+    (process.env.F8_NAHIL_API_KEY || '').trim() !== '';
   if (published) {
     console.log(
       'Published-image mode: pulling ghcr.io/cosh/fallen-8-core* (' +
@@ -66,9 +72,9 @@ function main() {
   }
   if (nahil) {
     console.log(
-      `Nahil is ON (F8_NAHIL_URL=${process.env.F8_NAHIL_URL}) - the models run there, the local\n` +
-        'Ollama sidecar is NOT started, and nothing is pulled onto this machine. Needs\n' +
-        'F8_NAHIL_API_KEY. Docs: https://docs.fallen-8.com/nahil/\n'
+      `Nahil is ON (${(process.env.F8_NAHIL_URL || '').trim() || 'https://api.nahil.dev'}) - the models run\n` +
+        'there, the local Ollama sidecar is NOT started, and nothing is pulled onto this machine.\n' +
+        'Needs F8_NAHIL_API_KEY. Docs: https://docs.fallen-8.com/nahil/\n'
     );
   }
   console.log(

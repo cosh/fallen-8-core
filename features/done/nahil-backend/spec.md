@@ -1,6 +1,7 @@
 # Spec: Nahil backend
 
-**Status: implemented and merged to `main` (2026-08-20).** Drafted the same day from an external
+**Status: implemented and merged to `main` (2026-08-20); amended 2026-08-22, see
+"Amendment" at the end.** Drafted the same day from an external
 change-request list, every claim of which was verified against the code before implementing (see
 the verification record below). The as-built deviations are recorded in "As built" at the end,
 which is the part to read if the rest of this document and the code disagree. This file is the
@@ -335,6 +336,112 @@ a 100 s transport timeout that `Timeout.InfiniteTimeSpan` retired).
   nl-assist FR-26.12).
 - Multi-backend failover (Nahil falling back to a local sidecar); coexistence is per deployment,
   one backend per provider per instance.
+
+## Amendment (2026-08-22): the real input ceiling, and the deployment profile
+
+Two things landed after the merge. Both came from measuring the platform instead of reading its
+metadata, which is the part worth keeping.
+
+### A-1: `bge-m3` serves 2048 tokens per input, not the 8192 it advertises
+
+Measured on Nahil: ~1,880 tokens answers `200`, ~2,120 answers `400`. `/api/show` reports a
+context length of 8192 and it is not honoured. **The local Ollama sidecar stops at the same 2048**
+(measured: `prompt_eval_count` came back as exactly 2048 for a 31,200-char input that returned
+`200`), so this was never a Nahil property and a locally embedded corpus was subject to it too.
+
+The consequence was the reason to act. Ollama's `truncate` flag defaults to **true**, meaning
+*shorten anything that does not fit and answer as though it had fitted*, so an over-long chunk
+returned an ordinary-looking 1024-dimension vector for only its first ~2,046 tokens. FR-6's
+dimension check could not see it - the dimension was right. Nothing logged it. The chunk was
+indexed, searchable, and quietly wrong about its tail.
+
+Two changes, which only work as a pair:
+
+- `Fallen8EmbeddingProvider` sends **`truncate: false`** on every embed request for the `Ollama`
+  and `Nahil` backends, so an over-ceiling input is refused with a `503` naming the ceiling and
+  the setting to lower. Carried in `EmbeddingGenerationOptions.AdditionalProperties`, which
+  OllamaSharp 5.4.27's mapper binds onto `EmbedRequest.Truncate`;
+  `RawRepresentationFactory` reads like the intended route and is **ignored** by that mapper
+  (verified - it produced a body with no `truncate` member at all, i.e. the silent-truncation
+  default). Re-check on an OllamaSharp upgrade.
+- `Fallen8:Ingestion:ChunkMaxChars` **4,000 -> 3,600**, a token budget in char units: ~1,800
+  tokens at the 2.0 chars/token worst case measured. Without it, `truncate: false` would convert
+  silent degradation into failed ingests.
+
+Measured `bge-m3` density: English 4.01, German 4.11, Russian 3.98, Arabic 3.56, C# identifiers
+3.41, emoji 2.30, ARXML 2.23, markdown tables 2.10, punctuation-dense 2.04, Japanese 2.02,
+Korean 1.67, Chinese 1.33 chars/token. Precisely: 4,000 was *inside* the ceiling for every
+Latin-script, table and XML sample - by under 70 tokens at the densest (~1,980 of 2,048), which is
+no margin - and already *outside* it for Korean (~2,400) and Chinese (~3,010). A CJK corpus wants
+`ChunkMaxChars` near 1,800.
+
+The `8192` in `Fallen8:Embedding:MaxTextLength` was audited and **kept**: it is chars, not tokens,
+and it is the right bound for a different reason - above it, no input fits 2048 tokens even at the
+most token-efficient text there is (~4.1 chars/token). Its doc comment now says so. `ChunkMinChars`
+(800), `Nlp:MaxCharsPerChunk` (20,000, truncates before a sidecar with its own cap) and the sample
+generator's 800-char section floor were audited and are unaffected.
+
+Verified against a live apiApp and a live sidecar, not a mock: a 2,910-char English input returns
+`200` with a 1024-dim vector; an 8,000-char markdown table (~3,800 tokens) returns `503` carrying
+the ceiling, the reason and the setting to change.
+
+### A-2: the deployment profile, and one name meaning two builds
+
+FR-9's profile is now the overlay's default rather than a documented recipe:
+`https://api.nahil.dev` for both capabilities, `phi4-f8-mini:latest` chat, `bge-m3:latest`
+embeddings at Dimension 1024 / Cosine with `ModelName=bge-m3` untouched (nothing re-embeds),
+`Chat:TimeoutSeconds=600`, `Stream=true` (already the default), `MaxBatchSize=32`.
+
+- **`F8_NAHIL_URL` now defaults** to `https://api.nahil.dev`. FR-2 gave it no default so that
+  selecting the backend could never be quietly aimed at localhost; a public host root cannot be,
+  so the argument does not reach it. `F8_NAHIL_API_KEY` stays required with no default, so the
+  overlay still fails closed. **`scripts/env-up.js` selects the overlay on either variable** - it
+  keyed off `F8_NAHIL_URL` alone, which after this change would have let a deployment supply the
+  one thing Nahil needs and quietly get the local sidecar.
+- **`phi4-f8-mini` and `f8-delegate` both resolve on Nahil, to different weights.** Both published
+  repos of this fine-tune still exist: `f8-delegate` is its pre-rename name
+  (delegate-model-variants renamed it, with no local alias). Traced on this machine's volume, the
+  local `phi4-f8-mini:latest` holds the **`f8-delegate` build** - `library/phi4-f8-mini`,
+  `library/f8-delegate` and `stoic_hellman_728/f8-delegate` all carry model layer
+  `sha256:3ab5bf48…8fef0`, one `ollama list` id (`6d4bd13b1fda`), byte-identical `--system` /
+  `--template` / `--parameters`, and `stoic_hellman_728/phi4-f8-mini` was never pulled here at all.
+  So on a volume built before the rename, `F8_NAHIL_CHAT_MODEL=f8-delegate:latest` keeps the output
+  that deployment already had and the default moves it to the current published finetune. One line
+  either way; neither is more correct. This disturbs neither FR-10 (declining to RENAME the model)
+  nor delegate-model-variants' no-alias decision: nothing is renamed or aliased, a different
+  catalog entry on a remote backend is named.
+- That local build is now **recorded** in `nl-assist-finetune/fixtures/phi4-f8-mini/` - `ollama
+  show --system` / `--template` / `--parameters` verbatim, plus the blob digests and which
+  published repo they came from. Nothing in this repository reproduces it byte-for-byte, so the
+  fixture is the only description of what that model was once the volume is gone.
+
+### Amendment impact
+
+- **Engine, REST contract, OpenAPI snapshot**: unchanged - snapshot regenerated, zero content
+  diff. No new setting, so no `Fallen8SettingCatalog` entry, no Studio catalog change.
+- **Tests**: full suite green (2,069 passed, 0 failed). No test pinned the old defaults;
+  `EmbeddingBatchOrderTest` sets `ChunkMaxChars` explicitly and `IngestionChunkerTest` passes its
+  own bound.
+- **Screenshots**: none affected. `screen-configuration.png` photographs the ChangeFeed section,
+  not Ingestion or Embedding; `screenshot-knowledge.spec.ts` ingests two ~150-char documents, far
+  below either bound.
+- **Samples**: unaffected. The largest shipped sample document section is 1,359 chars, so chunk
+  boundaries are identical and no sample fixture moves.
+- **NL-assist dataset/eval**: no retrain, no `RETRAIN-LOG.md` entry - the amendment changes no
+  prompt, model or temperature.
+- **Docs site**: the ceiling's ONE home is `semantic-traversal.mdx` (the embedding provider owns
+  it, since it is not a Nahil property); `nahil.md`, `unstructured-ingestion.md` and
+  `troubleshooting.md` point there. Build green, all internal links valid.
+- **Browser probe**: not implicated - apiApp, docs and ops files only.
+
+### Not done, deliberately
+
+- **No token counter.** Capping the chunker in real `bge-m3` tokens needs its SentencePiece model,
+  which is not shipped; a character bound plus a loud refusal is the honest pair, and the measured
+  density table is how an operator sizes it for their corpus.
+- **A single table ROW longer than `ChunkMaxChars` is still emitted whole.** A row-window always
+  carries at least one body row, so the alternative is cutting a row in half. It is now a loud
+  failure instead of a silent truncation, and it is documented as such.
 
 ## Nahil-side dependencies (their side, acknowledged by them)
 
