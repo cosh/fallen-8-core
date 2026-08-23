@@ -1,0 +1,47 @@
+# Tags the published NL-assist models with a version, on demand.
+#
+# The release workflow already does this on a vX.Y.Z push. This one exists for the cases that
+# pushing a tag cannot serve: a release whose model tagging failed (the workflow that runs is the
+# one AT the tagged commit, so a fix landing later never applies to it), a version tagged before
+# this mechanism existed, or simply re-running it after correcting the signing key.
+#
+# It changes no code and moves no ":latest" - it gives existing published bytes a second name.
+name: Tag models
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to apply to the published models, e.g. v0.0.34"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  tag:
+    name: "Tag <ns>/*:${{ inputs.version }}"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is a signing key configured?
+        id: key
+        env:
+          OLLAMA_SIGNING_KEY: ${{ secrets.OLLAMA_SIGNING_KEY }}
+        run: |
+          if [ -n "${OLLAMA_SIGNING_KEY:-}" ]; then
+            echo "have=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=0" >> "$GITHUB_OUTPUT"
+            echo "::error title=No signing key::OLLAMA_SIGNING_KEY is not set, so there is nothing to authenticate a push with. Unlike the release workflow this job exists only to tag models, so it fails rather than skipping."
+            exit 1
+          fi
+      - name: Install ollama
+        if: steps.key.outputs.have == '1'
+        run: curl -fsSL https://ollama.com/install.sh | sh
+      - name: Tag the published models
+        if: steps.key.outputs.have == '1'
+        env:
+          OLLAMA_SIGNING_KEY: ${{ secrets.OLLAMA_SIGNING_KEY }}
+          F8_TAG_MODELS: ${{ vars.F8_TAG_MODELS }}
+        run: scripts/tag-models.sh "${{ inputs.version }}"
