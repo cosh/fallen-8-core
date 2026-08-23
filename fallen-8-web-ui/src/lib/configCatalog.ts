@@ -380,7 +380,10 @@ export const CONFIG_FILTERS: readonly { id: ConfigFilterId; label: string; title
   {
     id: "writable",
     label: "writable here",
-    title: "Settings this surface can actually change: neither excluded by a rule nor declared in the environment",
+    // Deliberately NOT "settings this surface can change": whether the instance accepts a write at all
+    // is a separate, instance-wide fact, and on one that does not every row below is read-only however
+    // this filter selects. The surface says that in its header; this is a property of the setting.
+    title: "Settings no rule excludes and no environment variable declares",
   },
   {
     id: "restartPending",
