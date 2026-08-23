@@ -131,9 +131,21 @@ namespace NoSQL.GraphDB.Integrations.Contract
         [JsonPropertyName("help")]
         public String Help { get; set; } = String.Empty;
 
-        /// <summary>The value used when a job names none. NEVER a credential.</summary>
+        /// <summary>The value used when a job names none. NEVER a credential and never a file.</summary>
         [JsonPropertyName("defaultValue")]
         public String? DefaultValue { get; set; }
+
+        /// <summary>
+        ///   For a <see cref="SettingKind.File"/> setting only: the extensions a file picker should offer,
+        ///   as the HTML <c>accept</c> attribute spells them (<c>.csv,.tsv,.txt</c>). It is a HINT and
+        ///   nothing more - a browser ignores it for a dropped file, and the runtime never checks it - so
+        ///   the wrong file still reaches the provider and fails the run with the provider's own message.
+        ///   It exists because the alternative is a form that offers every file on the machine, and
+        ///   deriving the extension from <see cref="Help"/> prose would be a per-provider special case
+        ///   wearing a disguise.
+        /// </summary>
+        [JsonPropertyName("accept")]
+        public String? Accept { get; set; }
     }
 
     /// <summary>What kind of value a setting takes. The whole vocabulary a settings form needs.</summary>
@@ -159,5 +171,23 @@ namespace NoSQL.GraphDB.Integrations.Contract
         ///   its settings.
         /// </summary>
         Credential = 4,
+
+        /// <summary>
+        ///   A FILE THE CALLER SUPPLIES. Its bytes arrive in the job's <c>files</c> map, base64, together
+        ///   with the file's own name, and NEVER in <c>settings</c>: the runtime opens nothing on disk, so
+        ///   a bare name in <c>settings</c> would name a file nothing can read. A form renders this as a
+        ///   dropzone and a file picker (see <see cref="ProviderSetting.Accept"/>), which is the whole
+        ///   reason the kind exists: asking a person to copy a file into a container mount and then type
+        ///   its name is not a form anyone can fill in.
+        ///
+        ///   <para>A file lives exactly as long as the run that needed it, like a credential - but unlike
+        ///   a credential it is graph DATA, so it is never redacted out of a log line or a report. Its
+        ///   NAME becomes the setting's effective value, so a provider reads it with
+        ///   <c>context.Required(key)</c> for its messages and its bytes with
+        ///   <c>context.ReadFileAsync(key, ...)</c>, exactly as it did when the file came off a mount. A
+        ///   File setting never carries a <see cref="ProviderSetting.DefaultValue"/>: there is no file to
+        ///   default to.</para>
+        /// </summary>
+        File = 5,
     }
 }

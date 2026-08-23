@@ -51,7 +51,7 @@ namespace NoSQL.GraphDB.Integrations.Run
         private readonly CredentialResolver _credentials;
         private readonly IGraphTargetFactory _targets;
         private readonly IProviderHttpFactory _http;
-        private readonly IProviderFileStore _files;
+        private readonly IJobFilesFactory _files;
         private readonly ActiveCredentials _active;
         private readonly RunGate _gate;
         private readonly IntegrationsMetrics _metrics;
@@ -60,7 +60,7 @@ namespace NoSQL.GraphDB.Integrations.Run
 
         public JobRunner(ProviderCatalog catalog, SnapshotValidator validator, SnapshotApplier applier,
             CredentialResolver credentials, IGraphTargetFactory targets, IProviderHttpFactory http,
-            IProviderFileStore files, ActiveCredentials active, RunGate gate, IntegrationsMetrics metrics,
+            IJobFilesFactory files, ActiveCredentials active, RunGate gate, IntegrationsMetrics metrics,
             ILoggerFactory loggers)
         {
             _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
@@ -91,7 +91,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                 throw new JobRejectedException(JobErrorKinds.Configuration, "A job definition is required.");
             }
 
-            if (!job.TryNormalize(out var normalized, out var normalizeFailure))
+            if (!job.TryNormalize(out var normalized, out var normalizeFailure, _files.MaxFileBytes))
             {
                 throw new JobRejectedException(JobErrorKinds.Configuration, normalizeFailure!);
             }
@@ -150,6 +150,10 @@ namespace NoSQL.GraphDB.Integrations.Run
                 return unavailable;
             }
 
+            // Created here and disposed with the lease below, so a file is readable for exactly as long as a
+            // credential is: across the source read and the graph write, and not one statement longer.
+            var runFiles = _files.Create(normalized.Files);
+
             var cancelled = false;
 
             // Whether control ever entered the apply phase, which is the only thing that decides what may be said
@@ -160,6 +164,7 @@ namespace NoSQL.GraphDB.Integrations.Run
             var applyStarted = false;
 
             using (lease)
+            using (runFiles)
             {
                 try
                 {
@@ -167,8 +172,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                     var diagnostics = new List<DiagnosticDto>();
                     var context = new ProviderContext(descriptor.Id, instanceId, settings, lease, http,
                         _loggers.CreateLogger("NoSQL.GraphDB.Integrations.Providers." + descriptor.Id),
-                        diagnostics, (key, token) => ReadFileAsync(settings, key, token),
-                        key => ResolveFile(settings, key));
+                        diagnostics, runFiles.ReadAsync,
+                        key => runFiles.TryResolve(key, out var failure) ? null : failure);
 
                     var snapshot = await provider.ObserveAsync(context, cancellationToken).ConfigureAwait(false);
 
@@ -365,6 +370,18 @@ namespace NoSQL.GraphDB.Integrations.Run
                         "'settings': a setting is neither leased nor redacted, so a value here would be logged " +
                         "and reported like any other.", supplied.Key));
                 }
+
+                if (setting.Kind == SettingKind.File)
+                {
+                    // Refused HERE rather than mid-run, which is the whole point of checking eagerly: the
+                    // runtime opens nothing on disk, so a bare name would pass this pass, satisfy the
+                    // provider's own Required() call, and only then fail on the read - after the run has
+                    // reached the provider and begun making withdrawal-relevant decisions.
+                    throw new JobRejectedException(JobErrorKinds.Configuration, String.Format(
+                        "'{0}' is a file setting, so the file belongs in 'files' as a name and its bytes, " +
+                        "never in 'settings': the runtime opens nothing on disk, so a name on its own names " +
+                        "a file nothing can read.", supplied.Key));
+                }
             }
 
             foreach (var credential in job.Credentials)
@@ -378,6 +395,16 @@ namespace NoSQL.GraphDB.Integrations.Run
                 }
             }
 
+            foreach (var file in job.Files)
+            {
+                if (!declared.TryGetValue(file.Key, out var setting) || setting.Kind != SettingKind.File)
+                {
+                    throw new JobRejectedException(JobErrorKinds.Configuration, String.Format(
+                        "Provider '{0}' declares no file setting '{1}', so the file supplied for it would " +
+                        "never be read.", descriptor.Id, file.Key));
+                }
+            }
+
             var effective = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
             foreach (var setting in descriptor.Settings ?? Array.Empty<ProviderSetting>())
             {
@@ -388,6 +415,27 @@ namespace NoSQL.GraphDB.Integrations.Run
                         throw new JobRejectedException(JobErrorKinds.Configuration, String.Format(
                             "Provider '{0}' requires a credential for setting '{1}': supply it in " +
                             "'credentialValues'.", descriptor.Id, setting.Key));
+                    }
+
+                    continue;
+                }
+
+                if (setting.Kind == SettingKind.File)
+                {
+                    if (job.Files.TryGetValue(setting.Key, out var file))
+                    {
+                        // The effective value of a file setting is the file's own NAME, so a provider reads
+                        // it with Required(key) for its messages and diagnostic subjects exactly as it did
+                        // when the name pointed at a mount. That is what makes "the provider does not change"
+                        // true rather than aspirational: the transport a file arrived by was never its
+                        // business.
+                        effective[setting.Key] = file.Name;
+                    }
+                    else if (setting.Required)
+                    {
+                        throw new JobRejectedException(JobErrorKinds.Configuration, String.Format(
+                            "Provider '{0}' requires a file for setting '{1}': supply it in 'files' as a " +
+                            "name and its bytes, base64. {2}", descriptor.Id, setting.Key, setting.Help));
                     }
 
                     continue;
@@ -413,28 +461,6 @@ namespace NoSQL.GraphDB.Integrations.Run
             }
 
             return effective;
-        }
-
-        private Task<String> ReadFileAsync(IReadOnlyDictionary<String, String> settings, String settingKey,
-            CancellationToken cancellationToken)
-        {
-            if (!settings.TryGetValue(settingKey, out var fileName) || String.IsNullOrWhiteSpace(fileName))
-            {
-                throw new ProviderConfigurationException(String.Format(
-                    "Setting '{0}' names no file.", settingKey));
-            }
-
-            return _files.ReadAsync(fileName, cancellationToken);
-        }
-
-        private String? ResolveFile(IReadOnlyDictionary<String, String> settings, String settingKey)
-        {
-            if (!settings.TryGetValue(settingKey, out var fileName) || String.IsNullOrWhiteSpace(fileName))
-            {
-                return String.Format("Setting '{0}' names no file.", settingKey);
-            }
-
-            return _files.TryResolve(fileName, out var failure) ? null : failure;
         }
 
         private JobReport Complete(JobReport report, Stopwatch stopwatch, String? errorKind, String? error,

@@ -73,17 +73,16 @@ namespace NoSQL.GraphDB.Integrations.Conformance
         /// </summary>
         /// <param name="candidate">The provider under test.</param>
         /// <param name="job">The job to run it with, twice.</param>
-        /// <param name="files">The files the fixture offers, by name. A candidate naming any other file fails.</param>
         /// <param name="sourceDouble">A stand-in for the provider's own service. With one supplied the candidate
         /// must reach its source through it; with none, nothing may be attempted.</param>
         /// <param name="options">Substitutions a negative fixture needs, such as a resolver that looks across
         /// instances, and the seeding of a graph with a history.</param>
         /// <param name="cancellationToken">Aborts the runs.</param>
-        /// <remarks>There is no credentials parameter: a credential arrives on the <paramref name="job" />,
-        /// which is the only way one ever arrives, so the suite exercises the real credential path by
-        /// construction rather than by substituting a store for it.</remarks>
+        /// <remarks>There is no credentials parameter and no files parameter: both arrive on the
+        /// <paramref name="job" />, which is the only way either ever arrives, so the suite exercises the
+        /// real credential and file paths by construction rather than by substituting a store for
+        /// them.</remarks>
         public static async Task<ConformanceReport> VerifyAsync(IIntegrationProvider candidate, IntegrationJob job,
-            IReadOnlyDictionary<String, String>? files = null,
             HttpMessageHandler? sourceDouble = null,
             ConformanceOptions? options = null,
             CancellationToken cancellationToken = default)
@@ -131,7 +130,7 @@ namespace NoSQL.GraphDB.Integrations.Conformance
             var catalog = new ProviderCatalog(new[] { candidate }, vocabulary);
             var validator = new SnapshotValidator(vocabulary);
             var applier = new SnapshotApplier(new IdentityResolver());
-            var fileStore = new FixtureFileStore(files);
+            var fileFactory = new RecordingFilesFactory();
             var handler = new RecordingHandler(sourceDouble);
             using var metrics = new IntegrationsMetrics();
 
@@ -139,7 +138,7 @@ namespace NoSQL.GraphDB.Integrations.Conformance
                 new CredentialResolver(active),
                 new StaticGraphTargetFactory(target),
                 new RecordingHttpFactory(handler, runtimeOptions),
-                fileStore, active, new RunGate(), metrics, loggers);
+                fileFactory, active, new RunGate(), metrics, loggers);
 
             // Which elements are OUT OF SCOPE, captured before each run rather than inferred afterwards. It
             // has to be before: a run that wrongly adopts another instance's element ends up carrying its own
@@ -164,10 +163,10 @@ namespace NoSQL.GraphDB.Integrations.Conformance
             findings.Add(Idempotent(graph, mutationsAfterFirst, second));
             findings.Add(ClaimScoped(graph, forbidden));
             findings.Add(NoSimilarityIdentity(observed, first));
-            findings.Add(RunsOffline(handler, fileStore, first));
+            findings.Add(RunsOffline(handler, fileFactory, first));
             findings.Add(NoCredentialLeak(CredentialValuesToWatch(job), attemptedSink, reachedSink,
                 graph, first, second));
-            findings.Add(NoPathEscape(fileStore, files));
+            findings.Add(FilesOnlyFromTheJob(fileFactory, candidate.Descriptor));
             findings.Add(CompletenessHonest(observed, candidate.Descriptor, first));
             findings.Add(UnreadableSourceFails(handler, first, second));
 
@@ -377,7 +376,7 @@ namespace NoSQL.GraphDB.Integrations.Conformance
                     "vectors, and they are different devices.", String.Join(", ", offenders)));
         }
 
-        private static ConformanceFinding RunsOffline(RecordingHandler handler, FixtureFileStore files,
+        private static ConformanceFinding RunsOffline(RecordingHandler handler, RecordingFilesFactory files,
             Observation first)
         {
             if (!handler.HasSourceDouble)
@@ -397,21 +396,21 @@ namespace NoSQL.GraphDB.Integrations.Conformance
                     "The run did not produce a report: " + first.Outcome());
             }
 
-            // Reaching a stand-in OR reading a fixture file is what "completed against substituted seams" looks
-            // like. A run that produced entities while touching neither got its data from somewhere the suite did
-            // not provide, which is exactly the provider that opened its own socket behind the runtime's back -
-            // and a check reading only "attempted no request" would PASS it.
-            if (handler.Attempts.Length > 0 || files.Requested.Count > 0)
+            // Reaching a stand-in OR reading a file the job carried is what "completed against substituted
+            // seams" looks like. A run that produced entities while touching neither got its data from
+            // somewhere the suite did not provide, which is exactly the provider that opened its own socket
+            // behind the runtime's back - and a check reading only "attempted no request" would PASS it.
+            if (handler.Attempts.Length > 0 || files.Reads > 0)
             {
                 return new ConformanceFinding(ConformanceCheck.RunsOffline, true, String.Format(
                     CultureInfo.InvariantCulture,
                     "The run completed against substituted seams alone: {0} request(s) through the stand-in and " +
-                    "{1} file read(s) from the fixture.", handler.Attempts.Length, files.Requested.Count));
+                    "{1} file read(s) from the job.", handler.Attempts.Length, files.Reads));
             }
 
             return new ConformanceFinding(ConformanceCheck.RunsOffline, false,
-                "The run touched neither the supplied stand-in nor any fixture file, so whatever it described " +
-                "came from a seam this suite does not control.");
+                "The run touched neither the supplied stand-in nor any file the job carried, so whatever it " +
+                "described came from a seam this suite does not control.");
         }
 
         /// <summary>
@@ -477,24 +476,46 @@ namespace NoSQL.GraphDB.Integrations.Conformance
                     "A credential leaked: " + String.Join("; ", offenders));
         }
 
-        private static ConformanceFinding NoPathEscape(FixtureFileStore files,
-            IReadOnlyDictionary<String, String>? offered)
+        /// <summary>
+        ///   Every file the run asked for was one its OWN DESCRIPTOR declares as a file setting. The
+        ///   runtime opens nothing on disk, so a provider cannot reach a file nobody sent; what remains
+        ///   catchable, and what this catches, is the author who declares one setting key and reads
+        ///   another - otherwise a mid-run source failure rather than a named verdict.
+        ///
+        ///   <para>It deliberately does NOT require that the job carried the file. A provider is entitled
+        ///   to probe an OPTIONAL file setting and find nothing there; that is a statement about the
+        ///   caller's job, not about the provider, and failing a conforming provider for it would make
+        ///   the check say something it is not for.</para>
+        /// </summary>
+        private static ConformanceFinding FilesOnlyFromTheJob(RecordingFilesFactory files,
+            ProviderDescriptor descriptor)
         {
+            var declared = new HashSet<String>(StringComparer.OrdinalIgnoreCase);
+            foreach (var setting in descriptor.Settings ?? Array.Empty<ProviderSetting>())
+            {
+                if (setting.Kind == SettingKind.File)
+                {
+                    declared.Add(setting.Key);
+                }
+            }
+
             var offenders = new List<String>();
             foreach (var requested in files.Requested)
             {
-                if (offered == null || !offered.ContainsKey(requested))
+                if (!declared.Contains(requested) && !offenders.Contains(requested))
                 {
                     offenders.Add(requested);
                 }
             }
 
             return offenders.Count == 0
-                ? new ConformanceFinding(ConformanceCheck.NoPathEscape, true,
-                    "Every file read was one the fixture offered, by name.")
-                : new ConformanceFinding(ConformanceCheck.NoPathEscape, false, String.Format(
-                    "The provider named file(s) the fixture does not have: {0}. A provider never opens a file, " +
-                    "and a name that resolves anywhere but the files directory is refused.",
+                ? new ConformanceFinding(ConformanceCheck.FilesOnlyFromTheJob, true, String.Format(
+                    CultureInfo.InvariantCulture,
+                    "Every file the run asked for is a file setting this provider declares ({0} read(s)).",
+                    files.Reads))
+                : new ConformanceFinding(ConformanceCheck.FilesOnlyFromTheJob, false, String.Format(
+                    "The provider asked for file setting(s) it does not declare: {0}. No caller can ever " +
+                    "supply one, because a file arrives with the job for a setting the DESCRIPTOR names.",
                     String.Join(", ", offenders)));
         }
 

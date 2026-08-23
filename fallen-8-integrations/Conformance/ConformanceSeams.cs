@@ -153,6 +153,64 @@ namespace NoSQL.GraphDB.Integrations.Conformance
     }
 
     /// <summary>
+    ///   The real per-run file holder, with a note of what was asked for. The twin of
+    ///   <see cref="RecordingHandler" /> for the other seam a run can reach: the offline check has to see
+    ///   BOTH halves, because a run that produced entities while attempting no request got its data from
+    ///   somewhere, and a check that could only see the network half would pass it.
+    ///
+    ///   <para>It substitutes nothing: the files are the job's own, decoded by the same code the runtime
+    ///   uses, so a candidate is judged against the real path rather than a fixture that resembles it. The
+    ///   ceiling is off, because a suite that refused a fixture for its size would be judging the fixture.</para>
+    /// </summary>
+    internal sealed class RecordingFilesFactory : IJobFilesFactory
+    {
+        private readonly List<JobFiles> _created = new List<JobFiles>();
+
+        /// <inheritdoc />
+        public Int64 MaxFileBytes => 0;
+
+        /// <summary>Every setting key any run asked a file for, across every run. Readable after the runs
+        /// have ended: ending a run drops the bytes, not the note of what was asked for.</summary>
+        public IReadOnlyList<String> Requested
+        {
+            get
+            {
+                var all = new List<String>();
+                foreach (var files in _created)
+                {
+                    all.AddRange(files.Requested);
+                }
+
+                return all;
+            }
+        }
+
+        /// <summary>How many files were actually read, across every run - which is not the same as how
+        /// many were asked about, and the offline check needs this one.</summary>
+        public Int32 Reads
+        {
+            get
+            {
+                var total = 0;
+                foreach (var files in _created)
+                {
+                    total += files.Reads;
+                }
+
+                return total;
+            }
+        }
+
+        /// <inheritdoc />
+        public JobFiles Create(IReadOnlyDictionary<String, JobFilePayload>? filesBySettingKey)
+        {
+            var files = new JobFiles(filesBySettingKey);
+            _created.Add(files);
+            return files;
+        }
+    }
+
+    /// <summary>
     ///   Hands the same target to every run, and does not dispose it, so the suite can look at the graph after
     ///   two runs have finished.
     /// </summary>

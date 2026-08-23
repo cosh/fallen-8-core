@@ -284,25 +284,52 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task AProviderNamingAFileTheFixtureDoesNotHaveFails()
+        public async Task AProviderProbingAnOptionalFileNobodySentStillConforms()
         {
+            // The check this pins was wrong on its first cut: it treated every setting key the run ASKED
+            // about as a key the job had to have carried, so a provider legitimately probing an optional
+            // overlay it can do without was reported as non-conforming - and the author of the next
+            // integration would have read that verdict as "you may not have optional files".
             var candidate = WellBehaved();
             candidate.Descriptor.Settings = candidate.Descriptor.Settings.Concat(new[]
             {
-                new ProviderSetting { Key = "file", Label = "File", Kind = SettingKind.Text, Required = false },
+                new ProviderSetting
+                {
+                    Key = "overlay",
+                    Label = "Overlay",
+                    Kind = SettingKind.File,
+                    Required = false,
+                    Help = "An optional second file.",
+                },
             }).ToList();
+            candidate.Extra = (context, snapshot) => context.TryResolveFile("overlay", out _);
+
+            var report = await VerifyAsync(candidate);
+
+            Assert.IsFalse(report.Failed.Contains(ConformanceCheck.FilesOnlyFromTheJob), String.Format(
+                "asking about an OPTIONAL file setting the descriptor declares is what an optional file " +
+                "setting is for; whether the caller supplied one is a statement about the job, not about " +
+                "the provider. The suite said otherwise: {0}",
+                report.DetailOf(ConformanceCheck.FilesOnlyFromTheJob)));
+        }
+
+        [TestMethod]
+        public async Task AProviderReadingAFileSettingItNeverDeclaredFails()
+        {
+            // The successor to the path-escape negative. There is no path to escape any more - the runtime
+            // opens nothing on disk - so the mistake that remains is an author who declares one setting key
+            // and reads another. Left to the run it surfaces in the middle of a source read; here it is a
+            // named verdict with the key in it.
+            var candidate = WellBehaved();
             candidate.Extra = (context, snapshot) => context.ReadFileAsync("file", CancellationToken.None)
                 .GetAwaiter().GetResult();
 
-            var job = Job();
-            job.Settings["file"] = "../etc/shadow";
+            var report = await VerifyAsync(candidate);
 
-            var report = await VerifyAsync(candidate, job: job);
-
-            CollectionAssert.Contains(report.Failed.ToList(), ConformanceCheck.NoPathEscape,
-                "a provider that could name a path could be pointed at anything this container can read and " +
-                "made to hand the contents back in a report or write them into the graph, and blocklisting a " +
-                "directory only moves the target");
+            CollectionAssert.Contains(report.Failed.ToList(), ConformanceCheck.FilesOnlyFromTheJob,
+                "a file arrives with the job for a setting the descriptor declares, so reading a key the " +
+                "descriptor never declared can never be satisfied by any caller - and an author who learns " +
+                "that from a mid-run source failure looks at the file instead of at the descriptor");
         }
 
         [TestMethod]
@@ -358,7 +385,6 @@ namespace NoSQL.GraphDB.Tests
             return await ConformanceVerifier.VerifyAsync(
                 candidate,
                 job ?? Job(),
-                files: new Dictionary<String, String>(StringComparer.Ordinal) { ["devices.csv"] = "mac\n" },
                 sourceDouble: sourceDouble ?? (withSourceDouble ? Answering() : null),
                 options: options,
                 cancellationToken: CancellationToken.None);

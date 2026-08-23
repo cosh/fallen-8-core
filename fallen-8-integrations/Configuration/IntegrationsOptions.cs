@@ -52,11 +52,18 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         public Int32 Port { get; set; } = 8110;
 
         /// <summary>
-        ///   The directory a provider's file settings name a file in, mounted read only. A provider
-        ///   never sees a path: it asks <c>ProviderContext.ReadFileAsync(settingKey, ...)</c> and the
-        ///   runtime resolves the name under this root.
+        ///   The biggest file a job may carry, per file setting, measured on the DECODED bytes. There is
+        ///   deliberately no files directory beside it: a file arrives with the job that needs it and is
+        ///   dropped when the run ends, so this container mounts nothing, opens nothing and has no name to
+        ///   resolve. The ceiling exists because the alternative is a caller deciding how much memory this
+        ///   process spends; it matches the instance's own upload ceiling
+        ///   (<c>Fallen8:Ingestion:MaxUploadBytes</c>) so the two doors are the same width.
+        ///
+        ///   <para>Zero or less switches the ceiling OFF rather than refusing every file, and the runtime
+        ///   warns at startup when it is. Raising it past about 34 MiB has no effect in the shipped
+        ///   deployment: the apiApp's proxy is the only way in and carries its own fixed body bound.</para>
         /// </summary>
-        public String FilesDirectory { get; set; } = "/files";
+        public Int64 MaxFileBytes { get; set; } = 33_554_432;
 
         /// <summary>Where a run holding a credential may send it.</summary>
         public CredentialsOptions Credentials { get; set; } = new CredentialsOptions();

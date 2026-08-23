@@ -115,7 +115,7 @@ namespace NoSQL.GraphDB.Integrations.Run
     }
 
     /// <summary>
-    ///   Which system failed. "The mount is broken", "the password is wrong", "the console will not answer" and
+    ///   Which system failed. "The job is wrong", "the password is wrong", "the console will not answer" and
     ///   "the graph will not answer" send a reader to four different places, and only a named kind gets them
     ///   there.
     /// </summary>

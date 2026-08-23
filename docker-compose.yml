@@ -272,15 +272,10 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    volumes:
-      # ONE mount, and deliberately no credential mount: a credential arrives with the job that needs
-      # it and is dropped when the run ends, so this container has nothing to store and nothing to
-      # rotate. Whoever submits a job is whoever already holds the credential.
-      # The files mount, read only: a provider's file setting names a file in here and the runtime
-      # opens it (the csv-device-list blueprint). ./samples is mounted purely because it is tracked
-      # and non-empty, so the default path has something readable behind it after a clone: a
-      # convenience for having any readable file present, NOT a coupling to the samples gallery.
-      - ./samples:/files:ro
+    # NO MOUNT AT ALL, and that is the point: a credential AND a file both arrive with the job that
+    # needs them and are dropped when the run ends, so this container has nothing to store, nothing
+    # to rotate and nothing to read off disk. Whoever submits a job is whoever already holds the
+    # credential and the file.
     environment:
       # The downstream Fallen-8 this runtime writes into (in-network) + its own single credential,
       # reusing the existing F8_API_KEY exactly as f8-mcp does, so a secured instance needs no
