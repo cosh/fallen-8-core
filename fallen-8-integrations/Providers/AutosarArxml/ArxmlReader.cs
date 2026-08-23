@@ -100,10 +100,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
             var collected = new Collected();
 
-            // Hardened deliberately. This text arrives from a file an operator dropped in a directory, so a
-            // DTD is refused outright: entity expansion and external-entity resolution are the two ways an
-            // XML reader turns a data file into a fetch or a memory exhaustion, and an AUTOSAR extract has
-            // no legitimate use for either.
+            // Hardened deliberately, and more load-bearing since the bytes arrive in a REQUEST BODY rather
+            // than off a mount an operator prepared: whoever can reach the API now chooses this document. A
+            // DTD is refused outright, because entity expansion and external-entity resolution are the two
+            // ways an XML reader turns a data file into a fetch or a memory exhaustion, and an AUTOSAR
+            // extract has no legitimate use for either.
             var settings = new XmlReaderSettings
             {
                 DtdProcessing = DtdProcessing.Prohibit,

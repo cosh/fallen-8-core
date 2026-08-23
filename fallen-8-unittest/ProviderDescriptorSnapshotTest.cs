@@ -75,13 +75,13 @@ namespace NoSQL.GraphDB.Tests
         /// <summary>The fields the Studio's <c>IntegrationSetting</c> type models, per setting.</summary>
         private static readonly HashSet<String> SettingFields = new HashSet<String>(StringComparer.Ordinal)
         {
-            "key", "label", "kind", "required", "help", "defaultValue",
+            "key", "label", "kind", "required", "help", "defaultValue", "accept",
         };
 
         /// <summary>The Studio's <c>SettingKind</c> union. A form has a control for these and nothing else.</summary>
         private static readonly HashSet<String> SettingKinds = new HashSet<String>(StringComparer.Ordinal)
         {
-            "Text", "Number", "Boolean", "Url", "Credential",
+            "Text", "Number", "Boolean", "Url", "Credential", "File",
         };
 
         private sealed class RuntimeFactory : WebApplicationFactory<NoSQL.GraphDB.Integrations.Program>

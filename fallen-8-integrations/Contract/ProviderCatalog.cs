@@ -110,6 +110,26 @@ namespace NoSQL.GraphDB.Integrations.Contract
                             "Provider '{0}' gives credential setting '{1}' a default value. A default never " +
                             "carries a credential.", descriptor.Id, setting.Key));
                     }
+
+                    if (setting.Kind == SettingKind.File && !String.IsNullOrEmpty(setting.DefaultValue))
+                    {
+                        // A File setting's value is the NAME of a file the caller uploaded, so a default is
+                        // a name for a file nobody sent. The run would then reach the provider, which reads
+                        // that name for its messages, and fail on the read - naming a file the caller never
+                        // mentioned.
+                        throw new InvalidOperationException(String.Format(
+                            "Provider '{0}' gives file setting '{1}' a default value. There is no file to " +
+                            "default to: a File setting's value is the name of the file the job carried.",
+                            descriptor.Id, setting.Key));
+                    }
+
+                    if (setting.Kind != SettingKind.File && !String.IsNullOrEmpty(setting.Accept))
+                    {
+                        throw new InvalidOperationException(String.Format(
+                            "Provider '{0}' gives setting '{1}' an accept list, but its kind is {2}. An " +
+                            "accept list is a file picker's hint and means nothing anywhere else.",
+                            descriptor.Id, setting.Key, setting.Kind));
+                    }
                 }
 
                 byId.Add(descriptor.Id, provider!);

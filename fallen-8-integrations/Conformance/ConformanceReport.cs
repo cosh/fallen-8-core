@@ -72,8 +72,13 @@ namespace NoSQL.GraphDB.Integrations.Conformance
         /// <summary>No credential value reached a log sink, the job report or the graph.</summary>
         NoCredentialLeak = 8,
 
-        /// <summary>Every file read was one the fixture offered, by name.</summary>
-        NoPathEscape = 9,
+        /// <summary>
+        ///   Every file the run read was one the JOB carried, for a setting the descriptor declares. A
+        ///   provider never opens a file itself and never sees a path, so the only file it can reach is one
+        ///   the caller sent; this catches the author who declares one setting key and reads another, which
+        ///   otherwise fails in the middle of a source read rather than as a named verdict.
+        /// </summary>
+        FilesOnlyFromTheJob = 9,
 
         /// <summary>A provider that cannot observe the whole source did not declare a complete snapshot.</summary>
         CompletenessHonest = 10,

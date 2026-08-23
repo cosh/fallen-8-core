@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useRef, useState, type DragEvent } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
@@ -49,6 +49,7 @@ import type {
 import { useStatus } from "../state/status";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { FileDropzone } from "../components/FileDropzone";
 import { ListCapNote } from "../components/ListCapNote";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
@@ -86,7 +87,6 @@ export function KnowledgeScreen() {
 
   // ---- ingest state ----
   const fileRef = useRef<HTMLInputElement>(null);
-  const [dragging, setDragging] = useState(false);
   const [textName, setTextName] = useState("");
   const [textBody, setTextBody] = useState("");
   const [textFormat, setTextFormat] = useState<"markdown" | "plain">("markdown");
@@ -223,14 +223,6 @@ export function KnowledgeScreen() {
     },
   });
 
-  const onDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setDragging(false);
-    if (!bound) return;
-    const file = e.dataTransfer.files?.[0];
-    if (file) uploadFile.mutate(file);
-  };
-
   // ---- gate: capability off (stated, with the switch to flip) ----
   if (status.data && !enabled) {
     return (
@@ -322,20 +314,13 @@ export function KnowledgeScreen() {
             refused until the required indices exist.
           </p>
         )}
-        <div
-          className={`m-3 rounded border border-dashed p-4 text-center text-[12px] ${
-            dragging ? "border-accent text-accent" : "border-line text-fg-faint"
-          } ${bound ? "" : "opacity-50"}`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (bound) setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-          data-testid="dropzone"
+        <FileDropzone
+          className="m-3"
+          disabled={!bound}
+          onFile={(file) => uploadFile.mutate(file)}
         >
           Drop a file here to ingest it ({acceptedFormats.map((f) => `.${f}`).join(" ")})
-        </div>
+        </FileDropzone>
         <div className="flex flex-wrap items-end gap-2 px-3">
           <label className="grow">
             <span className="text-fg-faint text-[11px]">or pick a file</span>

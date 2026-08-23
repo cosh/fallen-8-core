@@ -73,9 +73,11 @@ test("capture the Integrations screen rendered from the shipped descriptors", as
   // The catalog drives everything on this screen, so wait for it rather than for a timeout.
   await expect(page.getByTestId("integration-select-unifi-network")).toBeVisible();
 
-  // Open the UniFi entry: it is the shipped integration that asks for a credential, so the form
-  // shows the password control and the help text saying the value is held for the run alone.
-  await page.getByTestId("integration-select-unifi-network").click();
+  // Open the CSV entry: it is a shipped integration that asks for a FILE, so the form shows the
+  // dropzone and the picker somebody actually uses. Deliberately not the UniFi one any more - that
+  // photographed the credential control, and the credential story is prose the page already tells,
+  // whereas "you upload the file with the run" is a claim a screenshot of a text box contradicts.
+  await page.getByTestId("integration-select-csv-device-list").click();
   await expect(page.getByTestId("integration-instance-id")).toBeVisible();
   await page.getByTestId("integration-instance-id").fill("office");
 

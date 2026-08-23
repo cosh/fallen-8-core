@@ -273,8 +273,12 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
     endpoints.submitIntegrationJob(instance, {
       providerId: "csv-device-list",
       integrationInstanceId: "office-inventory",
-      settings: { file: "devices.csv" },
+      // The file's BYTES ride in `files`, never its name in `settings`: the runtime opens nothing on
+      // disk and refuses a file setting named there. This test only checks route and method, so the
+      // shape here is a statement of the real wire body rather than something it can verify.
+      settings: {},
       credentialValues: {},
+      files: { file: { name: "devices.csv", contentBase64: "bWFjCg==" } },
     }),
 };
 

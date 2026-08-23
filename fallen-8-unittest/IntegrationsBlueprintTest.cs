@@ -178,8 +178,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new CsvDeviceListProvider();
 
-            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(),
-                files: Files(HappyCsv), cancellationToken: CancellationToken.None);
+            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(HappyCsv),cancellationToken: CancellationToken.None);
 
             Assert.IsTrue(report.Conforms,
                 "the floor of the provider contract must pass every check, or the suite that licenses a " +
@@ -203,8 +202,7 @@ namespace NoSQL.GraphDB.Tests
                 var provider = new CsvDeviceListProvider();
                 var file = "mac" + form[1] + "name\n44:D2:44:AA:BB:CC" + form[1] + "Reception printer\n";
 
-                var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(delimiter: form[0]),
-                    files: Files(file), cancellationToken: CancellationToken.None);
+                var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(file, delimiter: form[0]),cancellationToken: CancellationToken.None);
 
                 var snapshot = SnapshotOf(provider);
                 Assert.AreEqual(1, snapshot.Entities.Count,
@@ -222,8 +220,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new CsvDeviceListProvider();
 
-            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(),
-                files: Files("\n   \n\n"), cancellationToken: CancellationToken.None);
+            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob("\n   \n\n"),cancellationToken: CancellationToken.None);
 
             StringAssert.Contains(Refusal(report), CsvTableFailure.NoHeaderRow.ToString(),
                 "a file with no header row has no column to read a MAC out of, so the run must fail naming " +
@@ -240,8 +237,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new CsvDeviceListProvider();
 
-            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(),
-                files: Files("name;note\nReception printer;Lobby\n"),
+            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob("name;note\nReception printer;Lobby\n"),
                 cancellationToken: CancellationToken.None);
 
             var refusal = Refusal(report);
@@ -260,8 +256,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new CsvDeviceListProvider();
 
-            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(),
-                files: Files("mac,name\n,No mac in this row\nAA:BB:CC:DD:EE:01,Later row\n"),
+            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob("mac,name\n,No mac in this row\nAA:BB:CC:DD:EE:01,Later row\n"),
                 cancellationToken: CancellationToken.None);
 
             var snapshot = SnapshotOf(provider);
@@ -282,8 +277,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new CsvDeviceListProvider();
 
-            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(),
-                files: Files("mac,name\n44:D2:44:AA:BB:CC,First spelling\n44d244aabbcc,Second spelling\n"),
+            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob("mac,name\n44:D2:44:AA:BB:CC,First spelling\n44d244aabbcc,Second spelling\n"),
                 cancellationToken: CancellationToken.None);
 
             var snapshot = SnapshotOf(provider);
@@ -300,22 +294,28 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task AFileTheRuntimeCannotOpenFailsTheRunAndWithdrawsNothing()
+        public async Task AJobCarryingNoFileIsRefusedRatherThanRunAndWithdrawsNothing()
         {
             var provider = new CsvDeviceListProvider();
+            var job = CsvJob(HappyCsv);
 
-            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(),
-                files: new Dictionary<String, String>(StringComparer.Ordinal) { ["other.csv"] = HappyCsv },
+            // The equivalent of the old "the mount does not have that file": with nothing opened by name,
+            // the way a run ends up without its source is a job that did not carry one. It is refused
+            // BEFORE the provider is invoked, because once a run has reached the provider it has begun
+            // making withdrawal-relevant decisions.
+            job.Files.Clear();
+
+            var report = await ConformanceVerifier.VerifyAsync(provider, job,
                 cancellationToken: CancellationToken.None);
 
             var refusal = Refusal(report);
-            StringAssert.Contains(refusal, CsvFileName,
-                "the refusal names the file and the setting that named it, because 'I could not look' must " +
-                "never become 'there is nothing there'");
-            StringAssert.Contains(refusal, "could not be read",
-                "an unreadable file fails the RUN: reporting an empty list withdraws every device this " +
-                "identity claimed and deletes the ones nothing else claims");
-            AssertWithdrewNothing(report, "a run that could not read its source withdraws nothing");
+            StringAssert.Contains(refusal, CsvDeviceListProvider.FileSetting,
+                "the refusal names the setting that wanted a file, or the caller has to guess which field " +
+                "the form left empty");
+            StringAssert.Contains(refusal, "files",
+                "and it names where a file belongs, because the runtime opens nothing on disk: there is no " +
+                "directory the caller could put one in instead");
+            AssertWithdrewNothing(report, "a job that never ran withdraws nothing");
         }
 
         [TestMethod]
@@ -323,8 +323,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new CsvDeviceListProvider();
 
-            await ConformanceVerifier.VerifyAsync(provider, CsvJob(label: "printer"),
-                files: Files(HappyCsv), cancellationToken: CancellationToken.None);
+            await ConformanceVerifier.VerifyAsync(provider, CsvJob(HappyCsv, label: "printer"),cancellationToken: CancellationToken.None);
 
             var snapshot = SnapshotOf(provider);
             Assert.AreEqual(2, snapshot.Entities.Count,
@@ -1355,8 +1354,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new AutosarArxmlProvider();
 
-            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(),
-                files: ArxmlFiles(HappyArxml), cancellationToken: CancellationToken.None);
+            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(HappyArxml),cancellationToken: CancellationToken.None);
 
             Assert.IsTrue(report.Conforms,
                 "the standards blueprint must pass every check, or the suite that licenses a fifth " +
@@ -1368,7 +1366,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new AutosarArxmlProvider();
 
-            await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(), files: ArxmlFiles(HappyArxml),
+            await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(HappyArxml),
                 cancellationToken: CancellationToken.None);
 
             var snapshot = SnapshotOf(provider);
@@ -1449,7 +1447,7 @@ namespace NoSQL.GraphDB.Tests
                 "end every ECU, frame and PDU summary with a dangling 'unit' and embed the shape of the " +
                 "template instead of the description of the thing");
 
-            await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(), files: ArxmlFiles(HappyArxml),
+            await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(HappyArxml),
                 cancellationToken: CancellationToken.None);
 
             var signal = SnapshotOf(provider).Entities
@@ -1472,8 +1470,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new AutosarArxmlProvider();
 
-            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(),
-                files: ArxmlFiles("""
+            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob("""
                     <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
                       <AR-PACKAGES>
                         <AR-PACKAGE>
@@ -1501,8 +1498,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var provider = new AutosarArxmlProvider();
 
-            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(),
-                files: ArxmlFiles("this is not xml at all"),
+            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob("this is not xml at all"),
                 cancellationToken: CancellationToken.None);
 
             // The assertion that can actually fail: the provider must have produced NO document. A
@@ -1518,12 +1514,12 @@ namespace NoSQL.GraphDB.Tests
                 "an unreadable file must fail the run rather than describe an empty network");
         }
 
-        private static IReadOnlyDictionary<String, String> ArxmlFiles(String content)
-        {
-            return new Dictionary<String, String>(StringComparer.Ordinal) { [ArxmlFileName] = content };
-        }
-
-        private static IntegrationJob ArxmlJob()
+        /// <summary>
+        ///   A job carrying its extract, which is the ONLY way a file reaches a provider: nothing is
+        ///   mounted and nothing is opened by name, so the suite exercises the real path by construction
+        ///   rather than by substituting a store for it (the same reason there is no credentials fixture).
+        /// </summary>
+        private static IntegrationJob ArxmlJob(String content)
         {
             var job = new IntegrationJob
             {
@@ -1531,16 +1527,21 @@ namespace NoSQL.GraphDB.Tests
                 IntegrationInstanceId = Instance,
             };
 
-            job.Settings[AutosarArxmlProvider.FileSetting] = ArxmlFileName;
+            job.Files[AutosarArxmlProvider.FileSetting] = JobFileOf(ArxmlFileName, content);
             return job;
         }
 
-        private static IReadOnlyDictionary<String, String> Files(String content)
+        /// <summary>One file on a job: its own name, and its bytes as the wire carries them.</summary>
+        private static JobFile JobFileOf(String name, String content)
         {
-            return new Dictionary<String, String>(StringComparer.Ordinal) { [CsvFileName] = content };
+            return new JobFile
+            {
+                Name = name,
+                ContentBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(content)),
+            };
         }
 
-        private static IntegrationJob CsvJob(String delimiter = null, String label = null)
+        private static IntegrationJob CsvJob(String content, String delimiter = null, String label = null)
         {
             var job = new IntegrationJob
             {
@@ -1548,7 +1549,7 @@ namespace NoSQL.GraphDB.Tests
                 IntegrationInstanceId = Instance,
             };
 
-            job.Settings[CsvDeviceListProvider.FileSetting] = CsvFileName;
+            job.Files[CsvDeviceListProvider.FileSetting] = JobFileOf(CsvFileName, content);
             if (delimiter != null)
             {
                 job.Settings[CsvDeviceListProvider.DelimiterSetting] = delimiter;

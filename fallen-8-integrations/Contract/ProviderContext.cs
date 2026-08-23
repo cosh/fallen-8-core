@@ -177,11 +177,12 @@ namespace NoSQL.GraphDB.Integrations.Contract
         }
 
         /// <summary>
-        ///   Reads the file NAMED by a setting. A provider never opens a file itself: one taking a PATH
-        ///   could be pointed at anything this container can read and made to hand the contents back in a
-        ///   report or write them into the graph, and blocklisting a directory only moves the target. It also means
-        ///   a provider needs no real file system to be tested, which is what lets the conformance suite
-        ///   exercise the whole path offline.
+        ///   Reads the file a job carried for that setting. A provider never opens a file itself, and since
+        ///   feature integration-file-upload that is structural rather than guarded: the runtime opens
+        ///   nothing on disk, so there is no path to be pointed anywhere and no directory to contain a name
+        ///   within. It also means a provider needs no file system to be tested, which is what lets the
+        ///   conformance suite exercise the whole path offline. What a file IS lives on
+        ///   <c>SettingKind.File</c>.
         /// </summary>
         public Task<String> ReadFileAsync(String settingKey, CancellationToken cancellationToken)
         {
@@ -202,7 +203,7 @@ namespace NoSQL.GraphDB.Integrations.Contract
     /// <summary>
     ///   "This job cannot be run as written." Raised by <see cref="ProviderContext.Required(String)"/> and
     ///   by a provider that finds a setting unusable, and reported with <c>errorKind</c>
-    ///   <c>configuration</c>: "the mount is broken", "the password is wrong", "the console will not
+    ///   <c>configuration</c>: "the job is wrong", "the password is wrong", "the console will not
     ///   answer" and "the graph will not answer" send a reader to four different places, and only a named
     ///   kind gets them there.
     /// </summary>

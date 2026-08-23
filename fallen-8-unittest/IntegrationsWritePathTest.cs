@@ -1068,7 +1068,7 @@ namespace NoSQL.GraphDB.Tests
                     new CredentialResolver(active),
                     new OneTargetFactory(target),
                     new NoNetworkHttpFactory(),
-                    new NoFilesFileStore(),
+                    new NoFilesFactory(),
                     active,
                     new RunGate(),
                     _metrics,
@@ -1173,18 +1173,14 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
-        /// <summary>A files mount with nothing in it, for the same reason.</summary>
-        private sealed class NoFilesFileStore : IProviderFileStore
+        /// <summary>Runs whose jobs carry no file, for the same reason: this fixture's provider reads none.</summary>
+        private sealed class NoFilesFactory : IJobFilesFactory
         {
-            public Task<String> ReadAsync(String fileName, CancellationToken cancellationToken)
-            {
-                throw new NotSupportedException("This fixture offers no files.");
-            }
+            public Int64 MaxFileBytes => 0;
 
-            public Boolean TryResolve(String fileName, out String failure)
+            public JobFiles Create(IReadOnlyDictionary<String, JobFilePayload> filesBySettingKey)
             {
-                failure = "This fixture offers no files.";
-                return false;
+                return new JobFiles(filesBySettingKey);
             }
         }
 

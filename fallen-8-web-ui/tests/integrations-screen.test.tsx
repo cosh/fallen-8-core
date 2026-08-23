@@ -77,6 +77,7 @@ function fourthIntegration(): IntegrationProvider {
       { key: "verbose", label: "Verbose", kind: "Boolean", required: false, help: "Say more." },
       { key: "label", label: "Label", kind: "Text", required: false, help: "What to call the rows." },
       { key: "apiKey", label: "API key", kind: "Credential", required: true, help: "Created under Settings then Integrations." },
+      { key: "extract", label: "Extract", kind: "File", required: false, help: "The file itself, sent with the job.", accept: ".csv,.tsv" },
     ],
     entityKinds: ["thing"],
     claimTypes: ["mac"],
@@ -160,6 +161,131 @@ describe("the settings form is rendered from the descriptor alone", () => {
     await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
 
     expect(screen.getByTestId("integration-setting-exotic")).toHaveAttribute("type", "text");
+  });
+});
+
+describe("a file setting takes the file itself", () => {
+  it("renders a dropzone and a picker instead of a box to type a file name into", async () => {
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    // The whole point of the kind. Before it, a file-taking integration asked for the NAME of a file
+    // the operator first had to copy into a directory mounted into the runtime's container - which in
+    // the shipped environment held no such file at all.
+    expect(screen.getByTestId("integration-setting-extract-dropzone")).toBeInTheDocument();
+    const picker = screen.getByTestId("integration-setting-extract");
+    expect(picker).toHaveAttribute("type", "file");
+    expect(picker).toHaveAttribute("accept", ".csv,.tsv");
+  });
+
+  it("will not submit until a file is staged, and names the field that is missing", async () => {
+    const needsFile = fourthIntegration();
+    needsFile.settings = needsFile.settings.map((s) =>
+      s.key === "extract" ? { ...s, required: true } : s,
+    );
+    listProvidersMock.mockResolvedValue([needsFile]);
+
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+
+    // A required file cannot be satisfied by a typed value - the runtime refuses a file setting named
+    // in `settings` - so the only thing that satisfies it is a staged file.
+    expect(screen.getByTestId("integration-run")).toBeDisabled();
+    expect(screen.getByTestId("integration-missing")).toHaveTextContent("Extract");
+  });
+
+  it("sends the file's BYTES in files, and its name never in settings", async () => {
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      new File(["mac,name\nAA:BB:CC:DD:EE:01,Reception\n"], "devices.csv", { type: "text/csv" }),
+    );
+
+    // Staging, not sending: a run also needs an identity and the other settings, so the file waits.
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-staged")).toHaveTextContent("devices.csv"),
+    );
+    expect(submitJobMock).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+    const job = submitJobMock.mock.calls[0][1];
+    expect(job.files?.extract.name).toBe("devices.csv");
+    expect(atob(job.files!.extract.contentBase64)).toBe("mac,name\nAA:BB:CC:DD:EE:01,Reception\n");
+    // The name in `settings` is what the runtime refuses, and putting it there would be the one
+    // mistake that looks like it works right up to the 400.
+    expect(job.settings).not.toHaveProperty("extract");
+  });
+
+  it("refuses an empty file in the form rather than spending a round trip on it", async () => {
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      new File([], "empty.csv", { type: "text/csv" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-problem")).toHaveTextContent("empty"),
+    );
+    // And it is NOT staged: an empty file read as an empty source is a complete snapshot describing
+    // nothing, which withdraws every element the identity ever claimed.
+    expect(screen.queryByTestId("integration-setting-extract-staged")).toBeNull();
+  });
+
+  it("keeps the drop target after staging, and removing clears the file", async () => {
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      new File(["mac\n"], "devices.csv", { type: "text/csv" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-staged")).toBeInTheDocument(),
+    );
+
+    // The zone has to survive staging. Swapping it for a plain row would leave the form with no drop
+    // target, so a second drop would land on the document and navigate away from a half-filled form.
+    expect(screen.getByTestId("integration-setting-extract-dropzone")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("integration-setting-extract-clear"));
+    expect(screen.queryByTestId("integration-setting-extract-staged")).toBeNull();
+  });
+
+  it("drops a staged file when another integration is selected", async () => {
+    const other = fourthIntegration();
+    other.id = "another-fourth";
+    other.displayName = "Another fourth";
+    listProvidersMock.mockResolvedValue([fourthIntegration(), other]);
+
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      new File(["mac\n"], "devices.csv", { type: "text/csv" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-staged")).toBeInTheDocument(),
+    );
+
+    await userEvent.click(screen.getByTestId("integration-select-another-fourth"));
+
+    // Two integrations can declare the same setting key, so a file that rode along would send one
+    // integration's extract to another - and nothing afterwards could tell that had happened.
+    expect(screen.queryByTestId("integration-setting-extract-staged")).toBeNull();
   });
 });
 
