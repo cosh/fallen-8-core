@@ -233,6 +233,44 @@ house style.
 - The Observability section's intro repeated its own section blurb. Caught by reading the recaptured
   image, not by any test.
 
+## Follow-up after merge: the read-only surface looked editable
+
+Reported from a live keyless instance: the `StartupLoadMode` dropdown "did nothing" when clicked. Not
+a dropdown bug and not a data gap. Probed in a real browser against both instance shapes:
+
+| instance | select state | options | opacity | cursor |
+|---|---|---|---|---|
+| keyless (`configWriteEnabled: false`) | `disabled: true` | all three present | **1** | **default** |
+| keyed + write enabled | `disabled: false`, `selectOption` works, Save appears | all three | 1 | default |
+
+So every control in the surface was correctly disabled, and **nothing about any of them said so**:
+`.input` carried no `disabled:` styling, unlike `.btn`, so a read-only field was pixel identical to an
+editable one. The only explanation was a sentence in the dialog FOOTER, below a tall scrolling pane,
+which is not where someone clicking a dead control is looking.
+
+Three fixes, on `fix/config-read-only-affordance`:
+
+1. `.input` gains `disabled:cursor-not-allowed disabled:opacity-50` in `src/index.css`. Studio-wide,
+   and a strict improvement everywhere: a read-only field now reads as one. Verified in the browser:
+   opacity 1 to 0.5, cursor default to not-allowed.
+2. The read-only explanation moves from the footer into the dialog HEADER, which never scrolls: a
+   `read-only` chip beside the instance name plus one line directly above the rows. Pinned by a test
+   that asserts the note precedes the section pane in document order, so it cannot drift back down.
+3. The `writable here` filter's hover title stopped claiming "settings this surface can actually
+   change". Whether the instance accepts a write at all is instance-wide and separate; the filter is a
+   property of the setting, and the header now carries the instance-wide fact.
+
+**There was no enum coverage at all**, which is why a disabled select could not have been caught by
+the suite. Two cases added: the enum renders exactly the server's `allowedValues` and is selectable and
+marks the draft dirty; and on a read-only instance it is disabled with all its options still present
+and the note on screen. Both mutation-checked (blank the options, move the note back to the footer:
+two failures each).
+
+Screenshot impact was measured rather than guessed. A probe counted visible disabled `.input` elements
+on all 14 Studio routes: exactly one, on Connect, the `default` namespace row's permanently disabled
+"at startup" select. Recaptured all three configuration images anyway; only `screen-connect.png`
+changed, which confirms the other two contain no disabled field.
+
 ## Deliberately not done
 
 - `PluginEditor.tsx` is the one `Dialog.Portal` in the codebase with no `container` prop, which is the
