@@ -149,6 +149,24 @@ repair in Studio alongside `ensureRequiredUsings`), and Analytics surface ground
 the contract's real members belong in the whole-type prompt the way `type-model.json` grounds
 fragments).
 
+**Measured 2026-08-24 (first cloud eval, Azure A10, all three models in one session):** two of this
+entry's predictions are now evidence rather than hypothesis.
+
+- **Analytics grounding is a CONTRACT gap, not a scale gap.** `an-outdegree` fails on ALL THREE
+  models - including phi4-f8, which scores 100% compile / 100% proxy / 100% FT-8 on the entire
+  delegate set. A model that gets everything else right cannot be lacking capability here; the
+  whole-type prompt does not carry the Analytics contract's real members, exactly as this entry
+  proposed (ground it the way `type-model.json` grounds fragments).
+- **Whole-type ALGORITHM drafting is 14B-only, confirmed.** phi4-f8 passes both `path-skeleton` and
+  `subgraph-skeleton`. The mini does not merely fail `path-skeleton`, it runs away generating until
+  the harness's per-call cap fires (~6 min at 140 tok/s), which is what the "shape is not learned at
+  mini scale" note predicted.
+- **`fn-property-equals` splits the two variants**: the mini passes it, the 14B does not. So this
+  entry stays PENDING for the 14B on its own row, not only for the mini.
+
+Both variants land at 67% plugin compile by failing DIFFERENT rows, so that single number hides the
+split.
+
 **Closed by:** (open)
 
 ## 2026-07-29 - element-fulltext-match (new member + string-predicate scenarios) - PENDING
