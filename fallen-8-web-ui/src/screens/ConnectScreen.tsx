@@ -24,61 +24,24 @@
 // SOFTWARE.
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { isManagedInstance, useRegistry } from "../instances/registry";
 import { useStudioConfig } from "../app/studioConfig";
 import type { InstanceConfig } from "../instances/types";
-import { describeEndpoint, isCrossOriginInstance } from "../instances/types";
-import { getStatus, isAuthorized } from "../api/endpoints";
+import { describeEndpoint } from "../instances/types";
 import { Field } from "../components/Field";
+import { InstanceHealth } from "../components/InstanceHealth";
 import { NamespacesPanel } from "../components/NamespacesPanel";
 import { ConfigurationPanel } from "../components/ConfigurationPanel";
 import { Truncated } from "../components/Truncated";
 import { ListCapNote } from "../components/ListCapNote";
 import { DISPLAY_CAP } from "../lib/truncate";
-import { formatCountOrDash } from "../lib/format";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
- * Connect / Instances (FR-1a): registry with add/edit/remove, lazy health overview via
- * GET /status per instance, and active-instance selection. States the trusted-network
- * assumption plainly (spec §8 security posture).
+ * Connect / Instances (FR-1a): registry with add/edit/remove, a lazy per-instance health cell
+ * ({@link InstanceHealth}) and active-instance selection. States the trusted-network assumption
+ * plainly (spec §8 security posture).
  */
-
-function InstanceHealth({ instance }: { instance: InstanceConfig }) {
-  const health = useQuery({
-    queryKey: [instance.id, "status"],
-    queryFn: ({ signal }) => getStatus(instance, signal),
-    refetchInterval: 20_000,
-    retry: 0,
-  });
-
-  if (health.isPending) return <span className="text-fg-faint">checking…</span>;
-  if (health.isError || !health.data)
-    return (
-      <span className="text-danger">
-        unreachable
-        {health.isError && isCrossOriginInstance(instance.baseUrl) && (
-          <span className="text-fg-faint ml-1 text-[11px]" data-testid="cors-hint">
-            (if the data plane is running, check its AllowedCorsOrigins includes this UI's origin)
-          </span>
-        )}
-      </span>
-    );
-  if (!isAuthorized(health.data))
-    return (
-      <span className="text-danger">
-        {instance.auth.kind === "bearer"
-          ? "unauthorized: the host session token was rejected"
-          : "unauthorized — check the API key"}
-      </span>
-    );
-  return (
-    <span className="text-accent">
-      {formatCountOrDash(health.data.vertexCount)} v · {formatCountOrDash(health.data.edgeCount)} e
-    </span>
-  );
-}
 
 function InstanceForm({
   initial,
