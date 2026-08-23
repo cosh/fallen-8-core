@@ -386,13 +386,79 @@ describe("Configuration editor", () => {
 
     expect(await screen.findByTestId(PLUGIN_ROW)).toBeDisabled();
     // The explanation has ONE home, and it is the surface, because a portal is never a descendant of
-    // the card's own section element.
-    expect(screen.getByTestId("config-surface")).toHaveTextContent(
+    // the card's own section element. It sits ABOVE the rows, in the part of the dialog that does not
+    // scroll: it used to be in the footer, where someone looking at a disabled control could not see
+    // it, and a disabled control that looks live is indistinguishable from a broken one.
+    const note = screen.getByTestId("config-read-only-note");
+    expect(note).toHaveTextContent(
       /writes need an API key and Fallen8:Security:EnableConfigurationWrite/,
+    );
+    expect(note.compareDocumentPosition(screen.getByTestId("config-section-pane"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(screen.getByTestId("configuration-panel")).not.toHaveTextContent(
       /writes need an API key/,
     );
+  });
+
+  it("renders an enum as a select over the values the server allows, and one that opens", async () => {
+    // Nothing covered the enum branch, which is how a read-only instance came to look like a broken
+    // dropdown: the control had all three options and was simply disabled, with nothing saying so.
+    const user = userEvent.setup();
+    getConfigMock.mockResolvedValue(
+      config([
+        setting({
+          key: "Fallen8:Namespaces:StartupLoadMode",
+          kind: "enum",
+          value: "Catalog",
+          allowedValues: ["Catalog", "All", "DefaultOnly"],
+          minimum: undefined,
+        }),
+      ]),
+    );
+    renderPanel();
+    await openConfig(user);
+    await selectSection(user, "namespaces");
+
+    const select = await screen.findByTestId(settingTestId("Fallen8:Namespaces:StartupLoadMode"));
+    expect(select).not.toBeDisabled();
+    expect([...(select as HTMLSelectElement).options].map((o) => o.value)).toEqual([
+      "Catalog",
+      "All",
+      "DefaultOnly",
+    ]);
+
+    await user.selectOptions(select, "All");
+    expect(select).toHaveValue("All");
+    expect(screen.getByTestId("config-save")).toHaveTextContent("Save 1");
+  });
+
+  it("disables the enum on a read-only instance, and says so where the row is", async () => {
+    const user = userEvent.setup();
+    getConfigMock.mockResolvedValue(
+      config(
+        [
+          setting({
+            key: "Fallen8:Namespaces:StartupLoadMode",
+            kind: "enum",
+            value: "Catalog",
+            allowedValues: ["Catalog", "All", "DefaultOnly"],
+            minimum: undefined,
+          }),
+        ],
+        { apiKeyRequired: false, configWriteEnabled: false },
+      ),
+    );
+    renderPanel();
+    await openConfig(user);
+    await selectSection(user, "namespaces");
+
+    const select = await screen.findByTestId(settingTestId("Fallen8:Namespaces:StartupLoadMode"));
+    expect(select).toBeDisabled();
+    // The options are all there; the control just cannot be used. Without the note this reads as a
+    // dropdown that does not open.
+    expect([...(select as HTMLSelectElement).options]).toHaveLength(3);
+    expect(screen.getByTestId("config-read-only-note")).toBeInTheDocument();
   });
 
   it("treats a missing configWriteEnabled as read-only, because an older server has no write route", async () => {

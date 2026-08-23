@@ -113,8 +113,12 @@ body {
   @apply border-danger/40 text-danger hover:border-danger;
 }
 
+/* The disabled half matters as much as the enabled one: without it a read-only field is pixel
+   identical to an editable one, and the only way to find out is to click it and have nothing happen.
+   That is exactly what the configuration surface did on an instance that accepts no writes: every
+   control was disabled and every control looked live. Same treatment `.btn` already carries. */
 :where(.f8-studio) .input {
-  @apply border-line bg-ink text-fg placeholder:text-fg-faint focus:border-accent-2 w-full rounded border px-2 py-1 text-[12px] outline-none;
+  @apply border-line bg-ink text-fg placeholder:text-fg-faint focus:border-accent-2 w-full rounded border px-2 py-1 text-[12px] outline-none disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 :where(.f8-studio) .label {
