@@ -300,9 +300,13 @@ jobs:
     # fail a release for it. Set the OLLAMA_SIGNING_KEY secret to the private half whose public
     # half is registered at https://ollama.com/settings/keys.
     #
-    # Only the mini is tagged by default: a hosted runner has roughly 14 GB free and the 14B is
-    # ~9 GB on top of the mini's ~2.5 GB, plus the re-push. Set the F8_TAG_MODELS repository
-    # VARIABLE to a space-separated list to change that (the job logs exactly what it tagged).
+    # WHICH models get tagged is the F8_TAG_MODELS repository VARIABLE, space-separated, e.g.
+    #   stoic_hellman_728/phi4-f8-mini stoic_hellman_728/phi4-f8
+    # Unset, the script falls back to both published variants. There is deliberately no discovery:
+    # registry.ollama.ai exposes no catalog or tags-list endpoint, and the only way to enumerate a
+    # namespace is scraping ollama.com's HTML, which is not something a release should depend on.
+    # The script removes each model again after pushing its tag, so the 14B and the mini fit a
+    # hosted runner one at a time rather than needing ~12 GB at once.
     permissions: {}
     steps:
       - uses: actions/checkout@v4
@@ -324,7 +328,7 @@ jobs:
         if: steps.key.outputs.have == '1'
         env:
           OLLAMA_SIGNING_KEY: ${{ secrets.OLLAMA_SIGNING_KEY }}
-          F8_TAG_MODELS: ${{ vars.F8_TAG_MODELS || 'stoic_hellman_728/phi4-f8-mini' }}
+          F8_TAG_MODELS: ${{ vars.F8_TAG_MODELS }}
         run: scripts/tag-models.sh "${{ github.ref_name }}"
 
   github-release:
