@@ -153,14 +153,29 @@ jobs:
       run: docker compose config -q
     - name: Validate split-topology overlay (feature standalone-ui)
       run: docker compose -f docker-compose.yml -f docker-compose.split.yml config -q
-    # The gateway overlay is the ONLY gate this file has (no unit test reads a compose file),
-    # and it fails closed on purpose: its endpoint and key have no defaults, so the values
-    # below stand in for an operator's.
-    - name: Validate Nahil overlay (feature nahil-backend)
+    # The gateway overlay is the ONLY gate this file has (no unit test reads a compose file), and
+    # the two variables are deliberately NOT symmetric: F8_NAHIL_URL defaults to Nahil's own host
+    # root, F8_NAHIL_API_KEY has no default so the overlay fails closed. Both halves are checked,
+    # because "it resolves" would pass either way and the asymmetry is the point.
+    - name: Validate Nahil overlay - the key alone resolves the profile (feature nahil-backend)
+      env:
+        F8_NAHIL_API_KEY: ci-placeholder
+      run: |
+        docker compose -f docker-compose.yml -f docker-compose.nahil.yml config \
+          | grep -q 'Fallen8__Chat__Nahil__Endpoint: https://api.nahil.dev'
+    - name: Validate Nahil overlay - an explicit endpoint still wins
       env:
         F8_NAHIL_URL: https://models.example
         F8_NAHIL_API_KEY: ci-placeholder
-      run: docker compose -f docker-compose.yml -f docker-compose.nahil.yml config -q
+      run: |
+        docker compose -f docker-compose.yml -f docker-compose.nahil.yml config \
+          | grep -q 'Fallen8__Chat__Nahil__Endpoint: https://models.example'
+    - name: Validate Nahil overlay - no credential fails closed
+      run: |
+        if docker compose -f docker-compose.yml -f docker-compose.nahil.yml config -q 2>/dev/null; then
+          echo "the overlay resolved without F8_NAHIL_API_KEY; it must fail closed" >&2
+          exit 1
+        fi
     - name: Build image (engine + API + UI)
       run: docker build -t fallen-8:ci .
     - name: Smoke-test the container

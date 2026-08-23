@@ -68,8 +68,40 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>Adjacent chunks below this merge (chars).</summary>
         public Int32 ChunkMinChars { get; set; } = 800;
 
-        /// <summary>Chunks above this split at paragraph / table-row boundaries (chars).</summary>
-        public Int32 ChunkMaxChars { get; set; } = 4_000;
+        /// <summary>
+        ///   Chunks above this split at paragraph / table-row boundaries (chars). It is a TOKEN
+        ///   budget wearing a char unit: 3,600 keeps a chunk under ~1,800 <c>bge-m3</c> tokens, and
+        ///   so under the 2,048-token per-input ceiling the embedding backends actually enforce, at
+        ///   the 2.0 chars/token worst case measured over markdown tables (2.10), ARXML (2.23) and
+        ///   punctuation-dense text (2.04). Latin prose runs ~4.0, so it costs ordinary documents
+        ///   nothing.
+        ///   <para>
+        ///     It was 4,000, derived from the 8,192-token window <c>bge-m3</c> advertises. Neither
+        ///     backend honours that window - measured, both the local Ollama sidecar and Nahil stop
+        ///     at 2,048 - and above the real ceiling the backend used to shorten the input and
+        ///     return a vector for its first ~2,046 tokens, so a chunk was indexed under a vector of
+        ///     only part of itself with nothing in any log to say so. To be exact about the old
+        ///     value rather than alarmed about it: 4,000 was INSIDE that ceiling for every
+        ///     Latin-script, table and XML sample measured, but by under 70 tokens at the densest of
+        ///     them (~1,980 of 2,048) - no margin for a denser page - and already OUTSIDE it for
+        ///     Korean (~2,400) and Chinese (~3,010). 3,600 buys ~250 tokens of margin and costs
+        ///     prose nothing.
+        ///   </para>
+        ///   <para>
+        ///     The silence itself is closed at the other end, where the provider sends
+        ///     <c>truncate: false</c> and the backend refuses instead of shortening (see
+        ///     <see cref="Embedding.Fallen8EmbeddingProvider" />). This default is what keeps
+        ///     ordinary documents from reaching that refusal; the two only work as a pair.
+        ///   </para>
+        ///   <para>
+        ///     Two things it does NOT make impossible, both loud rather than silent now. A corpus in
+        ///     a denser script wants a lower value - CJK measured 1.33-2.02 chars/token, so ~1,800
+        ///     here for Chinese. And a single table ROW longer than this is still emitted whole, on
+        ///     purpose: a row-window always carries at least one body row, so the alternative is
+        ///     cutting a row in half. Either case now fails the ingest naming this key.
+        ///   </para>
+        /// </summary>
+        public Int32 ChunkMaxChars { get; set; } = 3_600;
 
         /// <summary>Identifier tokens kept per chunk (first occurrence wins).</summary>
         public Int32 MaxIdentifiersPerChunk { get; set; } = 64;

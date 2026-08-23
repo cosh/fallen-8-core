@@ -26,10 +26,13 @@ fine-tunes specialised on the delegate contract:
 | `phi4-mini`    | Phi-4-mini | CPU or GPU, pulled by default          | The stock, un-tuned base, useful as a comparison     |
 
 The models do not have to run on this machine: [Nahil](/nahil/) serves the same API from remote
-hardware, which is a configuration change and nothing else. Note that Nahil catalogs a model under
-its **published registry name**, which can differ from the local tag for the same weights, and that
-a registry build carries neither the chat template nor the stop tokens a locally built image bakes
-in - send those per request via `options.stop` on `POST /chat`.
+hardware, which is a configuration change and nothing else. Two cautions. Nahil catalogs a model
+under its **published registry name**, and that name does not always mean what a local tag of the
+same spelling means - this fine-tune has two live published repos, so `phi4-f8-mini` and
+`f8-delegate` both resolve there, to different weights
+([which to pick](/nahil/#one-name-can-mean-two-different-builds)). And a registry build carries
+neither the chat template nor the stop tokens a locally built image bakes in - send those per
+request via `options.stop` on `POST /chat`.
 
 Fallen-8 ships **no weights**. The compose environment's Ollama sidecar pulls them on first start from
 the repositories named by `F8_DELEGATE_REPO` and `F8_PHI4F8_REPO`, so the models and their MIT licences

@@ -86,7 +86,19 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>Maximum texts per request batch.</summary>
         public Int32 MaxBatchSize { get; set; } = 64;
 
-        /// <summary>Maximum characters per text item.</summary>
+        /// <summary>
+        ///   Maximum characters per text item on the <c>/embedding</c> surface. 8192 is deliberately
+        ///   NOT the model's token window, though it is the same number and that is where it came
+        ///   from: <c>bge-m3</c> advertises 8192 tokens and neither backend honours it (measured,
+        ///   both stop at 2048). Read it instead as the bound above which an input cannot fit 2048
+        ///   tokens even at the most token-efficient text there is (~4.1 chars/token for Latin
+        ///   prose) - it rejects the hopeless early, with a 400 naming this key.
+        ///   <para>Below it, length is the backend's call and it is asked never to truncate, so a
+        ///   too-dense input is refused rather than half-embedded (see
+        ///   <see cref="Embedding.Fallen8EmbeddingProvider" />). Tightening this to the real
+        ///   worst-case density would reject inputs the backend accepts happily, which is why the
+        ///   char bound stays generous and the backend stays honest.</para>
+        /// </summary>
         public Int32 MaxTextLength { get; set; } = 8192;
 
         /// <summary>Optional retrieval-instruction prefix applied to QUERY-time embeddings
