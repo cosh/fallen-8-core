@@ -84,13 +84,57 @@ install_signing_key() {
     trap 'rm -f "$OLLAMA_KEY_FILE"' EXIT
   fi
   [ -s "$OLLAMA_KEY_FILE" ] || die "no Ollama signing key at '$OLLAMA_KEY_FILE' (and OLLAMA_SIGNING_KEY is unset). A push would authenticate as nobody and upload nothing."
+
+  # Validate BEFORE installing. ollama signs every registry request, pulls included, so replacing
+  # the daemon's working key with an unparseable one breaks even reads - which is how this first
+  # surfaced: "Error: pull model manifest: ssh: no key found", Go's message for a PEM block it
+  # could not decode, on a PULL. Reporting the SHAPE turns that into an actionable message.
+  # Deliberately prints no key material: only counts and booleans, because CI masks the exact
+  # secret but not a substring of it.
+  # A 0600 copy: ssh-keygen refuses a key with loose permissions (one on a Windows mount presents
+  # as 0777), so validating the original would reject a perfectly good key for the wrong reason.
+  local probe
+  probe="$(mktemp)"; chmod 600 "$probe"; cat "$OLLAMA_KEY_FILE" > "$probe"
+  if ! ssh-keygen -y -P '' -f "$probe" >/dev/null 2>&1; then
+    echo "[tag-models] the key material is not a usable OpenSSH PRIVATE key:" >&2
+    echo "[tag-models]   lines: $(wc -l < "$OLLAMA_KEY_FILE" | tr -d ' ')" >&2
+    if head -1 "$OLLAMA_KEY_FILE" | grep -q -- "-----BEGIN"; then
+      echo "[tag-models]   starts with a BEGIN header: yes" >&2
+    else
+      echo "[tag-models]   starts with a BEGIN header: NO" >&2
+    fi
+    if head -1 "$OLLAMA_KEY_FILE" | grep -q "^ssh-"; then
+      echo "[tag-models]   looks like a PUBLIC key - this needs the private half" >&2
+    fi
+    if grep -qF '\n' "$OLLAMA_KEY_FILE"; then
+      echo "[tag-models]   contains LITERAL backslash-n: its newlines were escaped, not real" >&2
+    fi
+    if [ "$(wc -l < "$OLLAMA_KEY_FILE" | tr -d ' ')" -le 1 ]; then
+      echo "[tag-models]   it is a single line: the line breaks were lost when it was stored" >&2
+    fi
+    rm -f "$probe"
+    die "store the key with its real line breaks intact - the whole file, BEGIN and END lines included. The daemon's existing key was left untouched."
+  fi
+
+  rm -f "$probe"
+
   local home
   home="$(getent passwd ollama 2>/dev/null | cut -d: -f6 || true)"
   if [ -n "$home" ]; then
-    sudo mkdir -p "$home/.ollama"
-    sudo install -m 600 "$OLLAMA_KEY_FILE" "$home/.ollama/id_ed25519"
-    sudo chown -R ollama:ollama "$home/.ollama" 2>/dev/null || true
-    sudo systemctl restart ollama 2>/dev/null || true
+    # -n on every sudo below: without it, a box without passwordless sudo PROMPTS, and in a
+    # non-interactive context that hangs until something kills it rather than failing. Check once,
+    # with a message that says what to do.
+    sudo -n true 2>/dev/null || die "installing the key into the daemon's home ($home/.ollama) needs passwordless sudo. CI runners have it; on a workstation either run this from a sudo-capable session or copy the key there yourself, then re-run."
+    sudo -n mkdir -p "$home/.ollama"
+    sudo -n install -m 600 "$OLLAMA_KEY_FILE" "$home/.ollama/id_ed25519"
+    # The public half too: derived, so it always matches, and some versions read it.
+    ssh-keygen -y -f "$OLLAMA_KEY_FILE" 2>/dev/null > "$OLLAMA_KEY_FILE.pub" || true
+    [ -s "$OLLAMA_KEY_FILE.pub" ] && sudo -n install -m 644 "$OLLAMA_KEY_FILE.pub" "$home/.ollama/id_ed25519.pub"
+    sudo -n chown -R ollama:ollama "$home/.ollama" || die "could not give the daemon ownership of its key; it would read nothing and report 'no key found'."
+    # A root-owned 0600 key is invisible to the daemon and fails with the SAME message as a
+    # malformed one, so assert readability as the user that actually signs.
+    sudo -n -u ollama test -r "$home/.ollama/id_ed25519" || die "the daemon user cannot read the installed key."
+    sudo -n systemctl restart ollama 2>/dev/null || true
     for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
     log "installed the signing key into the daemon's home ($home/.ollama)."
   else
