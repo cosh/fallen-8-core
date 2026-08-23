@@ -45,7 +45,6 @@ flowchart TB
     docling["Document sidecar (docling-serve)<br/>binary-to-structured conversion"]:::ext
     nlp["NLP sidecar (spaCy)<br/>named entities + key terms"]:::ext
     integrations["Integrations runtime · fallen-8-integrations<br/>separate deployable · no host port · writes via REST"]:::mcp
-    files["Files mount<br/>/files · read only"]:::ext
     sources["Your network<br/>CSV · UniFi console · Fronius inverter · ARXML extract"]:::ext
 
     subgraph obs["Observability · one Grafana pane"]
@@ -84,7 +83,6 @@ flowchart TB
     mcp -.->|OTLP| collector
     integrations -->|HTTP · REST · own API key| rest
     integrations -.->|reads| sources
-    files -.-> integrations
     integrations -.->|OTLP| collector
     ns --> writer --> model
     model --- plugins
@@ -188,8 +186,9 @@ reads a system on your own network, describes what it saw as a snapshot, and wri
 description into one namespace over the REST API. Like the MCP server it references neither the
 engine nor the app, and for a sharper reason: jobs hand it credentials belonging to your
 controllers, so it holds **no host port at all**. The browser reaches it only through the app's
-authenticated proxy at `/integrations/*`. It stores no credential of any kind, so its one mount is
-the read-only files directory a provider may name a file in. The full story is in
+authenticated proxy at `/integrations/*`. It stores no credential and no file of any kind: both
+arrive with the job that needs them and are dropped when the run ends, so it has **no mount at
+all**, nothing to rotate and nothing to read off disk. The full story is in
 [Integrations](/integrations/).
 
 ## F8 Studio and the model sidecar

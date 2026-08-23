@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useActiveInstance, useActiveNamespace } from "../instances/registry";
 import { submitIntegrationJob } from "../api/endpoints";
@@ -36,6 +36,7 @@ import type {
 } from "../api/types";
 import { capabilityOf, useIntegrationProviders } from "../state/integrations";
 import { ErrorBox } from "../components/ErrorBox";
+import { FileDropzone } from "../components/FileDropzone";
 import { ListCapNote } from "../components/ListCapNote";
 import { Truncated } from "../components/Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
@@ -63,25 +64,39 @@ export function IntegrationsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [instanceId, setInstanceId] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [files, setFiles] = useState<Record<string, StagedFile>>({});
+  const [fileProblems, setFileProblems] = useState<Record<string, string>>({});
   const [report, setReport] = useState<IntegrationJobReport | null>(null);
 
   const catalog = useMemo(() => providers.data ?? [], [providers.data]);
   const selected = catalog.find((provider) => provider.id === selectedId) ?? null;
 
+  // Read by the async file staging below to find out whether the integration that asked for a file is
+  // still the selected one. A ref and not the state value, because the closure captured the value as
+  // it was when the read started, which is precisely the thing it needs to compare against.
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+
   const run = useMutation({
-    mutationFn: () => submitIntegrationJob(instance, buildJob(selected!, namespace, instanceId, values)),
+    mutationFn: () =>
+      submitIntegrationJob(instance, buildJob(selected!, namespace, instanceId, values, files)),
     onSuccess: (result) => {
       setReport(result);
       // The job has reported, so a secret typed into this form has done its work: drop it. Only on
       // success, and success here includes a run that FAILED - the report came back either way. A job
       // the runtime refused (400, 409, 503) never ran, so the form keeps its values for the retry
       // that follows a fixed setting.
+      //
+      // A staged FILE is deliberately kept. It is not a secret - it is the data the run wrote - and
+      // re-running the same extract after fixing a setting is the common next action, so dropping it
+      // would cost a second trip to the file picker for nothing. It is cleared on provider switch,
+      // and it never leaves this tab except in the job.
       setValues((current) => forgetSecrets(selected, current));
     },
   });
 
   const identityProblem = describeIdentityProblem(instanceId);
-  const missing = selected ? missingRequired(selected, values) : [];
+  const missing = selected ? missingRequired(selected, values, files) : [];
   const canSubmit = selected !== null && identityProblem === null && missing.length === 0;
 
   function select(provider: IntegrationProvider) {
@@ -89,13 +104,54 @@ export function IntegrationsScreen() {
     setReport(null);
     run.reset();
 
+    // Staged files are dropped with the provider that asked for them. Two integrations can declare
+    // the same setting key, so keeping them would send one integration's extract to another.
+    setFiles({});
+    setFileProblems({});
+
     // The descriptor's own defaults, so a form opens on what the integration expects rather than on
-    // blanks. A credential setting never carries one.
+    // blanks. Neither a credential nor a file setting ever carries one.
     const defaults: Record<string, string> = {};
     for (const setting of provider.settings) {
+      if (setting.kind === "File" || setting.kind === "Credential") continue;
       if (setting.defaultValue) defaults[setting.key] = setting.defaultValue;
     }
     setValues(defaults);
+  }
+
+  /** Reads one picked or dropped file into memory, as BYTES. Nothing is sent until "run now". */
+  async function stage(setting: IntegrationSetting, file: File) {
+    // Which integration asked for it. Reading is asynchronous, so a big file picked just before
+    // switching provider would otherwise land on the NEW one - the exact outcome select()'s reset
+    // exists to prevent, arriving a moment too late for it.
+    const askedBy = selectedId;
+
+    setFileProblems((current) => withoutKey(current, setting.key));
+    try {
+      const bytes = await readBytes(file);
+      if (askedBy !== selectedIdRef.current) return;
+
+      if (bytes.length === 0) {
+        // Refused here as well as by the runtime, because the round trip for this one is pure
+        // latency: an empty file is the mistake somebody makes when they pick before saving.
+        setFileProblems((current) => ({
+          ...current,
+          [setting.key]: `${file.name} is empty, so there would be nothing to read.`,
+        }));
+        return;
+      }
+
+      setFiles((current) => ({
+        ...current,
+        [setting.key]: { name: file.name, size: bytes.length, bytes },
+      }));
+    } catch (error) {
+      if (askedBy !== selectedIdRef.current) return;
+      setFileProblems((current) => ({
+        ...current,
+        [setting.key]: `${file.name} could not be read: ${describeReadFailure(error)}`,
+      }));
+    }
   }
 
   // ---- gate: the capability is absent, so the screen says so rather than showing an error ----
@@ -210,6 +266,13 @@ export function IntegrationsScreen() {
                 setting={setting}
                 value={values[setting.key] ?? ""}
                 onChange={(next) => setValues((current) => ({ ...current, [setting.key]: next }))}
+                file={files[setting.key]}
+                problem={fileProblems[setting.key]}
+                onFile={(picked) => void stage(setting, picked)}
+                onClearFile={() => {
+                  setFiles((current) => withoutKey(current, setting.key));
+                  setFileProblems((current) => withoutKey(current, setting.key));
+                }}
               />
             ))}
 
@@ -249,13 +312,34 @@ function SettingField(props: {
   setting: IntegrationSetting;
   value: string;
   onChange: (value: string) => void;
+  /** File settings only: the file staged for this one, if any. */
+  file?: StagedFile;
+  /** File settings only: why the last pick could not be used. */
+  problem?: string;
+  /** File settings only: a file was picked or dropped. */
+  onFile?: (file: File) => void;
+  /** File settings only: forget the staged file. */
+  onClearFile?: () => void;
 }) {
-  const { setting, value, onChange } = props;
+  const { setting, value, onChange, file, problem, onFile, onClearFile } = props;
   const testid = `integration-setting-${setting.key}`;
 
   if (setting.kind === "Credential") {
     return (
       <CredentialField setting={setting} value={value} onChange={onChange} testid={testid} />
+    );
+  }
+
+  if (setting.kind === "File") {
+    return (
+      <FileField
+        setting={setting}
+        file={file}
+        problem={problem}
+        onFile={onFile!}
+        onClear={onClearFile!}
+        testid={testid}
+      />
     );
   }
 
@@ -330,6 +414,99 @@ function CredentialField(props: {
         shared instance wants TLS.
       </span>
     </label>
+  );
+}
+
+/**
+ * A file setting: the file itself, taken the way the Knowledge screen takes a document.
+ *
+ * Dropping or picking STAGES the file rather than sending it - a run also needs an identity and the
+ * other settings - and the file's bytes ride with the job when "run now" is pressed. It follows the
+ * credential rule (see {@link CredentialField}) with one difference stated in the help: a file is not
+ * a secret, so the form keeps it after a run instead of forgetting it.
+ */
+function FileField(props: {
+  setting: IntegrationSetting;
+  file?: StagedFile;
+  problem?: string;
+  onFile: (file: File) => void;
+  onClear: () => void;
+  testid: string;
+}) {
+  const { setting, file, problem, onFile, onClear, testid } = props;
+  const pickRef = useRef<HTMLInputElement>(null);
+
+  // A div and not a label: this field's controls are BUTTONS, and a label wrapping them makes its
+  // static text activate the first one, which is not what clicking a caption should do.
+  return (
+    <div className="block">
+      <span className="label">
+        {setting.label}
+        {setting.required && <span className="text-warn"> *</span>}
+      </span>
+
+      {/* The zone stays put once a file is staged, so a replacement can be DROPPED and not only
+          picked. Swapping it for a plain row would leave the form with no drop target at all, and
+          the second drop would land on the document and navigate away from the half-filled form. */}
+      <FileDropzone testId={`${testid}-dropzone`} onFile={onFile}>
+        {file ? (
+          <span data-testid={`${testid}-staged`}>
+            <span className="text-fg">{file.name}</span>{" "}
+            <span className="text-fg-faint">({formatBytes(file.size)})</span> - drop another to
+            replace it
+          </span>
+        ) : (
+          <>
+            Drop {setting.label.toLowerCase()} here
+            {setting.accept ? ` (${setting.accept.split(",").join(" ")})` : ""}
+          </>
+        )}
+      </FileDropzone>
+
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          className="btn"
+          data-testid={`${testid}-pick`}
+          onClick={() => pickRef.current?.click()}
+        >
+          {file ? "replace" : "pick a file"}
+        </button>
+        {file && (
+          <button type="button" className="btn" data-testid={`${testid}-clear`} onClick={onClear}>
+            remove
+          </button>
+        )}
+      </div>
+
+      <input
+        ref={pickRef}
+        type="file"
+        className="hidden"
+        accept={setting.accept ?? undefined}
+        aria-label={setting.label}
+        data-testid={testid}
+        onChange={(event) => {
+          const picked = event.target.files?.[0];
+          // Cleared so that re-picking the same file fires a change again, which is what somebody
+          // does after saving an edit to it.
+          event.target.value = "";
+          if (picked) onFile(picked);
+        }}
+      />
+
+      {problem && (
+        <span className="text-warn block text-[11px]" data-testid={`${testid}-problem`}>
+          {problem}
+        </span>
+      )}
+
+      <span className="label-help">
+        {setting.help} It is read in your browser and travels with the run, so nothing is mounted and
+        nothing is stored: the runtime drops it when the run ends. This tab keeps it for a re-run
+        until you replace it, remove it, or pick another integration.
+      </span>
+    </div>
   );
 }
 
@@ -427,9 +604,62 @@ function forgetSecrets(
   return kept;
 }
 
+/** One file held in this tab, waiting for a run. */
+type StagedFile = { name: string; size: number; bytes: Uint8Array };
+
+/**
+ * Reads a file as BYTES, via FileReader.
+ *
+ * Bytes and not text, and FileReader rather than `file.text()`, for two independent reasons.
+ *
+ * Bytes, because the browser deciding the encoding loses information the runtime can still use: it
+ * decodes with byte-order-mark detection, so an ARXML a vendor tool wrote as UTF-16 arrives intact
+ * where `readAsText` would have made mojibake of it. That is the whole of what is claimed - a file in
+ * a legacy codepage with NO byte-order mark still falls back to UTF-8 at the far end, exactly as it
+ * did when the file came off a mount, so nothing here has made that case better or worse.
+ *
+ * FileReader, because jsdom does not implement `Blob.prototype.text`: it typechecks against the DOM
+ * lib and then throws at test time.
+ */
+function readBytes(file: File): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("the file could not be read"));
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/** Bytes to base64, in chunks: one `String.fromCharCode(...bytes)` call blows the argument limit. */
+function base64Of(bytes: Uint8Array): string {
+  const chunk = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+function formatBytes(size: number): string {
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function describeReadFailure(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "the browser did not say why";
+}
+
+function withoutKey<T>(map: Record<string, T>, key: string): Record<string, T> {
+  const kept = { ...map };
+  delete kept[key];
+  return kept;
+}
+
 function inputType(kind: SettingKind): string {
-  // A credential setting never reaches here: it has its own field, which is a password box. Everything
-  // else is a value the form can render from the kind alone.
+  // Neither a credential nor a file setting reaches here: each has its own field, a password box and
+  // a dropzone. Everything else is a value the form can render from the kind alone. A File case here
+  // would be actively wrong - a controlled <input type="file" value=...> throws in React.
   switch (kind) {
     case "Number":
       return "number";
@@ -440,10 +670,24 @@ function inputType(kind: SettingKind): string {
   }
 }
 
-/** Which required settings are still empty, named so the button's refusal is explainable. */
-function missingRequired(provider: IntegrationProvider, values: Record<string, string>): string[] {
+/**
+ * Which required settings are still empty, named so the button's refusal is explainable. A file
+ * setting is satisfied by a STAGED FILE and never by a typed value: the runtime refuses a file
+ * setting named in `settings`, so a value-based check here would either always fail or invite
+ * putting the name where it must not go.
+ */
+function missingRequired(
+  provider: IntegrationProvider,
+  values: Record<string, string>,
+  files: Record<string, StagedFile>,
+): string[] {
   return provider.settings
-    .filter((setting) => setting.required && !(values[setting.key] ?? "").trim())
+    .filter((setting) =>
+      setting.required &&
+      (setting.kind === "File"
+        ? !files[setting.key]
+        : !(values[setting.key] ?? "").trim()),
+    )
     .map((setting) => setting.label);
 }
 
@@ -463,20 +707,35 @@ function describeIdentityProblem(instanceId: string): string | null {
 }
 
 /**
- * The job. A credential setting contributes to `credentialValues`, everything else to `settings`, and
- * a credential NEVER to `settings`: a setting is neither leased nor redacted by the runtime, so a
- * secret there would be logged and reported like any other value.
+ * The job, in three maps. A credential setting contributes to `credentialValues`, a file setting to
+ * `files`, and everything else to `settings` - and neither a credential nor a file EVER to
+ * `settings`. A setting is neither leased nor redacted by the runtime, so a secret there would be
+ * logged and reported like any other value; and the runtime opens nothing on disk, so a file name
+ * there would name a file nothing can read (it refuses such a job rather than trying).
  */
 function buildJob(
   provider: IntegrationProvider,
   namespace: string,
   instanceId: string,
   values: Record<string, string>,
+  staged: Record<string, StagedFile>,
 ): IntegrationJobRequest {
   const settings: Record<string, string> = {};
   const credentialValues: Record<string, string> = {};
+  const files: Record<string, { name: string; contentBase64: string }> = {};
 
   for (const setting of provider.settings) {
+    if (setting.kind === "File") {
+      const file = staged[setting.key];
+      if (file) {
+        // NOT trimmed, and not decoded to text on the way: the bytes are what the provider parses,
+        // and the file's own name is what its messages will call it.
+        files[setting.key] = { name: file.name, contentBase64: base64Of(file.bytes) };
+      }
+
+      continue;
+    }
+
     const raw = values[setting.key] ?? "";
     if (!raw.trim()) continue;
 
@@ -498,5 +757,6 @@ function buildJob(
     namespace,
     settings,
     credentialValues,
+    files,
   };
 }

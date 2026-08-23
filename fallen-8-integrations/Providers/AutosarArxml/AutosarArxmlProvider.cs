@@ -72,22 +72,23 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             Id = ProviderId,
             DisplayName = "AUTOSAR system extract (ARXML)",
             Description =
-                "Reads an AUTOSAR classic-platform system extract (ARXML, schema r4.0) from the " +
-                "runtime's files directory and describes the FlexRay communication matrix it carries: " +
-                "the network, its ECUs, frames, PDUs, signals, system signals and scaling methods, " +
-                "with the send and receive flow between them.",
+                "Reads an AUTOSAR classic-platform system extract (ARXML, schema r4.0) the job carries " +
+                "and describes the FlexRay communication matrix it holds: the network, its ECUs, frames, " +
+                "PDUs, signals, system signals and scaling methods, with the send and receive flow " +
+                "between them.",
             Settings = new[]
             {
                 new ProviderSetting
                 {
                     Key = FileSetting,
-                    Label = "File name",
-                    Kind = SettingKind.Text,
+                    Label = "System extract",
+                    Kind = SettingKind.File,
                     Required = true,
+                    Accept = ".arxml,.xml",
                     Help =
-                        "The NAME of a file, such as network.arxml, and not a path: put the file in the " +
-                        "files directory mounted into this runtime and name it here. The runtime opens it, " +
-                        "so this provider never sees a path and cannot be pointed anywhere else.",
+                        "The extract itself, such as network.arxml, sent with the job. It travels with the " +
+                        "run and is dropped when the run ends: nothing is mounted, nothing is stored, and " +
+                        "this provider never sees a path.",
                 },
             },
             EntityKinds = new[]

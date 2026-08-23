@@ -78,8 +78,11 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             // credential, so per-run counting would switch the other run's redaction off on the first run's
             // completion.
             services.AddSingleton<ActiveCredentials>();
-            services.AddSingleton<IProviderFileStore, DirectoryFileStore>();
             services.AddSingleton<CredentialResolver>();
+
+            // The files a run may read are the files its job carried, and there is no other source: this
+            // container mounts nothing and opens nothing on disk.
+            services.AddSingleton<IJobFilesFactory, JobFilesFactory>();
             services.AddSingleton<IProviderHttpFactory, ProviderHttpFactory>();
             services.AddSingleton<RunGate>();
 
@@ -146,10 +149,24 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                 String.IsNullOrEmpty(target.ApiKey) ? "not set" : "set");
 
             logger.LogInformation(
-                "Credentials arrive with the job that needs them and are dropped when the run ends: this " +
-                "runtime has no credential store and nothing to rotate. Provider files are read from " +
-                "{FilesDirectory}.",
-                options.FilesDirectory);
+                "Credentials and files arrive with the job that needs them and are dropped when the run " +
+                "ends: this runtime has no credential store, no files mount and nothing to rotate.");
+
+            // Said as two lines rather than one interpolation, because a non-positive ceiling means NO
+            // ceiling and "a file may be up to 0 bytes" would be the opposite of what is enforced.
+            if (options.MaxFileBytes > 0)
+            {
+                logger.LogInformation(
+                    "A file a job carries may be up to {MaxFileBytes} bytes, decoded " +
+                    "(Integrations:MaxFileBytes).", options.MaxFileBytes);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Integrations:MaxFileBytes is {MaxFileBytes}, which switches the per-file ceiling OFF: " +
+                    "a job may carry any file the request body bound admits, and how much memory a run " +
+                    "spends is then whoever submits it to decide.", options.MaxFileBytes);
+            }
 
             var allowedHosts = options.Credentials.AllowedHostSet();
             if (allowedHosts.Count == 0)

@@ -1,0 +1,556 @@
+// MIT License
+//
+// IntegrationsFileUploadTest.cs
+//
+// Copyright (c) 2011-2026 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+using System.Collections.Generic;
+using System.Net.Http;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.Integrations.Contract;
+using NoSQL.GraphDB.Integrations.Credentials;
+using NoSQL.GraphDB.Integrations.Diagnostics;
+using NoSQL.GraphDB.Integrations.Graph;
+using NoSQL.GraphDB.Integrations.Identity;
+using NoSQL.GraphDB.Integrations.Run;
+using NoSQL.GraphDB.Integrations.Validation;
+
+namespace NoSQL.GraphDB.Tests
+{
+    /// <summary>
+    ///   How a FILE reaches a provider (feature integration-file-upload): it arrives with the job that
+    ///   needs it and is dropped when the run ends, which is the credential rule applied to the other thing
+    ///   a run cannot fetch for itself. There is no mount, no staging area and no name to resolve, so this
+    ///   file is where the whole path is pinned.
+    ///
+    ///   <para>Every assertion here stands in for a failure that is invisible from the graph. The three
+    ///   worst, and why each has its own test: an EMPTY upload read as an empty source produces a complete
+    ///   snapshot describing nothing, which withdraws every element the identity ever claimed and deletes
+    ///   the ones nothing else claims; a payload accepted as TEXT rather than bytes hands a provider
+    ///   mojibake for any extract a vendor tool wrote as UTF-16, so the run succeeds and writes rubbish;
+    ///   and a file setting satisfied from <c>settings</c> lets a job pass every pre-run check and then fail
+    ///   in the middle of a source read, after the run has begun making withdrawal-relevant
+    ///   decisions.</para>
+    /// </summary>
+    [TestClass]
+    public class IntegrationsFileUploadTest
+    {
+        private const String Instance = "file-upload-suite";
+        private const String FileSetting = "extract";
+        private const String OptionalFileSetting = "overlay";
+        private const String FileName = "devices.csv";
+        private const String Text = "mac,name\nAA:BB:CC:DD:EE:01,Reception\n";
+
+        #region the file reaches the provider, unchanged
+
+        [TestMethod]
+        public async Task AFileOnTheJobReachesTheProviderVerbatim()
+        {
+            using var harness = new Harness();
+
+            var report = await harness.RunAsync(Job(FileOf(FileName, Text)));
+
+            Assert.IsNull(report.ErrorKind, "the run must succeed: " + report.Error);
+            Assert.AreEqual(Text, harness.Provider.ReadText,
+                "the provider must see the bytes the job carried, byte for byte. A transport that " +
+                "re-wrapped, trimmed or re-encoded them would change what the source SAYS, and the run " +
+                "would write that difference into the graph and call it what it observed");
+        }
+
+        [TestMethod]
+        public async Task TheEffectiveSettingValueIsTheFilesOwnName_SoEveryMessageStillNamesIt()
+        {
+            using var harness = new Harness();
+
+            var report = await harness.RunAsync(Job(FileOf("inventory-2026.csv", Text)));
+
+            Assert.IsNull(report.ErrorKind, "the run must succeed: " + report.Error);
+            Assert.AreEqual("inventory-2026.csv", harness.Provider.RequiredValue,
+                "a provider reads the file setting with Required(key) for its messages and diagnostic " +
+                "subjects ('devices.csv row 7'). If the runtime stopped putting the NAME there, every " +
+                "shipped file provider would either fail its own Required() call or start naming a file " +
+                "the caller never mentioned");
+        }
+
+        [TestMethod]
+        public async Task AUtf16PayloadDecodesToTheSameTextAsItsUtf8Twin()
+        {
+            using var utf8 = new Harness();
+            using var utf16 = new Harness();
+
+            var eight = await utf8.RunAsync(Job(FileOf(FileName, Text, Encoding.UTF8)));
+            var sixteen = await utf16.RunAsync(Job(FileOf(FileName, Text, Encoding.Unicode)));
+
+            Assert.IsNull(eight.ErrorKind, "the UTF-8 run must succeed: " + eight.Error);
+            Assert.IsNull(sixteen.ErrorKind, "the UTF-16 run must succeed: " + sixteen.Error);
+            Assert.AreEqual(utf8.Provider.ReadText, utf16.Provider.ReadText,
+                "the file travels as BYTES and is decoded with byte-order-mark detection, exactly as " +
+                "File.ReadAllTextAsync did when it came off a mount. A transport carrying 'the text' would " +
+                "hand the provider mojibake for any AUTOSAR extract a vendor tool wrote as UTF-16, and " +
+                "nothing on the report would say so");
+        }
+
+        [TestMethod]
+        public async Task AnOptionalFileSettingLeftOutIsAbsentRatherThanEmpty()
+        {
+            using var harness = new Harness();
+            harness.Provider.ReadOptional = true;
+
+            var report = await harness.RunAsync(Job(FileOf(FileName, Text)));
+
+            Assert.IsNull(report.ErrorKind, "the run must succeed: " + report.Error);
+            Assert.IsNull(harness.Provider.OptionalValue,
+                "an optional file nobody sent must read as ABSENT, so a provider's own 'was one supplied' " +
+                "check works. An empty string there would look like a supplied file with no name");
+            Assert.IsFalse(harness.Provider.OptionalResolved,
+                "and resolving it must say no, with a reason, rather than throwing: that is what lets a " +
+                "provider decide for itself whether an optional overlay is worth asking for");
+        }
+
+        #endregion
+
+        #region refusals, all of them BEFORE the provider is invoked
+
+        [TestMethod]
+        public async Task ARequiredFileNobodySentIsRefusedAndNamesTheSetting()
+        {
+            var refused = await Refusal(Job());
+
+            Assert.AreEqual(JobErrorKinds.Configuration, refused.Kind,
+                "the JOB is wrong, and 'the job is wrong' and 'the source will not answer' send an operator " +
+                "to two different places");
+            StringAssert.Contains(refused.Message, FileSetting,
+                "the refusal names the setting that wanted a file, or a form with several cannot say which " +
+                "one was left empty");
+            StringAssert.Contains(refused.Message, "files",
+                "and it names where a file belongs. With nothing opened on disk there is no directory to " +
+                "put one in instead, so a message that did not say 'files' would leave the caller looking " +
+                "for a mount that does not exist");
+        }
+
+        [TestMethod]
+        public async Task AFileSettingNamedInSettingsIsRefusedRatherThanReadAsAName()
+        {
+            var job = Job();
+            job.Settings[FileSetting] = FileName;
+
+            var refused = await Refusal(job);
+
+            StringAssert.Contains(refused.Message, "never in 'settings'",
+                "a bare name in settings is refused HERE, before the run. It would otherwise satisfy this " +
+                "pass, satisfy the provider's own Required() call, and fail only on the read - by which " +
+                "point the run has reached the provider and begun making withdrawal-relevant decisions");
+            StringAssert.Contains(refused.Message, FileSetting,
+                "and it names the key, because the whole mistake is putting the right value in the wrong map");
+        }
+
+        [TestMethod]
+        public async Task AFileSuppliedForAKeyTheProviderDoesNotDeclareIsRefused()
+        {
+            var job = Job(FileOf(FileName, Text));
+            job.Files["notASetting"] = FileOf(FileName, Text);
+
+            var refused = await Refusal(job);
+
+            StringAssert.Contains(refused.Message, "notASetting",
+                "a file for a key nothing reads is silently ignored unless it is refused, and a typo in a " +
+                "key then means 'the run used a file you did not send'");
+        }
+
+        [TestMethod]
+        public async Task AFileSuppliedForANonFileSettingIsRefused()
+        {
+            var job = Job(FileOf(FileName, Text));
+            job.Files["label"] = FileOf(FileName, Text);
+
+            var refused = await Refusal(job);
+
+            StringAssert.Contains(refused.Message, "label",
+                "the key exists but its kind is not File, so nothing would ever read the bytes. Accepting " +
+                "it would make 'the job carried my file' and 'the run read my file' two different facts");
+        }
+
+        [TestMethod]
+        public void TwoFileKeysDifferingOnlyInCaseAreRefused()
+        {
+            var job = Job(FileOf(FileName, Text));
+            job.Files[FileSetting.ToUpperInvariant()] = FileOf(FileName, Text);
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure),
+                "the map is folded case-insensitively, so two keys differing only in case cannot be told " +
+                "apart afterwards: one would silently win and the run would read a file the caller did not " +
+                "mean to use");
+            StringAssert.Contains(failure, "differ only in case",
+                "the refusal has to say WHY, or the caller sees a rejection for a job whose two keys look " +
+                "different to them");
+        }
+
+        [TestMethod]
+        public void AnEmptyFileIsRefusedRatherThanReadAsAnEmptySource()
+        {
+            var job = Job(new JobFile { Name = FileName, ContentBase64 = String.Empty });
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure),
+                "an empty upload - a form submitted before the file was chosen, a truncated copy - parses " +
+                "as a complete snapshot describing nothing, which withdraws every element this identity " +
+                "ever claimed and deletes the ones nothing else claims. 'I could not look' must never " +
+                "become 'there is nothing there'");
+            StringAssert.Contains(failure, "empty",
+                "and it says so plainly: this is the refusal most likely to be read by somebody who thinks " +
+                "they attached a file");
+        }
+
+        [TestMethod]
+        public void APayloadThatIsNotBase64IsRefusedAndSaysSo()
+        {
+            var job = Job(new JobFile { Name = FileName, ContentBase64 = "mac,name\nthis is the raw text" });
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure),
+                "raw text in contentBase64 is the obvious mistake for a hand-written job, and decoding it " +
+                "as base64 would either throw deep in a run or silently yield different bytes");
+            StringAssert.Contains(failure, "base64",
+                "the message names the encoding, because the fix is one shell command (base64 -w0) and the " +
+                "caller has to know that is what is wanted");
+        }
+
+        [TestMethod]
+        public void AFileWithNoNameIsRefused()
+        {
+            var job = Job(new JobFile
+            {
+                Name = "   ",
+                ContentBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(Text)),
+            });
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure),
+                "the name is what every message about this run calls the file, and it becomes the setting's " +
+                "effective value - so a nameless file makes a provider's own Required() call fail with a " +
+                "message about a setting the caller filled in");
+            StringAssert.Contains(failure, "no name", "the refusal says which half is missing");
+        }
+
+        [TestMethod]
+        public void AFileNameCarryingAControlCharacterIsRefused()
+        {
+            var job = Job(new JobFile
+            {
+                Name = "devices\u0007.csv",
+                ContentBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(Text)),
+            });
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure),
+                "the name is written into log lines, onto the job report and into diagnostic subjects, and " +
+                "a control character is invisible in exactly the place an operator goes to read what " +
+                "happened. It is a display-string check and not a path check: nothing resolves this name");
+            StringAssert.Contains(failure, "control character", "the refusal says what is wrong with it");
+        }
+
+        [TestMethod]
+        public void AFileOverTheCeilingIsRefusedAndNamesBothSizes()
+        {
+            var oversized = new Byte[64];
+            var job = Job(new JobFile { Name = FileName, ContentBase64 = Convert.ToBase64String(oversized) });
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure, 63),
+                "the ceiling is checked on the DECODED length, because that is what the run holds and what " +
+                "the provider parses. Checking the encoded length would state a limit a third smaller than " +
+                "the one configured");
+            StringAssert.Contains(failure, "64", "the message names the file's actual size");
+            StringAssert.Contains(failure, "63", "and the ceiling, so the caller can tell which to change");
+            StringAssert.Contains(failure, "MaxFileBytes",
+                "and the key that sets it - which lives in the RUNTIME's configuration, not the instance " +
+                "the caller submitted through, so an unnamed number sends them to the wrong settings screen");
+        }
+
+        [TestMethod]
+        public void AFileAtExactlyTheCeilingIsAccepted()
+        {
+            var exact = new Byte[64];
+            var job = Job(new JobFile { Name = FileName, ContentBase64 = Convert.ToBase64String(exact) });
+
+            Assert.IsTrue(job.TryNormalize(out var normalized, out var failure, 64),
+                "the ceiling is inclusive, or the documented limit is one byte smaller than the one that " +
+                "actually applies: " + failure);
+            Assert.AreEqual(64, normalized.Files[FileSetting].Content.Length,
+                "and the whole file survives normalisation");
+        }
+
+        #endregion
+
+        #region the file is dropped when the run ends
+
+        [TestMethod]
+        public async Task ReadingAFileAfterTheRunHasEndedThrows()
+        {
+            using var harness = new Harness();
+
+            var report = await harness.RunAsync(Job(FileOf(FileName, Text)));
+            Assert.IsNull(report.ErrorKind, "the run must succeed first: " + report.Error);
+
+            Assert.IsNotNull(harness.Provider.KeptContext,
+                "the fixture has to keep the context to be able to misuse it, which is the whole point");
+
+            var late = Assert.ThrowsException<InvalidOperationException>(
+                () => harness.Provider.KeptContext.ReadFileAsync(FileSetting, CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "a file belongs to the job it arrived with and to nothing else. A provider that squirrelled " +
+                "the context away must FAIL rather than quietly read caller data after the run it belonged " +
+                "to - the same time-boxing the credential lease gives, for the same reason");
+
+            StringAssert.Contains(late.Message, "dropped",
+                "and the message says the file is gone, not that the setting was wrong: those send an " +
+                "author to two different lines of their own code");
+        }
+
+        #endregion
+
+        #region fixtures
+
+        /// <summary>
+        ///   One file as the wire carries it: the bytes an editor saving in that encoding would write,
+        ///   byte-order mark included, base64. The mark is what makes the UTF-16 case a real test rather
+        ///   than a differently-spelled UTF-8 one.
+        /// </summary>
+        private static JobFile FileOf(String name, String content, Encoding encoding = null)
+        {
+            encoding ??= new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+            var preamble = encoding.GetPreamble();
+            var body = encoding.GetBytes(content);
+            var bytes = new Byte[preamble.Length + body.Length];
+            Buffer.BlockCopy(preamble, 0, bytes, 0, preamble.Length);
+            Buffer.BlockCopy(body, 0, bytes, preamble.Length, body.Length);
+
+            return new JobFile { Name = name, ContentBase64 = Convert.ToBase64String(bytes) };
+        }
+
+        private static IntegrationJob Job(JobFile file = null)
+        {
+            var job = new IntegrationJob
+            {
+                ProviderId = FileReadingProvider.Id,
+                IntegrationInstanceId = Instance,
+            };
+
+            if (file != null)
+            {
+                job.Files[FileSetting] = file;
+            }
+
+            return job;
+        }
+
+        /// <summary>The refusal a job earns, which is a JobRejectedException and never a failed report:
+        /// a job that cannot be run at all never becomes a run.</summary>
+        private static async Task<JobRejectedException> Refusal(IntegrationJob job)
+        {
+            using var harness = new Harness();
+
+            var refused = await Assert.ThrowsExceptionAsync<JobRejectedException>(
+                () => harness.RunAsync(job),
+                "the job must be REFUSED rather than run and reported, because every one of these mistakes " +
+                "is knowable before the provider is invoked");
+
+            Assert.IsFalse(harness.Provider.WasInvoked,
+                "and the provider must never have been invoked: once a run reaches it the run has begun " +
+                "making withdrawal-relevant decisions, and the eager-checks-first design exists to keep " +
+                "an unrunnable job on this side of that line");
+
+            return refused;
+        }
+
+        /// <summary>
+        ///   The REAL runner over a graph nothing reads, with the one provider this file needs: one that
+        ///   reads a file and remembers what it saw.
+        /// </summary>
+        private sealed class Harness : IDisposable
+        {
+            private readonly ILoggerFactory _loggers;
+            private readonly IntegrationsMetrics _metrics;
+            private readonly JobRunner _runner;
+
+            public Harness()
+            {
+                _loggers = LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.None));
+                _metrics = new IntegrationsMetrics();
+                Provider = new FileReadingProvider();
+
+                var vocabulary = IdentifierVocabulary.Shipped;
+                var active = new ActiveCredentials();
+                _runner = new JobRunner(
+                    new ProviderCatalog(new IIntegrationProvider[] { Provider }, vocabulary),
+                    new SnapshotValidator(vocabulary),
+                    new SnapshotApplier(new IdentityResolver()),
+                    new CredentialResolver(active),
+                    new OneTarget(new InMemoryGraphTarget()),
+                    new NoNetwork(),
+                    new JobFilesFactory(Microsoft.Extensions.Options.Options.Create(
+                        new Integrations.Configuration.IntegrationsOptions())),
+                    active,
+                    new RunGate(),
+                    _metrics,
+                    _loggers);
+            }
+
+            public FileReadingProvider Provider { get; }
+
+            public Task<JobReport> RunAsync(IntegrationJob job)
+            {
+                return _runner.RunAsync(job, CancellationToken.None);
+            }
+
+            public void Dispose()
+            {
+                _metrics.Dispose();
+                _loggers.Dispose();
+            }
+
+            private sealed class OneTarget : IGraphTargetFactory
+            {
+                private readonly IGraphTarget _target;
+
+                public OneTarget(IGraphTarget target)
+                {
+                    _target = target;
+                }
+
+                public IGraphTarget Create(String namespaceName)
+                {
+                    return _target;
+                }
+            }
+
+            private sealed class NoNetwork : IProviderHttpFactory
+            {
+                public HttpClient Create(Boolean holdsCredential)
+                {
+                    return new HttpClient(new Refusing(), disposeHandler: true);
+                }
+
+                private sealed class Refusing : HttpMessageHandler
+                {
+                    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+                        CancellationToken cancellationToken)
+                    {
+                        throw new NotSupportedException("This fixture's provider reads no source.");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        ///   A provider whose whole source is one file, plus an optional second, and which remembers
+        ///   everything the runtime handed it - including the context, so the drop-after-the-run rule can be
+        ///   tested from the position of the provider that breaks it.
+        /// </summary>
+        private sealed class FileReadingProvider : IIntegrationProvider
+        {
+            internal const String Id = "file-reading-fixture";
+
+            public Boolean ReadOptional { get; set; }
+
+            public Boolean WasInvoked { get; private set; }
+
+            public String ReadText { get; private set; }
+
+            public String RequiredValue { get; private set; }
+
+            public String OptionalValue { get; private set; }
+
+            public Boolean OptionalResolved { get; private set; }
+
+            public ProviderContext KeptContext { get; private set; }
+
+            public ProviderDescriptor Descriptor { get; } = new ProviderDescriptor
+            {
+                Id = Id,
+                DisplayName = "File reading fixture",
+                Description = "Reads one file the job carried and describes nothing.",
+                Settings = new[]
+                {
+                    new ProviderSetting
+                    {
+                        Key = FileSetting,
+                        Label = "Extract",
+                        Kind = SettingKind.File,
+                        Required = true,
+                        Accept = ".csv",
+                        Help = "The file itself, sent with the job.",
+                    },
+                    new ProviderSetting
+                    {
+                        Key = OptionalFileSetting,
+                        Label = "Overlay",
+                        Kind = SettingKind.File,
+                        Required = false,
+                        Help = "An optional second file.",
+                    },
+                    new ProviderSetting
+                    {
+                        Key = "label",
+                        Label = "Label",
+                        Kind = SettingKind.Text,
+                        Required = false,
+                        Help = "What to call what it found.",
+                    },
+                },
+                EntityKinds = new[] { "device" },
+                ClaimTypes = Array.Empty<String>(),
+                RelationTypes = Array.Empty<String>(),
+                CanObserveCompleteState = true,
+                ReadOnly = true,
+            };
+
+            public async Task<SnapshotDocument> ObserveAsync(ProviderContext context,
+                CancellationToken cancellationToken)
+            {
+                WasInvoked = true;
+                KeptContext = context;
+
+                RequiredValue = context.Required(FileSetting);
+                ReadText = await context.ReadFileAsync(FileSetting, cancellationToken).ConfigureAwait(false);
+
+                if (ReadOptional)
+                {
+                    OptionalValue = context.Optional(OptionalFileSetting);
+                    OptionalResolved = context.TryResolveFile(OptionalFileSetting, out _);
+                }
+
+                // Deliberately EMPTY and complete: this fixture is about how the file arrived, and an
+                // entity would drag claim resolution into every assertion above.
+                return new SnapshotDocument
+                {
+                    ProviderId = context.ProviderId,
+                    IntegrationInstanceId = context.InstanceId,
+                    Declares = SnapshotCompleteness.Complete,
+                }.CapturedNow();
+            }
+        }
+
+        #endregion
+    }
+}

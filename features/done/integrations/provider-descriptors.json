@@ -2,15 +2,16 @@
   {
     "id": "csv-device-list",
     "displayName": "CSV device list",
-    "description": "Reads a delimited text file of devices from the runtime's files directory: one row per device, identified by the MAC address in its 'mac' column, carrying the name, owner note and hostname a controller does not know.",
+    "description": "Reads a delimited text file of devices the job carries: one row per device, identified by the MAC address in its 'mac' column, carrying the name, owner note and hostname a controller does not know.",
     "settings": [
       {
         "key": "file",
-        "label": "File name",
-        "kind": "Text",
+        "label": "Device list",
+        "kind": "File",
         "required": true,
-        "help": "The NAME of a file, such as devices.csv, and not a path: put the file in the files directory mounted into this runtime and name it here. The runtime opens it, so this provider never sees a path and cannot be pointed anywhere else.",
-        "defaultValue": null
+        "help": "The file itself, such as devices.csv, sent with the job. It travels with the run and is dropped when the run ends: nothing is mounted, nothing is stored, and this provider never sees a path.",
+        "defaultValue": null,
+        "accept": ".csv,.tsv,.txt"
       },
       {
         "key": "delimiter",
@@ -18,7 +19,8 @@
         "kind": "Text",
         "required": false,
         "help": "What separates the columns: one of the words tab, semicolon, pipe or comma, or a single literal character. The words exist because a literal tab does not survive a human editing a JSON field. Defaults to a comma.",
-        "defaultValue": ","
+        "defaultValue": ",",
+        "accept": null
       },
       {
         "key": "label",
@@ -26,7 +28,8 @@
         "kind": "Text",
         "required": false,
         "help": "What to call the rows this file describes, for a list that is not devices (say 'printer'). It RENAMES what the run produces and never selects which rows are read, which is why a setting is allowed here: it cannot change what a complete snapshot covers. Defaults to device.",
-        "defaultValue": "device"
+        "defaultValue": "device",
+        "accept": null
       }
     ],
     "entityKinds": [
@@ -52,7 +55,8 @@
         "kind": "Url",
         "required": true,
         "help": "The FULL integration API base URL, not just the console's address. A local console is https://{consoleIP}/proxy/network/integration; the cloud connector is https://api.ui.com/v1/connector/consoles/{consoleId}/proxy/network/integration. A bare host is refused rather than repaired.",
-        "defaultValue": null
+        "defaultValue": null,
+        "accept": null
       },
       {
         "key": "apiKey",
@@ -60,7 +64,8 @@
         "kind": "Credential",
         "required": true,
         "help": "The API key for the front door the base URL above names, and the two take DIFFERENT keys: a local console's key is created in the Network application under Settings and then Integrations, while an api.ui.com base URL is the cloud connector and takes a Site Manager key created at unifi.ui.com under Settings and then API Keys.",
-        "defaultValue": null
+        "defaultValue": null,
+        "accept": null
       }
     ],
     "entityKinds": [
@@ -95,7 +100,8 @@
         "kind": "Url",
         "required": true,
         "help": "The device's address on your own network, with its scheme: http://192.168.1.50. Nothing else is needed, and there is deliberately no credential: the local Solar API is unauthenticated HTTP. If the device answers 404, its Solar API is switched off - turn it on in the inverter's own web interface, under Communication and then Solar API.",
-        "defaultValue": null
+        "defaultValue": null,
+        "accept": null
       }
     ],
     "entityKinds": [
@@ -117,15 +123,16 @@
   {
     "id": "autosar-arxml",
     "displayName": "AUTOSAR system extract (ARXML)",
-    "description": "Reads an AUTOSAR classic-platform system extract (ARXML, schema r4.0) from the runtime's files directory and describes the FlexRay communication matrix it carries: the network, its ECUs, frames, PDUs, signals, system signals and scaling methods, with the send and receive flow between them.",
+    "description": "Reads an AUTOSAR classic-platform system extract (ARXML, schema r4.0) the job carries and describes the FlexRay communication matrix it holds: the network, its ECUs, frames, PDUs, signals, system signals and scaling methods, with the send and receive flow between them.",
     "settings": [
       {
         "key": "file",
-        "label": "File name",
-        "kind": "Text",
+        "label": "System extract",
+        "kind": "File",
         "required": true,
-        "help": "The NAME of a file, such as network.arxml, and not a path: put the file in the files directory mounted into this runtime and name it here. The runtime opens it, so this provider never sees a path and cannot be pointed anywhere else.",
-        "defaultValue": null
+        "help": "The extract itself, such as network.arxml, sent with the job. It travels with the run and is dropped when the run ends: nothing is mounted, nothing is stored, and this provider never sees a path.",
+        "defaultValue": null,
+        "accept": ".arxml,.xml"
       }
     ],
     "entityKinds": [
