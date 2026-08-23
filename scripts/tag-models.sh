@@ -45,6 +45,10 @@
 #   OLLAMA_KEY_FILE       default ~/.ollama/id_ed25519
 #   REGISTRY              default https://registry.ollama.ai
 #   F8_TAG_DRY_RUN        1 = report what would happen, push nothing
+#   F8_TAG_KEEP_LOCAL     1 = keep whatever this run pulled. Default is to remove it again after
+#                         pushing, so peak disk is ONE model instead of all of them - which is what
+#                         lets a hosted runner tag the 14B alongside the mini. Models that were
+#                         already present locally are never touched.
 set -euo pipefail
 
 VERSION="${1:-}"
@@ -159,6 +163,8 @@ for repo in $MODELS; do
   fi
 
   require_disk 12
+  had_locally=0
+  ollama list | grep -q "^$repo:latest" && had_locally=1
   log "  pulling $repo:latest ..."
   ollama pull "$repo:latest" || die "could not pull $repo:latest"
   ollama cp "$repo:latest" "$repo:$VERSION" >/dev/null || die "could not tag $repo:latest as :$VERSION"
@@ -169,6 +175,14 @@ for repo in $MODELS; do
   [ "$after" = "$latest" ] || die "published :$VERSION but its digest ($after) does not match :latest ($latest) - the tag does not point at the bytes it should."
   log "  :$VERSION published, digest $after (identical to :latest)"
   count=$((count + 1))
+
+  # Give the disk back unless these blobs were already here. Tagging the mini and the 14B together
+  # otherwise needs both resident (~12G), which a hosted runner cannot spare.
+  if [ "${F8_TAG_KEEP_LOCAL:-0}" != "1" ] && [ "$had_locally" = 0 ]; then
+    ollama rm "$repo:$VERSION" >/dev/null 2>&1 || true
+    ollama rm "$repo:latest" >/dev/null 2>&1 || true
+    log "  removed the local copies again (F8_TAG_KEEP_LOCAL=1 keeps them)"
+  fi
 done
 
 log "done: $count model(s) carry the tag $VERSION."
