@@ -174,10 +174,28 @@ function SurfaceBody({
         <span className="text-fg-faint min-w-0 truncate normal-case" data-testid="config-surface-instance">
           {instanceName}
         </span>
+        {/* In the HEADER, which never scrolls, and not in the footer where this used to be: every row
+            below is disabled when the instance refuses writes, and a disabled row is a control that
+            does nothing when clicked. The reason has to be where the rows are, not under them. */}
+        {!writesAllowed && (
+          <span className="border-warn/50 text-warn shrink-0 rounded border px-1.5 py-0.5 text-[10px] tracking-wider uppercase">
+            read-only
+          </span>
+        )}
         <button type="button" className="btn ml-auto shrink-0 normal-case" onClick={onClose}>
           Close
         </button>
       </div>
+
+      {!writesAllowed && (
+        <div
+          className="border-line text-fg-faint shrink-0 border-b px-3 py-1.5 text-[11px]"
+          data-testid="config-read-only-note"
+        >
+          Every setting below is read-only: writes need an API key and
+          Fallen8:Security:EnableConfigurationWrite.
+        </div>
+      )}
 
       {pendingRestart.length > 0 && (
         <div
@@ -296,11 +314,6 @@ function SurfaceBody({
       </div>
 
       <div className="border-line flex shrink-0 items-center gap-3 border-t p-2">
-        {!writesAllowed && (
-          <span className="text-fg-faint text-[11px]">
-            read-only: writes need an API key and Fallen8:Security:EnableConfigurationWrite
-          </span>
-        )}
         {writeError && (
           <div className="min-w-0 flex-1" data-testid="config-settings-error">
             <ErrorBox error={writeError} />
