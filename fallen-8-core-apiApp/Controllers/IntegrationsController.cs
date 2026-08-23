@@ -58,6 +58,29 @@ namespace NoSQL.GraphDB.App.Controllers
     [Authorize(Policy = Fallen8IntegrationsOptions.IntegrationsPolicy)]
     public class IntegrationsController : ControllerBase
     {
+        /// <summary>
+        ///   The transport bound on a job body, which carries a provider's file as base64 (feature
+        ///   integration-file-upload). 48 MiB, and every digit of that is load-bearing:
+        ///
+        ///   <para>ABOVE any legal job. The runtime's default <c>Integrations:MaxFileBytes</c> is 32 MiB
+        ///   of decoded bytes, which is 42.7 MiB once base64 costs its third, so a maximal legal job
+        ///   arrives with room to spare and this bound never fires for one the runtime would accept.</para>
+        ///
+        ///   <para>BELOW the runtime's own transport bound (56 MiB at that default). That ordering is the
+        ///   point: an absurd body has to be refused HERE, with a 413 whose meaning is plain, because a
+        ///   body this proxy accepts and the runtime refuses fails while being forwarded - which surfaces
+        ///   as 503 "the runtime did not answer", sending whoever sent a 60 MiB file to look at a sidecar
+        ///   that is perfectly healthy.</para>
+        ///
+        ///   <para>A private const rather than a configuration key, exactly as
+        ///   <c>DocumentController</c>'s upload bound is: the real ceiling lives in the OTHER
+        ///   deployable's configuration, so a key here would be a second number to keep in step with it
+        ///   and a caller could not tell which one refused them. The consequence, stated rather than
+        ///   hidden: raising <c>Integrations:MaxFileBytes</c> past about 34 MiB has no effect through this
+        ///   proxy, and the proxy is the only way in because the runtime publishes no port.</para>
+        /// </summary>
+        private const Int32 JobTransportLimit = 50_331_648;
+
         private readonly IIntegrationsClient _client;
 
         public IntegrationsController(IIntegrationsClient client)
@@ -142,11 +165,12 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="definition">The job definition, forwarded to the runtime untouched</param>
         /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
         /// <remarks>A job carries everything one run needs: which provider, the identity it asserts
-        /// as, the namespace to write into, the provider's settings, and its credentials as VALUES in
-        /// credentialValues. The runtime stores none of them: it holds a credential for the run that
-        /// needs it and drops it when the run ends, keeps no job history, and no route reads a job
-        /// back. Those values travel through here in the request body, so serve this API over TLS.
-        /// The call is synchronous: the source is read, what it
+        /// as, the namespace to write into, the provider's settings, its credentials as VALUES in
+        /// credentialValues, and any file it reads as a name plus its bytes in files. The runtime
+        /// stores none of them: it holds a credential and a file for the run that needs them and
+        /// drops both when the run ends, mounts no directory, keeps no job history, and no route
+        /// reads a job back. All of that travels through here in the request body, so serve this API
+        /// over TLS. The call is synchronous: the source is read, what it
         /// said is written, the report comes back, and the runtime keeps nothing. A job that ran and
         /// failed still answers 200 with the failure on its report; one that could not be run at all
         /// is the runtime's 400 or its 409 (one job at a time per identity).
@@ -154,14 +178,23 @@ namespace NoSQL.GraphDB.App.Controllers
         /// untyped here, so there is exactly one definition of them:
         /// https://docs.fallen-8.com/integrations/. The caller owns the stability of the
         /// integration instance id, which nothing can validate: a run under an identity that
-        /// integration has not always used withdraws and deletes what the real one claimed.</para></remarks>
+        /// integration has not always used withdraws and deletes what the real one claimed.</para>
+        /// <para>Because a file travels in the body, this is the one route besides document upload
+        /// whose body bound is larger than the 1 MiB every other endpoint carries. That bound (48 MiB)
+        /// sits above any legal job and below the runtime's own, so an oversized FILE is refused by the
+        /// runtime with a message naming both its size and the ceiling, while an absurd BODY is refused
+        /// here with a 413 - and neither is ever reported as a runtime that did not answer. It is fixed
+        /// rather than configurable, so raising the runtime's Integrations:MaxFileBytes past about 34 MiB
+        /// has no effect through this proxy, which is the only way in.</para></remarks>
         /// <response code="200">The job report, including a run that failed</response>
         /// <response code="400">The runtime refused the job as written, its own message saying why</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>
         /// <response code="409">A job is already running under this identity</response>
+        /// <response code="413">The body exceeds this route's transport bound (see the remarks)</response>
         /// <response code="503">No runtime is configured, or it did not answer</response>
         [HttpPost("/integrations/job")]
+        [RequestSizeLimit(JobTransportLimit)]
         [Consumes("application/json")]
         [Produces("application/json")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -169,6 +202,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public Task<IActionResult> Job([FromBody] JsonElement definition, CancellationToken cancellationToken)
         {

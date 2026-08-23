@@ -133,6 +133,11 @@ namespace NoSQL.GraphDB.Tests
             // used withdraws and deletes every element the real integration claimed, nothing can detect
             // it, and an agent composing a job is the caller most likely to invent a plausible-looking
             // identifier. Revisit when the runtime can tell a new identity from a mistyped one.
+            // Since feature integration-file-upload there is a SECOND, independent leg to withholding
+            // the job route, the same one POST /document is deferred for: a file-taking integration now
+            // needs the file's bytes as base64 IN the tool call, which is token-hostile over MCP and
+            // caps the useful extract at a fraction of what the runtime accepts. Either leg alone would
+            // be enough; both together mean this is not a close call.
             // Contains, not StartsWith: the predicate matches "METHOD /path".
             new(op => op.Contains("/integrations"),
                 "the integration runtime proxy is deferred: three routes are declarations, and a job run is a complete-snapshot write no unverifiable identity may trigger"),

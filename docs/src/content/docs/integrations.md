@@ -19,10 +19,10 @@ the people who built this in the loop.
 
 | Integration | Reads | Needs |
 | --- | --- | --- |
-| `csv-device-list` | a CSV file in the runtime's files directory: MAC, name, note, hostname | nothing but the file |
+| `csv-device-list` | a CSV file you upload with the run: MAC, name, note, hostname | nothing but the file |
 | `unifi-network` | a UniFi console's integration API, locally or through the cloud connector: sites, adopted devices, clients, and the uplink topology between them | an API key for the front door you point it at, and the two differ: a local console's key comes from the Network application under Settings then Integrations, while `api.ui.com` takes a Site Manager key from unifi.ui.com under Settings then API Keys |
 | `fronius-solar` | a Fronius Solar API on your own network: inverters and the logging device in front of them | nothing. The local Solar API is unauthenticated |
-| `autosar-arxml` | an AUTOSAR system extract (`.arxml`) in the runtime's files directory: a vehicle network's FlexRay communication matrix, so its ECUs, frames, PDUs, signals and the flow between them ([below](#reading-a-vehicle-network)) | nothing but the file |
+| `autosar-arxml` | an AUTOSAR system extract (`.arxml`) you upload with the run: a vehicle network's FlexRay communication matrix, so its ECUs, frames, PDUs, signals and the flow between them ([below](#reading-a-vehicle-network)) | nothing but the file |
 
 ## Running one
 
@@ -44,18 +44,49 @@ place a run is described:
 ```bash
 curl -sS -X POST http://localhost:8080/integrations/job \
   -H 'content-type: application/json' \
-  -d '{
-        "providerId": "csv-device-list",
-        "integrationInstanceId": "office-inventory",
-        "namespace": "default",
-        "settings": { "file": "devices.csv", "label": "device" }
-      }'
+  -d "$(jq -n --arg csv "$(base64 -w0 devices.csv)" '{
+        providerId: "csv-device-list",
+        integrationInstanceId: "office-inventory",
+        namespace: "default",
+        settings: { label: "device" },
+        files: { file: { name: "devices.csv", contentBase64: $csv } }
+      }')"
 ```
 
 Ask `GET /integrations/providers` what each integration's settings are; every one carries a
 label, a kind and a sentence saying where to find the value in the source system. That is
 deliberately enough to render a form from, so a new integration needs no new UI code when a
 screen for it arrives.
+
+## Files
+
+An integration that reads a file gets it **from you, with the run**. In [F8 Studio](/studio/)
+that is a dropzone and a file picker on the Integrations screen, the same gesture the
+[Knowledge](/unstructured-ingestion/) screen uses for documents; over the API it is the `files`
+map above, one entry per file setting, carrying the file's own name and its **bytes as base64**.
+
+Bytes rather than text, because the encoding is not yours to guess: an AUTOSAR extract a vendor
+tool wrote as UTF-16 decodes correctly, where a transport carrying "the text" would have handed
+the integration mojibake and written that into your graph without a word on the report.
+
+The runtime **mounts nothing and opens nothing on disk**. There is no directory to prepare, no
+staged upload to clean up and no file name that could point somewhere it should not: a file lives
+exactly as long as the run that needed it, which is the same rule
+[credentials](#credentials) follow. Two consequences worth knowing:
+
+- A file's **name** is a label. It is what every message about the run calls it, so a diagnostic
+  still reads `devices.csv row 7`, and nothing resolves, opens or joins it to a path.
+- An **empty** file is refused rather than read as an empty source, because a complete snapshot
+  describing nothing withdraws every element the integration ever claimed.
+
+`Integrations:MaxFileBytes` (default 32 MiB, measured on the decoded bytes) is the ceiling, and it
+belongs to the **runtime's** configuration rather than the instance you submit through. A file over
+it is refused with both numbers named.
+
+Above it sits a fixed 48 MiB bound on the request body itself, at the API's proxy - base64 costs a
+third, so a maximal legal job arrives at about 42.7 MiB and never meets it. It is deliberately not
+configurable, which has one consequence worth stating: raising `Integrations:MaxFileBytes` past about
+34 MiB has no effect, because the proxy is the only way in (the runtime publishes no port).
 
 There is deliberately **no schedule, no interval and no run history** anywhere in the runtime.
 Timing belongs to whoever wants the data: run a job from cron, from a CI pipeline, from a
@@ -148,8 +179,9 @@ next run rebuilds it from element state before trusting a lookup.
 
 **A credential arrives with the job that needs it, and nowhere else.** The runtime holds it for
 that run, keeps it out of every log line and every report, and drops it when the run ends. There
-is no credential mount, no store, no cache and no keyring: it has nothing to rotate because it
-remembers nothing, and whoever submits a job is whoever already holds the credential.
+is no mount of any kind - no credential mount and no files mount - no store, no cache and no
+keyring: it has nothing to rotate because it remembers nothing, and whoever submits a job is
+whoever already holds the credential. [Files](#files) arrive the same way, for the same reason.
 
 ```bash
 curl -sS -X POST http://localhost:8080/integrations/job \
@@ -266,8 +298,7 @@ run still succeeds and the summaries are simply **absent**, with a diagnostic sa
 
 `autosar-arxml` reads an **AUTOSAR system extract**, the XML file the automotive industry uses to
 exchange the communication matrix of a vehicle network, and describes the FlexRay bus it carries.
-One file per run, named by the `file` setting like the CSV integration's, and the runtime opens
-it.
+One file per run, [uploaded with the job](#files) like the CSV integration's.
 
 What lands in the graph is the network itself, its ECUs, the frames on the bus, the PDUs inside
 those frames (including the container and secured layers), the signals inside the PDUs, the
@@ -324,9 +355,10 @@ no live graph, and checks twelve named properties: that its claims are well form
 not promote its own weak identifier, that two runs describe one source identically, that the
 second issues no write, that it writes only to what it claims, that it offers no similarity
 score, that it reached nothing the suite did not stand in for, that no credential reached a log
-or the graph, that it read no file it was not offered, that it did not over-declare
-completeness, and that an unreadable source failed the run. Each check is named, and each has a
-deliberately broken integration in the test suite that fails exactly that one.
+or the graph, that every file it read was one the job carried for a setting it declares, that it
+did not over-declare completeness, and that an unreadable source failed the run. Each check is
+named, and each has a deliberately broken integration in the test suite that fails exactly that
+one.
 
 ## See also
 

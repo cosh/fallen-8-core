@@ -48,8 +48,10 @@ namespace NoSQL.GraphDB.Tests
     ///   The credential path of the integrations runtime (feature integrations, spec sections 3 and 4): what a
     ///   supplied credential's characters mean, how long a run may hold the value, what redaction covers, and
     ///   where a run holding one may send it. A credential arrives on the job and nowhere else, so there is no
-    ///   store here to test - what remains of the "which file may a name mean" question guards the PROVIDER
-    ///   FILE mount, which is the one thing this runtime still opens by name.
+    ///   store here to test - and since feature integration-file-upload there is no name-to-path question
+    ///   either: a file arrives on the job too, so this runtime opens nothing by name and the containment
+    ///   checks that used to live here have no root left to contain anything in (see
+    ///   <c>IntegrationsFileUploadTest</c> for what replaced them).
     ///
     ///   <para>Every assertion here stands in for a failure that is invisible from the graph. The three worst
     ///   ones, and why each has its own test: a blank credential accepted as "no credential" produces a run
@@ -61,172 +63,7 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class IntegrationsCredentialTest
     {
-        /// <summary>The provider files mount the runtime defaults to, which is the one root left to resolve under.</summary>
-        private const String Root = "/files";
-
-        /// <summary>A file a provider's setting could name.</summary>
-        private const String FileName = "devices.csv";
-
         private const String Secret = "s3cr3t-console-password";
-
-        // ------------------------------------------------------------------------------------------------
-        // RootedNames.TryResolve, the guard on every PROVIDER FILE name - both halves are load-bearing, and
-        // either alone is historically the bug.
-        // ------------------------------------------------------------------------------------------------
-
-        [TestMethod]
-        public void APlainName_ResolvesToTheOneFileUnderTheConfiguredRoot()
-        {
-            var resolved = RootedNames.TryResolve(Root, FileName, "file", out var path, out var failure);
-
-            Assert.IsTrue(resolved,
-                "a bare file name is the ONLY thing a job may say, so refusing one leaves every " +
-                "file-reading integration unable to read the mount at all: " + failure);
-            Assert.IsNull(failure, "a name that resolved must carry no failure, or a caller logs a reason for a success");
-            Assert.AreEqual(Path.Combine(Path.GetFullPath(Root), FileName), path,
-                "the name must resolve to exactly one location inside the configured root: a resolution that " +
-                "drifts elsewhere reads a file from the image instead of the operator's mount");
-        }
-
-        [TestMethod]
-        public void ANameWithAForwardSlash_IsRefused_SoAJobCannotNameAPath()
-        {
-            Assert.IsFalse(RootedNames.TryResolve(Root, "../etc/shadow", "file", out var path, out var failure),
-                "a file name arrives over the API from whoever can reach it, so a name that may contain a " +
-                "path lets that caller read any file the container can and have it handed back in a report");
-            Assert.IsNull(path, "a refused name must yield no path, or a caller opens what it was told to anyway");
-            StringAssert.Contains(failure, "path separator",
-                "the shape check must be the one that fires, because it is what refuses the name BEFORE the " +
-                "platform gets a chance to normalise it into something a containment check accepts");
-        }
-
-        [TestMethod]
-        public void ANameWithABackslash_IsRefused_BecauseTheOtherPlatformsSeparatorIsASeparatorToo()
-        {
-            Assert.IsFalse(RootedNames.TryResolve(Root, "sub\\shadow", "file", out var path, out var failure),
-                "the runtime's image is Linux and a developer's machine is not, so a name refused on one platform " +
-                "and resolved on the other is a hole that only opens where nobody tests");
-            Assert.IsNull(path, "a refused name must yield no path");
-            StringAssert.Contains(failure, "path separator", "the refusal must say which rule the name broke");
-        }
-
-        [TestMethod]
-        public void ANameContainingDotDot_IsRefused_BeforeThePlatformNormalisesIt()
-        {
-            Assert.IsFalse(RootedNames.TryResolve(Root, "..", "file", out var path, out var failure),
-                "the parent-directory segment is how a name leaves the mount, and a name that leaves the mount " +
-                "can name any file this container can read and have its contents written into the graph");
-            Assert.IsNull(path, "a refused name must yield no path");
-            StringAssert.Contains(failure, "may not contain '..'",
-                "the SHAPE check must be what refuses it, and it must say so: leaving '..' to the containment " +
-                "check makes the refusal depend on how the platform normalises the name, which is the half of " +
-                "this primitive that historically let a name out of the mount");
-        }
-
-        [TestMethod]
-        public void ARootedName_IsRefused_AndResolvesToNothing()
-        {
-            var rooted = Path.Combine(Path.GetFullPath(Path.GetTempPath()), "steal.txt");
-
-            Assert.IsFalse(RootedNames.TryResolve(Root, rooted, "file", out var path, out _),
-                "an absolute path as a name would make the configured root advisory, and the root is the only " +
-                "thing that keeps a job from naming a file the operator never mounted at all");
-            Assert.IsNull(path, "a refused name must yield no path");
-
-            // The rooted form that carries NO separator, and so is refused by the rooted check alone. It only
-            // exists where a drive-relative path does, which is the platform whose normalisation rules the shape
-            // check is there for.
-            if (Path.IsPathRooted("C:steal.txt"))
-            {
-                Assert.IsFalse(RootedNames.TryResolve(Root, "C:steal.txt", "file", out var driveRelative,
-                        out var failure),
-                    "a drive-relative name is rooted while looking like a plain file name, so the platform " +
-                    "resolves it against a directory the runtime never configured");
-                Assert.IsNull(driveRelative, "a refused name must yield no path");
-                StringAssert.Contains(failure, "rooted path",
-                    "the ROOTED check must be what refuses it: relying on the containment check instead makes " +
-                    "the verdict depend on where the process happens to be running from");
-            }
-        }
-
-        [TestMethod]
-        public void ANameWithACharacterAFileNameMayNotHave_IsRefused_ByTheShapeCheckAndNotByAccident()
-        {
-            Assert.IsFalse(RootedNames.TryResolve(Root, "pass\0word", "file", out var path, out var failure),
-                "an embedded null truncates the name at whatever layer reads it next, so the file actually " +
-                "opened is not the file whose name was checked");
-            Assert.IsNull(path, "a refused name must yield no path");
-            StringAssert.Contains(failure, "character a file name may not have",
-                "the INVALID-CHARACTER check must be what fires: leaving it to the platform's own exception " +
-                "makes the refusal depend on which platform normalises the name, which is the bug this " +
-                "primitive exists to remove");
-        }
-
-        [TestMethod]
-        public void AnEmptyOrBlankName_IsRefused_RatherThanNamingTheDirectoryItself()
-        {
-            foreach (var name in new String[] { null, String.Empty, "   " })
-            {
-                Assert.IsFalse(RootedNames.TryResolve(Root, name, "file", out var path, out var failure),
-                    "an empty name would resolve to the mount DIRECTORY, and reading a directory is an error a " +
-                    "reader would blame on the mount rather than on the job that named nothing");
-                Assert.IsNull(path, "a refused name must yield no path");
-                StringAssert.Contains(failure, "name is required",
-                    "the refusal must say a name is missing, or whoever submitted the job goes looking for a " +
-                    "broken mount instead of an empty field");
-            }
-        }
-
-        [TestMethod]
-        public void ABlankRoot_IsRefused_RatherThanResolvingAgainstTheWorkingDirectory()
-        {
-            foreach (var root in new String[] { null, String.Empty, "   " })
-            {
-                Assert.IsFalse(RootedNames.TryResolve(root, FileName, "file", out var path, out var failure),
-                    "with no configured directory a name would resolve against the process's working directory, " +
-                    "so the runtime would read a file baked into the image and describe it as the operator's data");
-                Assert.IsNull(path, "a refused name must yield no path");
-                StringAssert.Contains(failure, "directory is configured",
-                    "the refusal must name the missing CONFIGURATION, because the fix is a mount and not a job field");
-            }
-        }
-
-        [TestMethod]
-        public void ASiblingDirectorySharingTheRootsCharacters_IsUnreachable()
-        {
-            // The case a prefix check alone would miss: /files-old starts with /files and is a different
-            // directory, which is why the containment test compares against the root WITH a separator.
-            var resolvedRoot = Path.GetFullPath(Root);
-            var sibling = Path.GetFullPath(Root + "-old");
-
-            Assert.IsTrue(sibling.StartsWith(resolvedRoot, StringComparison.Ordinal),
-                "this test is only about anything if the sibling really does share the root's characters without " +
-                "a separator, which is the shape a naive prefix check accepts");
-            Assert.IsFalse(sibling.StartsWith(resolvedRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal),
-                "the sibling must NOT be inside the root, or the fixture is not the case being tested");
-
-            var name = sibling + Path.DirectorySeparatorChar + "steal.txt";
-
-            Assert.IsFalse(RootedNames.TryResolve(Root, name, "file", out var path, out _),
-                "a name reaching a sibling directory whose name merely BEGINS with the root must be refused: an " +
-                "operator who keeps /files-old next to /files would otherwise have every file in it readable " +
-                "by name from a job");
-            Assert.IsNull(path, "a refused name must yield no path");
-        }
-
-        [TestMethod]
-        public void ARootWrittenWithATrailingSeparator_ResolvesTheSameNameToTheSamePath()
-        {
-            Assert.IsTrue(RootedNames.TryResolve(Root, FileName, "file", out var bare, out _),
-                "the plain root must resolve, or the rest of this test proves nothing");
-            Assert.IsTrue(RootedNames.TryResolve(Root + "/", FileName, "file", out var slashed,
-                    out var failure),
-                "an operator writes the mount path in a compose file and may end it with a separator, so a root " +
-                "spelled that way must not make every file unreadable: " + failure);
-            Assert.AreEqual(bare, slashed,
-                "the two spellings of one directory must resolve to one file, or whether a file is found " +
-                "depends on a trailing character in configuration");
-        }
 
         // ------------------------------------------------------------------------------------------------
         // Credential CONTENT rules, driven through the resolver, which is the ONE place they live and the only

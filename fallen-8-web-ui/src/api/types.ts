@@ -1154,7 +1154,7 @@ export interface DelegateValidationResult {
 // what the runtime serialises; newer ones stay optional so an instance predating them still parses.
 
 /** What kind of value a provider setting takes, which is all a form needs to render it. */
-export type SettingKind = "Text" | "Number" | "Boolean" | "Url" | "Credential";
+export type SettingKind = "Text" | "Number" | "Boolean" | "Url" | "Credential" | "File";
 
 /** One setting, as data. `help` says where to find the value in the source system. */
 export interface IntegrationSetting {
@@ -1164,6 +1164,11 @@ export interface IntegrationSetting {
   required: boolean;
   help: string;
   defaultValue?: string | null;
+  /**
+   * `File` settings only: the extensions the picker offers, as the HTML attribute spells them.
+   * A hint, not a rule - a browser ignores it for a dropped file and the runtime never checks it.
+   */
+  accept?: string | null;
 }
 
 /**
@@ -1191,9 +1196,18 @@ export interface IntegrationDiagnostic {
   subject?: string | null;
 }
 
+/** One file a job carries: its own name, and its bytes base64. */
+export interface IntegrationJobFile {
+  /** The file's own name, used verbatim in the run's messages. Never a path. */
+  name: string;
+  /** The file's BYTES, base64 - not its text, so a UTF-16 extract survives the trip. */
+  contentBase64: string;
+}
+
 /**
  * The whole configuration of one run. A credential setting's value arrives in `credentialValues` and
- * never in `settings`: the runtime leases and redacts the first and treats the second as ordinary data.
+ * a file setting's file in `files`, never in `settings`: the runtime leases and redacts the first,
+ * holds the second for the run and drops it, and treats `settings` as ordinary data.
  */
 export interface IntegrationJobRequest {
   providerId: string;
@@ -1202,6 +1216,11 @@ export interface IntegrationJobRequest {
   settings: Record<string, string>;
   /** Secrets. Held for the run and dropped; never persisted here, never echoed back. */
   credentialValues: Record<string, string>;
+  /**
+   * Files, by the file setting each was supplied for. Held for the run and dropped: the runtime
+   * mounts no directory, so this is the only way a file reaches a provider.
+   */
+  files?: Record<string, IntegrationJobFile>;
   embedSummaries?: boolean;
 }
 

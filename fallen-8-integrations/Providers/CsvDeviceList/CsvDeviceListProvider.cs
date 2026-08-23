@@ -104,21 +104,22 @@ namespace NoSQL.GraphDB.Integrations.Providers.CsvDeviceList
             Id = ProviderId,
             DisplayName = "CSV device list",
             Description =
-                "Reads a delimited text file of devices from the runtime's files directory: one row per " +
-                "device, identified by the MAC address in its 'mac' column, carrying the name, owner note " +
-                "and hostname a controller does not know.",
+                "Reads a delimited text file of devices the job carries: one row per device, identified by " +
+                "the MAC address in its 'mac' column, carrying the name, owner note and hostname a " +
+                "controller does not know.",
             Settings = new[]
             {
                 new ProviderSetting
                 {
                     Key = FileSetting,
-                    Label = "File name",
-                    Kind = SettingKind.Text,
+                    Label = "Device list",
+                    Kind = SettingKind.File,
                     Required = true,
+                    Accept = ".csv,.tsv,.txt",
                     Help =
-                        "The NAME of a file, such as devices.csv, and not a path: put the file in the " +
-                        "files directory mounted into this runtime and name it here. The runtime opens it, " +
-                        "so this provider never sees a path and cannot be pointed anywhere else.",
+                        "The file itself, such as devices.csv, sent with the job. It travels with the run " +
+                        "and is dropped when the run ends: nothing is mounted, nothing is stored, and this " +
+                        "provider never sees a path.",
                 },
                 new ProviderSetting
                 {

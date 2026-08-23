@@ -88,14 +88,15 @@ namespace NoSQL.GraphDB.Tests
         /// <summary>
         /// The runtime, hosted over its own entry point. Every configured value carries the marker
         /// below so the health test can assert that none of them reaches the probe's body: a probe
-        /// disclosing which integrations exist, where provider files are mounted or which graph is
-        /// written into would be a disclosure surface on the one container that jobs hand third-party
-        /// credentials to.
+        /// disclosing which integrations exist, which hosts they talk to or which graph is written into
+        /// would be a disclosure surface on the one container that jobs hand third-party credentials to.
         /// </summary>
         private sealed class RuntimeFactory : WebApplicationFactory<NoSQL.GraphDB.Integrations.Program>
         {
             internal const String Marker = "must-not-be-disclosed";
-            internal const String FilesDirectory = "/mnt/f8i-files-" + Marker;
+            /// <summary>A marked, deliberately odd ceiling, so the binding assertion below proves this host
+            /// really took the configured value rather than the shipped default.</summary>
+            internal const Int64 MaxFileBytes = 12_345_678;
             internal const String AllowedHost = "console." + Marker + ".invalid";
             internal const String SelfSignedHost = "inverter." + Marker + ".invalid";
             internal const String TargetBaseUrl = "http://graph." + Marker + ".invalid:19999/";
@@ -113,7 +114,7 @@ namespace NoSQL.GraphDB.Tests
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
                 builder.UseSetting("Integrations:Credentials:AllowedHosts", _allowedHosts);
-                builder.UseSetting("Integrations:FilesDirectory", FilesDirectory);
+                builder.UseSetting("Integrations:MaxFileBytes", MaxFileBytes.ToString(CultureInfo.InvariantCulture));
                 builder.UseSetting("Integrations:SelfSignedHosts", SelfSignedHost);
                 builder.UseSetting("Fallen8Target:BaseUrl", TargetBaseUrl);
             }
@@ -280,9 +281,9 @@ namespace NoSQL.GraphDB.Tests
             // The marker check below is only worth anything if this process really was configured with
             // the marked values, so that is established first rather than assumed.
             var configured = factory.Services.GetRequiredService<IOptions<IntegrationsOptions>>().Value;
-            Assert.AreEqual(RuntimeFactory.FilesDirectory, configured.FilesDirectory,
-                "this host did not take the marked files directory, so the disclosure check below would " +
-                "pass over a probe that leaks the real one");
+            Assert.AreEqual(RuntimeFactory.MaxFileBytes, configured.MaxFileBytes,
+                "this host did not take the marked file ceiling, so Integrations:* is not binding here at " +
+                "all and the disclosure check below would pass over a probe that leaks the real values");
 
             using var response = await client.GetAsync(HealthRoute);
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
@@ -306,8 +307,8 @@ namespace NoSQL.GraphDB.Tests
 
             var lowered = body.ToLowerInvariant();
             Assert.IsFalse(lowered.Contains(RuntimeFactory.Marker),
-                "the probe leaked a configured path, host or target URL, which tells an unauthenticated " +
-                "caller where this container reads provider files from and which graph it writes into");
+                "the probe leaked a configured host or target URL, which tells an unauthenticated caller " +
+                "which systems this container talks to and which graph it writes into");
 
             foreach (var providerId in ShippedProviderIds)
             {
@@ -351,7 +352,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task EverySettingTheCatalogPublishesCarriesWhatAFormNeedsToRenderIt()
         {
-            var kinds = new List<String> { "Text", "Number", "Boolean", "Url", "Credential" };
+            var kinds = new List<String> { "Text", "Number", "Boolean", "Url", "Credential", "File" };
 
             using var factory = new RuntimeFactory();
             using var client = factory.CreateClient();
