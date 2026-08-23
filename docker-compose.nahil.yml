@@ -1,7 +1,7 @@
 # Nahil overlay (feature nahil-backend): the models run on Nahil (nahil.dev) instead of the
 # local Ollama sidecar.
 #
-#   F8_NAHIL_URL=https://api.nahil.dev F8_NAHIL_API_KEY=... npm run env:up
+#   F8_NAHIL_API_KEY=... npm run env:up
 #
 # or, without the helper scripts:
 #
@@ -15,18 +15,34 @@
 # The local sidecar is NOT started here (see the ollama service below), so nothing pulls
 # ~15 GB of weights onto this machine.
 #
-# Required: F8_NAHIL_URL (a host root - scheme, host, optional port, NO path) and
-# F8_NAHIL_API_KEY. There is no default for either: selecting this backend with no endpoint
-# must be refused with a reason, never quietly aimed at localhost.
+# Required: F8_NAHIL_API_KEY. There is no default and there will not be one - a credential
+# that appears from nowhere is a credential nobody can rotate - so the overlay fails closed with
+# the reason if it is unset.
+#
+# F8_NAHIL_URL defaults to https://api.nahil.dev, Nahil's own host root (a host root: scheme,
+# host, optional port, NO path - HttpClient.BaseAddress silently drops a path prefix, so one is
+# refused rather than rewritten). It used to have no default, on the argument that selecting this
+# backend with no endpoint must never be quietly aimed at localhost; a public host root cannot BE
+# aimed at localhost, so the argument does not reach it, and the key alone still fails closed.
 
 services:
   fallen8:
     environment:
-      # Chat (the NL-assist path). The model is named as NAHIL's catalog names it, which is the
-      # published registry name and may differ from a locally tagged copy of the same weights -
-      # see docs.fallen-8.com/nahil/.
+      # Chat (the NL-assist path). The model is named as NAHIL's catalog names it, and here that
+      # is not a formality: both published repos of this fine-tune still exist, so both names
+      # resolve on Nahil - to DIFFERENT weights.
+      #
+      #   phi4-f8-mini:latest  the current published finetune (the default)
+      #   f8-delegate:latest   the same finetune under its PRE-RENAME name - which is what a
+      #                        sidecar volume built before the rename actually holds, under both
+      #                        local tags (nl-assist-finetune/fixtures/phi4-f8-mini/ has the
+      #                        digests of one such build)
+      #
+      # So on an older volume, F8_NAHIL_CHAT_MODEL=f8-delegate:latest keeps the output that
+      # deployment already had and the default moves it to the current one. Neither is more
+      # correct; they are different weights. docs.fallen-8.com/nahil/.
       - Fallen8__Chat__Backend=Nahil
-      - Fallen8__Chat__Nahil__Endpoint=${F8_NAHIL_URL:?set F8_NAHIL_URL to the Nahil host root}
+      - Fallen8__Chat__Nahil__Endpoint=${F8_NAHIL_URL:-https://api.nahil.dev}
       - Fallen8__Chat__Nahil__ApiKey=${F8_NAHIL_API_KEY:?set F8_NAHIL_API_KEY}
       - Fallen8__Chat__Nahil__Model=${F8_NAHIL_CHAT_MODEL:-phi4-f8-mini:latest}
       # 600s, not the 120s default. Nahil routes to workers that include CPU-only machines, and
@@ -42,7 +58,7 @@ services:
       # only the address changes. ModelName stays untagged and unchanged: it is the stamp stored
       # beside every vector, not a request identifier.
       - Fallen8__Embedding__Backend=Nahil
-      - Fallen8__Embedding__Nahil__Endpoint=${F8_NAHIL_URL:?set F8_NAHIL_URL to the Nahil host root}
+      - Fallen8__Embedding__Nahil__Endpoint=${F8_NAHIL_URL:-https://api.nahil.dev}
       - Fallen8__Embedding__Nahil__ApiKey=${F8_NAHIL_EMBED_API_KEY:-${F8_NAHIL_API_KEY}}
       - Fallen8__Embedding__Nahil__Model=${F8_NAHIL_EMBED_MODEL:-bge-m3:latest}
       # 32, not the default 64. Nahil caps a request at 64 items, so the shipped default sits

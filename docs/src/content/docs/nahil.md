@@ -49,10 +49,13 @@ Three things are genuinely new, and all three come from Nahil rather than from O
 With the compose environment, an overlay does the whole thing:
 
 ```bash
-F8_NAHIL_URL=https://api.nahil.dev \
-F8_NAHIL_API_KEY=your-key \
-npm run env:up
+F8_NAHIL_API_KEY=your-key npm run env:up
 ```
+
+The key is the whole switch: setting it selects the overlay, and `F8_NAHIL_URL` defaults to
+`https://api.nahil.dev`. There is no default for the key and there will not be one - a credential
+that appears from nowhere is a credential nobody can rotate - so the overlay fails closed, naming
+the variable, if it is unset.
 
 The local Ollama sidecar is **not started** and nothing is pulled onto the machine. Without the
 helper script, the overlay is a normal compose file:
@@ -61,15 +64,15 @@ helper script, the overlay is a normal compose file:
 docker compose -f docker-compose.yml -f docker-compose.nahil.yml up
 ```
 
-| Variable                 | Required | Meaning                                                                     |
-| ------------------------ | -------- | --------------------------------------------------------------------------- |
-| `F8_NAHIL_URL`           | yes      | The Nahil base URL. A **host root**: scheme, host, optional port, no path.   |
-| `F8_NAHIL_API_KEY`       | yes      | The bearer credential.                                                       |
-| `F8_NAHIL_CHAT_MODEL`    | no       | The chat model, as Nahil's catalog names it.                                 |
-| `F8_NAHIL_EMBED_MODEL`   | no       | The embedding model. Must be the one your stored vectors came from.          |
-| `F8_NAHIL_EMBED_API_KEY` | no       | A separate key for embeddings, when you want the two metered apart.          |
-| `F8_NAHIL_CHAT_TIMEOUT`  | no       | The chat budget in seconds; the overlay sets `600`.                          |
-| `F8_NAHIL_EMBED_BATCH`   | no       | Items per embedding request; the overlay sets `32`.                          |
+| Variable                 | Required | Meaning                                                                                    |
+| ------------------------ | -------- | ------------------------------------------------------------------------------------------ |
+| `F8_NAHIL_API_KEY`       | yes      | The bearer credential. Setting it is what selects the overlay.                              |
+| `F8_NAHIL_URL`           | no       | The Nahil base URL; defaults to `https://api.nahil.dev`. A **host root**: scheme, host, optional port, no path. |
+| `F8_NAHIL_CHAT_MODEL`    | no       | The chat model, as Nahil's catalog names it. Two live repos spell this fine-tune two ways - [which to pick](#one-name-can-mean-two-different-builds). |
+| `F8_NAHIL_EMBED_MODEL`   | no       | The embedding model. Must be the one your stored vectors came from.                          |
+| `F8_NAHIL_EMBED_API_KEY` | no       | A separate key for embeddings, when you want the two metered apart.                          |
+| `F8_NAHIL_CHAT_TIMEOUT`  | no       | The chat budget in seconds; the overlay sets `600`.                                          |
+| `F8_NAHIL_EMBED_BATCH`   | no       | Items per embedding request; the overlay sets `32`.                                          |
 
 ### The settings underneath
 
@@ -77,25 +80,35 @@ The overlay writes ordinary [configuration](/configuration/) keys, so any other 
 method sets the same ones:
 
 ```
+Fallen8__Chat__Enabled=true
 Fallen8__Chat__Backend=Nahil
 Fallen8__Chat__Nahil__Endpoint=https://api.nahil.dev
 Fallen8__Chat__Nahil__ApiKey=...
 Fallen8__Chat__Nahil__Model=phi4-f8-mini:latest
 Fallen8__Chat__TimeoutSeconds=600
+Fallen8__Chat__Stream=true                  # the default; listed so the profile is complete
 
+Fallen8__Embedding__Enabled=true
 Fallen8__Embedding__Backend=Nahil
 Fallen8__Embedding__Nahil__Endpoint=https://api.nahil.dev
 Fallen8__Embedding__Nahil__ApiKey=...
 Fallen8__Embedding__Nahil__Model=bge-m3:latest
 Fallen8__Embedding__MaxBatchSize=32
+
+# The geometry, unchanged from a local deployment - which is what "nothing re-embeds" means.
+Fallen8__Embedding__ModelName=bge-m3        # the identity stamp; untagged, and NOT retagged
+Fallen8__Embedding__Dimension=1024
+Fallen8__Embedding__IntendedMetric=Cosine
 ```
 
 The two capabilities are independent: embeddings can run on Nahil while chat stays on a local
 sidecar, or the other way round.
 
-`Fallen8:Embedding:ModelName` is **not** in that list on purpose. It is the identity stamp
-written beside every vector you have stored, not a request identifier - retagging it would make
-every existing index report an identity mismatch for no benefit on the wire.
+`Fallen8:Embedding:ModelName` is in that list **only to say it does not change**. It is the
+identity stamp written beside every vector you have stored, not a request identifier, and it stays
+untagged: retagging it to `bge-m3:latest` to match the request would make every existing index
+report an identity mismatch for no benefit on the wire. The compose overlay accordingly does not
+set it - the base environment already did, and that value is the one that must survive.
 
 ## Rules the configuration is held to
 
@@ -166,6 +179,13 @@ cannot. See [troubleshooting](/troubleshooting/).
 `Fallen8:Embedding:TimeoutSeconds` stays at 300. A cold `bge-m3` pull can exceed it; the failure
 is honest and the next call succeeds.
 
+The other bound on an embedding request is not a budget but a **token ceiling**, and it is smaller
+than `bge-m3` claims: 2048 tokens per input, not the advertised 8192. Fallen-8 asks Nahil never to
+truncate, so an input over it is refused rather than half-embedded. That is not a Nahil property -
+the local sidecar stops at the same 2048 - so the whole story, including what to set
+`Fallen8:Ingestion:ChunkMaxChars` to for your corpus, lives with the embedding provider: [the input
+ceiling](/semantic-traversal/#the-input-ceiling-2048-tokens-not-8192).
+
 ## Embedding in batches
 
 Nahil caps a request at 64 items, so the shipped default of 64 sits exactly *on* the limit. The
@@ -193,6 +213,36 @@ bare name relies on both ends agreeing about a default, a tagged one names the s
 everywhere. The configured string reaches the request body verbatim - nothing strips, appends or
 normalizes a tag - so if a backend ever catalogues a model under a different name, that is an
 environment variable and nothing more.
+
+### One name can mean two different builds
+
+Worth getting right before you compare outputs against a local sidecar:
+
+| Name on Nahil | What it serves |
+| --- | --- |
+| `phi4-f8-mini:latest` | the published `phi4-f8-mini` repo - the **current** finetune |
+| `f8-delegate:latest` | the published `f8-delegate` repo - the finetune under its **pre-rename** name |
+
+`f8-delegate` was this fine-tune's original name and was renamed to `phi4-f8-mini` with no local
+alias, deliberately. Both published repos still exist, so both names resolve on Nahil - to
+different weights.
+
+That matters because a sidecar volume built before the rename holds the `f8-delegate` build under
+*both* local tags. If yours does - `ollama list` showing one id for `phi4-f8-mini:latest` and
+`f8-delegate:latest` is the tell - then
+
+```
+F8_NAHIL_CHAT_MODEL=f8-delegate:latest
+```
+
+is what keeps the output you already had, and the default moves you to the current published
+finetune. Neither is more correct; they are different weights, and it is one line either way. It
+also creates no alias - it names a different catalog entry on a remote backend, which leaves the
+clean rename intact.
+
+What one such local build was is recorded, `ollama show` verbatim plus its blob digests, in
+[`nl-assist-finetune/fixtures/phi4-f8-mini/`](https://github.com/cosh/fallen-8-core/tree/main/nl-assist-finetune/fixtures/phi4-f8-mini)
+- its system prompt, prompt template and sampling parameters exist nowhere else.
 
 ## Checking it works
 

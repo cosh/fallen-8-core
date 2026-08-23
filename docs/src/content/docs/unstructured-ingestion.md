@@ -143,8 +143,9 @@ Step by step, and the order matters:
    unreachable the upload is still accepted (202) and the Document row ends `failed`, carrying
    the docling reason in its `error`.
 3. **Chunk.** Sections split along headings, merge below `ChunkMinChars` (default 800), split
-   above `ChunkMaxChars` (default 4,000) at paragraph boundaries. Tables stay intact as their
+   above `ChunkMaxChars` (default 3,600) at paragraph boundaries. Tables stay intact as their
    own `kind: table` chunks; oversize tables split into row windows that repeat the header.
+   `ChunkMaxChars` is a **token** budget in char clothing: see [the input ceiling](/semantic-traversal/#the-input-ceiling-2048-tokens-not-8192) for why 3,600, and when a corpus wants less.
    Identifier-shaped tokens (`RETRY_BUDGET_MS`, `CheckoutService`, `0x1A2B`) are extracted per
    chunk into its `identifiers` property. The shapes are exact: an underscore token that starts
    with an uppercase letter and is at least 4 characters, CamelCase with at least two humps and
@@ -314,7 +315,7 @@ an OOM. Everything lives under `Fallen8:Ingestion` (and `Fallen8:Nlp` for enrich
 | `MaxChunksPerDocument` | 2,000 | Chunks a single document may yield |
 | `MaxChunksPerNamespace` | 100,000 | The namespace ceiling: further ingestion answers 507 |
 | `MaxQueueLength` | 256 | Depth of the global ingestion queue: enqueue beyond it answers 503 |
-| `ChunkMinChars` / `ChunkMaxChars` | 800 / 4,000 | Chunk size bounds |
+| `ChunkMinChars` / `ChunkMaxChars` | 800 / 3,600 | Chunk size bounds; the max is a [token ceiling](/semantic-traversal/#the-input-ceiling-2048-tokens-not-8192) in chars |
 | `MaxIdentifiersPerChunk` | 64 | Identifier tokens a chunk keeps, so also how many can link |
 | `MaxLinksPerChunk` | 16 | Hard cap for linked `mentions` edges per chunk |
 | `Docling:Endpoint` | *empty* | The docling sidecar; unset means binary formats answer 503 |
