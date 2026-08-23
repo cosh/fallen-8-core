@@ -59,7 +59,23 @@
 #   F8_DEBUG         as in deploy.sh.
 set -euo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Bash reads a script INCREMENTALLY from a byte offset, so editing this file - or a git pull, or a
+# branch switch - WHILE it runs makes the interpreter resume at the wrong place and die on garbage.
+# Measured 2026-08-23: an edit mid-run produced "syntax error near unexpected token '('" AFTER the
+# evaluation had completed, the results were fetched and the group was deleted, turning a clean run
+# into a non-zero exit. This job waits for hours, which is ample time for exactly that. So re-exec
+# once from an immutable copy; only the launch-box script needs this, because the VM-side scripts
+# run from a clone nobody touches.
+if [ "${F8_SELF_COPY:-0}" != "1" ]; then
+  F8_SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  _copy="$(mktemp)"
+  cat "${BASH_SOURCE[0]}" > "$_copy"
+  export F8_SELF_COPY=1 F8_SELF_DIR F8_SELF_TMP="$_copy"
+  exec bash "$_copy" "$@"
+fi
+
+# From the copy, BASH_SOURCE points at /tmp, so the real directory arrives by env.
+HERE="${F8_SELF_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 FT="$(cd "$HERE/.." && pwd)"
 
 step(){ echo "[eval-deploy] $*"; }
@@ -146,7 +162,7 @@ SSH_PUBKEY="$(cat "$SSH_PUBKEY_FILE")"
 # result FETCH, i.e. after the GPU hour is already paid for. Work from a private copy on the
 # local filesystem. (Unverified locally: outbound :22 is blocked here, so this is defensive.)
 KEY_TMP="$(mktemp)"; chmod 600 "$KEY_TMP"; cat "$SSH_KEY_FILE" > "$KEY_TMP"
-trap 'rm -f "$KEY_TMP"' EXIT
+trap 'rm -f "$KEY_TMP" "${F8_SELF_TMP:-}"' EXIT
 
 # Every ssh/scp below runs with BatchMode=yes, and the launcher starts this script in a
 # non-interactive shell with no agent, so a PASSPHRASE-PROTECTED key can never authenticate. That
@@ -289,7 +305,7 @@ delete_rg(){
 
 wait_and_collect(){
   local deadline state live last_live="" unreachable=0 nsg_repinned=0 now_ip="" diag=""
-  local fetch_rc=0 frc=0
+  local fetch_rc=0 frc=0 quiet=0
   local disarmed=0 attached=0 reaper=""
   deadline=$(( $(date +%s) + EVAL_WAIT_MIN * 60 ))
   step "waiting for the run (up to ${EVAL_WAIT_MIN}m). Watch it live with:"
@@ -385,6 +401,7 @@ wait_and_collect(){
         ;;
       *)
         unreachable=0
+        quiet=$(( quiet + 1 ))
         if [ "$attached" = 0 ]; then
           attached=1
           if disarm_backstop; then
@@ -400,7 +417,15 @@ wait_and_collect(){
             fi
           fi
         fi
-        if [ "$live" != "$last_live" ] && [ -n "$live" ]; then step "$live"; last_live="$live"; fi
+        if [ "$live" != "$last_live" ] && [ -n "$live" ]; then
+          step "$live"; last_live="$live"; quiet=0
+        elif [ "$quiet" -ge 6 ]; then
+          # A row that stalls (a runaway whole-type generation bounded by the harness's per-call
+          # timeout) writes NO new log line for minutes, so printing only on change made a healthy
+          # run look hung - measured on the 2026-08-23 run. Heartbeat with elapsed time instead.
+          step "still running, no new output for $(( quiet / 2 ))m (a stalled row is normal: the harness caps each draft)"
+          quiet=0
+        fi
         ;;
     esac
     sleep 30
