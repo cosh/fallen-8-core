@@ -73,7 +73,10 @@ command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required to verify the
 install_signing_key() {
   if [ -n "${OLLAMA_SIGNING_KEY:-}" ]; then
     OLLAMA_KEY_FILE="$(mktemp)"; chmod 600 "$OLLAMA_KEY_FILE"
-    printf '%s\n' "$OLLAMA_SIGNING_KEY" > "$OLLAMA_KEY_FILE"
+    # tr -d: a key pasted into a GitHub secret from Windows carries CRLF, which ollama rejects as
+    # malformed - surfacing as an UNAUTHENTICATED push, the hardest failure here to read. Strip
+    # them rather than let a release die on line endings.
+    printf '%s\n' "$OLLAMA_SIGNING_KEY" | tr -d '\r' > "$OLLAMA_KEY_FILE"
     trap 'rm -f "$OLLAMA_KEY_FILE"' EXIT
   fi
   [ -s "$OLLAMA_KEY_FILE" ] || die "no Ollama signing key at '$OLLAMA_KEY_FILE' (and OLLAMA_SIGNING_KEY is unset). A push would authenticate as nobody and upload nothing."
