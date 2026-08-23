@@ -99,6 +99,8 @@ interface RowResult {
   /** FT-8 element-set verdict (only when run with --semantic). undefined pass = not applicable. */
   semanticApplicable?: boolean;
   semanticPass?: boolean;
+  /** Set when the row could not be drafted at all (timeout, transport error). Never a pass. */
+  harnessError?: string;
 }
 
 /**
@@ -127,6 +129,8 @@ interface PluginRowResult {
   compileError: string | null;
   pass: boolean;
   stats: GenStats | null;
+  /** Set when the row could not be drafted at all (timeout, transport error). Never a pass. */
+  harnessError?: string;
 }
 
 function runChecks(row: EvalRow, fragment: string): string[] {
@@ -229,6 +233,7 @@ async function main() {
   for (const row of rows) {
     if (rescore) break;
     if (done.has(row.id)) continue;
+    try {
     const prompt = buildGenerationPrompt(row.kind, row.intent);
     const { content, stats } = await ollamaChat(initialMessages(prompt));
     const fragment = formatFragment(extractFragment(content));
@@ -260,6 +265,28 @@ async function main() {
         failedChecks.length === 0 ? "ok" : failedChecks.join("; ")
       }${sem} ${result.stats ? `${((result.stats.durationMs ?? 0) / 1000).toFixed(1)}s ${result.stats.tokensPerSecond?.toFixed(1) ?? "?"} tok/s` : ""}`,
     );
+    } catch (error) {
+      // A single row must not end the run. Measured 2026-08-23 on the first cloud run: one runaway
+      // whole-type generation hit the per-call timeout, the process exited, and all 27 rows that
+      // HAD completed were discarded as "a harness error". A row that cannot produce a draft
+      // within the cap is a failure OF THAT ROW - record it and carry on, so the run still yields
+      // a measurement and the row count stays complete.
+      const message = error instanceof Error ? error.message : String(error);
+      results.push({
+        id: row.id,
+        kind: row.kind,
+        intent: row.intent,
+        fragment: "",
+        compileValid: false,
+        compileErrors: [],
+        failedChecks: [],
+        pass: false,
+        stats: null,
+        harnessError: message,
+      });
+      save();
+      console.log(`FAIL ${row.id} harness-error: ${message}`);
+    }
   }
 
   // Whole-type plugin rows (compile-only). One first-pass draft per row through the plugin
@@ -267,6 +294,7 @@ async function main() {
   for (const row of pluginEvalRows) {
     if (rescore) break;
     if (donePlugins.has(row.id)) continue;
+    try {
     const contract = row.contract ?? "Path"; // ignored by the prompt for a function
     const scaffold = scaffoldFor(row.category, contract, row.name);
     const prompt = buildPluginGenerationPrompt({
@@ -301,6 +329,25 @@ async function main() {
         result.compileError ? ` (${result.compileError.split("\n")[0]})` : ""
       } ${result.stats ? `${((result.stats.durationMs ?? 0) / 1000).toFixed(1)}s ${result.stats.tokensPerSecond?.toFixed(1) ?? "?"} tok/s` : ""}`,
     );
+    } catch (error) {
+      // See the delegate loop. The whole-type ALGORITHM rows are exactly where the mini runs away,
+      // so this is the loop that actually needed it.
+      const message = error instanceof Error ? error.message : String(error);
+      pluginResults.push({
+        id: row.id,
+        category: row.category,
+        contract: row.contract,
+        name: row.name,
+        source: "",
+        compileValid: false,
+        compileError: null,
+        pass: false,
+        stats: null,
+        harnessError: message,
+      });
+      save();
+      console.log(`FAIL ${row.id} harness-error: ${message}`);
+    }
   }
 
   // Summary - overall and per kind.

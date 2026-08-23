@@ -289,6 +289,7 @@ delete_rg(){
 
 wait_and_collect(){
   local deadline state live last_live="" unreachable=0 nsg_repinned=0 now_ip="" diag=""
+  local fetch_rc=0 frc=0
   local disarmed=0 attached=0 reaper=""
   deadline=$(( $(date +%s) + EVAL_WAIT_MIN * 60 ))
   step "waiting for the run (up to ${EVAL_WAIT_MIN}m). Watch it live with:"
@@ -300,7 +301,7 @@ wait_and_collect(){
     case "$state" in
       DONE)
         step "the VM reports DONE."
-        fetch_results; fetch_rc=$?
+        fetch_rc=0; fetch_results || fetch_rc=$?
         case "$fetch_rc" in
           0) : ;;
           2) report_fetched 2
@@ -317,9 +318,11 @@ wait_and_collect(){
       FAILED)
         step "the VM reports FAILED. Reason:"
         ssh "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'cat /opt/f8/.eval-failed 2>/dev/null; echo; tail -n 40 /var/log/f8-eval.log 2>/dev/null' 2>/dev/null || true
-        fetch_results; report_fetched $?
+        frc=0; fetch_results || frc=$?
+        report_fetched "$frc"
         if [ "$DESTROY_ON_FAILURE" = "1" ]; then delete_rg; else
-          # If we stopped its reaper, hand it back before walking away.
+          # If we stopped its reaper, hand it back before walking away. This MUST run: the first
+          # real run died before reaching it and left a running A10 with no teardown at all.
           if [ "$disarmed" = 1 ]; then rearm_backstop 60; fi
           step "keeping '$RG' so you can investigate."
           step "  ssh ${ADMIN_USER}@${IP} 'less /var/log/f8-eval.log'"
@@ -330,7 +333,8 @@ wait_and_collect(){
       DEAD)
         step "the f8-eval unit stopped without writing a marker - it died (OOM, kill, or a crash)."
         ssh -n "${SSH_OPTS[@]}" "$ADMIN_USER@$IP" 'tail -n 40 /var/log/f8-eval.log 2>/dev/null; systemctl status --no-pager f8-eval.service 2>/dev/null | head -n 15' 2>/dev/null || true
-        fetch_results; report_fetched $?
+        frc=0; fetch_results || frc=$?
+        report_fetched "$frc"
         if [ "$DESTROY_ON_FAILURE" = "1" ]; then delete_rg; else
           if [ "$disarmed" = 1 ]; then rearm_backstop 60; fi
           step "keeping '$RG' to investigate."
