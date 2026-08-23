@@ -1,6 +1,8 @@
 # Instance-level health - Specification
 
-> **Status:** OPEN (specced 2026-08-23). Studio-only change; no engine and no REST work.
+> **Status:** DONE (specced and implemented 2026-08-23, merged to `main` the same day). Studio-only
+> change; no engine and no REST work. Merged without the council gate at the owner's explicit
+> exception; the gates that did run are in [plan.md](plan.md)'s run ledger.
 
 ## 1. Why
 
