@@ -139,7 +139,7 @@ USE_SPOT="${F8_SPOT:-0}"
 ADMIN_USER="${ADMIN_USER:-azureuser}"
 GIT_TOKEN="${GIT_TOKEN:-}"
 DESTROY_ON_FAILURE="${DESTROY_ON_FAILURE:-0}"
-REGISTRY="${REGISTRY:-https://registry.ollama.ai}"
+. "$HERE/registry-probe.sh"      # registry_probe(); also defaults REGISTRY
 ATTACH_RG="${EVAL_ATTACH_RG:-}"
 
 b64(){ base64 -w0 2>/dev/null || base64; }
@@ -461,13 +461,14 @@ fi
 [ -n "${EVAL_PREFIX:-}" ] || die "EVAL_PREFIX is required: the VM has no local models, so it must pull them from a registry namespace (the same value you published with)."
 
 # Nothing costs money until this passes: a variant that was never published is the cheapest
-# possible failure to detect, and the same auth-free manifest GET run.sh uses after a push.
+# possible failure to detect. What counts as "not published" is registry-probe.sh's business.
 step "checking the published tags exist before creating anything..."
 for v in $VARIANTS; do
-  code="$(curl -sSL --connect-timeout 15 --max-time 60 -o /dev/null -w '%{http_code}' \
-    "$REGISTRY/v2/$EVAL_PREFIX/$v/manifests/latest" 2>/dev/null || echo 000)"
-  [ "$code" = "200" ] || die "$REGISTRY/v2/$EVAL_PREFIX/$v/manifests/latest returned HTTP $code - '$EVAL_PREFIX/$v' is not published. Publish it first, or drop it from VARIANTS."
-  step "  $EVAL_PREFIX/$v: present"
+  registry_probe "$EVAL_PREFIX/$v" && { step "  $EVAL_PREFIX/$v: present"; continue; }
+  case $? in
+    3) die "$REGISTRY/v2/$EVAL_PREFIX/$v/manifests/latest returned HTTP 404 - '$EVAL_PREFIX/$v' is not published. Publish it first, or drop it from VARIANTS." ;;
+    *) die "could not reach $REGISTRY to check '$EVAL_PREFIX/$v': $REGISTRY_PROBE_DETAIL. That says nothing about whether the tag exists, so nothing was created; fix the network here (or set REGISTRY) and re-run." ;;
+  esac
 done
 
 detected_ip="$(curl -fsS https://api.ipify.org 2>/dev/null || true)"
