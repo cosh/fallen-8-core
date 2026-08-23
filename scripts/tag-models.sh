@@ -121,20 +121,27 @@ install_signing_key() {
   local home
   home="$(getent passwd ollama 2>/dev/null | cut -d: -f6 || true)"
   if [ -n "$home" ]; then
-    # -n on every sudo below: without it, a box without passwordless sudo PROMPTS, and in a
-    # non-interactive context that hangs until something kills it rather than failing. Check once,
-    # with a message that says what to do.
-    sudo -n true 2>/dev/null || die "installing the key into the daemon's home ($home/.ollama) needs passwordless sudo. CI runners have it; on a workstation either run this from a sudo-capable session or copy the key there yourself, then re-run."
-    sudo -n mkdir -p "$home/.ollama"
-    sudo -n install -m 600 "$OLLAMA_KEY_FILE" "$home/.ollama/id_ed25519"
+    # Prompting is fine when a person is watching; -n exists only so an UNATTENDED run cannot hang
+    # forever on a password prompt (measured: it does). So probe once and pick accordingly.
+    local SUDO="sudo -n"
+    if ! sudo -n true 2>/dev/null; then
+      if [ -t 0 ]; then
+        SUDO="sudo"
+        log "sudo will prompt for your password (the key must go into $home/.ollama, which the daemon owns)."
+      else
+        die "installing the key into the daemon's home ($home/.ollama) needs sudo, and this session cannot prompt (no terminal). Run it from an interactive shell, or grant passwordless sudo as CI runners have."
+      fi
+    fi
+    $SUDO mkdir -p "$home/.ollama"
+    $SUDO install -m 600 "$OLLAMA_KEY_FILE" "$home/.ollama/id_ed25519"
     # The public half too: derived, so it always matches, and some versions read it.
     ssh-keygen -y -f "$OLLAMA_KEY_FILE" 2>/dev/null > "$OLLAMA_KEY_FILE.pub" || true
-    [ -s "$OLLAMA_KEY_FILE.pub" ] && sudo -n install -m 644 "$OLLAMA_KEY_FILE.pub" "$home/.ollama/id_ed25519.pub"
-    sudo -n chown -R ollama:ollama "$home/.ollama" || die "could not give the daemon ownership of its key; it would read nothing and report 'no key found'."
+    [ -s "$OLLAMA_KEY_FILE.pub" ] && $SUDO install -m 644 "$OLLAMA_KEY_FILE.pub" "$home/.ollama/id_ed25519.pub"
+    $SUDO chown -R ollama:ollama "$home/.ollama" || die "could not give the daemon ownership of its key; it would read nothing and report 'no key found'."
     # A root-owned 0600 key is invisible to the daemon and fails with the SAME message as a
     # malformed one, so assert readability as the user that actually signs.
-    sudo -n -u ollama test -r "$home/.ollama/id_ed25519" || die "the daemon user cannot read the installed key."
-    sudo -n systemctl restart ollama 2>/dev/null || true
+    $SUDO -u ollama test -r "$home/.ollama/id_ed25519" || die "the daemon user cannot read the installed key."
+    $SUDO systemctl restart ollama 2>/dev/null || true
     for _ in $(seq 1 30); do ollama list >/dev/null 2>&1 && break; sleep 2; done
     log "installed the signing key into the daemon's home ($home/.ollama)."
   else
