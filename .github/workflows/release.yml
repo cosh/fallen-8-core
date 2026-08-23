@@ -287,6 +287,46 @@ jobs:
         if: steps.gate.outputs.publish == 'true'
         run: npm publish
 
+  models:
+    name: "Ollama model tags: <ns>/phi4-f8*:vX.Y.Z"
+    runs-on: ubuntu-latest
+    needs: [test]
+    # Tagging the repository tags the published MODELS too, so a release names a specific build
+    # instead of whatever ":latest" happens to be. It does not retrain and does not move
+    # ":latest" - it adds a second name for the same bytes (scripts/tag-models.sh).
+    #
+    # SKIPS CLEANLY without the signing key. Publishing weights is the operator's opt-in channel
+    # (nl-assist-finetune spec FT-5/FL-4): core ships none, a fork has no key, and neither should
+    # fail a release for it. Set the OLLAMA_SIGNING_KEY secret to the private half whose public
+    # half is registered at https://ollama.com/settings/keys.
+    #
+    # Only the mini is tagged by default: a hosted runner has roughly 14 GB free and the 14B is
+    # ~9 GB on top of the mini's ~2.5 GB, plus the re-push. Set the F8_TAG_MODELS repository
+    # VARIABLE to a space-separated list to change that (the job logs exactly what it tagged).
+    permissions: {}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is a signing key configured?
+        id: key
+        env:
+          OLLAMA_SIGNING_KEY: ${{ secrets.OLLAMA_SIGNING_KEY }}
+        run: |
+          if [ -n "${OLLAMA_SIGNING_KEY:-}" ]; then
+            echo "have=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=0" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Model tags skipped::OLLAMA_SIGNING_KEY is not set, so the published models keep only their :latest tag. This does not affect the rest of the release."
+          fi
+      - name: Install ollama
+        if: steps.key.outputs.have == '1'
+        run: curl -fsSL https://ollama.com/install.sh | sh
+      - name: Tag the published models with ${{ github.ref_name }}
+        if: steps.key.outputs.have == '1'
+        env:
+          OLLAMA_SIGNING_KEY: ${{ secrets.OLLAMA_SIGNING_KEY }}
+          F8_TAG_MODELS: ${{ vars.F8_TAG_MODELS || 'stoic_hellman_728/phi4-f8-mini' }}
+        run: scripts/tag-models.sh "${{ github.ref_name }}"
+
   github-release:
     name: GitHub release
     runs-on: ubuntu-latest

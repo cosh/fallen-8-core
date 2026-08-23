@@ -77,19 +77,39 @@ ensure_base() {
 
 # A fine-tune: pull <repo> and tag it locally as the short <tag> the UI uses (no f8-delegate
 # alias - feature delegate-model-variants, decision: clean rename).
+# The 12 hex the daemon reports for a model, which is the leading half of the sha256 of its
+# registry manifest - so it can be compared directly against what is published:
+#   curl -s https://registry.ollama.ai/v2/<repo>/manifests/latest | sha256sum | cut -c1-12
+model_id() { ollama list | awk -v t="$1" 'index($1, t ":") == 1 { print $2; exit }'; }
+
+# ALWAYS attempt the pull, even when the tag is already present locally.
+#
+# The models volume persists across `compose down/up`, and the fine-tune pipeline republishes over
+# the SAME tag rather than a versioned one. So the previous "already present -> skipping pull"
+# short-circuit meant a host that had ever pulled the model kept serving those weights forever,
+# under an identical model name, with nothing anywhere reporting the drift. An `ollama pull` is
+# content-addressed: when nothing changed it is a digest check and no transfer.
+#
+# When the pull fails and a local copy exists we keep it and say so, which preserves offline and
+# air-gapped starts and the scripts/ensure-models.sh pre-seed path exactly as before. The model id
+# is logged either way, so the log records WHICH build is being served.
 ensure_finetune() {
   repo=$1
   tag=$2
+  had_local=0
   if ollama list | grep -q "^${tag}:"; then
-    log_info "$tag already present - skipping pull"
-    return 0
+    had_local=1
+    log_info "$tag is present ($(model_id "$tag")) - checking the registry for a newer build"
   fi
   if pull_model "$repo"; then
     if timeout 30 ollama cp "$repo" "$tag" >/dev/null 2>&1; then
-      log_info "Tagged $repo as $tag"
+      log_info "Tagged $repo as $tag ($(model_id "$tag"))"
       return 0
     fi
     log_error "Pulled $repo but could not tag it as $tag"
+  elif [ "$had_local" = 1 ]; then
+    log_info "Registry unreachable - keeping the cached $tag ($(model_id "$tag")); it may be older than what is published."
+    return 0
   fi
   return 1
 }
