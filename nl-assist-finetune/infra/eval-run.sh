@@ -61,7 +61,7 @@ NL_EVAL_F8="${NL_EVAL_F8:-http://localhost:5000}"
 NL_EVAL_ENDPOINT="${NL_EVAL_ENDPOINT:-http://localhost:11434}"
 export RESULTS_OUT="${RESULTS_OUT:-/opt/f8/eval-results}"
 EVAL_TIMEOUT="${EVAL_TIMEOUT:-60m}"
-REGISTRY="${REGISTRY:-https://registry.ollama.ai}"
+. "$HERE/registry-probe.sh"      # registry_probe(); also defaults REGISTRY
 
 log() { printf '\n\033[1;36m[eval] %s\033[0m\n' "$*"; }
 note() { echo "[eval]   $*"; }
@@ -121,15 +121,8 @@ note "expecting $EXPECT_ROWS delegate row(s) and $EXPECT_PLUGIN_ROWS plugin row(
 
 # ---------------------------------------------------------------------------------------------
 # Model acquisition. A published tag that does not exist is a launch-box-detectable mistake, so
-# check it before pulling gigabytes; the same auth-free manifest GET run.sh uses after a push.
+# check it before pulling gigabytes (registry-probe.sh).
 # ---------------------------------------------------------------------------------------------
-
-registry_has() { # <namespace/model> -> 0 when the registry serves its "latest" manifest
-  local code
-  code="$(curl -sSL --connect-timeout 15 --max-time 60 -o /dev/null -w '%{http_code}' \
-    "$REGISTRY/v2/${1}/manifests/latest" 2>/dev/null || echo 000)"
-  [ "$code" = "200" ]
-}
 
 pull_retry() { # <model> - ollama pull with three attempts; a partial pull is not a verdict
   local model="$1" attempt
@@ -148,7 +141,10 @@ acquire() { # <local name> -> ensures the model exists locally under exactly tha
   local local_name="$1" remote
   if [ -n "$EVAL_PREFIX" ]; then
     remote="$EVAL_PREFIX/$local_name"
-    registry_has "$remote" || fail "the registry has no '$remote:latest' (has that variant been published?). Nothing was pulled."
+    registry_probe "$remote" || case $? in
+      3) fail "the registry has no '$remote:latest' (has that variant been published?). Nothing was pulled." ;;
+      *) fail "could not reach $REGISTRY to check '$remote': $REGISTRY_PROBE_DETAIL. Nothing was pulled, and this is not evidence the tag is missing." ;;
+    esac
     log "pulling $remote (latest)"
     pull_retry "$remote" || fail "could not pull '$remote' after 3 attempts."
     ollama cp "$remote" "$local_name"

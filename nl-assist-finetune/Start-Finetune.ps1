@@ -332,10 +332,21 @@ rm -f "`$t"
             # manifest GET the publish step uses, before any VM exists.
             foreach ($v in ($Variants -split '\s+' | Where-Object { $_ })) {
                 $uri = "https://registry.ollama.ai/v2/$EvalPrefix/$v/manifests/latest"
-                $ok = $false
-                try { $ok = ((Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 30).StatusCode -eq 200) } catch { $ok = $false }
-                if ($ok) { Add-Check "eval: $EvalPrefix/$v published" $true 'manifest 200' 'Azure' }
-                else { Add-Check "eval: $EvalPrefix/$v published" $false 'no latest manifest in the registry - publish it or drop it from -Variants' 'Azure' }
+                # Only a 404 is the verdict "never published". A failed request is "we could not
+                # ask" - conflating the two accuses the operator of the wrong mistake (see the
+                # same distinction in infra/registry-probe.sh, which retries before reporting).
+                $code = 0; $why = ''
+                try { $code = [int](Invoke-WebRequest -Uri $uri -UseBasicParsing -TimeoutSec 30).StatusCode }
+                catch {
+                    $why = $_.Exception.Message
+                    if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+                }
+                if ($code -eq 200) { Add-Check "eval: $EvalPrefix/$v published" $true 'manifest 200' 'Azure' }
+                elseif ($code -eq 404) { Add-Check "eval: $EvalPrefix/$v published" $false 'no latest manifest in the registry - publish it or drop it from -Variants' 'Azure' }
+                else {
+                    if ($code) { $why = "HTTP $code - $why" }
+                    Add-Check "eval: $EvalPrefix/$v published" $false "could not ask the registry ($why); eval-deploy.sh re-checks with retries, so this is not evidence the tag is missing" 'Azure' -Soft
+                }
             }
         }
         else {
