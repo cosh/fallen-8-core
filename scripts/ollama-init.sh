@@ -14,8 +14,8 @@
 # scripts/ensure-models.sh on the host) without the whole container crash-looping.
 
 # Published fine-tune repos (pull sources), tagged locally to the short variant names.
-F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}"  # -> phi4-f8-mini
-F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}"           # -> phi4-f8
+F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini:v0.0.35}"  # -> phi4-f8-mini
+F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8:v0.0.35}"           # -> phi4-f8
 F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-1}"
 # The embedding model the F8 API's provider is wired to in docker-compose.yml (feature
 # embedding-out-of-box); on by default, opted out together with the provider.

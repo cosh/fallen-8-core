@@ -103,17 +103,30 @@ unreachable the cached copy is used and the log says so, which is what keeps off
 air-gapped starts working. The base models (`bge-m3`, `phi4-mini`) are never re-fetched once
 present, since nothing republishes those tags.
 
-The log line names the build being served, and that id is the leading half of the sha256 of the
-registry manifest, so you can compare it with what is published:
+**The default names a specific model version**, not `:latest` - currently
+`stoic_hellman_728/phi4-f8-mini:v0.0.35` and the matching `phi4-f8`. That is deliberate: the
+fine-tune pipeline republishes over `:latest`, so an unpinned default would make every deployment
+follow whatever was published last, under an identical model name, with nothing reporting the
+change. Pinned, a given checkout always serves the same weights, and moving is a decision. Those
+version tags come from the release that created them: tagging the repository `vX.Y.Z` also tags the
+published models.
+
+To use something else, override either variable - a line in a `.env` beside the compose file, or an
+exported variable:
+
+```bash
+F8_DELEGATE_REPO=stoic_hellman_728/phi4-f8-mini:v0.0.34   # an older release
+F8_DELEGATE_REPO=stoic_hellman_728/phi4-f8-mini           # follow :latest, whatever it becomes
+F8_DELEGATE_REPO=my-namespace/my-finetune:v1              # your own
+```
+
+The startup log names the build being served, and that id is the leading half of the sha256 of the
+registry manifest, so you can check it against the registry:
 
 ```bash
 docker compose exec ollama ollama list | grep '^phi4-f8-mini:'
-curl -s https://registry.ollama.ai/v2/stoic_hellman_728/phi4-f8-mini/manifests/latest | sha256sum | cut -c1-12
-```
-
-To pin a build instead of tracking `:latest`, give the repo variables a version tag -
-`F8_DELEGATE_REPO=stoic_hellman_728/phi4-f8-mini:v0.0.34`. Those tags exist from the release that
-created them onward: tagging the repository `vX.Y.Z` also tags the published models. The docling image is a separate ~4.4 GB pull on that same first start
+curl -s https://registry.ollama.ai/v2/stoic_hellman_728/phi4-f8-mini/manifests/v0.0.35 | sha256sum | cut -c1-12
+``` The docling image is a separate ~4.4 GB pull on that same first start
 (`F8_INGESTION=false` skips it).
 
 Offline or want to skip the wait? Pre-seed the volume once from a machine with internet, which
@@ -151,7 +164,7 @@ for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 | `F8_GPU`                                                   | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
 | `F8_IMAGE_TAG`                                             | `latest`                         | Which published image version `env:up:published` runs (mirrors the release tags, e.g. `0.0.28`); ignored by the building `env:up`                          |
 | `F8_PULL_PHI4F8`                                           | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |
-| `F8_DELEGATE_REPO`                                         | `stoic_hellman_728/phi4-f8-mini` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`); `F8_PHI4F8_REPO` is the same for `phi4-f8`                                     |
+| `F8_DELEGATE_REPO`                                         | `stoic_hellman_728/phi4-f8-mini:v0.0.35` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`); `F8_PHI4F8_REPO` is the same for `phi4-f8`. Pinned to a version on purpose - drop the tag to follow `:latest`                                     |
 | `F8_MCP_AUTH_MODE`                                         | `None`                           | Caller auth for the [MCP server](/mcp-server/). Anything reachable off-box wants `StaticToken` plus `F8_MCP_TOKEN`                           |
 | `F8_MCP_ENABLE_WRITE` / `F8_MCP_ENABLE_ADMIN` / `F8_MCP_ENABLE_CODE` | `false`                | Opt individual MCP tool tiers in; agents get read-only tools by default                                                                                   |
 | `F8_TENANT_ID` / `F8_INSTANCE_ID`                          | `local` / `f8-local`             | This instance's [fleet identity](/observability/) in the dashboards (`F8_TENANT_NAME` and `F8_INSTANCE_NAME` set the display names)           |

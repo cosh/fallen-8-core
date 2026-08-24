@@ -24,8 +24,8 @@
 
 set -e
 
-F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}"
-F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}"
+F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini:v0.0.35}"
+F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8:v0.0.35}"
 F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-1}"
 # Embeddings are on by default in docker-compose.yml, so the embedding model belongs in the
 # pre-seed too; opted out with the same variable as the provider and the sidecar.
