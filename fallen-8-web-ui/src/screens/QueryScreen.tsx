@@ -157,9 +157,27 @@ export function QueryScreen() {
   // Consume a one-shot prefill (Indexes screen "Query" / Graph shape index row).
   const scanPrefill = store((s) => s.scanPrefill);
   const setScanPrefill = store((s) => s.setScanPrefill);
+  // The element a "find similar" gesture started from, dropped from its own results. There is no
+  // self-exclusion in the engine, the REST contract or the MCP bridge, so an unfiltered similarity
+  // search returns the source element at rank 1 every time. Visible and clearable rather than
+  // hidden, because a silently filtered result set is one nobody can reason about.
+  const [excludeElementId, setExcludeElementId] = useState<number | null>(null);
   useEffect(() => {
     if (scanPrefill) {
-      setQueryDraft({ mode: "index", indexId: scanPrefill.indexId });
+      setQueryDraft({
+        mode: "index",
+        indexId: scanPrefill.indexId,
+        ...(scanPrefill.vectorText !== undefined
+          ? {
+              form: "vector" as const,
+              vectorSource: "vector" as const,
+              vectorText: scanPrefill.vectorText,
+              vectorLabel: scanPrefill.label ?? "",
+              vectorKind: scanPrefill.kind ?? "any",
+            }
+          : {}),
+      });
+      setExcludeElementId(scanPrefill.sourceElementId ?? null);
       setScanPrefill(null);
     }
   }, [scanPrefill, setScanPrefill, setQueryDraft]);
@@ -233,7 +251,7 @@ export function QueryScreen() {
           result = await embeddingSearch(instance, {
             indexId,
             text: vectorSearchText,
-            k: Number(vectorK),
+            k: Number(vectorK) + (excludeElementId === null ? 0 : 1),
             kind: vectorKind === "any" ? undefined : vectorKind,
             label: vectorLabel || undefined,
           });
@@ -245,10 +263,19 @@ export function QueryScreen() {
           result = await scanVector(instance, {
             indexId,
             query: parsed.vector,
-            k: Number(vectorK),
+            k: Number(vectorK) + (excludeElementId === null ? 0 : 1),
             kind: vectorKind === "any" ? undefined : vectorKind,
             label: vectorLabel || undefined,
           });
+        }
+        if (excludeElementId !== null && result?.results) {
+          // k+1 was requested, so dropping the source still leaves k hits when k of them exist.
+          result = {
+            ...result,
+            results: result.results
+              .filter((r) => r.graphElementId !== excludeElementId)
+              .slice(0, Number(vectorK)),
+          };
         }
         setVectorResult(result);
         ids = result?.results?.map((r) => r.graphElementId) ?? [];
@@ -749,6 +776,19 @@ export function QueryScreen() {
             >
               {scan.isPending ? "Running…" : "Run query"}
             </button>
+            {excludeElementId !== null && (
+              <span className="text-fg-faint text-[11px]" data-testid="exclude-source-chip">
+                excluding #{excludeElementId}, the element this vector came from
+                <button
+                  type="button"
+                  className="btn ml-1"
+                  data-testid="exclude-source-clear"
+                  onClick={() => setExcludeElementId(null)}
+                >
+                  include it
+                </button>
+              </span>
+            )}
             {emptyVectorIndex && (
               <span className="text-warn text-[11px]" data-testid="empty-vector-index-hint">
                 '{indexId}' has no members yet, so this can only answer 0 hits

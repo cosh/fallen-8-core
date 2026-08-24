@@ -396,6 +396,26 @@ export const DEFAULT_CANVAS_TOOLS_DRAFT: CanvasToolsDraft = {
 /** One-shot navigation intent: "open Query with this index preselected" (cleared on consume). */
 export interface ScanPrefill {
   indexId: string;
+  /**
+   * A query vector to search WITH, in the bracketed form the vector box parses. Set by the
+   * "find similar" gesture, which reads it off the source element's own stored embedding: the
+   * search surface takes a vector, never an element id, so the element-as-query gesture is
+   * composed on this side rather than asked of the server.
+   */
+  vectorText?: string;
+  /**
+   * The element the vector came from, so it can be dropped from its own results. There is no
+   * self-exclusion anywhere in the engine or the REST contract, so an unfiltered search returns
+   * the source element at rank 1 every time.
+   */
+  sourceElementId?: number;
+  /**
+   * The source element's label, inherited as the search constraint. Not a convenience: several
+   * entity kinds embed as little more than their identifier, so an unconstrained similarity
+   * search over such a graph ranks identifier-shaped noise against real matches.
+   */
+  label?: string;
+  kind?: "any" | "vertex" | "edge";
 }
 
 

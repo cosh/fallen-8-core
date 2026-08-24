@@ -55,6 +55,23 @@ export function userPropertiesFirst<T extends { propertyId: string }>(properties
   return [...properties].sort((a, b) => reserved(a) - reserved(b));
 }
 
+/**
+ * The stored vector as the Query screen's vector box wants it: the WHOLE bracketed list, where
+ * previewVector deliberately gives four components and a dimension. Both shapes the REST egress
+ * can send are accepted (a Single[] array, or the bracketed string form). Null when the value is
+ * not a vector at all.
+ */
+export function vectorQueryText(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? `[${value.join(", ")}]` : null;
+  }
+  if (typeof value === "string") {
+    const parsed = parseVector(value);
+    if (parsed.ok) return `[${parsed.vector.join(", ")}]`;
+  }
+  return null;
+}
+
 /** A one-line preview of a stored vector value. The REST egress sends Single[] values as
  * the bracketed string form (see AGraphElement.FormatPropertyValue), so both shapes are
  * truncated — a 1024-dim embedding must never dump raw into the table. */
