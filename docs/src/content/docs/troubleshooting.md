@@ -153,7 +153,8 @@ look. Check the member count in the `indices` block of `GET /status`, or the Ind
    tick *embed entity summaries* on the run form, or send `"embedSummaries": true`
    ([Integrations](/integrations/)). Note that re-running over an unchanged source embeds
    nothing, because only created or changed entities get a new summary: clear the namespace
-   (`PUT /ns/<name>/tabularasa`) and run again.
+   (`HEAD /ns/<name>/tabularasa`) and run again. Clearing drops index definitions too, so
+   recreate the bound vector index afterwards.
 2. **The index is bound to a different name.** A bound index only ever projects the one embedding
    name it declares. The Indexes screen shows it as `bound:<name>`; if the run wrote `default`
    and the index binds `arxml-summary`, neither is wrong and they will never meet.

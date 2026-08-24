@@ -615,6 +615,43 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task AThrottledTargetDegrades_BecauseChunkingIsWhatMadeAThrottleReachable()
+        {
+            // 429 was unreachable while the write was ONE request. Chunked, a large extract is hundreds of
+            // requests against the embedding route's sensitive-endpoint rate limit, so failing the run for
+            // the target's own pacing would make chunking a regression for exactly the extracts it exists
+            // to support.
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 2, status: HttpStatusCode.TooManyRequests);
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var outcome = await target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None);
+
+            Assert.AreEqual(32, outcome.Written, "the first chunk landed and is reported");
+            Assert.IsNotNull(outcome.Degraded, "and the throttle is named rather than swallowed");
+            Assert.AreEqual(2, handler.BatchSizes.Count,
+                "a throttle describes the WINDOW, not this batch, so hammering the remaining chunks would " +
+                "only deepen it");
+        }
+
+        [TestMethod]
+        public async Task AGraphFailureMidChunk_StillCarriesTheCountThatLanded()
+        {
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 3, status: HttpStatusCode.BadRequest);
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var failure = await Assert.ThrowsExceptionAsync<GraphTargetException>(
+                () => target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None));
+
+            // The run fails, and that is right. But two chunks put real vectors on real elements, and a
+            // report of zero would send the operator to a tabula rasa they do not need.
+            Assert.AreEqual(64, failure.SummariesWritten,
+                "the count rides on the failure, because it is a fact about the graph rather than about the " +
+                "refusal");
+        }
+
+        [TestMethod]
         public async Task APartiallyEmbeddedRun_ReportsTheCountThatLanded_AndNamesOnlyTheShortfall()
         {
             var graph = new PartiallyEmbeddingTarget(new InMemoryGraphTarget(), embedsAtMost: 1);

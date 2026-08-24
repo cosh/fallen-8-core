@@ -139,8 +139,10 @@ adjacent to a hole (`:1444`), and by the provider-descriptor snapshot.
 (`SnapshotApplier.cs:270`, `:294`), and the zero-mutation invariant pins it
 (`Conformance/ConformanceVerifier.cs:273`, `IntegrationsWritePathTest.cs:517`). So a graph
 already imported without the flag cannot be embedded by re-running the integration. Documented
-recovery for scope B is `PUT /tabularasa` on that namespace then re-run, said plainly in the new
-checkbox's help text.
+recovery for scope B is `HEAD /ns/<name>/tabularasa` on that namespace then re-run - the route is
+HEAD-only (`AdminController.cs:859`; the pinned OpenAPI snapshot lists only `head`) - said plainly
+in the new checkbox's help text. Clearing drops index definitions too, so the bound vector index
+has to be recreated afterwards.
 
 ## Gate impact
 

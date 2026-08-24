@@ -325,7 +325,9 @@ Two things worth knowing before you run it:
 - **Only entities the run creates or changes are embedded.** A summary is a pure function of an
   entity's kind and properties, so an unchanged entity has no new summary and re-running over the
   same source embeds nothing. To embed a graph that was already imported without the opt-in,
-  clear that namespace (`PUT /ns/<name>/tabularasa`) and run again.
+  clear that namespace (`HEAD /ns/<name>/tabularasa`, or the Connect screen's reset) and run
+  again. Note that clearing also drops index **definitions**, so recreate the bound vector index
+  afterwards.
 - **The summaries are written in batches**, so a large extract is many requests rather than one.
   If the provider stops answering half way, the vectors that already landed stay: the run reports
   the count that was written and a diagnostic naming the shortfall.

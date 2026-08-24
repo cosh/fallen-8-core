@@ -177,6 +177,32 @@ describe("the source element is asked for and then dropped", () => {
     await waitFor(() => expect(screen.getByText(/results — 2 ids/)).toBeInTheDocument());
   });
 
+  it("clamps the over-fetch at the engine's own k ceiling instead of asking for 1025", async () => {
+    arriveFromElement8724();
+    renderScreen();
+    await waitFor(() => expect(screen.getByTestId("vector-query")).toHaveValue("[0.1, 0.2, 0.3]"));
+
+    const k = screen.getByLabelText(/k \(1/);
+    await userEvent.clear(k);
+    await userEvent.type(k, "1024");
+    await userEvent.click(screen.getByTestId("scan-run"));
+    await waitFor(() => expect(scanVectorMock).toHaveBeenCalledTimes(1));
+
+    // k is capped at 1024 server-side, so an unclamped +1 turns a find-similar search at the
+    // advertised maximum into a 400. Losing one hit to the source element is the better failure.
+    expect(scanVectorMock.mock.calls[0][1].k).toBe(1024);
+  });
+
+  it("drops the exclusion when the form is cleared, so it cannot filter an unrelated query", async () => {
+    arriveFromElement8724();
+    renderScreen();
+    expect(await screen.findByTestId("exclude-source-chip")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("query-clear"));
+
+    expect(screen.queryByTestId("exclude-source-chip")).not.toBeInTheDocument();
+  });
+
   it("leaves an ordinary vector query untouched, with no over-fetch and no filtering", async () => {
     // No prefill: somebody pasted a vector by hand. Over-fetching there would silently return k+1
     // hits, or drop a legitimate one.
