@@ -56,6 +56,26 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// failure does not lose a whole run's worth of work.</summary>
         private const Int32 ReadBatchSize = 2000;
 
+        /// <summary>
+        ///   Elements per batch WRITE, and the reason it exists is measured rather than assumed: a run
+        ///   over a 99 MiB device list produced a single <c>PUT vertices</c> body of about 110 MB, which
+        ///   the graph's own route refuses at Kestrel's 30 MB default - and the runtime saw it only as
+        ///   "Error while copying content to a stream", an errorKind of <c>graph</c> for a graph that was
+        ///   perfectly healthy.
+        ///
+        ///   <para>Batching here rather than raising a limit over there is deliberate: the write body is
+        ///   THIS deployable's doing, it is unbounded in exactly the way an uploaded file is, and a
+        ///   bigger cap on a shared route would invite a single transaction nobody sized. 500 keeps a
+        ///   batch comfortably inside that default even for elements carrying kilobytes of properties.</para>
+        ///
+        ///   <para>It is NOT transactional across batches, and that is not a regression: the graph applied
+        ///   one transaction per call before this too, so a failure part-way has always been able to leave
+        ///   a run's writes half-applied. What protects the graph is that a failed run withdraws nothing,
+        ///   and that the next run over the same source reconciles by claim rather than by memory of what
+        ///   it managed last time.</para>
+        /// </summary>
+        private const Int32 WriteBatchSize = 500;
+
         /// <summary>The equality operator's wire code, from the engine's own operator enum.</summary>
         private const Int32 EqualsOperator = 0;
 
@@ -236,8 +256,8 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
             // waitForCompletion is what makes the ids come back: without it the route answers 202 with no
             // body, and a run that cannot learn the ids it just created cannot index or claim them.
-            var ids = await SendAsync<List<Int32>>(HttpMethod.Put, "vertices?waitForCompletion=true", body,
-                cancellationToken).ConfigureAwait(false);
+            var ids = await SendBatchedAsync("vertices?waitForCompletion=true", body, cancellationToken)
+                .ConfigureAwait(false);
             return Expect(ids, vertices.Count, "vertices");
         }
 
@@ -265,8 +285,8 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
             _mutations++;
 
-            var ids = await SendAsync<List<Int32>>(HttpMethod.Put, "edges?waitForCompletion=true", body,
-                cancellationToken).ConfigureAwait(false);
+            var ids = await SendBatchedAsync("edges?waitForCompletion=true", body, cancellationToken)
+                .ConfigureAwait(false);
             return Expect(ids, edges.Count, "edges");
         }
 
@@ -304,8 +324,12 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
             _mutations++;
 
-            await SendVoidAsync(HttpMethod.Put, "graphelements/properties?waitForCompletion=true", body,
-                cancellationToken).ConfigureAwait(false);
+            for (var offset = 0; offset < body.Count; offset += WriteBatchSize)
+            {
+                var batch = body.GetRange(offset, Math.Min(WriteBatchSize, body.Count - offset));
+                await SendVoidAsync(HttpMethod.Put, "graphelements/properties?waitForCompletion=true", batch,
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
 
         /// <inheritdoc />
@@ -318,8 +342,13 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
             _mutations++;
 
-            await SendVoidAsync(HttpMethod.Delete, "graphelements?waitForCompletion=true",
-                new List<Int32>(ids), cancellationToken).ConfigureAwait(false);
+            var all = new List<Int32>(ids);
+            for (var offset = 0; offset < all.Count; offset += WriteBatchSize)
+            {
+                var batch = all.GetRange(offset, Math.Min(WriteBatchSize, all.Count - offset));
+                await SendVoidAsync(HttpMethod.Delete, "graphelements?waitForCompletion=true", batch,
+                    cancellationToken).ConfigureAwait(false);
+            }
         }
 
         /// <inheritdoc />
@@ -733,6 +762,40 @@ namespace NoSQL.GraphDB.Integrations.Graph
         private async Task<JsonDocument> GetJsonAsync(String suffix, CancellationToken cancellationToken)
         {
             return await SendRawAsync(HttpMethod.Get, suffix, null, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        ///   Sends one id-returning write in batches of <see cref="WriteBatchSize" /> and concatenates the
+        ///   ids IN BATCH ORDER, which is what makes the result still "the assigned ids in input order" -
+        ///   the contract every caller relies on to turn a vertex it just created into the endpoint of an
+        ///   edge. A batch that comes back the wrong length fails the run rather than shifting every id
+        ///   after it by one, because a run that attached its edges to the wrong vertices has written
+        ///   plausible nonsense nothing downstream can detect.
+        /// </summary>
+        private async Task<List<Int32>> SendBatchedAsync(String suffix, List<Object> body,
+            CancellationToken cancellationToken)
+        {
+            var ids = new List<Int32>(body.Count);
+
+            for (var offset = 0; offset < body.Count; offset += WriteBatchSize)
+            {
+                var batch = body.GetRange(offset, Math.Min(WriteBatchSize, body.Count - offset));
+                var batchIds = await SendAsync<List<Int32>>(HttpMethod.Put, suffix, batch, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (batchIds == null || batchIds.Count != batch.Count)
+                {
+                    throw new GraphTargetException(String.Format(
+                        "The graph answered {0} with {1} id(s) for {2} element(s) in one batch, so the ids " +
+                        "no longer line up with what was sent and every element after this batch would be " +
+                        "attached to the wrong one.",
+                        suffix, batchIds == null ? 0 : batchIds.Count, batch.Count));
+                }
+
+                ids.AddRange(batchIds);
+            }
+
+            return ids;
         }
 
         private async Task<T?> SendAsync<T>(HttpMethod method, String suffix, Object? body,

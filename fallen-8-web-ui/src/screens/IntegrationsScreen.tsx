@@ -35,6 +35,7 @@ import type {
   SettingKind,
 } from "../api/types";
 import { capabilityOf, useIntegrationProviders } from "../state/integrations";
+import { ApiError } from "../api/client";
 import { ErrorBox } from "../components/ErrorBox";
 import { FileDropzone } from "../components/FileDropzone";
 import { ListCapNote } from "../components/ListCapNote";
@@ -293,7 +294,17 @@ export function IntegrationsScreen() {
               )}
             </div>
 
-            {run.isError && <ErrorBox error={run.error} />}
+            {run.isError && (
+              <div className="space-y-1" data-testid="integration-run-error">
+                <ErrorBox error={run.error} />
+                {run.error instanceof ApiError && run.error.status === 413 && (
+                  <p className="text-fg-dim text-[12px]">
+                    The request body was refused before the run started - the file is larger than this
+                    instance forwards. Nothing was read and nothing was withdrawn.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </section>
       )}

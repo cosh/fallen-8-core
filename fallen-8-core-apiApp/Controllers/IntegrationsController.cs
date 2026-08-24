@@ -60,26 +60,28 @@ namespace NoSQL.GraphDB.App.Controllers
     {
         /// <summary>
         ///   The transport bound on a job body, which carries a provider's file as base64 (feature
-        ///   integration-file-upload). 48 MiB, and every digit of that is load-bearing:
+        ///   integration-file-upload). 192 MiB, and both of its relations are load-bearing:
         ///
-        ///   <para>ABOVE any legal job. The runtime's default <c>Integrations:MaxFileBytes</c> is 32 MiB
-        ///   of decoded bytes, which is 42.7 MiB once base64 costs its third, so a maximal legal job
-        ///   arrives with room to spare and this bound never fires for one the runtime would accept.</para>
+        ///   <para>ABOVE any legal job. The runtime's default <c>Integrations:MaxFileBytes</c> is 128 MiB
+        ///   of decoded bytes, and base64 costs a third, so a maximal legal job arrives at about 171 MiB
+        ///   and this bound never fires for one the runtime would accept. A real AUTOSAR system extract
+        ///   is what set that size: the first one anybody pointed at this feature was 79 MiB, and an
+        ///   earlier 48 MiB bound refused it with a bare transport 413.</para>
         ///
-        ///   <para>BELOW the runtime's own transport bound (56 MiB at that default). That ordering is the
-        ///   point: an absurd body has to be refused HERE, with a 413 whose meaning is plain, because a
-        ///   body this proxy accepts and the runtime refuses fails while being forwarded - which surfaces
-        ///   as 503 "the runtime did not answer", sending whoever sent a 60 MiB file to look at a sidecar
-        ///   that is perfectly healthy.</para>
+        ///   <para>BELOW the runtime's own transport bound (256 MiB, fixed). That ordering is the point:
+        ///   an absurd body has to be refused HERE, with a 413 whose meaning is plain, because a body
+        ///   this proxy accepts and the runtime refuses fails while being FORWARDED - which surfaces as
+        ///   503 "the runtime did not answer", sending whoever sent a huge file to look at a sidecar that
+        ///   is perfectly healthy.</para>
         ///
         ///   <para>A private const rather than a configuration key, exactly as
         ///   <c>DocumentController</c>'s upload bound is: the real ceiling lives in the OTHER
         ///   deployable's configuration, so a key here would be a second number to keep in step with it
         ///   and a caller could not tell which one refused them. The consequence, stated rather than
-        ///   hidden: raising <c>Integrations:MaxFileBytes</c> past about 34 MiB has no effect through this
-        ///   proxy, and the proxy is the only way in because the runtime publishes no port.</para>
+        ///   hidden: raising <c>Integrations:MaxFileBytes</c> past about 144 MiB has no effect through
+        ///   this proxy, and the proxy is the only way in because the runtime publishes no port.</para>
         /// </summary>
-        private const Int32 JobTransportLimit = 50_331_648;
+        private const Int32 JobTransportLimit = 201_326_592;
 
         private readonly IIntegrationsClient _client;
 
@@ -162,7 +164,6 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <summary>
         /// Runs one integration job and returns its report (feature integrations)
         /// </summary>
-        /// <param name="definition">The job definition, forwarded to the runtime untouched</param>
         /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
         /// <remarks>A job carries everything one run needs: which provider, the identity it asserts
         /// as, the namespace to write into, the provider's settings, its credentials as VALUES in
@@ -204,9 +205,36 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-        public Task<IActionResult> Job([FromBody] JsonElement definition, CancellationToken cancellationToken)
+        public async Task<IActionResult> Job(CancellationToken cancellationToken)
         {
-            return Forward(HttpMethod.Post, "integration/job", definition.GetRawText(), cancellationToken);
+            // The body is STREAMED, not bound. There is deliberately no [FromBody] parameter: a job can
+            // carry a 128 MiB file, and binding it would leave the whole thing resident here about four
+            // times over (the parsed document, the UTF-16 string of a re-serialisation, and the UTF-8
+            // bytes it is encoded back into) for a hop whose entire contract is not to look at the body.
+            //
+            // What that costs, stated plainly: a malformed-JSON body is no longer refused by this app's
+            // input formatter, it is refused by the RUNTIME. That is the same direction the rest of this
+            // controller already points - a 400 naming a missing setting is an answer a caller has to
+            // read, and the runtime's own message is more use than a proxy-shaped one.
+            SidecarResponse response;
+            try
+            {
+                response = await _client.ForwardStreamAsync(HttpMethod.Post, "integration/job",
+                    Request.Body, Request.ContentType, cancellationToken);
+            }
+            catch (IntegrationsUnavailableException ex)
+            {
+                return RuntimeProblem(ex);
+            }
+
+            return new ContentResult
+            {
+                StatusCode = response.Status,
+                Content = response.Body,
+                ContentType = String.IsNullOrEmpty(response.ContentType)
+                    ? "application/json"
+                    : response.ContentType
+            };
         }
 
         /// <summary>

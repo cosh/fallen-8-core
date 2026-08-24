@@ -222,6 +222,55 @@ finished *after* the operator switched integration was staged onto the new one, 
 `select()`'s reset exists to prevent, arriving a moment too late; staging now checks that the
 integration which asked for it is still selected.
 
+## What a real file found (2026-08-24)
+
+The first extract anybody pointed at this feature was a **78.9 MiB ARXML**, and it was refused:
+`Request body too large. The max request body size is 50331648 bytes.` Every number above had been
+derived from a 32 MiB ceiling picked for symmetry with document upload, and the symmetry was the
+mistake - an AUTOSAR system extract for one vehicle platform is nothing like a document. Three
+separate things had to change, and only the first was the one being complained about.
+
+**1. The ceiling and both bounds.** `Integrations:MaxFileBytes` is now 128 MiB, the proxy's transport
+bound 192 MiB and the runtime's a fixed 256 MiB, still in that order so the only size refusal anyone
+reads is the runtime's own message naming both numbers.
+
+**2. The proxy stopped buffering.** `POST /integrations/job` no longer binds `[FromBody] JsonElement`:
+it streams `Request.Body` straight through. Binding it held the job about four times over in the
+apiApp - the parsed document, the UTF-16 string `GetRawText()` produces, and the UTF-8 bytes
+`StringContent` encodes it back into - which at 32 MiB was merely wasteful and at 128 MiB is hundreds
+of megabytes of large-object heap per in-flight request, for a hop whose whole contract is not to look
+at the body. The cost, stated: a malformed body is now refused by the RUNTIME rather than by this
+app's input formatter, which is the direction this controller already pointed. `/bulk/import` already
+streamed the same way, and its OpenAPI operation has no `requestBody` either - so the snapshot losing
+that block here is the house pattern, not an accident.
+
+**3. The graph write had to be batched, and nothing in the plan foresaw it.** With transport fixed, the
+100 MiB run still failed - `errorKind: graph`, "Error while copying content to a stream" - because
+`Fallen8RestTarget` sent all 40,000 vertices in ONE `PUT /vertices`, a ~110 MB body that the graph's
+own route refuses at Kestrel's 30 MB default. A perfectly healthy graph, reported as a graph that
+would not answer. Vertices, edges, property writes and deletions now go in batches of 500. Batching
+here rather than raising the cap on a shared route is deliberate: the write body is this deployable's
+doing and is unbounded in exactly the way an uploaded file is.
+
+Measured end to end afterwards, through the real chain (Studio's own proxy route → runtime → provider
+→ graph), with a genuine 99.2 MiB device list:
+
+| | result |
+| --- | --- |
+| body on the wire | 132.2 MiB |
+| first run | HTTP 200, 40,000 elements created, 28 s |
+| second run | HTTP 200, 0 created, **40,000 matched, `issuedMutations: false`** |
+
+The second row is the one that matters: idempotence and claim reconciliation still hold at that size,
+so batching did not quietly break the thing the whole identity model rests on. The batch-order
+contract is pinned by `AWriteBiggerThanOneBatch_KeepsTheIdsInInputOrder_AcrossEveryBatch` on the
+shared graph-target contract, so both targets are held to it, and a mutation that reverses ids inside
+a batch fails it.
+
+**The lesson, recorded because it was expensive:** the original bounds were computed rather than
+tried. A single real file would have caught all three defects in one run, and one of them was not a
+size limit at all.
+
 **Four comments were left describing a mount that no longer exists** (`JobReport`, `ProviderContext`
 twice, `ArxmlReader`), and the browser's `readBytes` claimed byte-exact transport fixed a
 Windows-1252 file, which byte-order-mark detection does not do. Both corrected: in this repo a comment
