@@ -30,7 +30,7 @@ import { SampleGraphsPanel } from "../components/SampleGraphsPanel";
 /**
  * Samples (feature sample-graphs): the one-click demo gallery. It has its own rail entry so every
  * card spans the full width and carries its "what you can test" steps, with a tag bar to filter
- * by capability. Namespace-scoped — a load replaces
+ * by capability. Namespace-scoped - a load replaces
  * the active namespace's graph (SampleGraphsPanel owns the loader + typed-confirm wipe).
  */
 export function SamplesScreen() {

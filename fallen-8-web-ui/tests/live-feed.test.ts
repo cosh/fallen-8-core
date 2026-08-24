@@ -86,13 +86,13 @@ const event = (partial: Partial<ChangeEvent> & Pick<ChangeEvent, "kind">): Chang
   ...partial,
 });
 
-function makeHandlers(debounceMs = 0) {
+function makeHandlers(debounceMs = 0, on: InstanceConfig = instance) {
   const queryClient = new QueryClient();
   const invalidated: unknown[][] = [];
   vi.spyOn(queryClient, "invalidateQueries").mockImplementation(async (filters) => {
     invalidated.push((filters as { queryKey: unknown[] }).queryKey);
   });
-  const handlers = createLiveFeedHandlers({ instance, queryClient, debounceMs });
+  const handlers = createLiveFeedHandlers({ instance: on, queryClient, debounceMs });
   return { handlers, invalidated, queryClient };
 }
 
@@ -277,8 +277,59 @@ describe("live feed handlers", () => {
     // One invalidation per key, not one per event.
     expect(invalidated).toContainEqual([instance.id, "status"]);
     expect(invalidated).toContainEqual([instance.id, "graph"]);
+    // The top bar's vertex/edge totals come from the namespace inventory, not /status, and since
+    // the status screen was removed they are the one place a human reads counts - so they follow
+    // the feed too rather than waiting out the inventory's own 15s poll.
+    expect(invalidated).toContainEqual([instance.id, "namespaces"]);
     expect(invalidated.filter((k) => k[1] === "status")).toHaveLength(1);
     expect(invalidated.filter((k) => k[1] === "graph")).toHaveLength(1);
+    expect(invalidated.filter((k) => k[1] === "namespaces")).toHaveLength(1);
+    handlers.dispose();
+  });
+
+  it("re-reads the inventory on a resync, which the bound-id prefix cannot reach", async () => {
+    // The regression this pins, found in a docs capture rather than in a test: a resync clears the
+    // pending debounce, and it usually arrives at the END of the burst that caused it - so the
+    // inventory invalidation scheduled by that burst was dropped, and the top bar's counts sat
+    // stale until the inventory's own 15s poll. The frame published "0 v · 0 e" beside a list of
+    // freshly created edges.
+    const bound: InstanceConfig = { ...instance, id: `${instance.id}/flights`, namespace: "flights" };
+    const { handlers, invalidated } = makeHandlers(1, bound);
+
+    handlers.onEvent(event({ kind: "vertexCreated", element: "vertex", id: 1 }));
+    handlers.onResync(event({ kind: "resync", reason: "trim" }));
+    await flushDebounce();
+
+    expect(invalidated).toContainEqual([bound.id]);
+    expect(invalidated).toContainEqual([instance.id, "namespaces"]);
+    handlers.dispose();
+  });
+
+  it("does not double-invalidate the inventory on an UNBOUND instance", async () => {
+    // There the bound id IS the raw id, so [instance.id] already covers [instance.id, ...].
+    const { handlers, invalidated } = makeHandlers(1);
+
+    handlers.onResync(event({ kind: "resync", reason: "trim" }));
+    await flushDebounce();
+
+    expect(invalidated).toEqual([[instance.id]]);
+    handlers.dispose();
+  });
+
+  it("keys the inventory by the RAW instance id, not the namespace-bound one", async () => {
+    // GET /ns answers for the whole Fallen-8, so its cache row is per instance. Scheduling the
+    // bound id would invalidate a key nothing holds and leave the counts stale - exactly the bug
+    // this assertion exists to catch, since a stale count looks like a working one.
+    const bound: InstanceConfig = { ...instance, id: `${instance.id}/flights`, namespace: "flights" };
+    const { handlers, invalidated } = makeHandlers(1, bound);
+
+    handlers.onEvent(event({ kind: "vertexCreated", element: "vertex", id: 1 }));
+    await flushDebounce();
+
+    expect(invalidated).toContainEqual([instance.id, "namespaces"]);
+    expect(invalidated).not.toContainEqual([bound.id, "namespaces"]);
+    // Everything else stays namespace-scoped: those rows really are per graph.
+    expect(invalidated).toContainEqual([bound.id, "status"]);
     handlers.dispose();
   });
 
@@ -298,6 +349,8 @@ describe("live feed handlers", () => {
     expect(invalidated).toContainEqual([instance.id, "element", "edge", 10]);
     expect(invalidated).toContainEqual([instance.id, "status"]);
     expect(invalidated).not.toContainEqual([instance.id, "graph"]);
+    // A property write changes neither total, so the inventory is left alone.
+    expect(invalidated).not.toContainEqual([instance.id, "namespaces"]);
     handlers.dispose();
   });
 

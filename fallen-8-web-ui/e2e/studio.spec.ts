@@ -44,6 +44,26 @@ async function registerSecuredInstance(page: Page, name = "e2e") {
   await page.getByRole("radio", { name: `activate ${name}` }).check();
   // The endpoint hint carries the namespace prefix (feature graph-namespaces).
   await expect(page.getByTestId("active-endpoint")).toContainText("same origin");
+  // Then do what a newcomer does first: open a graph screen, meet the first-run walkthrough, and
+  // put it away. It is MODAL and opens itself on any graph screen of an empty namespace, so
+  // leaving it up would make every scenario below click at its scrim instead of its own screen.
+  // The dismissal is per namespace, which is why scenario 12 repeats it for the one it creates.
+  await dismissIntroOnGraphScreen(page, DEFAULT_NAMESPACE);
+}
+
+/** The reserved namespace every scenario starts in (bare URLs alias it). */
+const DEFAULT_NAMESPACE = "default";
+
+/**
+ * Land on a graph screen of `namespace`, close the first-run walkthrough if it opened itself, and
+ * come back to Connect - which is where the setup left the caller before the show existed, and what
+ * the scenarios that go on to use the Connect panels rely on. The Browser is the cheapest graph
+ * screen to detour through: it fetches nothing until asked.
+ */
+async function dismissIntroOnGraphScreen(page: Page, namespace: string) {
+  await page.goto(`/q/${namespace}/browser`);
+  await dismissFirstRunIfPresent(page);
+  await page.goto("/");
 }
 
 /**
@@ -388,6 +408,9 @@ test("scenario 12 (graph-namespaces): create, populate, isolate, save all, drop,
   const label = `plane-${Date.now().toString(36)}`;
   await page.goto("/browser");
   await expect(page).toHaveURL(/\/q\/flights\/browser/);
+  // "flights" is brand new, so it is empty and gets its own first-run show; the dismissal is
+  // remembered per namespace, not per browser.
+  await dismissFirstRunIfPresent(page);
   await page.getByTestId("new-vertex-label").fill(label);
   await page.getByTestId("create-vertex").click();
   await expect(page.getByTestId("mutation-message")).toContainText(label);
@@ -458,6 +481,9 @@ test("scenario 13 (graph-namespaces): benchmark generation writes the SELECTED n
     await page.goto(`/q/${ns}/benchmarks`);
     // The screen names the graph it acts on (instance / namespace).
     await expect(page.getByRole("heading", { level: 1 })).toContainText(ns);
+    // A namespace created for this test, so it is empty and gets its own first-run show over
+    // this screen. The setup dismissed it for `default` only - the memory is per namespace.
+    await dismissFirstRunIfPresent(page);
 
     await page.getByTestId("generate-sample").click();
     await expect(page.getByTestId("generate-result")).toBeVisible({ timeout: 30_000 });

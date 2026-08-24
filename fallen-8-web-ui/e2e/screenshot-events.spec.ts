@@ -70,6 +70,13 @@ test("capture the Events panel with live change-feed rows", async ({ page, reque
 
   // The bell signals without being clicked; then the panel shows the rows.
   await expect(page.getByTestId("event-feed-badge")).toBeVisible({ timeout: 20_000 });
+  // The top bar's counts follow the same feed (the change feed invalidates the namespace
+  // inventory). Waiting for them is not cosmetic: without it this frame published "0 v · 0 e"
+  // beside a list of freshly created edges, which reads as a bug in the very thing it documents.
+  // 5s, not the default: the counts ride the FEED, so a 15s wait here would pass by falling back
+  // on the inventory's own poll and quietly hide a broken invalidation - which is how the resync
+  // path's dropped invalidation went unnoticed in the first place.
+  await expect(page.getByTestId("namespace-switcher")).toContainText("14 v", { timeout: 5_000 });
   await page.getByTestId("event-feed-bell").click();
   await expect(page.getByTestId("event-feed-panel")).toBeVisible();
   await expect(page.getByTestId("event-feed-list").locator("li").first()).toBeVisible();

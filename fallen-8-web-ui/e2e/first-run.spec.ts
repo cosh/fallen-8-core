@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * First-run show end-to-end (feature studio-first-run). The e2e apiApp requires an API key and
  * starts empty, so each test registers a same-origin keyed instance through the real Connect
@@ -149,7 +151,12 @@ test("replays on demand as an overlay, on the mock, writing nothing, and restore
   await registerSecuredInstance(page);
   // Populate via the Benchmark generator so we are on an ordinary populated screen (proves replay
   // works when NOT empty). The unit-test graph is deliberately never used in the UI.
+  // The graph is still empty at this point, so the AUTO show is up and modal over this screen:
+  // close it first, or the generate click lands on its scrim. Closing records the dismissal,
+  // which is also what makes the later "nothing dismissed" assertion meaningful - the generator
+  // populates the graph, and a populated namespace RE-ARMS the show by clearing that flag.
   await page.goto("/q/default/benchmarks");
+  await closeIntroIfOpen(page);
   await page.getByTestId("generate-sample").click();
   await expect(page.getByTestId("generate-result")).toBeVisible({ timeout: 30_000 });
 

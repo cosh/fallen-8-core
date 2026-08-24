@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture for the two worked-result frames on the Samples page. Outputs:
  *   docs/src/assets/images/path-result.png      (samples.md: a path result)
@@ -60,6 +62,9 @@ async function registerSecuredInstance(page: Page, name = INSTANCE_NAME) {
 /** Load a curated sample through the gallery, which also builds the sample's index recipes. */
 async function loadSample(page: Page, id: string) {
   await page.goto("/q/default/samples");
+  // Entered on an empty graph: the walkthrough opens over the gallery and its scrim would
+  // swallow the load click below.
+  await closeIntroIfOpen(page);
   await expect(page.getByTestId(`sample-card-${id}`)).toBeVisible({ timeout: 30_000 });
   await page.getByTestId(`load-sample-${id}`).click();
   const typed = page.getByTestId("confirm-typed");

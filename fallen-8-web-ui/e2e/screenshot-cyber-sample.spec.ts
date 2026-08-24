@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture (feature studio-first-run / sample-graphs): the "Asymmetric Cyber
  * Warfare" sample in the gallery and on the canvas (2D force + a fun 3D layout). Capture-only.
@@ -58,6 +60,9 @@ test("capture the cyber-warfare sample in the gallery and on the canvas", async 
 
   // Gallery: the new sample is the first card. Samples is namespace-scoped (no /samples alias).
   await page.goto("/q/default/samples");
+  // This shot is taken BEFORE the load, so the graph is empty and the first-run walkthrough
+  // opens itself over the gallery.
+  await closeIntroIfOpen(page);
   const card = page.getByTestId("sample-card-cyber-warfare");
   await expect(card).toBeVisible({ timeout: 30_000 });
   await page.screenshot({ path: "../docs/src/assets/images/screen-samples.png" });

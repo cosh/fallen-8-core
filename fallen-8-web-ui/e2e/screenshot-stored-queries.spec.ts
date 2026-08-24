@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture (feature stored-query-scenario-scoped-ux): stored queries are
  * unique to their scenario, so the management panel now lives on the Path and Subgraph
@@ -102,6 +104,9 @@ test("capture the relocated, scenario-scoped stored-query panels", async ({ page
 
   // Query screen: property/index scans only — the stored-query section is gone.
   await page.goto("/query");
+  // Empty graph on purpose (this shot is about registrations, not data), so the first-run
+  // walkthrough opens itself over each of the three screens below and would be the picture.
+  await closeIntroIfOpen(page);
   await expect(page.getByTestId("query-mode")).toBeVisible();
   await expect(page.getByTestId("stored-queries-Path")).toHaveCount(0);
   await expect(page.getByTestId("stored-queries-SubGraph")).toHaveCount(0);
