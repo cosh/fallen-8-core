@@ -35,7 +35,10 @@ import { GRADIENT_HIGH, GRADIENT_LOW } from "../canvas/styling";
 import { getEdge, getGraph, getGraphElement, getStatus } from "../api/endpoints";
 import { CANVAS_ELEMENT_CAP } from "../lib/canvasCap";
 import { EXPAND_EDGE_CAP, fetchVertexNeighborhood } from "../lib/neighborhood";
+import { useNavigate } from "@tanstack/react-router";
+import { useStatus } from "../state/status";
 import { previewVector } from "../lib/embeddingProperties";
+import { similarSearchesFor } from "../lib/findSimilar";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { ErrorBox } from "../components/ErrorBox";
 import { Truncated } from "../components/Truncated";
@@ -51,6 +54,11 @@ import { Truncated } from "../components/Truncated";
  */
 export function CanvasScreen() {
   const { instance, store } = useInstanceStore();
+  // For the Detail panel's "find similar": the vector index bound to the element's embedding, and
+  // the one-shot prefill that carries its own vector to the Query screen.
+  const navigate = useNavigate();
+  const setScanPrefill = store((state) => state.setScanPrefill);
+  const inventory = useStatus(instance).data?.indices;
   const canvasNodes = store((s) => s.canvasNodes);
   const canvasEdges = store((s) => s.canvasEdges);
   const pathOverlay = store((s) => s.pathOverlay);
@@ -313,6 +321,32 @@ export function CanvasScreen() {
                   </tbody>
                 </table>
                 <div className="flex flex-wrap gap-1 pt-1">
+                  {(() => {
+                    // The element's own vector IS the query. Offered only where a bound vector index
+                    // projects the embedding, and constrained to the element's own label: several
+                    // entity kinds embed as little more than their identifier, so an unconstrained
+                    // similarity search ranks identifier-shaped noise against real matches.
+                    const similar = similarSearchesFor(
+                      detail.data!,
+                      inventory,
+                      selected.kind === "edge",
+                    );
+                    if (similar.length === 0) return null;
+                    return (
+                      <button
+                        type="button"
+                        className="btn"
+                        data-testid="find-similar"
+                        title={`search the '${similar[0].embeddingName}' vector index with this element's own vector`}
+                        onClick={() => {
+                          setScanPrefill(similar[0].prefill);
+                          void navigate({ to: "/query" });
+                        }}
+                      >
+                        Find similar
+                      </button>
+                    );
+                  })()}
                   {selected.kind === "node" && (
                     <button
                       type="button"

@@ -82,7 +82,7 @@ A sample that carries documents does more on load, and the progress line names e
 
 ![Browser screen](../../assets/images/screen-browser.png)
 
-Look up a graph element, vertex, or edge by id. The inspector shows the label, timestamps, edge endpoints, and two tabs: **Properties**, and **Embeddings** to set, replace, or remove a named embedding on the element from a pasted vector or (with the provider) from text ([semantic-traversal.md](/semantic-traversal/)). An adjacency panel lists neighbors with degrees for one-click hopping, and a bulk view loads up to `maxElements` with a truncation badge and a filter. A mutations panel creates and edits vertices, edges, and properties ([graph-model.md](/graph-model/)). "Send to canvas" is available throughout.
+Look up a graph element, vertex, or edge by id. The inspector shows the label, timestamps, edge endpoints, and two tabs: **Properties**, and **Embeddings** to set, replace, or remove a named embedding on the element from a pasted vector or (with the provider) from text ([semantic-traversal.md](/semantic-traversal/)). Where a vector index is bound to one of the element's embeddings, that row also offers **Find similar**, which searches the bound index with the element's own vector, constrains the search to the element's label, and drops the element itself from the hits. An adjacency panel lists neighbors with degrees for one-click hopping, and a bulk view loads up to `maxElements` with a truncation badge and a filter. A mutations panel creates and edits vertices, edges, and properties ([graph-model.md](/graph-model/)). "Send to canvas" is available throughout.
 
 ## Knowledge
 

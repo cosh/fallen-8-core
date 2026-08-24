@@ -137,6 +137,33 @@ environment has it on unless you set `F8_EMBEDDINGS=false`. A 409 means the prov
 name/dimension/metric does not match the vectors baked into your data. Bring-your-own-vector
 scans work regardless. Full rules: [Semantic traversal](/semantic-traversal/).
 
+## Semantic search succeeds but finds nothing
+
+**Symptom.** A vector or text-in search returns `200` with an empty result list. Nothing is
+wrong-looking: no error, no warning, just no hits.
+
+**Cause.** kNN over an empty index **succeeds** - there is simply nothing to rank - so an index
+with no members is indistinguishable from "nothing is similar" at the search surface. Studio now
+says so beside the Run button when the selected index reports zero members; over REST you have to
+look. Check the member count in the `indices` block of `GET /status`, or the Indexes screen.
+
+**Fix**, in the order these actually bite:
+
+1. **Nothing was ever embedded.** For an integration run, the embed opt-in is off by default -
+   tick *embed entity summaries* on the run form, or send `"embedSummaries": true`
+   ([Integrations](/integrations/)). Note that re-running over an unchanged source embeds
+   nothing, because only created or changed entities get a new summary: clear the namespace
+   (`HEAD /ns/<name>/tabularasa`) and run again. Clearing drops index definitions too, so
+   recreate the bound vector index afterwards.
+2. **The index is bound to a different name.** A bound index only ever projects the one embedding
+   name it declares. The Indexes screen shows it as `bound:<name>`; if the run wrote `default`
+   and the index binds `arxml-summary`, neither is wrong and they will never meet.
+3. **The label constraint excludes everything.** Constraints are applied *before* scoring, so a
+   label nothing carries yields nothing rather than the unconstrained answer. Drop the `label`
+   and see whether hits appear.
+4. **The index is raw, not bound.** An unbound index holds only vectors somebody added
+   explicitly, so element embeddings never reach it ([Vector search](/vector-search/)).
+
 ## Document ingestion answers 403 / 428 / 503 / 507, or no entities appear
 
 **Symptom.** An upload on Studio's **Knowledge** screen, or `POST /document` /

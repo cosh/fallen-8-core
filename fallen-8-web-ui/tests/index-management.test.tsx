@@ -501,3 +501,100 @@ describe("content management", () => {
     expect(screen.queryByTestId("content-remove-element")).not.toBeInTheDocument();
   });
 });
+
+describe("the create form prefills from the embedding provider, because guessing is worse", () => {
+  const WITH_PROVIDER: StatusREST = {
+    ...STATUS,
+    embedding: {
+      enabled: true,
+      backend: "Ollama",
+      modelName: "bge-m3",
+      modelVersion: null,
+      dimension: 1024,
+      intendedMetric: "Cosine",
+      loaded: false,
+    },
+  };
+
+  it("sends the PROVIDER's dimension and metric, not the hardcoded 384", async () => {
+    getStatusMock.mockResolvedValue(WITH_PROVIDER);
+    const user = userEvent.setup();
+    renderScreen();
+    const select = await findTypeSelect();
+    await user.selectOptions(select, "VectorIndex");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("vector-dimension-opt")).toHaveValue(1024),
+    );
+    await user.type(screen.getByLabelText(/index id/i), "vec");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(createIndexMock).toHaveBeenCalledTimes(1));
+    // Accepting 384 against the shipped 1024 provider produced an index that 409s every later
+    // text-in embed and search, and made the integration's own summary write fail rather than degrade.
+    const options = createIndexMock.mock.calls[0][1].pluginOptions!;
+    expect(options.dimension.propertyValue).toBe("1024");
+    expect(options.metric.propertyValue).toBe("Cosine");
+  });
+
+  it("names the provider it prefilled from, so the number is not a mystery", async () => {
+    getStatusMock.mockResolvedValue(WITH_PROVIDER);
+    const user = userEvent.setup();
+    renderScreen();
+    await user.selectOptions(await findTypeSelect(), "VectorIndex");
+
+    expect(await screen.findByTestId("vector-provider-note")).toHaveTextContent(/bge-m3/);
+    expect(screen.getByTestId("vector-provider-note")).toHaveTextContent(/1024/);
+  });
+
+  it("lets a typed dimension win, because a late status must not clobber an edit", async () => {
+    getStatusMock.mockResolvedValue(WITH_PROVIDER);
+    const user = userEvent.setup();
+    renderScreen();
+    await user.selectOptions(await findTypeSelect(), "VectorIndex");
+    await waitFor(() =>
+      expect(screen.getByTestId("vector-dimension-opt")).toHaveValue(1024),
+    );
+
+    await user.clear(screen.getByTestId("vector-dimension-opt"));
+    await user.type(screen.getByTestId("vector-dimension-opt"), "768");
+    await user.type(screen.getByLabelText(/index id/i), "vec");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    await waitFor(() => expect(createIndexMock).toHaveBeenCalledTimes(1));
+    expect(createIndexMock.mock.calls[0][1].pluginOptions!.dimension.propertyValue).toBe("768");
+  });
+
+  it("says the numbers are defaults when the provider is off, rather than implying they are its", async () => {
+    getStatusMock.mockResolvedValue({
+      ...STATUS,
+      embedding: {
+        enabled: false,
+        backend: null,
+        modelName: null,
+        modelVersion: null,
+        dimension: 0,
+        intendedMetric: null,
+        loaded: false,
+      },
+    });
+    const user = userEvent.setup();
+    renderScreen();
+    await user.selectOptions(await findTypeSelect(), "VectorIndex");
+
+    expect(await screen.findByTestId("vector-provider-off")).toHaveTextContent(
+      /provider is off/,
+    );
+    expect(screen.getByTestId("vector-dimension-opt")).toHaveValue(384);
+  });
+
+  it("says so when the server reports no provider block at all", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await user.selectOptions(await findTypeSelect(), "VectorIndex");
+
+    expect(await screen.findByTestId("vector-provider-off")).toHaveTextContent(
+      /reports no embedding provider/,
+    );
+  });
+});

@@ -85,6 +85,15 @@ namespace NoSQL.GraphDB.Tests
             await CreateIndex(seed, "fts", "RegExIndex");
             await AddToIndex(seed, "fts", _ids["Alice"], "Alice studies graph databases", "System.String");
             await AddToIndex(seed, "fts", _ids["Bob"], "Bob prefers relational systems", "System.String");
+
+            // A BOUND vector index over element embeddings, written as raw vectors so this fixture needs
+            // no embedding provider. Bound rather than raw on purpose: it is the shape the product now
+            // steers every user towards, and its projection is maintained by the writer thread rather
+            // than by explicit adds - so a defect there is invisible to a raw-index test.
+            await SetEmbedding(seed, _ids["Alice"], "default", "[1,0,0]");
+            await SetEmbedding(seed, _ids["Bob"], "default", "[0.9,0.1,0]");
+            await SetEmbedding(seed, _ids["Carol"], "default", "[0,0,1]");
+            await CreateBoundVectorIndex(seed, "vecIdx", 3, "Cosine", "default");
         }
 
         [ClassCleanup]
@@ -155,6 +164,91 @@ namespace NoSQL.GraphDB.Tests
             // The projection carries both classifiers: the type (edgePropertyId) and the label.
             Assert.AreEqual("knows", edge.GetProperty("edgePropertyId").GetString());
             Assert.AreEqual("friendship", edge.GetProperty("label").GetString());
+        }
+
+        // --- f8_search, vector and semantic modes -------------------------------------------
+        //
+        // These two arms are the WHOLE of the agent-side embedding capability and were executed by no
+        // test: the underlying REST routes are covered, the bridge through them was not.
+
+        [TestMethod]
+        public async Task Search_VectorMode_RanksByCosineOverTheBoundIndex()
+        {
+            var result = await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"vector\",\"indexId\":\"vecIdx\",\"vector\":[1,0,0],\"limit\":2}"),
+                CancellationToken.None);
+            var structured = Structured(result);
+
+            var ids = structured.GetProperty("items").EnumerateArray()
+                .Select(i => i.GetProperty("id").GetInt32()).ToList();
+            Assert.AreEqual(_ids["Alice"], ids[0], "[1,0,0] is Alice's own vector, so Alice ranks first");
+            Assert.AreEqual(_ids["Bob"], ids[1], "[0.9,0.1,0] is the next nearest; Carol is orthogonal");
+            Assert.IsFalse(ids.Contains(_ids["Carol"]), "an orthogonal vector must not make the top 2");
+        }
+
+        [TestMethod]
+        public async Task Search_VectorMode_HonoursTheLabelConstraint()
+        {
+            // The constraint is applied BEFORE scoring, so the returned k are k MATCHING elements. A
+            // label nothing carries must therefore come back empty rather than ignored.
+            var result = await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"vector\",\"indexId\":\"vecIdx\",\"vector\":[1,0,0],\"label\":\"nothing-carries-this\"}"),
+                CancellationToken.None);
+
+            Assert.AreEqual(0, Structured(result).GetProperty("items").GetArrayLength(),
+                "a label constraint that matches nothing yields nothing, not the unconstrained answer");
+        }
+
+        [TestMethod]
+        public async Task Search_VectorMode_HonoursTheKindConstraint()
+        {
+            var result = await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"vector\",\"indexId\":\"vecIdx\",\"vector\":[1,0,0],\"kind\":\"edge\"}"),
+                CancellationToken.None);
+
+            Assert.AreEqual(0, Structured(result).GetProperty("items").GetArrayLength(),
+                "only vertices carry an embedding in this fixture, so an edge-kind query is empty");
+        }
+
+        [TestMethod]
+        public async Task Search_VectorMode_WithoutAVector_IsAnArgumentErrorAndNotAnEmptyAnswer()
+        {
+            var result = await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"vector\",\"indexId\":\"vecIdx\"}"), CancellationToken.None);
+
+            Assert.IsTrue(result.IsError, "an agent that forgot the vector must be told, not handed 0 hits");
+        }
+
+        [TestMethod]
+        public async Task Search_VectorMode_WithoutAnIndex_IsAnArgumentError()
+        {
+            var result = await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"vector\",\"vector\":[1,0,0]}"), CancellationToken.None);
+
+            Assert.IsTrue(result.IsError, "the index is not guessable: kNN has no default corpus");
+        }
+
+        [TestMethod]
+        public async Task Search_SemanticMode_WithNoEmbeddingProvider_SaysSoRatherThanReturningNothing()
+        {
+            // The default deployment is model-free, so this is the state most agents meet first. It must
+            // surface as an error: an empty result set reads as "nothing is similar", which is a claim
+            // about the graph rather than about the missing capability.
+            var result = await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"semantic\",\"indexId\":\"vecIdx\",\"query\":\"graph databases\"}"),
+                CancellationToken.None);
+
+            Assert.IsTrue(result.IsError,
+                "text-in search without a provider is a capability failure, not an empty answer");
+        }
+
+        [TestMethod]
+        public async Task Search_SemanticMode_WithoutQueryText_IsAnArgumentError()
+        {
+            var result = await Catalog().CallAsync("f8_search",
+                Args("{\"mode\":\"semantic\",\"indexId\":\"vecIdx\"}"), CancellationToken.None);
+
+            Assert.IsTrue(result.IsError, "semantic mode with no query is an argument error");
         }
 
         // --- f8_search ----------------------------------------------------------------------
@@ -368,6 +462,28 @@ namespace NoSQL.GraphDB.Tests
             using var response = await client.PostAsync("/index",
                 Json($"{{\"uniqueId\":\"{uniqueId}\",\"pluginType\":\"{pluginType}\"}}"));
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, $"create index {uniqueId}");
+        }
+
+        private static async Task SetEmbedding(HttpClient client, Int32 elementId, String name, String vector)
+        {
+            // waitForCompletion, because the bound index created next materialises its projection from
+            // COMMITTED element state: an accepted-but-unapplied write would build an empty index.
+            using var response = await client.PutAsync(
+                $"/graphelement/{elementId}/embedding/{name}?waitForCompletion=true",
+                Json($"{{\"vector\":{vector}}}"));
+            Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode, $"set embedding on {elementId}");
+        }
+
+        private static async Task CreateBoundVectorIndex(HttpClient client, String uniqueId, Int32 dimension,
+            String metric, String embeddingName)
+        {
+            var body =
+                $"{{\"uniqueId\":\"{uniqueId}\",\"pluginType\":\"VectorIndex\",\"pluginOptions\":{{" +
+                $"\"dimension\":{{\"propertyId\":\"dimension\",\"propertyValue\":\"{dimension}\",\"fullQualifiedTypeName\":\"System.Int32\"}}," +
+                $"\"metric\":{{\"propertyId\":\"metric\",\"propertyValue\":\"{metric}\",\"fullQualifiedTypeName\":\"System.String\"}}," +
+                $"\"embeddingName\":{{\"propertyId\":\"embeddingName\",\"propertyValue\":\"{embeddingName}\",\"fullQualifiedTypeName\":\"System.String\"}}}}}}";
+            using var response = await client.PostAsync("/index", Json(body));
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, $"create bound index {uniqueId}");
         }
 
         private static async Task AddToIndex(HttpClient client, String indexId, Int32 elementId, String key, String typeName)

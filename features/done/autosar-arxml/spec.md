@@ -282,7 +282,7 @@ exists as an integration rather than as a converter script.
 | `docs/src/content/docs/integrations.md` | gains the provider's section including the worked semantic-search recipe of section 9 (one home; no new page) |
 | Stale counts | every "three shipped providers/descriptors" phrasing goes count-free or becomes four: known sites are the root `CLAUDE.md` quality-gates bullet and the docs page; phase 3 sweeps for the rest |
 | OpenAPI snapshot, MCP coverage, architecture diagrams, NL-assist dataset | untouched: no new REST operation, no new deployable, no new channel |
-| F8 Studio | zero code change; the integrations screen renders any descriptor (pinned by the existing descriptor-fixture test) |
+| F8 Studio | NOT zero code change (corrected 2026-08-24, feature element-similarity-search): the Studio run form could not send `embedSummaries` at all, so a Studio-launched run never embedded, which made the semantic search this spec calls a first-class requirement unreachable from the UI. Fixed there; the integrations screen renders any descriptor (pinned by the existing descriptor-fixture test) |
 | Engine, apiApp | untouched |
 | `features/done/integrations/spec.md` | historical record; not rewritten. The living list of shipped providers is the descriptor snapshot and the docs page |
 
