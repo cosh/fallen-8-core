@@ -438,8 +438,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             Dashboard, where only an operator who thought to open that screen ever saw the one
             warning that says their commits are not reaching disk.
             The guard is about the PADDING, not the notice - <DurabilityNotice> already renders
-            nothing when there is nothing to say, but this wrapper's inset would still be there. */}
-        {signals.durabilityUnhealthy && (
+            nothing when there is nothing to say, but this wrapper's inset would still be there.
+            Gated on the connection like the first-run overlay is, and for the same reason: /status
+            reports durability to an UNAUTHORIZED caller too, so without it an instance that
+            rejected the credential raised a red warning above the "rejected the credential" guard.
+            An operator who cannot authenticate cannot act on it either. */}
+        {connection === "connected" && signals.durabilityUnhealthy && (
           <div className="shrink-0 px-4 pt-4">
             <DurabilityNotice durability={signals.durability} />
           </div>

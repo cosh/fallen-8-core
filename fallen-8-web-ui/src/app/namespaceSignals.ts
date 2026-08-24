@@ -47,11 +47,24 @@ export interface NamespaceSignals {
    * Strictly 0 vertices, and KNOWN to be 0. /status answers for a namespace the server catalogs
    * but did not load with null counts, and reading that as empty would greet an operator with
    * "get started" over a graph that holds data.
+   *
+   * LIVE: it follows the change feed within ~300ms of any mutation. Anything that must not fire
+   * mid-operation has to latch it rather than derive from it - a sample load is a tabula rasa
+   * followed by an import, so this is briefly true in the middle of one.
    */
   empty: boolean;
   /** Non-zero vertex count, i.e. the graph is known to hold data (re-arms the first-run show). */
   populated: boolean;
-  /** The per-namespace key (`<instanceId>/<ns>`) both the first-run store and the caches use. */
+  /**
+   * Whether /status has answered for this namespace at all. `empty` and `populated` are both false
+   * while it has not, which is indistinguishable from a not-loaded namespace without this.
+   */
+  known: boolean;
+  /**
+   * The per-namespace key both the first-run store and the caches use: `<instanceId>/<ns>`, or the
+   * bare instance id on a server that predates namespaces (see boundInstance). Null with no
+   * active instance.
+   */
   key: string | null;
 }
 
@@ -69,6 +82,7 @@ export function useNamespaceSignals(): NamespaceSignals {
     durabilityUnhealthy: durabilityProblems(durability).length > 0,
     empty: vertexCount === 0,
     populated: vertexCount !== null && vertexCount > 0,
+    known: status.data !== undefined,
     key: instance?.id ?? null,
   };
 }

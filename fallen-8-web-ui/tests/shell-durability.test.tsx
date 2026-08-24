@@ -162,7 +162,7 @@ describe("the shell durability banner", () => {
 
     await waitFor(() => expect(screen.getByTestId("durability-notice")).toBeInTheDocument());
     expect(screen.getByText(/The last recovery was truncated/i)).toBeInTheDocument();
-    expect(screen.getByText(/dropped 2 index/i)).toBeInTheDocument();
+    expect(screen.getByText(/dropped 2 index\(es\)/i)).toBeInTheDocument();
   });
 
   it("stays silent on a healthy graph, and the screen is still there", async () => {

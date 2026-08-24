@@ -36,7 +36,7 @@ import { closeIntroIfOpen } from "./firstRun";
  *
  * WHY THIS SPEC EXISTS: both images were published by hand in 2026-07 and no spec produced them, so
  * every later recapture pass silently skipped them and they went stale by six UI features: an
- * 11-entry nav rail against today's 15, no help button, no events bell, and copy that has since
+ * 11-entry nav rail against today's 14, no help button, no events bell, and copy that has since
  * changed. The ids in them were always right, though: the engine assigns ids at import rather than
  * taking them from the sample file, so the loaded karate club is 0..33 no matter what
  * karate-club.jsonl numbers its rows, and 0 -> 33 (Mr. Hi to the Officer) is the pair the sample's

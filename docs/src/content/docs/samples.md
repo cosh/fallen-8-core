@@ -245,7 +245,7 @@ Load **Movie Night**, open **Query**, pick the `embeddings` index, switch to **t
 ranks Inception top by cosine similarity: the query text is embedded once server-side, then
 run as exact kNN.
 
-![Semantic search on Movie Night returning Inception as the top hit.](../../assets/images/query-semantic-search.png)
+![Semantic search on Movie Night: ten hits ranked by cosine, Inception (vertex 0, its plot in the properties cell) at the top.](../../assets/images/query-semantic-search.png)
 
 The mechanics (element embeddings, bound indices, the model-identity contract) are in
 [semantic traversal](/semantic-traversal/); the kNN scan itself in [vector search](/vector-search/).
