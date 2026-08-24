@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture (feature canvas-find-connect): the Canvas "Find" tab with a result row
  * hovered, spotlighting its node on the canvas with the "solar eclipse" corona. Loads the
@@ -58,6 +60,8 @@ test("capture the Find tab hover eclipse spotlight", async ({ page }) => {
   await registerSecuredInstance(page);
 
   await page.goto("/q/default/samples");
+  // Empty graph: the first-run walkthrough opens itself over this screen and blocks the card.
+  await closeIntroIfOpen(page);
   await expect(page.getByTestId("sample-card-karate-club")).toBeVisible({ timeout: 30_000 });
   await page.getByTestId("load-sample-karate-club").click();
   const typed = page.getByTestId("confirm-typed");

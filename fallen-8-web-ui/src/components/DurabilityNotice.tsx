@@ -30,23 +30,39 @@ import type { DurabilityREST } from "../api/types";
  *
  * The engine has published this on /status for a while and a machine already acts on it - the
  * integrations runtime refuses to delete anything while it is unhealthy - but nothing showed it to
- * the person watching. That was the gap: "a client writes into a degraded log and nobody watching a
- * dashboard finds out" was the failure this signal existed to prevent, and it stopped one hop short.
+ * the person watching. That was the gap the signal exists to close: "a client writes into a
+ * degraded log and nobody watching finds out". It is rendered by the app shell, so it reaches that
+ * person on whatever screen they are on rather than on one they had to think to open.
  *
- * Deliberately SILENT when everything is fine. A dashboard that always carries a green durability
- * badge trains people to stop reading it, and the three states worth interrupting for are all
- * exceptional: the log is degraded (commits are landing in memory only), the last recovery was
- * truncated (the graph is a prefix of history, so anything reconciling against it is reasoning from
- * incomplete data), or the last checkpoint dropped indexes (they are gone after the next load).
+ * Deliberately SILENT when everything is fine. A banner that is always there stops being read, and
+ * the three states worth interrupting for are all exceptional: the log is degraded (commits are
+ * landing in memory only), the last recovery was truncated (the graph is a prefix of history, so
+ * anything reconciling against it is reasoning from incomplete data), or the last checkpoint
+ * dropped indexes (they are gone after the next load).
  */
-export function DurabilityNotice({ durability }: { durability: DurabilityREST | null | undefined }) {
-  // Absent is not healthy: an older server simply does not report, and saying nothing is honest,
-  // whereas rendering "durable" from missing data would be an invention.
+
+/** One thing worth interrupting for: what is wrong, and what it means for this graph. */
+export interface DurabilityProblem {
+  title: string;
+  detail: string;
+}
+
+/**
+ * The three exceptional states, as prose - and the ONE home for "is durability worth saying
+ * something about", which the shell also asks (an empty namespace whose recovery was truncated
+ * gets this warning instead of the first-run welcome; see AppShell).
+ *
+ * Absent is not healthy: an older server simply does not report, and saying nothing is honest,
+ * whereas rendering "durable" from missing data would be an invention.
+ */
+export function durabilityProblems(
+  durability: DurabilityREST | null | undefined,
+): DurabilityProblem[] {
   if (!durability) {
-    return null;
+    return [];
   }
 
-  const problems: { title: string; detail: string }[] = [];
+  const problems: DurabilityProblem[] = [];
 
   if (durability.degraded) {
     problems.push({
@@ -77,6 +93,12 @@ export function DurabilityNotice({ durability }: { durability: DurabilityREST | 
         "cannot do it yet.",
     });
   }
+
+  return problems;
+}
+
+export function DurabilityNotice({ durability }: { durability: DurabilityREST | null | undefined }) {
+  const problems = durabilityProblems(durability);
 
   if (problems.length === 0) {
     return null;

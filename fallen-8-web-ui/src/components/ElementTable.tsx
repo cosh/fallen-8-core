@@ -25,7 +25,7 @@
 
 import type { EdgeREST, VertexREST } from "../api/types";
 import { isEdge } from "../lib/hydrate";
-import { previewVector } from "../lib/embeddingProperties";
+import { previewVector, userPropertiesFirst } from "../lib/embeddingProperties";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { SCROLL_ROWS, scrollRows } from "../lib/listCaps";
 import { Truncated } from "./Truncated";
@@ -104,10 +104,12 @@ export function ElementTable({
                   : "—"}
               </td>
               <td className="table-cell text-fg-dim">
-                {/* previewVector per value so an embedding never dumps into the join. */}
+                {/* previewVector per value so an embedding never dumps into the join, and the
+                    element's OWN properties before the engine's embedding bookkeeping, because the
+                    cell truncates and the budget belongs to the operator's data. */}
                 <Truncated
                   text={
-                    (element.properties ?? [])
+                    userPropertiesFirst(element.properties ?? [])
                       .map((p) => `${p.propertyId}=${previewVector(p.propertyValue)}`)
                       .join(", ") || "—"
                   }

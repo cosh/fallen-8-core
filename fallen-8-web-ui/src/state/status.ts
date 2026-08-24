@@ -32,11 +32,31 @@ import type { InstanceConfig } from "../instances/types";
  * consumer reads one cache row and rides its periodic refresh; /status is the cheap
  * discovery surface (available plugins + live index inventory — feature
  * studio-index-discovery), unlike the budgeted Graph-shape pass in graphShape.ts.
+ *
+ * Accepts null and then asks nothing: the shell-level readers (the durability banner, the
+ * first-run auto-show) render outside the connection gate, so "no instance yet" is a state they
+ * pass through rather than an assertion they can make.
+ *
+ * Pass poll: true to drive the shared row on a timer. Exactly one caller does - the app shell,
+ * on the same 15s cadence as its instance health probe - because the durability banner is a
+ * warning nobody goes looking for: it has to arrive while the operator is on some other screen.
+ * Every other observer rides that refresh through the shared cache row and asks for nothing.
+ *
+ * Polling implies `retry: 0`, matching the health probe, and that pairing is load-bearing rather
+ * than tidy: on a server that predates namespaces the bound view collapses to the raw instance, so
+ * this row and the probe become the SAME query key. react-query takes `retry` from whichever
+ * observer initiated the current fetch, so without this the probe's deliberate fail-fast became a
+ * coin flip against a default of three retries - and for the ~7s of backoff that won, a dead
+ * instance still read "online" with the nav unlocked. There is no point retrying a 15s poll anyway;
+ * the next tick is the retry.
  */
-export function useStatus(instance: InstanceConfig) {
+export function useStatus(instance: InstanceConfig | null, options?: { poll?: boolean }) {
   return useQuery({
-    queryKey: [instance.id, "status"],
-    queryFn: ({ signal }) => getStatus(instance, signal),
+    queryKey: [instance?.id, "status"],
+    queryFn: ({ signal }) => getStatus(instance!, signal),
+    enabled: instance !== null,
+    refetchInterval: options?.poll ? 15_000 : undefined,
+    ...(options?.poll ? { retry: 0 } : {}),
   });
 }
 

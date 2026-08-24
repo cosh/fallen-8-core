@@ -55,6 +55,53 @@ const edge: EdgeREST = {
   properties: [],
 };
 
+/**
+ * The properties cell TRUNCATES (DISPLAY_CAP.propertyValue = 80 chars) and the REST egress emits
+ * properties in no guaranteed order, so what survives the cut is what the reader gets. Engine
+ * bookkeeping must not spend that budget before the operator's own data.
+ */
+describe("ElementTable properties preview ordering", () => {
+  const withEmbedding: VertexREST = {
+    id: 7,
+    creationDate: "2026-01-01",
+    modificationDate: "2026-01-01",
+    label: "movie",
+    kind: "vertex",
+    // Deliberately the order that produced the bad docs frame: a user key, then the ~44-character
+    // reserved marker, then the key a reader actually came for.
+    properties: [
+      { propertyId: "year", propertyValue: 2010, fullQualifiedTypeName: "System.Int32" },
+      {
+        propertyId: "$embeddingModel:default",
+        propertyValue: "bge-m3#1024#Cosine",
+        fullQualifiedTypeName: "System.String",
+      },
+      { propertyId: "title", propertyValue: "Inception", fullQualifiedTypeName: "System.String" },
+    ],
+  };
+
+  it("puts the element's own properties before the embedding markers", () => {
+    render(<ElementTable elements={[withEmbedding]} />);
+
+    const cell = screen.getByText(/year=2010/);
+    // Both user keys precede the reserved one, so neither is what the truncation eats first.
+    expect(cell.textContent).toMatch(/^year=2010, title=Inception, \$embeddingModel:default=/);
+  });
+
+  it("keeps the full, unreordered value in the title tooltip", () => {
+    render(<ElementTable elements={[withEmbedding]} />);
+
+    // Truncated's contract: nothing is lost, only reordered and clipped.
+    const cell = screen.getByText(/year=2010/);
+    expect(cell.getAttribute("title") ?? cell.textContent).toContain("title=Inception");
+  });
+
+  it("leaves an element with no reserved properties exactly as it came", () => {
+    render(<ElementTable elements={[vertex]} />);
+    expect(screen.getByText("age=30")).toBeInTheDocument();
+  });
+});
+
 describe("ElementTable per-row add-to-canvas", () => {
   it("renders no per-row canvas action when onAddToCanvas is absent (backward compatible)", () => {
     render(<ElementTable elements={[vertex, edge]} />);

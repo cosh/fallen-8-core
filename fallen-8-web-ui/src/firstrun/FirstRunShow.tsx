@@ -36,12 +36,12 @@ import { useBeatTimeline } from "./useBeatTimeline";
  *
  * It CREATES NOTHING: it renders a hardcoded mock as SVG and animates it with CSS. It issues no
  * network request of its own. Only the handoff buttons perform a real action, on click, through
- * the injected handlers - so the auto-show (rendered inline by the Dashboard on an empty graph)
- * and the manual replay (rendered by <FirstRunOverlay>) are the SAME component with the same
- * contract; only the entry point differs. Prev/Next/dots let a viewer step through at their pace.
+ * the injected handlers - so the auto-show (opened for a newcomer on an empty namespace) and the
+ * manual replay (the rail's Intro button) are the SAME component with the same contract, hosted by
+ * the same <FirstRunOverlay>; only the entry point differs. Prev/Next/dots let a viewer step through at their pace.
  */
 export interface FirstRunShowProps {
-  /** "auto" = inline empty-state on the Dashboard; "replay" = manual overlay. Used only for labels. */
+  /** "auto" = a newcomer on an empty namespace; "replay" = the rail's Intro. Used only for labels. */
   variant: "auto" | "replay";
   /** Dismiss into the app (auto: remember dismissal; replay: close the overlay). */
   onExplore: () => void;

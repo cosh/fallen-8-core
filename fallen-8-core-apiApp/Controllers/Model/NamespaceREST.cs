@@ -50,9 +50,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         /// <summary>
         ///   The namespace's vertex count, or <c>null</c> when it is <c>notLoaded</c> and this
-        ///   process therefore has no count to report. Never <c>0</c> in that case: the Studio
-        ///   dashboard branches on <c>vertexCount === 0</c> to replay the first-run walkthrough, so a
-        ///   zero would greet an operator with "get started" over a namespace that holds data, and a
+        ///   process therefore has no count to report. Never <c>0</c> in that case: the Studio shell
+        ///   branches on <c>vertexCount === 0</c> to replay the first-run walkthrough, so a zero
+        ///   would greet an operator with "get started" over a namespace that holds data, and a
         ///   reconciling writer would read "healthy and empty" and delete on that basis.
         /// </summary>
         public Int32? VertexCount { get; set; }

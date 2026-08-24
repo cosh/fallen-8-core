@@ -61,9 +61,16 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
 const navigateMock = vi.fn();
 /** The URL segment NamespaceScope reads; a test sets it before rendering the layout. */
 let scopeParams = { ns: DEFAULT_NAMESPACE };
+/** The route the scope is rendered under - what "keep the screen, change the namespace" reads. */
+let scopePathname = `/q/${DEFAULT_NAMESPACE}/query`;
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navigateMock,
   useParams: () => scopeParams,
+  useRouterState: ({
+    select,
+  }: {
+    select: (s: { location: { pathname: string } }) => unknown;
+  }) => select({ location: { pathname: scopePathname } }),
   Outlet: () => <div data-testid="scope-outlet">the namespaced screen</div>,
 }));
 
@@ -79,6 +86,7 @@ import {
 import {
   DEFAULT_NAMESPACE,
   SAME_ORIGIN_INSTANCE,
+  useBoundInstance,
   useInstanceStore,
   useRegistry,
 } from "../src/instances/registry";
@@ -118,6 +126,7 @@ beforeEach(() => {
   localStorage.clear();
   navigateMock.mockReset();
   scopeParams = { ns: DEFAULT_NAMESPACE };
+  scopePathname = `/q/${DEFAULT_NAMESPACE}/query`;
   listMock.mockReset().mockResolvedValue(INVENTORY);
   createMock.mockReset().mockResolvedValue(INVENTORY.namespaces[1]);
   dropMock.mockReset().mockResolvedValue(undefined);
@@ -244,6 +253,39 @@ describe("registry active namespace + bound view", () => {
     expect(result.current.instance.id).toBe("local");
     expect(scopedPath(result.current.instance, "/vertex")).toBe("/vertex");
     expect(result.current.store).toBe(getInstanceStore("local"));
+  });
+
+  /**
+   * useBoundInstance is the same binding for the SHELL, which renders before the connection gate
+   * and therefore cannot assert an instance the way a screen can. Both must agree, or the shell's
+   * /status (the durability banner, the first-run auto-show) would read a different cache row than
+   * the screens do and answer for the wrong namespace.
+   */
+  it("gives the shell the SAME bound view a screen gets", () => {
+    useRegistry.getState().setActiveNamespace(SAME_ORIGIN_INSTANCE.id, "flights");
+    const { result } = renderHook(() => ({
+      shell: useBoundInstance(),
+      screen: useInstanceStore().instance,
+    }));
+
+    expect(result.current.shell).toEqual(result.current.screen);
+    expect(result.current.shell?.id).toBe("local/flights");
+  });
+
+  it("degrades with the screens on a pre-namespace server", () => {
+    useRegistry.getState().setNamespaceSupport(SAME_ORIGIN_INSTANCE.id, false);
+    const { result } = renderHook(() => useBoundInstance());
+
+    expect(result.current?.namespace).toBeUndefined();
+    expect(result.current?.id).toBe("local");
+  });
+
+  it("is null with no active instance, so the shell asks /status nothing", () => {
+    // The state a screen never sees and the shell always can: no instance registered yet.
+    useRegistry.setState({ instances: [], activeId: null });
+    const { result } = renderHook(() => useBoundInstance());
+
+    expect(result.current).toBeNull();
   });
 });
 
@@ -580,14 +622,16 @@ describe("NAMESPACES panel", () => {
     expect(dropMock.mock.calls[0][1]).toBe("flights");
   });
 
-  it("switches namespace: registry updated and navigation to the namespaced dashboard", async () => {
+  it("switches namespace in the registry and does NOT navigate away from Connect", async () => {
     const user = userEvent.setup();
     renderPanel();
     await waitFor(() => expect(screen.getByTestId("namespace-switch-flights")).toBeInTheDocument());
 
     await user.click(screen.getByTestId("namespace-switch-flights"));
     expect(useRegistry.getState().activeNamespaces[SAME_ORIGIN_INSTANCE.id]).toBe("flights");
-    expect(navigateMock).toHaveBeenCalledWith({ to: "/q/$ns/dashboard", params: { ns: "flights" } });
+    // Managing namespaces is what this panel is FOR: an operator mid-task here is not asking to
+    // be moved to another screen, and the top bar names the new active namespace anyway.
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 });
 
@@ -673,6 +717,21 @@ describe("NamespaceScope branches", () => {
     expect(screen.queryByTestId("namespace-not-loaded")).not.toBeInTheDocument();
   });
 
+  it("recovers to the default namespace ON THE SAME SCREEN, not onto some overview", async () => {
+    const user = userEvent.setup();
+    scopeParams = { ns: "ghost" };
+    scopePathname = "/q/ghost/subgraphs";
+    renderScope();
+    await waitFor(() => expect(screen.getByTestId("namespace-recover")).toBeInTheDocument());
+
+    await user.click(screen.getByTestId("namespace-recover-switch"));
+
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: "/q/$ns/subgraphs",
+      params: { ns: DEFAULT_NAMESPACE },
+    });
+  });
+
   it("offers a way out when unlocked", async () => {
     const user = userEvent.setup();
     scopeParams = { ns: "archived" };
@@ -681,9 +740,11 @@ describe("NamespaceScope branches", () => {
 
     await user.click(screen.getByTestId("namespace-not-loaded-manage"));
     expect(navigateMock).toHaveBeenCalledWith({ to: "/" });
+    // Keeps the SCREEN and changes only the namespace: someone who deep-linked into the Query
+    // screen of a namespace this process did not load came for the Query screen.
     await user.click(screen.getByTestId("namespace-not-loaded-switch"));
     expect(navigateMock).toHaveBeenCalledWith({
-      to: "/q/$ns/dashboard",
+      to: "/q/$ns/query",
       params: { ns: DEFAULT_NAMESPACE },
     });
   });

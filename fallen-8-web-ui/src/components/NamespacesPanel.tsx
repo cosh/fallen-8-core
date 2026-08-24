@@ -25,7 +25,6 @@
 
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { useRegistry, useActiveInstance, DEFAULT_NAMESPACE } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import {
@@ -111,7 +110,6 @@ function startupValue(entry: NamespaceEntry): NamespaceTriState {
 export function NamespacesPanel() {
   const instance = useActiveInstance();
   const setActiveNamespace = useRegistry((s) => s.setActiveNamespace);
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [newName, setNewName] = useState("");
@@ -193,9 +191,13 @@ export function NamespacesPanel() {
   const failed = [create, rename, drop, policy].find((m) => m.isError);
   const newNameValid = isValidNamespaceName(newName);
 
+  /**
+   * Activating a namespace from here does NOT navigate: this panel lives on the Connect screen and
+   * an operator managing namespaces stays in the panel they are managing them from. The switch is
+   * visible where it belongs - the top bar names the active namespace on every screen.
+   */
   const switchTo = (name: string) => {
     setActiveNamespace(instance.id, name);
-    void navigate({ to: "/q/$ns/dashboard", params: { ns: name } });
   };
 
   // What the drop confirmation says is at stake. A namespace the server did not load reports no

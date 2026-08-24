@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture: the full-page canvas shots of the file-based sample graphs
  * used by docs/src/content/docs/samples.md. Each sample is loaded from the gallery
@@ -71,6 +73,9 @@ test("capture every file sample on the canvas", async ({ page }) => {
 
   for (const { id, settleMs } of SHOTS) {
     await page.goto("/q/default/samples");
+    // The first pass enters on an empty graph, so the walkthrough opens over the gallery and
+    // its scrim would swallow the load click.
+    await closeIntroIfOpen(page);
     const card = page.getByTestId(`sample-card-${id}`);
     await expect(card).toBeVisible({ timeout: 30_000 });
     await page.getByTestId(`load-sample-${id}`).click();
