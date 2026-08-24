@@ -388,10 +388,11 @@ curl -sf -X POST http://localhost:8080/ns/vehicle/embedding/search \
      -d '{"indexId":"arxml-summary","text":"kilometer","k":10,"label":"signal"}'
 ```
 
-Note the `label`. It is not decoration: three of the seven ARXML entity kinds have no prose in
-the file at all, so their summary is little more than an identifier, and an unconstrained
-similarity search ranks that identifier-shaped noise against real matches. Constrain every
-similarity query to the kind of thing you are looking for.
+Note the `label`. It is not decoration. Only three of the seven ARXML entity kinds get a
+description read out of the extract at all -- signals, system signals and PDUs -- so a network, an
+ECU or a frame embeds as little more than its own name, and those vectors cluster by identifier
+shape rather than by meaning. An unconstrained similarity search therefore ranks that noise
+against real matches. Constrain every similarity query to the kind of thing you are looking for.
 
 Once a signal is on your screen you can also search **from it** instead of describing it: the
 [Studio](/studio/) detail panel and the Browser's Embeddings tab both offer *Find similar*,
