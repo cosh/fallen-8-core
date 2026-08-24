@@ -1222,7 +1222,20 @@ export interface IntegrationJobRequest {
    * mounts no directory, so this is the only way a file reaches a provider.
    */
   files?: Record<string, IntegrationJobFile>;
+  /**
+   * Whether the run should embed one summary per entity, rendered from the provider's
+   * `entitySummaryTemplate`. Default off in the runtime: embedding every element of every run is
+   * cost and noise in equal measure. Needs an embedding provider on the target, and needs the
+   * provider to declare a template - without either, the run still succeeds and simply embeds
+   * nothing, with a diagnostic saying so.
+   */
   embedSummaries?: boolean;
+  /**
+   * Which named embedding the summaries are written to. Omitted means the runtime's own default,
+   * `"default"`, which is also the name the document layer binds its index to - so out of the box
+   * integration summaries and document chunks share one bound index.
+   */
+  embeddingName?: string;
 }
 
 /** The only account of a job, because the runtime keeps none. */

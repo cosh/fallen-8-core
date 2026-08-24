@@ -11,18 +11,27 @@ only phase that fixes a defect users can already hit; everything after it is rea
 The blocker. Without it, nothing else in this feature is observable at real size.
 
 - `fallen-8-integrations/Graph/Fallen8RestTarget.cs`: give `EmbedSummariesAsync` an offset chunk
-  loop over at most 64 items per POST, mirroring the `SendBatchedAsync` / `WriteBatchSize`
-  pattern already in that file. Sum the written count across chunks. Keep the existing
-  status-code rule per chunk: `{403, 502, 503}` stop and degrade the whole write to absent with
-  the status named; anything else throws `GraphTargetException`.
-- Chunk size is a named constant beside the existing write-batch constant, with a comment
-  recording *why* 64: it is the shipped `Fallen8:Embedding:MaxBatchSize` default, it is below the
-  32 the Nahil compose sets, and at typical summary length it keeps each body far under the
-  1 MiB `[RequestSizeLimit]` that no configuration can move.
-- Tests: a summary write of 200 entities issues 4 POSTs and reports 200 written; a 403 on the
-  second chunk degrades with the count already written preserved; a 400 on the second chunk
-  throws. Check `IntegrationsWritePathTest` for a call-count expectation that FR-1 changes, and
-  re-assert the zero-mutation invariant.
+  loop, mirroring the `SendBatchedAsync` / `WriteBatchSize` pattern already in that file. Sum the
+  written count across chunks. Keep the existing status-code rule per chunk: `{403, 502, 503}`
+  stop the loop and degrade with the status named; anything else throws `GraphTargetException`.
+- Chunk size is a named constant beside the existing write-batch constant. **32, not 64.** The
+  planning note originally said 64 on the strength of the apiApp default; that is wrong, because
+  `docker-compose.nahil.yml` sets 32, and a chunk over the cap is not survivable (400 is
+  correctly outside the degrade set, so it fails a run whose graph writes already landed). Sizing
+  to the smallest shipped cap makes every shipped configuration work. It also keeps each body far
+  inside the 1 MiB `[RequestSizeLimit]` no configuration can move.
+- Partial success is now reachable, which it was not before, so two reporting sites need fixing:
+  `SnapshotApplier` must set `report.SummariesEmbedded` *before* the degrade branch rather than
+  returning zero, and the diagnostic must name the shortfall rather than the whole batch. The
+  `EmbeddingWriteOutcome.Degraded` docstring ("why nothing was embedded") is likewise no longer
+  true and is the contract's own home for the rule.
+- Tests: 200 summaries go out in chunks that are each within the cap and total exactly 200; a 503
+  on the third chunk reports the 64 that landed and stops; a 400 on the second chunk still
+  throws; a partially embedded run reports the landed count and a "1 of 2" diagnostic. Check
+  `IntegrationsWritePathTest` for a call-count expectation this changes, and re-assert the
+  zero-mutation invariant.
+- Mutation-check the tests by widening the constant so no chunking happens; at least the chunking
+  and mid-chunk tests must go red.
 
 **Verify:** `dotnet test --filter "FullyQualifiedName~Integrations"`.
 
@@ -112,7 +121,7 @@ true, it becomes mandatory.
 | Phase | State | Notes |
 | --- | --- | --- |
 | P1 | done | chunk 32, the smallest shipped cap, not the 64 default; partial-write reporting fixed in the applier and the outcome contract |
-| P2 | not started | |
+| P2 | done | checkbox + name field + template disclosure + honest tile; 8 tests, mutation-checked |
 | P3 | not started | |
 | P4 | not started | |
 | P5 | not started | |

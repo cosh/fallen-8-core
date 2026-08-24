@@ -35,6 +35,7 @@ import type {
   SettingKind,
 } from "../api/types";
 import { capabilityOf, useIntegrationProviders } from "../state/integrations";
+import { useEmbeddingProvider } from "../state/graphShape";
 import { ApiError } from "../api/client";
 import { ErrorBox } from "../components/ErrorBox";
 import { FileDropzone } from "../components/FileDropzone";
@@ -68,9 +69,24 @@ export function IntegrationsScreen() {
   const [files, setFiles] = useState<Record<string, StagedFile>>({});
   const [fileProblems, setFileProblems] = useState<Record<string, string>>({});
   const [report, setReport] = useState<IntegrationJobReport | null>(null);
+  const [embedSummaries, setEmbedSummaries] = useState(false);
+  const [embeddingName, setEmbeddingName] = useState("");
+  // What the run that produced `report` ASKED for. Without it the embedded tile cannot tell "the run
+  // embedded nothing" from "nobody asked", and it read as the first for every run Studio ever launched.
+  const [reportAskedToEmbed, setReportAskedToEmbed] = useState(false);
 
   const catalog = useMemo(() => providers.data ?? [], [providers.data]);
   const selected = catalog.find((provider) => provider.id === selectedId) ?? null;
+
+  // The two halves of the opt-in that are NOT the operator's choice: a provider that declares no
+  // template has no summary to render, and a target with no provider has nothing to render it with.
+  // Either way the run would succeed and embed nothing, so the control is not offered rather than
+  // offered and quietly ineffective.
+  const summaryTemplate = selected?.entitySummaryTemplate?.trim() ?? "";
+  const providerStats = useEmbeddingProvider(instance);
+  const providerEnabled = providerStats === null ? null : providerStats.enabled;
+  const canEmbed = summaryTemplate.length > 0 && providerEnabled === true;
+  const embedRequested = canEmbed && embedSummaries;
 
   // Read by the async file staging below to find out whether the integration that asked for a file is
   // still the selected one. A ref and not the state value, because the closure captured the value as
@@ -80,9 +96,13 @@ export function IntegrationsScreen() {
 
   const run = useMutation({
     mutationFn: () =>
-      submitIntegrationJob(instance, buildJob(selected!, namespace, instanceId, values, files)),
+      submitIntegrationJob(
+        instance,
+        buildJob(selected!, namespace, instanceId, values, files, embedRequested, embeddingName),
+      ),
     onSuccess: (result) => {
       setReport(result);
+      setReportAskedToEmbed(embedRequested);
       // The job has reported, so a secret typed into this form has done its work: drop it. Only on
       // success, and success here includes a run that FAILED - the report came back either way. A job
       // the runtime refused (400, 409, 503) never ran, so the form keeps its values for the retry
@@ -277,6 +297,65 @@ export function IntegrationsScreen() {
               />
             ))}
 
+            {summaryTemplate.length > 0 && (
+              <div className="space-y-1" data-testid="integration-embed">
+                <label className="flex items-center gap-2 text-[12px]">
+                  <input
+                    type="checkbox"
+                    data-testid="integration-embed-toggle"
+                    checked={embedRequested}
+                    disabled={!canEmbed}
+                    title={
+                      canEmbed
+                        ? undefined
+                        : providerEnabled === null
+                          ? "provider status not reported by this server"
+                          : "the embedding provider is off on this instance — set the Fallen8:Embedding section (F8_EMBEDDINGS under compose)"
+                    }
+                    onChange={(event) => setEmbedSummaries(event.target.checked)}
+                  />
+                  embed entity summaries
+                </label>
+                <span className="text-fg-faint block text-[11px]">
+                  One vector per entity, so a semantic search finds things this run wrote by
+                  meaning rather than by substring. Bind a vector index to the same name to search
+                  them (Indexes).
+                </span>
+                {!canEmbed && (
+                  <span className="text-warn block text-[11px]" data-testid="integration-embed-off">
+                    {providerEnabled === null
+                      ? "provider status not reported by this server — the run can still write the graph."
+                      : "the embedding provider is off on this instance — the run can still write the graph."}
+                  </span>
+                )}
+                {embedRequested && (
+                  <>
+                    <label className="block text-[12px]">
+                      <span className="text-fg-faint block text-[10px] tracking-wide uppercase">
+                        embedding name
+                      </span>
+                      <input
+                        className="input w-full"
+                        data-testid="integration-embed-name"
+                        value={embeddingName}
+                        placeholder="default"
+                        onChange={(event) => setEmbeddingName(event.target.value)}
+                      />
+                    </label>
+                    <span className="text-fg-faint block text-[11px]" data-testid="integration-embed-template">
+                      embeds <code>{summaryTemplate}</code> per entity — a hole the entity cannot
+                      fill collapses, so an entity with no description embeds only its name.
+                    </span>
+                    <span className="text-fg-faint block text-[11px]">
+                      Only entities this run creates or changes are embedded. A graph already
+                      imported without this cannot be embedded by re-running: clear the namespace
+                      (tabula rasa) and run again.
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -309,7 +388,7 @@ export function IntegrationsScreen() {
         </section>
       )}
 
-      {report && <ReportPanel report={report} />}
+      {report && <ReportPanel report={report} askedToEmbed={reportAskedToEmbed} />}
     </div>
   );
 }
@@ -522,7 +601,13 @@ function FileField(props: {
 }
 
 /** The counts, the failure kind when there is one, and every diagnostic with its own code. */
-function ReportPanel({ report }: { report: IntegrationJobReport }) {
+function ReportPanel({
+  report,
+  askedToEmbed,
+}: {
+  report: IntegrationJobReport;
+  askedToEmbed: boolean;
+}) {
   const diagnostics = capList(report.diagnostics ?? []);
 
   return (
@@ -542,7 +627,16 @@ function ReportPanel({ report }: { report: IntegrationJobReport }) {
           <Count label="withdrawn" value={report.claimsWithdrawn} testid="report-withdrawn" />
           <Count label="deleted" value={report.elementsDeleted} testid="report-deleted" />
           <Count label="deferred" value={report.deletionsDeferred} testid="report-deferred" />
-          <Count label="embedded" value={report.summariesEmbedded ?? 0} testid="report-embedded" />
+          {askedToEmbed ? (
+            <Count label="embedded" value={report.summariesEmbedded ?? 0} testid="report-embedded" />
+          ) : (
+            <div>
+              <div className="text-fg-faint text-[10px] tracking-wide uppercase">embedded</div>
+              <div className="text-fg-faint" data-testid="report-embedded">
+                not requested
+              </div>
+            </div>
+          )}
           <div>
             <div className="text-fg-faint text-[10px] tracking-wide uppercase">wrote anything</div>
             <div data-testid="report-mutations">{report.issuedMutations ? "yes" : "no"}</div>
@@ -730,6 +824,8 @@ function buildJob(
   instanceId: string,
   values: Record<string, string>,
   staged: Record<string, StagedFile>,
+  embedSummaries: boolean,
+  embeddingName: string,
 ): IntegrationJobRequest {
   const settings: Record<string, string> = {};
   const credentialValues: Record<string, string> = {};
@@ -769,5 +865,10 @@ function buildJob(
     settings,
     credentialValues,
     files,
+    // Both halves or neither. The runtime needs the flag AND a name, and sending a name with the
+    // flag off would read on the wire as an opt-in the operator did not make.
+    ...(embedSummaries
+      ? { embedSummaries: true, ...(embeddingName.trim() ? { embeddingName: embeddingName.trim() } : {}) }
+      : {}),
   };
 }
