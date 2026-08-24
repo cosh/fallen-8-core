@@ -76,6 +76,30 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// </summary>
         private const Int32 WriteBatchSize = 500;
 
+        /// <summary>
+        ///   Summaries per batch EMBED. A different number from <see cref="WriteBatchSize" /> because a
+        ///   different limit bounds it: the embedding route counts ITEMS and refuses any batch larger than
+        ///   the target's <c>Fallen8:Embedding:MaxBatchSize</c>.
+        ///
+        ///   <para>32 is the SMALLEST cap this product ships, not the default one: the apiApp defaults to
+        ///   64, and the Nahil compose sets 32. Sizing to the default would leave every Nahil deployment
+        ///   failing, and a refusal here is not survivable - the route answers 400, which is correctly NOT
+        ///   in the degrade set, so it fails a run whose graph writes have already landed. So the chunk is
+        ///   sized to the smallest shipped cap and every shipped configuration works.</para>
+        ///
+        ///   <para>A constant rather than a read of that setting, because the target does not publish it.
+        ///   The runtime already asks the target for the numbers it owns - dimension, metric, model - and a
+        ///   batch cap belongs in that set; it is simply absent from the status contract, so reading it
+        ///   would mean adding a field to a snapshot-pinned surface. If it is ever published, this constant
+        ///   becomes the fallback for a target that does not answer.</para>
+        ///
+        ///   <para>It also keeps each body far inside the route's <c>[RequestSizeLimit(1_048_576)]</c>,
+        ///   which is a compile-time attribute no configuration can raise. ONE unchunked body for the
+        ///   recorded 12,261-entity system extract was both hundreds of times over the item cap and past
+        ///   that megabyte, which is why no real extract could be embedded before this.</para>
+        /// </summary>
+        private const Int32 EmbedBatchSize = 32;
+
         /// <summary>The equality operator's wire code, from the engine's own operator enum.</summary>
         private const Int32 EqualsOperator = 0;
 
@@ -461,48 +485,69 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 return EmbeddingWriteOutcome.None;
             }
 
-            var items = new List<Object>(summaries.Count);
-            foreach (var summary in summaries)
-            {
-                items.Add(new { graphElementId = summary.ElementId, text = summary.Text });
-            }
-
+            // ONE mutation for the whole logical write, before the loop, matching every other batched write
+            // on this target: the count answers "did this run issue writes", not "how many round-trips".
             _mutations++;
 
-            using var request = new HttpRequestMessage(HttpMethod.Post, _prefix + "embedding/elements")
-            {
-                Content = JsonContent.Create(new { name = embeddingName, items }, mediaType: null, JsonOptions),
-            };
+            // Chunked because the route caps ITEMS, not bytes (see EmbedBatchSize). The chunks are
+            // independent transactions on the target, so a failure part-way leaves the earlier chunks
+            // written - which is correct rather than merely tolerable: an embedding is element state, and
+            // the vectors that landed are as valid as if the rest had never been asked for. What is NOT
+            // acceptable is reporting zero for work that happened, so the written count is accumulated and
+            // returned on both the success and the degrade path.
+            var written = 0;
 
-            var response = await SendCoreAsync(request, "the embedding write", cancellationToken)
-                .ConfigureAwait(false);
-
-            using (response)
+            for (var offset = 0; offset < summaries.Count; offset += EmbedBatchSize)
             {
-                if (response.IsSuccessStatusCode)
+                var take = Math.Min(EmbedBatchSize, summaries.Count - offset);
+                var items = new List<Object>(take);
+                for (var i = offset; i < offset + take; i++)
                 {
-                    return new EmbeddingWriteOutcome(summaries.Count, null);
+                    items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
                 }
 
-                var status = (Int32)response.StatusCode;
-
-                // 403 is the capability switched off, 502 and 503 are the backend not answering. All three
-                // DEGRADE TO ABSENT rather than failing a run whose whole purpose is the graph write: an
-                // embedding is an addition to what landed, never a precondition for it. Anything else is a real
-                // graph failure and surfaces as one.
-                if (status == 403 || status == 502 || status == 503)
+                using var request = new HttpRequestMessage(HttpMethod.Post, _prefix + "embedding/elements")
                 {
-                    var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    return new EmbeddingWriteOutcome(0, String.Format(CultureInfo.InvariantCulture,
-                        "the target answered {0} to the embedding write ({1})", status,
-                        String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
-                }
+                    Content = JsonContent.Create(new { name = embeddingName, items }, mediaType: null, JsonOptions),
+                };
 
-                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                throw new GraphTargetException(String.Format(CultureInfo.InvariantCulture,
-                    "The graph refused the embedding write with {0}: {1}", status,
-                    String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim()));
+                var response = await SendCoreAsync(request, "the embedding write", cancellationToken)
+                    .ConfigureAwait(false);
+
+                using (response)
+                {
+                    if (response.IsSuccessStatusCode)
+                    {
+                        written += take;
+                        continue;
+                    }
+
+                    var status = (Int32)response.StatusCode;
+
+                    // 403 is the capability switched off, 502 and 503 are the backend not answering. All three
+                    // DEGRADE TO ABSENT rather than failing a run whose whole purpose is the graph write: an
+                    // embedding is an addition to what landed, never a precondition for it. Anything else is a real
+                    // graph failure and surfaces as one.
+                    //
+                    // Degrading STOPS the loop instead of trying the remaining chunks: all three statuses describe
+                    // the provider rather than this batch, so the next chunk would answer the same way and a run
+                    // over a large extract would spend hundreds of round-trips proving it.
+                    if (status == 403 || status == 502 || status == 503)
+                    {
+                        var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                        return new EmbeddingWriteOutcome(written, String.Format(CultureInfo.InvariantCulture,
+                            "the target answered {0} to the embedding write ({1})", status,
+                            String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
+                    }
+
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                    throw new GraphTargetException(String.Format(CultureInfo.InvariantCulture,
+                        "The graph refused the embedding write with {0}: {1}", status,
+                        String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim()));
+                }
             }
+
+            return new EmbeddingWriteOutcome(written, null);
         }
 
         public void Dispose()
