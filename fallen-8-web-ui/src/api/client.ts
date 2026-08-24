@@ -80,11 +80,46 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * A request that was accepted and never answered. Distinct from {@link ApiError}, which carries a
+ * status the server chose: this one exists because there was no answer at all.
+ *
+ * It has a status of 0 so a caller can still branch on `status`, and it is what turns "the spinner
+ * never stops" into a stated failure. That distinction is not theoretical - a broken IPv6 loopback
+ * forward on one published port left the Connect screen reading "checking..." indefinitely, with no
+ * error anywhere, because a hung fetch never settles and so never becomes an error at all.
+ */
+export class ApiTimeoutError extends Error {
+  readonly status = 0;
+  readonly url: string;
+  readonly timeoutMs: number;
+
+  constructor(url: string, timeoutMs: number) {
+    super(
+      `No answer from ${url} within ${timeoutMs} ms. The address accepted the connection but sent ` +
+        `nothing back, so the server may be reachable at a different address - on Windows with ` +
+        `Docker Desktop, try 127.0.0.1 instead of localhost.`,
+    );
+    this.name = "ApiTimeoutError";
+    this.url = url;
+    this.timeoutMs = timeoutMs;
+  }
+}
+
 export interface RequestOptions {
   method?: "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "PATCH";
   body?: unknown;
   query?: Record<string, string | number | boolean | undefined>;
   signal?: AbortSignal;
+  /**
+   * Abort after this long and fail with {@link ApiTimeoutError}.
+   *
+   * OPT-IN, per call, and deliberately not a default: a job run over a 100 MiB extract legitimately
+   * takes half a minute, and a blanket timeout would abort exactly the long operations this API
+   * exists for. It belongs on the REACHABILITY probes, whose whole question is "is it there?" and
+   * whose answer arrives in milliseconds or not at all.
+   */
+  timeoutMs?: number;
   /**
    * Namespace scoping (feature graph-namespaces). "namespace" (the default) prefixes the
    * path with /ns/{namespace} when the instance is namespace-bound - the namespace is
@@ -193,6 +228,41 @@ export async function throwIfNotOk(response: Response, url: string): Promise<voi
   }
 }
 
+/**
+ * One request's deadline: a signal that aborts when the caller's does OR when the timeout expires,
+ * and a flag saying which of the two happened.
+ *
+ * Built by hand rather than with `AbortSignal.any`, which jsdom does not implement - a test suite
+ * that cannot run the code is not covering it.
+ */
+function startDeadline(
+  caller: AbortSignal | undefined,
+  timeoutMs: number | undefined,
+): { signal: AbortSignal | undefined; expired: boolean; done: () => void } {
+  if (!timeoutMs) return { signal: caller, expired: false, done: () => {} };
+
+  const controller = new AbortController();
+  const state = { signal: controller.signal, expired: false, done: () => {} };
+
+  const timer = setTimeout(() => {
+    state.expired = true;
+    controller.abort();
+  }, timeoutMs);
+
+  const relay = () => controller.abort();
+  if (caller) {
+    if (caller.aborted) controller.abort();
+    else caller.addEventListener("abort", relay, { once: true });
+  }
+
+  state.done = () => {
+    clearTimeout(timer);
+    caller?.removeEventListener("abort", relay);
+  };
+
+  return state;
+}
+
 export async function apiRequest<T>(
   instance: InstanceConfig,
   path: string,
@@ -201,17 +271,29 @@ export async function apiRequest<T>(
   const effectivePath = options.scope === "fallen8" ? path : scopedPath(instance, path);
   const url = buildUrl(instance.baseUrl, effectivePath, options.query);
   const headers: Record<string, string> = { ...(await resolveAuthHeaders(instance)) };
+  const deadline = startDeadline(options.signal, options.timeoutMs);
   const init: RequestInit = {
     method: options.method ?? "GET",
     headers,
-    signal: options.signal,
+    signal: deadline.signal,
   };
   if (options.body !== undefined) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(options.body);
   }
 
-  const response = await fetch(url, init);
+  let response: Response;
+  try {
+    response = await fetch(url, init);
+  } catch (error) {
+    // Only OUR deadline becomes a timeout. An abort from the caller's own signal (react-query
+    // cancelling on unmount, a superseded query) is rethrown untouched, or every navigation would
+    // report a server that did not answer.
+    if (deadline.expired) throw new ApiTimeoutError(url, options.timeoutMs!);
+    throw error;
+  } finally {
+    deadline.done();
+  }
 
   await throwIfNotOk(response, url);
 

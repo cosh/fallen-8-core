@@ -47,7 +47,7 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
   };
 });
 
-import { ApiError } from "../src/api/client";
+import { ApiError, ApiTimeoutError } from "../src/api/client";
 import { InstanceHealth } from "../src/components/InstanceHealth";
 
 const INSTANCE: InstanceConfig = {
@@ -190,6 +190,23 @@ describe("InstanceHealth", () => {
     await waitFor(() => expect(screen.getByText(/unreachable/)).toBeInTheDocument());
     expect(listMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId("instance-health")).not.toBeInTheDocument();
+  });
+
+  it("reads no answer, and names the address, when the probe times out instead of failing", async () => {
+    // The reported failure: a published port whose IPv6 loopback forward was dead ACCEPTED the
+    // connection and never replied, so the fetch never settled, the query never errored, and this
+    // cell said "checking…" indefinitely - for a server that was healthy and answering on IPv4.
+    // A refusal and a silence are different faults and must read differently.
+    statusMock.mockRejectedValue(new ApiTimeoutError("http://localhost:8080/status", 10_000));
+    listMock.mockResolvedValue(REPORTED);
+
+    renderCell();
+
+    await waitFor(() => expect(screen.getByText(/no answer/)).toBeInTheDocument());
+    expect(screen.getByTestId("timeout-hint")).toHaveTextContent("127.0.0.1");
+    expect(screen.getByTestId("timeout-hint")).toHaveTextContent("10s");
+    expect(screen.queryByText(/unreachable/)).not.toBeInTheDocument();
+    expect(listMock).not.toHaveBeenCalled();
   });
 
   it("reads unauthorized, and asks for no inventory, when the credential is refused", async () => {
