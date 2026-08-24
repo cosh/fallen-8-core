@@ -215,9 +215,16 @@ PUBLISH_REPO=<your-namespace>/phi4-f8 VARIANT=phi4-f8 ./run.sh publish     # the
 ```
 
 A fresh `docker compose up` then pulls automatically: `ollama-init` pulls `$F8_DELEGATE_REPO`
-(default `stoic_hellman_728/phi4-f8-mini`) and tags it `phi4-f8-mini`, so the UI default works
-out of the box; it also fetches and tags `phi4-f8` (+ `F8_PHI4F8_REPO`) by default — set
+(default `stoic_hellman_728/phi4-f8-mini:v0.0.35`) and tags it `phi4-f8-mini`, so the UI default
+works out of the box; it also fetches and tags `phi4-f8` (+ `F8_PHI4F8_REPO`) by default — set
 `F8_PULL_PHI4F8=0` to skip that larger pull.
+
+**After publishing a new model, bump the pinned default.** The compose default names a VERSION, not
+`:latest`, so a fresh publish reaches deployments only when that pin moves. The version tag itself
+is created by tagging the repository (`scripts/tag-models.sh`, run by the release workflow or the
+"Tag models" workflow), and the pin is written in three places — `docker-compose.yml`,
+`scripts/ollama-init.sh` and `scripts/ensure-models.sh`. Bump them together; `ModelPinTest` fails
+the suite if they disagree or if any of them stops naming a `vX.Y.Z` version.
 Point a deployment at your publisher via those vars. Without Docker, pull by hand:
 
 ```bash

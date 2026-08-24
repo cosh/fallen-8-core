@@ -31,6 +31,9 @@ publish/
 docker-*.log
 *-startup.log
 .env.local
+# A local compose override (e.g. pinning a different F8_DELEGATE_REPO). The committed
+# defaults live in docker-compose.yml; this file is per-machine.
+.env
 /tmp/
 
 # Docs site (Starlight/Astro) build output and generated files

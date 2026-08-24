@@ -136,8 +136,14 @@ services:
       # Override to run your own published fine-tune. phi4-f8 (~9GB, GPU-recommended) is pulled
       # by default alongside the mini; set F8_PULL_PHI4F8=0 to skip it (e.g. CPU-only or
       # disk-constrained hosts).
-      - F8_DELEGATE_REPO=${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini}
-      - F8_PHI4F8_REPO=${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8}
+      # Pinned to a VERSION, not :latest. The fine-tune pipeline republishes over :latest, so an
+      # unpinned default made every deployment track whatever was published last - and made
+      # "which model am I running" unanswerable without comparing manifest digests. Override
+      # either var to move (a .env line or an exported variable both work); bump these when a
+      # newer model version is published and tagged. ModelPinTest keeps the three defaults in
+      # this repo from drifting apart.
+      - F8_DELEGATE_REPO=${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini:v0.0.35}
+      - F8_PHI4F8_REPO=${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8:v0.0.35}
       - F8_PULL_PHI4F8=${F8_PULL_PHI4F8:-1}
       # Keep in sync with the fallen8 service's embedding block: when embeddings are on
       # (the default), the sidecar also pulls the bge-m3 embedding model (~1.2 GB once).
