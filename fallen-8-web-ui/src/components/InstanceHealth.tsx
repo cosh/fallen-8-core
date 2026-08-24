@@ -27,7 +27,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { InstanceConfig } from "../instances/types";
 import { isCrossOriginInstance } from "../instances/types";
 import { getStatus, isAuthorized, listNamespaces } from "../api/endpoints";
-import { ApiError } from "../api/client";
+import { ApiError, ApiTimeoutError } from "../api/client";
 import {
   describeDefaultOnly,
   describeTotals,
@@ -77,7 +77,18 @@ export function InstanceHealth({ instance }: { instance: InstanceConfig }) {
   if (health.isError || probe === null)
     return (
       <span className="text-danger">
-        unreachable
+        {health.error instanceof ApiTimeoutError ? "no answer" : "unreachable"}
+        {/* An address that ACCEPTS the connection and then says nothing is a different fault from
+            one that refuses, and it is the one nothing else on this screen can explain: the server
+            is usually running and answering somebody else. Naming the address, and the one
+            substitution that fixes it on Windows, is the whole difference between a diagnosis and a
+            spinner. */}
+        {health.error instanceof ApiTimeoutError && (
+          <span className="text-fg-faint ml-1 text-[11px]" data-testid="timeout-hint">
+            (accepted the connection but sent nothing back within{" "}
+            {health.error.timeoutMs / 1000}s - if it is running, try 127.0.0.1 instead of localhost)
+          </span>
+        )}
         {health.isError && isCrossOriginInstance(instance.baseUrl) && (
           <span className="text-fg-faint ml-1 text-[11px]" data-testid="cors-hint">
             (if the data plane is running, check its AllowedCorsOrigins includes this UI's origin)
