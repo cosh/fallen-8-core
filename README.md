@@ -39,6 +39,9 @@ Each feature has a deep-dive doc — follow the link.
   all as plugins.
 - **[Vector search](https://docs.fallen-8.com/vector-search/)** — exact k-nearest-neighbour over `float[]`
   embeddings (cosine, dot product, L2).
+- **[Find similar](https://docs.fallen-8.com/studio/)** — from any element carrying an embedding a
+  bound vector index projects, search by that element's own vector instead of describing it in
+  words; the search inherits its label and drops the element itself from the hits.
 - **[Semantic traversal](https://docs.fallen-8.com/semantic-traversal/)** — embeddings as element state; a
   code-free `semantic` block steers paths and subgraphs by similarity.
 - **[Nahil](https://docs.fallen-8.com/nahil/)** - run the embedding and chat models on Nahil

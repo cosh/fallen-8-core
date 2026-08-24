@@ -125,5 +125,5 @@ true, it becomes mandatory.
 | P3 | done | prefill from status.embedding with edit-wins; empty-index hint on Query; 8 tests, mutation-checked |
 | P4 | done | client-side gesture, bound-index lookup, label inheritance, k+1 + visible exclusion; 17 tests, mutation-checked |
 | P5 | done | 7 arms on the real-server fixture: cosine ranking, label+kind constraints, arg errors, provider-absent semantic. set_embedding still uncovered (write tier, separate class) |
-| P6 | not started | |
-| P7 | not started | |
+| P6 | done | integrations.md, vector-search.mdx, studio.md, troubleshooting.md, README, arxml spec fix; screenshot recaptured (status embedding stubbed, viewport 1180) |
+| P7 | in progress | full dotnet suite + council gate, then merge |
