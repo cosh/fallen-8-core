@@ -616,6 +616,25 @@ describe("the embed opt-in, which is the only way a Studio run writes summary em
     );
   });
 
+  it("refuses a malformed embedding name in the form rather than after the graph writes commit", async () => {
+    listProvidersMock.mockResolvedValue([
+      { ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" },
+    ]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+    await userEvent.click(await screen.findByTestId("integration-embed-toggle"));
+    await userEvent.type(await screen.findByTestId("integration-embed-name"), "not a name");
+
+    // The cost of learning this from the runtime's 400 is asymmetric: the graph writes commit first,
+    // and a corrected re-run embeds nothing, so the recovery is a tabula rasa and a full re-import.
+    expect(await screen.findByTestId("integration-embed-name-problem")).toBeInTheDocument();
+    expect(screen.getByTestId("integration-run")).toBeDisabled();
+  });
+
   it("reads 'not requested' rather than 0 for a run that never asked to embed", async () => {
     listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" }]);
     renderScreen();

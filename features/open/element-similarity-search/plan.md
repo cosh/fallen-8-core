@@ -126,4 +126,69 @@ true, it becomes mandatory.
 | P4 | done | client-side gesture, bound-index lookup, label inheritance, k+1 + visible exclusion; 17 tests, mutation-checked |
 | P5 | done | 7 arms on the real-server fixture: cosine ranking, label+kind constraints, arg errors, provider-absent semantic. set_embedding still uncovered (write tier, separate class) |
 | P6 | done | integrations.md, vector-search.mdx, studio.md, troubleshooting.md, README, arxml spec fix; screenshot recaptured (status embedding stubbed, viewport 1180) |
-| P7 | in progress | full dotnet suite + council gate, then merge |
+| P7 | done | gates green (dotnet 2094, Studio 1133, docs links valid); council returned merge-after-fixes, all fixes applied on the branch |
+
+## Council gate outcome
+
+Four review lenses over `main..HEAD`, every non-nit finding put through adversarial refutation:
+16 survived, 8 refuted. Verdict **merge-after-fixes**. All of it was fixed on the branch before
+merging rather than carried:
+
+**Blocker (fixed).** Both new docs passages instructed `PUT /ns/<name>/tabularasa`. The route is
+HEAD-only (`AdminController.cs:859`, and the pinned OpenAPI snapshot lists only `head`), so the one
+recovery this feature documents for its own no-backfill non-goal could not work - and against the
+shipped container the SPA fallback would most likely answer it 200 with the app shell, making it a
+silent no-op rather than an honest 405. Corrected in both published pages and in the two feature
+docs that seeded them, with the note that clearing also drops index definitions so the bound index
+must be recreated.
+
+**Two real consequences of chunking that P1 never examined (fixed).**
+
+- `POST /embedding/elements` is the only route this runtime calls that carries the
+  sensitive-endpoint rate limit (one process-wide fixed window, 30 permits / 10 s, QueueLimit 0).
+  Unchunked that was one request; chunked, the recorded extract is ~384 of them, so **429 became
+  reachable for the first time** - and it was not in the degrade set, so a throttle would have
+  failed a run whose graph writes had already landed. 429 now degrades with the count that landed.
+- The throw path discarded the accumulated `written`, so a mid-chunk non-degrade refusal reported
+  `summariesEmbedded: 0` for vectors that are on their elements - contradicting spec §4 and P1's own
+  test rationale. The count now rides on `GraphTargetException.SummariesWritten` and the applier
+  records it before rethrowing.
+
+**Also fixed:** my inserted paragraph in `vector-search.mdx` had split the options table and
+orphaned the `model` row into literal pipe text (confirmed in the built HTML and in
+`llms-full.txt`, invisible to the links-only gate); the new embedding-name box was unvalidated, so
+a typo failed the run *after* the graph writes committed and the recovery is a tabula rasa; the k+1
+over-fetch was unclamped, so a find-similar search at the advertised maximum k=1024 asked for 1025
+and answered 400; and Clear did not reset the source-element exclusion, so it kept filtering an
+unrelated query.
+
+**The canvas hole is closed.** The earlier claim in this plan that no test reaches the canvas Detail
+panel was wrong - `canvas-find.test.tsx` already selects into it. Five tests now cover the
+find-similar call site there, including an **edge** fixture asserting `kind === "edge"`, which is
+the arm neither the unit suite nor the live run touched and the one where an inverted flag would
+have constrained an edge search to vertices and looked exactly like "nothing is similar". Reaching
+it needed `getEdge` mocked, since an edge selection takes a different route than a vertex.
+Mutation-checked: inverting the flag reddens that test alone.
+
+## Carried forward, deliberately
+
+1. **Acceptance 1 is unproven at scale.** A run over the recorded 12,261-entity extract has only
+   been demonstrated at fixture scale. ~384 chunks is exactly where the rate limiter becomes
+   reachable, and per-chunk latency on a real GPU Ollama or Nahil worker is unmeasured here, so
+   whether 429 fires on every large import or almost never is unknown. It now degrades rather than
+   failing, which is why this is a note and not a blocker.
+2. **MCP `f8_mutate set_embedding` remains executed by no test**, so FR-10's second clause is unmet.
+   No `fallen-8-mcp` file changed on this branch, the arm is main's untested code, and the read-tier
+   fixture deliberately cannot register `f8_mutate`. It belongs in `McpWriteToolsTest.cs` as a
+   follow-up rather than a spec edit.
+3. **`EmbedBatchSize` is a compile-time 32** pinned to the smallest *shipped* cap.
+   `Fallen8:Embedding:MaxBatchSize` is operator-writable with a minimum of 1, so a hand-lowered cap
+   still fails a run. Removing the constant depends on publishing the cap on `GET /status`, which
+   this feature scoped out to keep the OpenAPI snapshot untouched.
+4. **The recaptured `screen-integrations.png` stubs the `/status` embedding block** (bge-m3, 1024,
+   Cosine) to photograph the compose default, because the capture app has no provider. It is the
+   first capture in that spec to fake instance state rather than replay a pinned artifact, so a
+   change to the compose default model, dimension or metric makes the published screenshot lie with
+   no gate noticing. Worth pinning the stub against `docker-compose.yml`.
+5. **The gesture is Studio-only**, per the spec's first non-goal: no agent and no non-Studio client
+   can ask "similar to this element". Revisit when an agent workflow needs it.

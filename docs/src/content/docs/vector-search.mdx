@@ -34,6 +34,7 @@ A vector index is created through the normal index surface ([indexes.md](/indexe
 | `dimension` | yes | Fixed vector dimension, 1 to 4096 |
 | `metric` | no | `Cosine` (default), `DotProduct`, or `L2` |
 | `embeddingName` | no | Binds the index to a named element embedding: the index then maintains itself and rejects explicit adds ([semantic-traversal.md](/semantic-traversal/)) |
+| `model` | no | Opaque model-identity string, stored and persisted; enforced by the embedding provider ([semantic-traversal.md](/semantic-traversal/)) |
 
 The example below creates a **raw** index with a tiny dimension, to keep the vectors readable. For
 real work you almost always want the **bound** form instead - add `embeddingName`, take `dimension`
@@ -42,7 +43,7 @@ state. In F8 Studio the create form prefills both from the instance's provider f
 reason: an index whose dimension disagrees with the model writing into it is refused on every later
 embed and every search. Order does not matter, since a bound index created after the vectors exist
 materialises itself from them.
-| `model` | no | Opaque model-identity string, stored and persisted; enforced by the embedding provider ([semantic-traversal.md](/semantic-traversal/)) |
+
 
 The endpoint returns `true`/`false`; invalid options (dimension out of range, unknown metric)
 fail creation with the reason logged.

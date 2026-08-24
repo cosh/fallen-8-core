@@ -611,8 +611,22 @@ namespace NoSQL.GraphDB.Integrations.Run
                 return;
             }
 
-            var outcome = await target.EmbedSummariesAsync(summary.EmbeddingName, writes, cancellationToken)
-                .ConfigureAwait(false);
+            EmbeddingWriteOutcome outcome;
+            try
+            {
+                outcome = await target.EmbedSummariesAsync(summary.EmbeddingName, writes, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (GraphTargetException failure)
+            {
+                // The run still FAILS - a refusal that is not the provider being absent is this deployable's
+                // own defect and must surface as one. But the chunks that landed before it are element state,
+                // so the count is recorded on the way past rather than lost: a report claiming zero would be
+                // false about vectors a bound index already answers searches over, and it would send the
+                // operator to a tabula rasa they do not need.
+                report.SummariesEmbedded = failure.SummariesWritten;
+                throw;
+            }
 
             // BEFORE the degrade branch, because a PARTIAL write is possible: the target sends the summaries in
             // chunks, so a provider that stops answering half way through leaves the earlier chunks' vectors on

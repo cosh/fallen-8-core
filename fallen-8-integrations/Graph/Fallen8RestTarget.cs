@@ -524,15 +524,21 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
                     var status = (Int32)response.StatusCode;
 
-                    // 403 is the capability switched off, 502 and 503 are the backend not answering. All three
-                    // DEGRADE TO ABSENT rather than failing a run whose whole purpose is the graph write: an
-                    // embedding is an addition to what landed, never a precondition for it. Anything else is a real
-                    // graph failure and surfaces as one.
+                    // 403 is the capability switched off, 502 and 503 are the backend not answering, and 429 is
+                    // the target throttling this runtime. All four DEGRADE TO ABSENT rather than failing a run
+                    // whose whole purpose is the graph write: an embedding is an addition to what landed, never a
+                    // precondition for it. Anything else is a real graph failure and surfaces as one.
                     //
-                    // Degrading STOPS the loop instead of trying the remaining chunks: all three statuses describe
-                    // the provider rather than this batch, so the next chunk would answer the same way and a run
-                    // over a large extract would spend hundreds of round-trips proving it.
-                    if (status == 403 || status == 502 || status == 503)
+                    // 429 is in that set BECAUSE of chunking, and was not reachable before it: the embedding route
+                    // carries the sensitive-endpoint rate limit (one process-wide fixed window), so a large extract
+                    // sent as hundreds of chunks can trip a throttle that one request never could. Failing the run
+                    // for the target's own pacing would make chunking a regression for exactly the large extracts
+                    // it exists to support.
+                    //
+                    // Degrading STOPS the loop instead of trying the remaining chunks: every one of these statuses
+                    // describes the provider or the window rather than this batch, so the next chunk would answer
+                    // the same way and a run over a large extract would spend hundreds of round-trips proving it.
+                    if (status == 403 || status == 429 || status == 502 || status == 503)
                     {
                         var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                         return new EmbeddingWriteOutcome(written, String.Format(CultureInfo.InvariantCulture,
@@ -541,9 +547,16 @@ namespace NoSQL.GraphDB.Integrations.Graph
                     }
 
                     var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+                    // The count travels WITH the failure. Earlier chunks put real vectors on real elements, and
+                    // this is the one path that could still report zero for them - which the caller's own contract
+                    // forbids, so it is carried rather than reconstructed.
                     throw new GraphTargetException(String.Format(CultureInfo.InvariantCulture,
                         "The graph refused the embedding write with {0}: {1}", status,
-                        String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim()));
+                        String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim()))
+                    {
+                        SummariesWritten = written,
+                    };
                 }
             }
 

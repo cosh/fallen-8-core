@@ -28,7 +28,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { InstanceConfig } from "../src/instances/types";
-import type { EdgeREST, VertexREST } from "../src/api/types";
+import type { EdgeREST, StatusREST, VertexREST } from "../src/api/types";
 
 /**
  * Canvas "Find" tab (feature canvas-find-connect): the tool strip (Style default, Find, Connect),
@@ -42,6 +42,10 @@ const scanPropertiesMock =
 const getGraphElementMock =
   vi.fn<(i: InstanceConfig, id: number, s?: AbortSignal) => Promise<VertexREST | EdgeREST | null>>();
 const getStatisticsMock = vi.fn<(i: InstanceConfig, s?: AbortSignal) => Promise<null>>();
+const getStatusMock = vi.fn<(i: InstanceConfig, s?: AbortSignal) => Promise<StatusREST | null>>();
+// An EDGE selection takes a different route than a vertex (CanvasScreen detail query), so the edge
+// arm of find-similar is only reachable with this mocked.
+const getEdgeMock = vi.fn<(i: InstanceConfig, id: number, s?: AbortSignal) => Promise<EdgeREST | null>>();
 
 vi.mock("../src/api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/api/endpoints")>();
@@ -51,6 +55,8 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
       scanPropertiesMock(i, spec),
     getGraphElement: (i: InstanceConfig, id: number, s?: AbortSignal) => getGraphElementMock(i, id, s),
     getStatistics: (i: InstanceConfig, s?: AbortSignal) => getStatisticsMock(i, s),
+    getStatus: (i: InstanceConfig, s?: AbortSignal) => getStatusMock(i, s),
+    getEdge: (i: InstanceConfig, id: number, s?: AbortSignal) => getEdgeMock(i, id, s),
   };
 });
 
@@ -108,6 +114,8 @@ beforeEach(() => {
   scanPropertiesMock.mockReset().mockResolvedValue([]);
   getGraphElementMock.mockReset().mockImplementation((_i, id) => Promise.resolve(vertex(id)));
   getStatisticsMock.mockReset().mockResolvedValue(null);
+  getStatusMock.mockReset().mockResolvedValue(null);
+  getEdgeMock.mockReset().mockImplementation((_i, id) => Promise.resolve(edge(id, 1, 2)));
 });
 
 describe("tool strip", () => {
@@ -416,5 +424,114 @@ describe("hover spotlight", () => {
     onHover.mockClear();
     view.unmount();
     expect(onHover).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("find similar, from the Detail panel (feature element-similarity-search)", () => {
+  const BOUND: StatusREST = {
+    vertexCount: 0,
+    edgeCount: 0,
+    usedMemory: 0,
+    indices: [
+      {
+        indexId: "sim",
+        pluginType: "VectorIndex",
+        embeddingName: "default",
+        capabilities: ["vector"],
+        keys: 1,
+        values: 1,
+      },
+    ],
+    availableIndexPlugins: ["VectorIndex"],
+    availablePathPlugins: [],
+    availableAnalyticsPlugins: [],
+    availableServicePlugins: [],
+  };
+
+  const EMBEDDED = [{ propertyId: "$embedding:default", propertyValue: "[0.1, 0.2, 0.3]" }];
+
+  async function selectFoundElement(
+    user: ReturnType<typeof userEvent.setup>,
+    id: number,
+  ) {
+    scanPropertiesMock.mockResolvedValue([id]);
+    renderScreen();
+    await user.click(screen.getByTestId("canvas-tab-find"));
+    await user.type(screen.getByTestId("find-term"), "odo");
+    await user.click(screen.getByTestId("find-run"));
+    await waitFor(() => expect(screen.getByTestId(`find-row-${id}`)).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: `#${id}` }));
+  }
+
+  it("is offered for an element whose embedding a bound index projects", async () => {
+    const user = userEvent.setup();
+    getStatusMock.mockResolvedValue(BOUND);
+    getGraphElementMock.mockImplementation((_i, id) =>
+      Promise.resolve({ ...vertex(id, "signal"), properties: EMBEDDED }),
+    );
+
+    await selectFoundElement(user, 12);
+    await waitFor(() => expect(screen.getByTestId("find-similar")).toBeInTheDocument());
+  });
+
+  it("carries the element's vector, label and id to the Query screen", async () => {
+    const user = userEvent.setup();
+    getStatusMock.mockResolvedValue(BOUND);
+    getGraphElementMock.mockImplementation((_i, id) =>
+      Promise.resolve({ ...vertex(id, "signal"), properties: EMBEDDED }),
+    );
+
+    await selectFoundElement(user, 12);
+    await user.click(await screen.findByTestId("find-similar"));
+
+    expect(store().getState().scanPrefill).toEqual({
+      indexId: "sim",
+      vectorText: "[0.1, 0.2, 0.3]",
+      sourceElementId: 12,
+      label: "signal",
+      kind: "vertex",
+    });
+  });
+
+  it("constrains an EDGE to edges, which no other test or live run has ever exercised", async () => {
+    // The kind is decided at this call site from selected.kind, and getting it backwards constrains
+    // an edge search to vertices - which matches nothing and is indistinguishable from "nothing is
+    // similar". An earlier revision of the sibling call site had exactly that defect.
+    const user = userEvent.setup();
+    getStatusMock.mockResolvedValue(BOUND);
+    getEdgeMock.mockImplementation((_i, id) =>
+      Promise.resolve({ ...edge(id, 1, 2), label: "sends", properties: EMBEDDED }),
+    );
+    getGraphElementMock.mockImplementation((_i, id) =>
+      Promise.resolve({ ...edge(id, 1, 2), label: "sends", properties: EMBEDDED }),
+    );
+
+    await selectFoundElement(user, 21);
+    await user.click(await screen.findByTestId("find-similar"));
+
+    expect(store().getState().scanPrefill?.kind).toBe("edge");
+    expect(store().getState().scanPrefill?.sourceElementId).toBe(21);
+  });
+
+  it("is NOT offered when no bound index projects the embedding", async () => {
+    const user = userEvent.setup();
+    getStatusMock.mockResolvedValue({ ...BOUND, indices: [] });
+    getGraphElementMock.mockImplementation((_i, id) =>
+      Promise.resolve({ ...vertex(id, "signal"), properties: EMBEDDED }),
+    );
+
+    await selectFoundElement(user, 12);
+    await waitFor(() => expect(screen.getByText("node #12")).toBeInTheDocument());
+    expect(screen.queryByTestId("find-similar")).not.toBeInTheDocument();
+  });
+
+  it("is NOT offered for an element carrying no embedding at all", async () => {
+    const user = userEvent.setup();
+    getStatusMock.mockResolvedValue(BOUND);
+    getGraphElementMock.mockImplementation((_i, id) => Promise.resolve(vertex(id, "signal")));
+
+    await selectFoundElement(user, 12);
+    await waitFor(() => expect(screen.getByText("node #12")).toBeInTheDocument());
+    expect(screen.queryByTestId("find-similar")).not.toBeInTheDocument();
   });
 });

@@ -26,9 +26,13 @@ Three things are wrong today, in descending order of how much they cost:
 ### FR summary
 
 - **FR-1 Chunked summary write.** `Fallen8RestTarget.EmbedSummariesAsync` sends the summaries in
-  chunks of at most 64 items, summing the written count across chunks. A chunk that fails
-  follows the existing rule unchanged: `{403, 502, 503}` degrade the whole write to absent with
-  a diagnostic, anything else is a graph failure. Partial success is reported honestly (see §4).
+  chunks of at most **32** items - the smallest cap the product ships, not the 64 the apiApp
+  defaults to, because `docker-compose.nahil.yml` sets 32 - summing the written count across
+  chunks. A chunk that fails follows the existing rule, widened by one status: `{403, 429, 502,
+  503}` degrade the write to absent with a diagnostic, anything else is a graph failure. 429 is
+  in that set *because* of chunking: the route carries the sensitive-endpoint rate limit, so many
+  chunks can trip a throttle one unchunked request never could. Partial success is reported
+  honestly (see §4).
 - **FR-2 Studio embed opt-in.** The Integrations run form carries an "embed entity summaries"
   checkbox and an optional embedding-name input, both written into the job request.
   `IntegrationJobRequest` gains `embeddingName?: string`. The checkbox is disabled, with the
@@ -75,8 +79,9 @@ are all untouched.
   the source element client-side. Revisit only together with the previous item, because an
   `ExcludeElementId` with no server-side element-as-query mode has no caller.
 - **No backfill of an already-imported graph.** `summaryDirty` stays what it is, so the
-  zero-mutation invariant is untouched. Recovery is `PUT /tabularasa` on that namespace then
-  re-run, said plainly in the checkbox's help text. Revisit when a graph is too expensive to
+  zero-mutation invariant is untouched. Recovery is `HEAD /ns/<name>/tabularasa` on that
+  namespace then re-run (the route is HEAD, not PUT), said plainly in the checkbox's help text.
+  Clearing drops index definitions as well, so the bound index is recreated afterwards. Revisit when a graph is too expensive to
   re-import, at which point the shape is an explicit opt-in `reembedAll` job field defaulting
   off.
 - **No per-kind or job-overridable summary template.** The ARXML template stays the single

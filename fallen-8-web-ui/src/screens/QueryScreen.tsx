@@ -162,6 +162,14 @@ export function QueryScreen() {
   // search returns the source element at rank 1 every time. Visible and clearable rather than
   // hidden, because a silently filtered result set is one nobody can reason about.
   const [excludeElementId, setExcludeElementId] = useState<number | null>(null);
+  // The engine's own ceiling. The over-fetch has to respect it or a find-similar search at the
+  // advertised maximum k answers 400 instead of dropping one hit - the same clamp the MCP bridge
+  // already applies to this trick.
+  const MAX_K = 1024;
+  const fetchK =
+    excludeElementId === null
+      ? Number(vectorK)
+      : Math.min(Number(vectorK) + 1, MAX_K);
   useEffect(() => {
     if (scanPrefill) {
       setQueryDraft({
@@ -192,6 +200,9 @@ export function QueryScreen() {
     setIdCount(null);
     setCapped(false);
     setProgress(null);
+    // The exclusion belongs to the find-similar question, not to the form. Leaving it set would
+    // keep filtering an element out of a query that has nothing to do with it.
+    setExcludeElementId(null);
   };
 
   const scan = useMutation({
@@ -251,7 +262,7 @@ export function QueryScreen() {
           result = await embeddingSearch(instance, {
             indexId,
             text: vectorSearchText,
-            k: Number(vectorK) + (excludeElementId === null ? 0 : 1),
+            k: fetchK,
             kind: vectorKind === "any" ? undefined : vectorKind,
             label: vectorLabel || undefined,
           });
@@ -263,7 +274,7 @@ export function QueryScreen() {
           result = await scanVector(instance, {
             indexId,
             query: parsed.vector,
-            k: Number(vectorK) + (excludeElementId === null ? 0 : 1),
+            k: fetchK,
             kind: vectorKind === "any" ? undefined : vectorKind,
             label: vectorLabel || undefined,
           });
@@ -776,7 +787,7 @@ export function QueryScreen() {
             >
               {scan.isPending ? "Running…" : "Run query"}
             </button>
-            {excludeElementId !== null && (
+            {excludeElementId !== null && mode === "index" && form === "vector" && (
               <span className="text-fg-faint text-[11px]" data-testid="exclude-source-chip">
                 excluding #{excludeElementId}, the element this vector came from
                 <button

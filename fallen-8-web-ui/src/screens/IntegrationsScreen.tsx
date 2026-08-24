@@ -87,6 +87,14 @@ export function IntegrationsScreen() {
   const providerEnabled = providerStats === null ? null : providerStats.enabled;
   const canEmbed = summaryTemplate.length > 0 && providerEnabled === true;
   const embedRequested = canEmbed && embedSummaries;
+  // Checked HERE rather than left to the runtime's 400, because the cost of learning it late is
+  // asymmetric: the graph writes commit before the embedding write is attempted, and a corrected
+  // re-run embeds nothing (an unchanged source has no dirty summaries), so the recovery for a typo
+  // is a tabula rasa and a full re-import.
+  const embeddingNameProblem =
+    embedRequested && embeddingName.trim() && !/^[A-Za-z0-9_-]{1,64}$/.test(embeddingName.trim())
+      ? "letters, digits, dash and underscore only, at most 64"
+      : null;
 
   // Read by the async file staging below to find out whether the integration that asked for a file is
   // still the selected one. A ref and not the state value, because the closure captured the value as
@@ -118,7 +126,11 @@ export function IntegrationsScreen() {
 
   const identityProblem = describeIdentityProblem(instanceId);
   const missing = selected ? missingRequired(selected, values, files) : [];
-  const canSubmit = selected !== null && identityProblem === null && missing.length === 0;
+  const canSubmit =
+    selected !== null &&
+    identityProblem === null &&
+    missing.length === 0 &&
+    embeddingNameProblem === null;
 
   function select(provider: IntegrationProvider) {
     setSelectedId(provider.id);
@@ -341,6 +353,11 @@ export function IntegrationsScreen() {
                         placeholder="default"
                         onChange={(event) => setEmbeddingName(event.target.value)}
                       />
+                      {embeddingNameProblem && (
+                        <span className="text-warn text-[11px]" data-testid="integration-embed-name-problem">
+                          {embeddingNameProblem}
+                        </span>
+                      )}
                     </label>
                     <span className="text-fg-faint block text-[11px]" data-testid="integration-embed-template">
                       embeds <code>{summaryTemplate}</code> per entity — a hole the entity cannot
