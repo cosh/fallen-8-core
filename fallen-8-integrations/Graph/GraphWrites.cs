@@ -360,10 +360,15 @@ namespace NoSQL.GraphDB.Integrations.Graph
             Degraded = degraded;
         }
 
-        /// <summary>How many summaries were embedded.</summary>
+        /// <summary>How many summaries were embedded, which is a count of what LANDED rather than of what was
+        /// asked for: the write is sent in chunks, so this can be short of the batch and still non-zero.</summary>
         public Int32 Written { get; }
 
-        /// <summary>Why nothing was embedded, when nothing was. Null when the write happened.</summary>
+        /// <summary>
+        ///   Why the rest was not embedded, when some or all of it was not. Null when the whole batch landed.
+        ///   Read WITH <see cref="Written" /> and never instead of it: a degraded write is not the same as an
+        ///   empty one, because the chunks that already landed put real vectors on real elements.
+        /// </summary>
         public String? Degraded { get; }
 
         /// <summary>Nothing to embed, which is not a degradation.</summary>

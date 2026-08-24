@@ -611,19 +611,38 @@ namespace NoSQL.GraphDB.Integrations.Run
                 return;
             }
 
-            var outcome = await target.EmbedSummariesAsync(summary.EmbeddingName, writes, cancellationToken)
-                .ConfigureAwait(false);
+            EmbeddingWriteOutcome outcome;
+            try
+            {
+                outcome = await target.EmbedSummariesAsync(summary.EmbeddingName, writes, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (GraphTargetException failure)
+            {
+                // The run still FAILS - a refusal that is not the provider being absent is this deployable's
+                // own defect and must surface as one. But the chunks that landed before it are element state,
+                // so the count is recorded on the way past rather than lost: a report claiming zero would be
+                // false about vectors a bound index already answers searches over, and it would send the
+                // operator to a tabula rasa they do not need.
+                report.SummariesEmbedded = failure.SummariesWritten;
+                throw;
+            }
+
+            // BEFORE the degrade branch, because a PARTIAL write is possible: the target sends the summaries in
+            // chunks, so a provider that stops answering half way through leaves the earlier chunks' vectors on
+            // their elements. Those vectors are element state and are as valid as if the rest had been asked for,
+            // so reporting zero for them would be a false report - and the run would look like it embedded
+            // nothing while a bound index happily answers searches over what landed.
+            report.SummariesEmbedded = outcome.Written;
 
             if (outcome.Degraded != null)
             {
                 report.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.SummaryEmbeddingUnavailable,
                     String.Format(CultureInfo.InvariantCulture,
-                        "{0} entity summary/summaries were not embedded because {1}. Everything else the run " +
-                        "asserted still landed.", writes.Count, outcome.Degraded)));
-                return;
+                        "{0} of {1} entity summary/summaries were not embedded because {2}. Everything else the " +
+                        "run asserted still landed.", writes.Count - outcome.Written, writes.Count,
+                        outcome.Degraded)));
             }
-
-            report.SummariesEmbedded = outcome.Written;
         }
 
         /// <summary>

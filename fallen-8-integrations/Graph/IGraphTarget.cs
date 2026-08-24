@@ -214,5 +214,16 @@ namespace NoSQL.GraphDB.Integrations.Graph
             : base(message, inner)
         {
         }
+
+        /// <summary>
+        ///   How many entity summaries were embedded BEFORE the failure, for the one caller that sends them
+        ///   in chunks. Zero everywhere else, which is also the truth everywhere else.
+        ///
+        ///   <para>It rides on the exception because the count is only known at the throw site and the value
+        ///   is a fact about the graph rather than about the failure: the chunks that already landed put real
+        ///   vectors on real elements, so a report that said zero would be false about state a bound index
+        ///   will happily answer searches over.</para>
+        /// </summary>
+        public Int32 SummariesWritten { get; init; }
     }
 }

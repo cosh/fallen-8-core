@@ -157,9 +157,35 @@ export function QueryScreen() {
   // Consume a one-shot prefill (Indexes screen "Query" / Graph shape index row).
   const scanPrefill = store((s) => s.scanPrefill);
   const setScanPrefill = store((s) => s.setScanPrefill);
+  // The element a "find similar" gesture started from, dropped from its own results. There is no
+  // self-exclusion in the engine, the REST contract or the MCP bridge, so an unfiltered similarity
+  // search returns the source element at rank 1 every time. Visible and clearable rather than
+  // hidden, because a silently filtered result set is one nobody can reason about.
+  const [excludeElementId, setExcludeElementId] = useState<number | null>(null);
+  // The engine's own ceiling. The over-fetch has to respect it or a find-similar search at the
+  // advertised maximum k answers 400 instead of dropping one hit - the same clamp the MCP bridge
+  // already applies to this trick.
+  const MAX_K = 1024;
+  const fetchK =
+    excludeElementId === null
+      ? Number(vectorK)
+      : Math.min(Number(vectorK) + 1, MAX_K);
   useEffect(() => {
     if (scanPrefill) {
-      setQueryDraft({ mode: "index", indexId: scanPrefill.indexId });
+      setQueryDraft({
+        mode: "index",
+        indexId: scanPrefill.indexId,
+        ...(scanPrefill.vectorText !== undefined
+          ? {
+              form: "vector" as const,
+              vectorSource: "vector" as const,
+              vectorText: scanPrefill.vectorText,
+              vectorLabel: scanPrefill.label ?? "",
+              vectorKind: scanPrefill.kind ?? "any",
+            }
+          : {}),
+      });
+      setExcludeElementId(scanPrefill.sourceElementId ?? null);
       setScanPrefill(null);
     }
   }, [scanPrefill, setScanPrefill, setQueryDraft]);
@@ -174,6 +200,9 @@ export function QueryScreen() {
     setIdCount(null);
     setCapped(false);
     setProgress(null);
+    // The exclusion belongs to the find-similar question, not to the form. Leaving it set would
+    // keep filtering an element out of a query that has nothing to do with it.
+    setExcludeElementId(null);
   };
 
   const scan = useMutation({
@@ -233,7 +262,7 @@ export function QueryScreen() {
           result = await embeddingSearch(instance, {
             indexId,
             text: vectorSearchText,
-            k: Number(vectorK),
+            k: fetchK,
             kind: vectorKind === "any" ? undefined : vectorKind,
             label: vectorLabel || undefined,
           });
@@ -245,10 +274,19 @@ export function QueryScreen() {
           result = await scanVector(instance, {
             indexId,
             query: parsed.vector,
-            k: Number(vectorK),
+            k: fetchK,
             kind: vectorKind === "any" ? undefined : vectorKind,
             label: vectorLabel || undefined,
           });
+        }
+        if (excludeElementId !== null && result?.results) {
+          // k+1 was requested, so dropping the source still leaves k hits when k of them exist.
+          result = {
+            ...result,
+            results: result.results
+              .filter((r) => r.graphElementId !== excludeElementId)
+              .slice(0, Number(vectorK)),
+          };
         }
         setVectorResult(result);
         ids = result?.results?.map((r) => r.graphElementId) ?? [];
@@ -292,6 +330,14 @@ export function QueryScreen() {
     (vectorSource === "text"
       ? !vectorSearchText.trim() || providerEnabled !== true
       : !parsedVector?.ok);
+  // An empty vector index is indistinguishable from "nothing is similar" at the search surface: kNN
+  // over a zero-length scan succeeds, so both handlers answer 200 with an empty list. The member
+  // count is already on the inventory row, one screen away from where the confusion happens.
+  const emptyVectorIndex =
+    mode === "index" &&
+    form === "vector" &&
+    selectedIndex != null &&
+    selectedIndex.values === 0;
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -741,6 +787,28 @@ export function QueryScreen() {
             >
               {scan.isPending ? "Running…" : "Run query"}
             </button>
+            {excludeElementId !== null && mode === "index" && form === "vector" && (
+              <span className="text-fg-faint text-[11px]" data-testid="exclude-source-chip">
+                excluding #{excludeElementId}, the element this vector came from
+                <button
+                  type="button"
+                  className="btn ml-1"
+                  data-testid="exclude-source-clear"
+                  onClick={() => setExcludeElementId(null)}
+                >
+                  include it
+                </button>
+              </span>
+            )}
+            {emptyVectorIndex && (
+              <span className="text-warn text-[11px]" data-testid="empty-vector-index-hint">
+                '{indexId}' has no members yet, so this can only answer 0 hits
+                {selectedIndex?.embeddingName
+                  ? ` — it is bound to the '${selectedIndex.embeddingName}' embedding, so write that embedding on some elements (or check the name)`
+                  : " — add vectors to it, or bind it to an element embedding when you create it"}
+                .
+              </span>
+            )}
           </div>
 
           {progress && (

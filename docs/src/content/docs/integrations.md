@@ -295,12 +295,42 @@ performed. Deferring is recoverable; deleting wrongly is not.
 
 An integration can optionally have its entities embedded, so they turn up in semantic search
 alongside your documents. It is **off unless both halves are asked for**: the integration
-declares a summary template, and the job sets `"embedSummaries": true`. Embedding every client
-on a busy network by default would be cost and noise in equal measure.
+declares a summary template, and the job asks for it. Embedding every client on a busy network
+by default would be cost and noise in equal measure.
+
+In **F8 Studio**, tick *embed entity summaries* on the run form. The form shows the template
+that will be embedded, so you can see what lands before the run rather than infer it after, and
+the checkbox is offered only when the selected integration declares a template and the instance
+has an embedding provider. Over REST it is two job fields:
+
+```json
+{
+  "providerId": "autosar-arxml",
+  "integrationInstanceId": "vehicle-fleet",
+  "embedSummaries": true,
+  "embeddingName": "default"
+}
+```
+
+`embeddingName` is optional and defaults to `default`, which is also the name the document
+layer binds its index to, so out of the box integration summaries and document chunks share one
+bound index and answer the same searches. Give it a name of its own if you want them separate.
 
 The dimension and the metric are read from the instance's own embedding configuration, so
 nothing here pins a model. If the instance has no embedding provider, or it is switched off, the
 run still succeeds and the summaries are simply **absent**, with a diagnostic saying so.
+
+Two things worth knowing before you run it:
+
+- **Only entities the run creates or changes are embedded.** A summary is a pure function of an
+  entity's kind and properties, so an unchanged entity has no new summary and re-running over the
+  same source embeds nothing. To embed a graph that was already imported without the opt-in,
+  clear that namespace (`HEAD /ns/<name>/tabularasa`, or the Connect screen's reset) and run
+  again. Note that clearing also drops index **definitions**, so recreate the bound vector index
+  afterwards.
+- **The summaries are written in batches**, so a large extract is many requests rather than one.
+  If the provider stops answering half way, the vectors that already landed stay: the run reports
+  the count that was written and a diagnostic naming the shortfall.
 
 ## Reading a vehicle network
 
@@ -333,14 +363,43 @@ embedding above is for. The template covers a signal's name, both language descr
 **unit**, and the unit is the point: an odometer's description says "accumulated distance" and
 never "kilometer", so its unit is the only thing connecting it to somebody searching for one.
 
-With `"embedSummaries": true` on the job and an embedding provider configured, create a
-[vector index](/vector-search/) bound to that embedding name and ask in words:
+With the embed opt-in on the run and an embedding provider configured, create a
+[vector index](/vector-search/) bound to that embedding name. In Studio that is the Indexes
+screen: type an index id, pick `VectorIndex`, and set *bind embedding* to the name the run used.
+The dimension and metric are prefilled from the instance's provider, and accepting them is what
+you want -- an index whose dimension disagrees with the model writing into it is refused on
+every later embed and every search. Over REST:
+
+```bash
+curl -sf -X POST http://localhost:8080/ns/vehicle/index \
+     -H "Content-Type: application/json" \
+     -d '{"uniqueId":"arxml-summary","pluginType":"VectorIndex","pluginOptions":{
+           "dimension":{"propertyId":"dimension","propertyValue":"1024","fullQualifiedTypeName":"System.Int32"},
+           "metric":{"propertyId":"metric","propertyValue":"Cosine","fullQualifiedTypeName":"System.String"},
+           "embeddingName":{"propertyId":"embeddingName","propertyValue":"default","fullQualifiedTypeName":"System.String"}}}'
+```
+
+Take the `dimension` from `GET /status` (the `embedding` block), not from this example. Order
+does not matter: a bound index created after the vectors exist materialises itself from them.
+
+Then ask in words:
 
 ```bash
 curl -sf -X POST http://localhost:8080/ns/vehicle/embedding/search \
      -H "Content-Type: application/json" \
      -d '{"indexId":"arxml-summary","text":"kilometer","k":10,"label":"signal"}'
 ```
+
+Note the `label`. It is not decoration. Only three of the seven ARXML entity kinds get a
+description read out of the extract at all -- signals, system signals and PDUs -- so a network, an
+ECU or a frame embeds as little more than its own name, and those vectors cluster by identifier
+shape rather than by meaning. An unconstrained similarity search therefore ranks that noise
+against real matches. Constrain every similarity query to the kind of thing you are looking for.
+
+Once a signal is on your screen you can also search **from it** instead of describing it: the
+[Studio](/studio/) detail panel and the Browser's Embeddings tab both offer *Find similar*,
+which searches the bound index with that element's own vector and drops the element itself from
+the hits.
 
 The hits are element ids, so they feed straight into the traversal surface: "who receives the
 kilometer signal" is that query followed by one `deliversTo` hop. A multilingual embedding model

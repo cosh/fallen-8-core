@@ -56,7 +56,7 @@ test.skip(process.env.F8_SCREENSHOT !== "1", "docs screenshot capture (set F8_SC
 const SHIPPED_DESCRIPTORS = shippedDescriptors as IntegrationProvider[];
 
 test("capture the Integrations screen rendered from the shipped descriptors", async ({ page }) => {
-  await page.setViewportSize({ width: 1600, height: 1000 });
+  await page.setViewportSize({ width: 1600, height: 1180 });
 
   // Stand in for the proxied sidecar. Only the descriptor list is served: the screenshot shows the
   // form as it opens, so no job is ever submitted.
@@ -67,6 +67,32 @@ test("capture the Integrations screen rendered from the shipped descriptors", as
       body: JSON.stringify(SHIPPED_DESCRIPTORS),
     }),
   );
+
+  // Stand in for an instance whose embedding provider is ON, which is what the compose default
+  // gives (F8_EMBEDDINGS defaults true). The capture app deliberately has no provider configured, so
+  // without this the page would photograph the embed opt-in in its DISABLED state - a dead control,
+  // which is the exact failure this file's descriptor stub exists to avoid. Only the embedding block
+  // is asserted; everything else in the status answer passes through untouched.
+  await page.route("**/status", async (route) => {
+    const response = await route.fetch();
+    const status = await response.json();
+    route.fulfill({
+      response,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...status,
+        embedding: {
+          enabled: true,
+          backend: "Ollama",
+          modelName: "bge-m3",
+          modelVersion: "",
+          dimension: 1024,
+          intendedMetric: "Cosine",
+          loaded: false,
+        },
+      }),
+    });
+  });
 
   await page.goto("/integrations");
 
@@ -80,6 +106,11 @@ test("capture the Integrations screen rendered from the shipped descriptors", as
   await page.getByTestId("integration-select-csv-device-list").click();
   await expect(page.getByTestId("integration-instance-id")).toBeVisible();
   await page.getByTestId("integration-instance-id").fill("office");
+
+  // Ticked, because the point the page makes about it is that the TEMPLATE is visible before the run
+  // rather than inferred after it - and the template only renders once the opt-in is on.
+  await page.getByTestId("integration-embed-toggle").click();
+  await expect(page.getByTestId("integration-embed-template")).toBeVisible();
 
   await page.screenshot({
     path: "../docs/src/assets/images/screen-integrations.png",
