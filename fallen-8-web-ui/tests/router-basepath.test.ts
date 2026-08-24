@@ -67,16 +67,16 @@ describe("createStudioRouter basepath", () => {
   it("keeps the standalone router at the root", () => {
     expect(router.buildLocation({ to: "/save-games" }).href).toBe("/save-games");
     expect(
-      router.buildLocation({ to: "/q/$ns/dashboard", params: { ns: "default" } }).href,
-    ).toBe("/q/default/dashboard");
+      router.buildLocation({ to: "/q/$ns/browser", params: { ns: "default" } }).href,
+    ).toBe("/q/default/browser");
   });
 
   it("prefixes every route with the host basepath", () => {
     const hosted = createStudioRouter({ basepath: "/studio" });
     expect(hosted.buildLocation({ to: "/save-games" }).href).toBe("/studio/save-games");
     expect(
-      hosted.buildLocation({ to: "/q/$ns/dashboard", params: { ns: "ops" } }).href,
-    ).toBe("/studio/q/ops/dashboard");
+      hosted.buildLocation({ to: "/q/$ns/browser", params: { ns: "ops" } }).href,
+    ).toBe("/studio/q/ops/browser");
   });
 
   it("resolves a navigation under the basepath and leaves the host's address bar alone", async () => {
@@ -103,5 +103,31 @@ describe("createStudioRouter basepath", () => {
 
     expect(hosted.history.location.pathname).toMatch(/^\/studio\/q\/[^/]+\/canvas$/);
     expect(hosted.state.matches.at(-1)?.routeId).toBe("/q/$ns/canvas");
+  });
+
+  /**
+   * The Dashboard's two URLs outlive the screen. Dropping the routes would have answered every
+   * bookmark with the shell wrapped around an empty <Outlet/> (there is no not-found component),
+   * so both forward to the Browser in the namespace they named - the flat one through the scoped
+   * one, which is why the second hop is worth pinning as well as the first.
+   */
+  describe("the removed Dashboard's bookmarks", () => {
+    it("forwards the scoped URL to the Browser in the SAME namespace", async () => {
+      const scoped = createStudioRouter({ history: "memory" });
+      await scoped.load();
+      await scoped.navigate({ to: "/q/$ns/dashboard" as "/q/$ns/browser", params: { ns: "ops" } });
+
+      expect(scoped.state.location.pathname).toBe("/q/ops/browser");
+      expect(scoped.state.matches.at(-1)?.routeId).toBe("/q/$ns/browser");
+    });
+
+    it("forwards the flat pre-namespace URL through it, onto the active namespace", async () => {
+      const flat = createStudioRouter({ history: "memory" });
+      await flat.load();
+      await flat.navigate({ to: "/dashboard" as "/canvas" });
+
+      expect(flat.state.location.pathname).toMatch(/^\/q\/[^/]+\/browser$/);
+      expect(flat.state.matches.at(-1)?.routeId).toBe("/q/$ns/browser");
+    });
   });
 });

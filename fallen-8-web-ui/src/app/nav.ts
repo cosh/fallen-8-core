@@ -35,7 +35,6 @@
  */
 export const NAV = [
   { leaf: "/", label: "Connect", icon: "◉", scoped: false },
-  { leaf: "dashboard", label: "Dashboard", icon: "▦", scoped: true },
   { leaf: "samples", label: "Samples", icon: "◈", scoped: true },
   { leaf: "/save-games", label: "Save games", icon: "⭯", scoped: false },
   { leaf: "browser", label: "Browser", icon: "☰", scoped: true },

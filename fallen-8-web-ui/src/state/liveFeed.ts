@@ -155,7 +155,7 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
         break;
     }
 
-    // Dashboard/status counters follow the feed while the stream is up.
+    // The /status row (counts, durability, index inventory) follows the feed while it is up.
     schedule([instance.id, "status"]);
     if (event.kind !== "propertySet" && event.kind !== "propertyRemoved") {
       schedule([instance.id, "graph"]);

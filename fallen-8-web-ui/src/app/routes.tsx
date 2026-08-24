@@ -36,7 +36,6 @@ import { AppShell } from "./AppShell";
 import { NamespaceScope } from "./NamespaceScope";
 import { useRegistry, DEFAULT_NAMESPACE } from "../instances/registry";
 import { ConnectScreen } from "../screens/ConnectScreen";
-import { DashboardScreen } from "../screens/DashboardScreen";
 import { SamplesScreen } from "../screens/SamplesScreen";
 import { SaveGamesScreen } from "../screens/SaveGamesScreen";
 import { BrowserScreen } from "../screens/BrowserScreen";
@@ -87,12 +86,6 @@ const namespaceRoute = createRoute({
   component: NamespaceScope,
 });
 
-const dashboardRoute = createRoute({
-  getParentRoute: () => namespaceRoute,
-  path: "dashboard",
-  component: DashboardScreen,
-});
-
 // Sample-graph gallery (feature sample-graphs): its own screen so the gallery gets full
 // width and a tag filter. Namespace-scoped - loading a sample writes into the active graph.
 const samplesRoute = createRoute({
@@ -114,6 +107,21 @@ const knowledgeRoute = createRoute({
   getParentRoute: () => namespaceRoute,
   path: "knowledge",
   component: KnowledgeScreen,
+});
+
+/**
+ * Continuity for the removed Dashboard: /q/{ns}/dashboard lands on the Browser in the SAME
+ * namespace. Not a deletion, because the router has no not-found component - an unmatched path
+ * renders the shell around an empty <Outlet/>, so dropping the route would answer every bookmark
+ * with a blank screen. What the Dashboard reported (vertex and edge counts) is in the top bar on
+ * every screen, and its two non-redundant signals moved to the shell (see namespaceSignals.ts).
+ */
+const dashboardLegacyRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "dashboard",
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: "/q/$ns/browser", params: { ns: (params as { ns: string }).ns } });
+  },
 });
 
 // Continuity for bookmarks to the old /q/{ns}/documents URL: redirect to /q/{ns}/knowledge.
@@ -196,6 +204,10 @@ function activeNamespace(): string {
  *
  * "/benchmarks" joined the list when Benchmark stopped being Fallen-8-level: it was a flat
  * route for real, so links to it exist and must land on the active namespace's screen.
+ *
+ * "/dashboard" stays here although that screen is gone: it lands on the scoped
+ * dashboardLegacyRoute, which forwards to the Browser, so the flat and the scoped bookmark are
+ * answered by ONE decision about where the Dashboard's URL goes instead of two.
  */
 const LEGACY_SCOPED_PATHS = [
   "/dashboard",
@@ -232,7 +244,7 @@ const routeTree = rootRoute.addChildren([
   saveGamesRoute,
   integrationsRoute,
   namespaceRoute.addChildren([
-    dashboardRoute,
+    dashboardLegacyRoute,
     samplesRoute,
     browserRoute,
     knowledgeRoute,

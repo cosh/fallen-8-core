@@ -55,14 +55,14 @@ import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
  * Save games (feature save-games + graph-namespaces): the persistence home. The top is the
- * **Administration** section — the persistence/lifecycle and jsonl interchange actions that used
- * to live on the Dashboard: those are NAMESPACE-scoped (they act on the active namespace shown in
- * the top bar), so they run through the namespace-bound instance. Below it is the Fallen-8-level
+ * **Administration** section — the persistence/lifecycle and jsonl interchange actions, which are
+ * NAMESPACE-scoped (they act on the active namespace shown in the top bar), so they run through
+ * the namespace-bound instance. Below it is the Fallen-8-level
  * checkpoint registry (using the raw Fallen-8-level instance) — an entry can span several
  * namespaces ("Save all" creates one), and loading restores exactly the namespaces an entry
  * contains (or one of them). The registry lists every entry (up to the LIST_MAX_ROWS ceiling) and
  * caps its height / scrolls once it grows past SCROLL_ROWS.saveGames rows, so a long save history
- * never grows the page. Sits under Dashboard in the rail.
+ * never grows the page.
  */
 
 function formatBytes(bytes: number): string {
@@ -118,7 +118,7 @@ export function SaveGamesScreen() {
   /** "" = restore the entire entry; otherwise the one namespace to restore. */
   const [loadNamespace, setLoadNamespace] = useState("");
 
-  // ---- Administration state (moved from the Dashboard) ----
+  // ---- Administration state (namespace-scoped) ----
   const [adminConfirming, setAdminConfirming] = useState<
     "tabularasa" | "factory-reset" | "load-path" | null
   >(null);
@@ -189,7 +189,7 @@ export function SaveGamesScreen() {
     },
   });
 
-  // ---- Administration mutations (namespace-scoped, moved from the Dashboard) ----
+  // ---- Administration mutations (namespace-scoped) ----
   const save = useMutation({
     mutationFn: () => saveGraph(ns),
     onSuccess: (entry) => {
@@ -302,7 +302,7 @@ export function SaveGamesScreen() {
       )}
       {failed && <ErrorBox error={failed.error} />}
 
-      {/* Administration (moved from the Dashboard): namespace-scoped persistence/lifecycle
+      {/* Administration: namespace-scoped persistence/lifecycle
           plus jsonl interchange. The destructive actions require typing the target name. */}
       <section className="panel" data-testid="administration">
         <div className="panel-title">

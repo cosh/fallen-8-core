@@ -32,11 +32,22 @@ import type { InstanceConfig } from "../instances/types";
  * consumer reads one cache row and rides its periodic refresh; /status is the cheap
  * discovery surface (available plugins + live index inventory — feature
  * studio-index-discovery), unlike the budgeted Graph-shape pass in graphShape.ts.
+ *
+ * Accepts null and then asks nothing: the shell-level readers (the durability banner, the
+ * first-run auto-show) render outside the connection gate, so "no instance yet" is a state they
+ * pass through rather than an assertion they can make.
+ *
+ * Pass poll: true to drive the shared row on a timer. Exactly one caller does - the app shell,
+ * on the same 15s cadence as its instance health probe - because the durability banner is a
+ * warning nobody goes looking for: it has to arrive while the operator is on some other screen.
+ * Every other observer rides that refresh through the shared cache row and asks for nothing.
  */
-export function useStatus(instance: InstanceConfig) {
+export function useStatus(instance: InstanceConfig | null, options?: { poll?: boolean }) {
   return useQuery({
-    queryKey: [instance.id, "status"],
-    queryFn: ({ signal }) => getStatus(instance, signal),
+    queryKey: [instance?.id, "status"],
+    queryFn: ({ signal }) => getStatus(instance!, signal),
+    enabled: instance !== null,
+    refetchInterval: options?.poll ? 15_000 : undefined,
   });
 }
 

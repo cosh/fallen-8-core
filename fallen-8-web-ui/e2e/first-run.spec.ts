@@ -74,8 +74,10 @@ test("auto-shows on an empty graph and creates nothing while it plays", async ({
   await eraseDefault(page);
 
   const writes = trackWrites(page); // only writes AFTER the erase count against the show
-  await page.goto("/dashboard");
+  // Any screen will do: the auto-show is shell-level now, so it opens over whatever is on top.
+  await page.goto("/q/default/browser");
 
+  await expect(page.getByTestId("first-run-overlay")).toBeVisible();
   await expect(page.getByTestId("first-run-show")).toBeVisible();
   await expect(page.getByTestId("first-run-caption")).toContainText("A graph is");
 
@@ -85,6 +87,34 @@ test("auto-shows on an empty graph and creates nothing while it plays", async ({
   await expect(page.getByTestId("first-run-handoff")).toBeVisible();
 
   expect(writes, `unexpected writes during the show: ${writes.join(", ")}`).toEqual([]);
+});
+
+test("closing the auto-show remembers it, so it does not reappear on the next screen", async ({
+  page,
+}) => {
+  // The auto path's one new obligation as a modal: an overlay that opened itself and did NOT
+  // record being closed would come back on every navigation, which is unusable.
+  await registerSecuredInstance(page);
+  await eraseDefault(page);
+
+  await page.goto("/q/default/browser");
+  const overlay = page.getByTestId("first-run-overlay");
+  await expect(overlay).toBeVisible();
+
+  await page.getByTestId("first-run-overlay-close").click();
+  await expect(overlay).not.toBeVisible();
+
+  // Still empty, still the same namespace - and it stays closed, here and on the next screen.
+  await page.goto("/q/default/query");
+  await expect(overlay).not.toBeVisible();
+
+  const persisted = await page.evaluate(() => window.localStorage.getItem("f8.first-run"));
+  const dismissed = persisted ? (JSON.parse(persisted).state?.dismissed ?? {}) : {};
+  expect(Object.values(dismissed)).toEqual([true]);
+
+  // The rail still plays it on demand; the dismissal is not a ban.
+  await page.getByTestId("nav-replay-intro").click();
+  await expect(overlay).toBeVisible();
 });
 
 test("the handoff jumps to the Sample gallery and never touches the unit-test graph", async ({
@@ -100,7 +130,7 @@ test("the handoff jumps to the Sample gallery and never touches the unit-test gr
   });
   const writes = trackWrites(page);
 
-  await page.goto("/dashboard");
+  await page.goto("/q/default/browser");
   await expect(page.getByTestId("first-run-show")).toBeVisible();
   // Jump to the handoff rather than waiting out the ~50s autoplay.
   await page.getByTestId("first-run-skip").click();

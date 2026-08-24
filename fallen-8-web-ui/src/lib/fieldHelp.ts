@@ -206,7 +206,7 @@ export const FIELD_HELP = {
   benchIterations:
     "Timed passes over every edge of the currently loaded graph; more iterations tighten the median/stddev.",
 
-  // ---- dashboard ----
+  // ---- save games: administration ----
   loadPath:
     "Server-side path of the save game to load — resolved on the machine the instance runs on, not in this browser.",
   exportVertexLabel: "Only export vertices with this label (their edges follow); empty exports all.",
