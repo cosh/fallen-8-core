@@ -1,6 +1,6 @@
 # Element similarity search: specification
 
-> **Status:** specced, not implemented. Branch `feature/element-similarity-search`.
+> **Status:** implemented and merged (2026-08-25) on branch `feature/element-similarity-search`.
 > The investigation this rests on is [findings.md](findings.md) and is not repeated here;
 > every code citation in this document was verified there.
 
