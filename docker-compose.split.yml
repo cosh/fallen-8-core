@@ -27,13 +27,21 @@ services:
     environment:
       # Allow the standalone UI's browser origin (CORS is deny-all by default). INDEXED form: a
       # bare Fallen8__Security__AllowedCorsOrigins=... does NOT bind the String[].
+      #
+      # BOTH loopback spellings, because they are the same UI and a browser treats them as two
+      # origins. Listing only one is a trap with no useful diagnosis at the far end: on Windows,
+      # localhost resolves to ::1 first, so when a published port's IPv6 forward is broken the
+      # obvious move is to retype the address as 127.0.0.1 - which fixes the transport and then
+      # silently fails CORS instead, because the PAGE origin changed too. Same machine, same UI,
+      # same trust: this widens nothing.
       - Fallen8__Security__AllowedCorsOrigins__0=http://localhost:${F8_UI_PORT:-8081}
+      - Fallen8__Security__AllowedCorsOrigins__1=http://127.0.0.1:${F8_UI_PORT:-8081}
 
   # The Ollama server must also accept the standalone UI origin for browser-direct NL-assist
   # (OLLAMA_ORIGINS is read by the ollama server, NOT the apiApp). Keep the all-in-one origin too.
   ollama:
     environment:
-      - OLLAMA_ORIGINS=http://localhost:${F8_PORT:-8080},http://localhost:${F8_UI_PORT:-8081}
+      - OLLAMA_ORIGINS=http://localhost:${F8_PORT:-8080},http://localhost:${F8_UI_PORT:-8081},http://127.0.0.1:${F8_PORT:-8080},http://127.0.0.1:${F8_UI_PORT:-8081}
 
   # The decoupled UI: nginx serving the built SPA, pointed at the data plane's PUBLISHED host port
   # (the browser reaches localhost:F8_PORT, never the in-network name). F8_UI_PORT (default 8081)
