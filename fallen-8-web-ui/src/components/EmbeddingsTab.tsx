@@ -34,6 +34,11 @@ import type { EdgeREST, VertexREST } from "../api/types";
 import { formatPropertyValue } from "../lib/literals";
 import { parseVector } from "../lib/vector";
 import { isReservedEmbeddingProperty, previewVector } from "../lib/embeddingProperties";
+import { similarSearchesFor } from "../lib/findSimilar";
+import { isEdge } from "../lib/hydrate";
+import { useStatus } from "../state/status";
+import { useInstanceStore } from "../instances/registry";
+import { useNavigate } from "@tanstack/react-router";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { Truncated } from "./Truncated";
 import { ErrorBox } from "./ErrorBox";
@@ -62,6 +67,15 @@ export function EmbeddingsTab({
   providerEnabled: boolean | null;
   onRefresh: () => void;
 }) {
+  // "Find similar" per embedding, but ONLY where a bound vector index actually projects that
+  // name: an unbound index holds vectors that exist nowhere else, so it cannot be expected to
+  // contain this element, and a bound index of another name projects different vectors.
+  const navigate = useNavigate();
+  const { store } = useInstanceStore();
+  const setScanPrefill = store((s) => s.setScanPrefill);
+  const inventory = useStatus(instance).data?.indices;
+  const similar = similarSearchesFor(element, inventory, isEdge(element));
+
   const properties = element.properties ?? [];
   const embeddings = properties
     .filter((p) => p.propertyId.startsWith(EMBEDDING_PREFIX))
@@ -163,6 +177,21 @@ export function EmbeddingsTab({
                   />
                 </td>
                 <td className="table-cell">
+                  {similar.some((candidate) => candidate.embeddingName === e.name) && (
+                    <button
+                      type="button"
+                      className="btn"
+                      data-testid={`embedding-similar-${e.name}`}
+                      title="search the bound vector index with this element's own vector"
+                      onClick={() => {
+                        const match = similar.find((c) => c.embeddingName === e.name)!;
+                        setScanPrefill(match.prefill);
+                        void navigate({ to: "/query" });
+                      }}
+                    >
+                      Find similar
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="btn btn-danger"

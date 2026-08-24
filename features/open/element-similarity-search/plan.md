@@ -123,7 +123,7 @@ true, it becomes mandatory.
 | P1 | done | chunk 32, the smallest shipped cap, not the 64 default; partial-write reporting fixed in the applier and the outcome contract |
 | P2 | done | checkbox + name field + template disclosure + honest tile; 8 tests, mutation-checked |
 | P3 | done | prefill from status.embedding with edit-wins; empty-index hint on Query; 8 tests, mutation-checked |
-| P4 | not started | |
+| P4 | done | client-side gesture, bound-index lookup, label inheritance, k+1 + visible exclusion; 17 tests, mutation-checked |
 | P5 | not started | |
 | P6 | not started | |
 | P7 | not started | |
