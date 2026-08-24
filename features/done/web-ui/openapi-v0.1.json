@@ -4428,22 +4428,6 @@
             }
           }
         ],
-        "requestBody": {
-          "description": "Aborts the proxied call when the request is cancelled",
-          "content": {
-            "application/json; ver=0.1": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            },
-            "application/*+json; ver=0.1": {
-              "schema": {
-                "$ref": "#/components/schemas/JsonElement"
-              }
-            }
-          },
-          "required": true
-        },
         "responses": {
           "200": {
             "description": "The job report, including a run that failed",

@@ -81,12 +81,12 @@ namespace NoSQL.GraphDB.Integrations
         }
 
         /// <summary>
-        ///   The bound on a request body reaching this runtime: 64 MiB, chosen only to sit ABOVE the
-        ///   apiApp proxy's own fixed bound (48 MiB), which is the only way in because this container
+        ///   The bound on a request body reaching this runtime: 256 MiB, chosen only to sit ABOVE the
+        ///   apiApp proxy's own fixed bound (192 MiB), which is the only way in because this container
         ///   publishes no port. It is not a statement about how big a file may be - that is
         ///   <c>Integrations:MaxFileBytes</c>, enforced on the decoded bytes with a message naming both
         ///   numbers.
         /// </summary>
-        internal const Int64 TransportBound = 67_108_864;
+        internal const Int64 TransportBound = 268_435_456;
     }
 }
