@@ -115,6 +115,11 @@ layer, which is indistinguishable from "server down", so it shows a CORS hint ne
   from `fallen-8-web-ui/`. They authenticate with `e2e-key` unless `F8_E2E_API_KEY` overrides
   it, and half of them start with `HEAD /tabularasa/all`, which erases **every** namespace, so
   the same throwaway-instance rule applies.
+  - **A capture that starts on an empty graph must close the intro first.** The first-run
+    walkthrough opens itself as a modal over any namespace-scoped screen of an empty namespace,
+    and a fresh browser profile is exactly that state. Call `closeIntroIfOpen(page)` from
+    `e2e/firstRun.ts` after the auth handshake, or the shot photographs its scrim: this is not
+    caught by the specs' own guards, because a scrim over a valid screen still satisfies them.
 - **UI unit/component:** `npm run test:ui` (Vitest).
 - **Backend (MSTest):** the .NET Test Explorer debugs a single method; CLI is
   `dotnet test fallen-8-core.sln`.

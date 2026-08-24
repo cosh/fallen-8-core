@@ -36,16 +36,16 @@ not a namespace-scoped screen, and the Connect screen's Namespaces panel navigat
 unconditionally. With no Dashboard there is no "overview" to fall back to, and the honest rule is
 the one the user stated: **a context switch never moves you off the screen you are on.**
 
-- **Top-bar namespace switcher** — on a scoped route (`/q/{ns}/<leaf>`), keep the leaf and swap the
+- **Top-bar namespace switcher** - on a scoped route (`/q/{ns}/<leaf>`), keep the leaf and swap the
   namespace, as today. On a flat route (`/`, `/save-games`, `/integrations`) it now navigates
   **nowhere**: those screens read the active namespace from the registry and update in place.
-- **Top-bar instance switcher** — same rule; under `/q/…` it restores the new instance's remembered
+- **Top-bar instance switcher** - same rule; under `/q/…` it restores the new instance's remembered
   namespace on the CURRENT leaf, and `/q/{ns}` with no leaf targets the bare namespace route
   instead of synthesising a leaf.
-- **Connect ▸ Namespaces ▸ "switch to"** — sets the active namespace and stays on Connect. The top
+- **Connect ▸ Namespaces ▸ "switch to"** - sets the active namespace and stays on Connect. The top
   bar is where the switch shows up, and it is on screen.
 - **`NamespaceScope`'s two recover states** ("Switch to default" on a namespace that is missing, and
-  on one the server did not load) — keep the current leaf and swap the namespace, so the operator
+  on one the server did not load) - keep the current leaf and swap the namespace, so the operator
   lands on the same screen in a namespace that works.
 
 ### The durability signal becomes shell-level
@@ -60,15 +60,23 @@ had no reason to open.
 
 `FirstRunOverlay` already renders `<FirstRunShow>` as a Radix dialog for the rail's **Intro**
 button. It now also opens itself, once, when the active namespace is empty and its dismissal flag
-is unset — the same condition and the same per-namespace `dismissed` memory the Dashboard used,
+is unset - the same condition and the same per-namespace `dismissed` memory the Dashboard used,
 including the re-arm when the namespace is next seen non-empty. Closing an AUTO-opened overlay by
 any route (Close, Escape, the scrim, "Explore on my own") sets `dismissed`: an overlay that
 reappeared on every navigation would be unusable. A replay-opened overlay still never touches the
 flag.
 
+**It is silent on the Fallen-8-level screens** (Connect, Save games, Integrations), i.e. the auto
+path requires a `/q/{ns}/...` route. This was not planned; it was measured. A modal over Connect
+lands on top of a half-finished instance registration and blocks the radio that activates it - the
+Connect capture spec failed on exactly that, and so did ten functional e2e tests. The rule that
+came out of it stands on its own: the walkthrough is about a graph, and those three screens are
+where you wire one up. A newcomer's first act after connecting is to click a rail entry, which
+lands them on a scoped screen with nothing half-finished behind it.
+
 **The durability warning wins over the welcome.** The auto-show is suppressed while the namespace
 has a durability problem. On the Dashboard this was solved by ordering (the notice rendered ABOVE
-the show), which a modal cannot do — its scrim would put the one signal the operator needs behind
+the show), which a modal cannot do - its scrim would put the one signal the operator needs behind
 it. A truncated recovery is a leading reason a namespace you expected to hold data is empty, so an
 empty namespace with a durability problem gets the warning and no tour. The rail's Intro button
 still plays it on demand.
@@ -89,24 +97,35 @@ still exceed a 700px viewport), which is why the overflow fix is here rather tha
 
 ## Impact on existing features
 
-- **studio-first-run** — the auto-show moves from an inline empty state to the shell overlay. Same
+- **studio-first-run** - the auto-show moves from an inline empty state to the shell overlay. Same
   component, same store, same dismissal semantics; new: suppression while durability is unhealthy,
   and close-means-dismiss for the auto path. `docs/src/content/docs/studio.md` "First run" reworded.
-- **platform-integrity-audit W5** (the durability signal) — moves from the Dashboard to the shell.
+- **platform-integrity-audit W5** (the durability signal) - moves from the Dashboard to the shell.
   `tests/dashboard-durability.test.tsx` is rewritten as a shell test; `durability-notice.test.tsx`
   (component-level) is untouched.
-- **graph-namespaces** — the namespace switcher's landing rule changes (stay put). Pinned by tests
+- **graph-namespaces** - the namespace switcher's landing rule changes (stay put). Pinned by tests
   in `namespaces.test.tsx`.
-- **studio-section-help** — the `dashboard` entry leaves `SECTION_HELP`. The registry test forces a
+- **studio-section-help** - the `dashboard` entry leaves `SECTION_HELP`. The registry test forces a
   mapping for every nav leaf, so the removal is consistent by construction.
-- **sample-graphs / save-games / benchmark / studio-coverage** — prose only: several comments and
+- **sample-graphs / save-games / benchmark / studio-coverage** - prose only: several comments and
   doc lines describe their contents as "moved out of the Dashboard". Those sentences are now
   archaeology about a screen that no longer exists and are dropped, not reworded.
-- **Docs site** — `studio.md` loses the Dashboard row and section; the durability paragraph moves to
+- **Docs site** - `studio.md` loses the Dashboard row and section; the durability paragraph moves to
   Layout (it is shell chrome now) and the first-run paragraph stops naming the Dashboard.
   `debugging.md` loses the `screenshot-dashboard.spec.ts` line.
-- **Screenshots** — a rail change touches every image that shows the rail (~25 of them), plus
-  `screen-dashboard.png` is deleted along with its capture spec. Recaptured as part of this work.
-- **Architecture diagrams** — unaffected: no channel, deployable or layer changes.
-- **OpenAPI / MCP / engine** — unaffected: no REST surface change, Studio-only.
-- **NL-assist dataset/eval** — unaffected: the datasets are about delegate fragments, not screens.
+- **Screenshots** - a rail change touches every image that shows the rail. All 28 rail-bearing
+  images were recaptured; `screen-dashboard.png` is deleted along with its capture spec. The four
+  element-only shots (`sample-cyber-warfare*.png`, `sample-wind-farm*.png`) carry no rail and are
+  deliberately left alone. Eight capture specs needed `closeIntroIfOpen` because the auto-show now
+  opens over them - and one had already photographed its scrim while still reporting a pass, which
+  is why every recaptured frame was inspected rather than trusted.
+- **change-feed** (found while verifying a recaptured frame, fixed here) - the top bar's counts come
+  from the namespace inventory, which the feed never invalidated. With no status screen left, that
+  made the ONE place a human reads counts a 15s poll. It now follows the feed, including on resync,
+  where `onResync` cleared the pending invalidation and its own bound-id prefix could not reach the
+  raw-id-keyed inventory. That combination is what published "0 v / 0 e" in `screen-events.png`
+  beside a list of freshly created edges.
+- **Architecture diagrams** - unaffected: no channel, deployable or layer changes.
+- **OpenAPI / MCP / engine** - unaffected: no REST surface change, Studio-only. The browser-host
+  probe is likewise not implicated: nothing under `fallen-8-core/` changed.
+- **NL-assist dataset/eval** - unaffected: the datasets are about delegate fragments, not screens.

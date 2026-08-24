@@ -86,6 +86,7 @@ import {
 import {
   DEFAULT_NAMESPACE,
   SAME_ORIGIN_INSTANCE,
+  useBoundInstance,
   useInstanceStore,
   useRegistry,
 } from "../src/instances/registry";
@@ -252,6 +253,39 @@ describe("registry active namespace + bound view", () => {
     expect(result.current.instance.id).toBe("local");
     expect(scopedPath(result.current.instance, "/vertex")).toBe("/vertex");
     expect(result.current.store).toBe(getInstanceStore("local"));
+  });
+
+  /**
+   * useBoundInstance is the same binding for the SHELL, which renders before the connection gate
+   * and therefore cannot assert an instance the way a screen can. Both must agree, or the shell's
+   * /status (the durability banner, the first-run auto-show) would read a different cache row than
+   * the screens do and answer for the wrong namespace.
+   */
+  it("gives the shell the SAME bound view a screen gets", () => {
+    useRegistry.getState().setActiveNamespace(SAME_ORIGIN_INSTANCE.id, "flights");
+    const { result } = renderHook(() => ({
+      shell: useBoundInstance(),
+      screen: useInstanceStore().instance,
+    }));
+
+    expect(result.current.shell).toEqual(result.current.screen);
+    expect(result.current.shell?.id).toBe("local/flights");
+  });
+
+  it("degrades with the screens on a pre-namespace server", () => {
+    useRegistry.getState().setNamespaceSupport(SAME_ORIGIN_INSTANCE.id, false);
+    const { result } = renderHook(() => useBoundInstance());
+
+    expect(result.current?.namespace).toBeUndefined();
+    expect(result.current?.id).toBe("local");
+  });
+
+  it("is null with no active instance, so the shell asks /status nothing", () => {
+    // The state a screen never sees and the shell always can: no instance registered yet.
+    useRegistry.setState({ instances: [], activeId: null });
+    const { result } = renderHook(() => useBoundInstance());
+
+    expect(result.current).toBeNull();
   });
 });
 

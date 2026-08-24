@@ -72,6 +72,16 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
   const debounceMs = ctx.debounceMs ?? 300;
   const store = getInstanceStore(instance.id);
 
+  // The namespace inventory (GET /ns) carries the per-namespace vertex and edge totals the top
+  // bar shows on EVERY screen - and since the status screen was removed, that is the one place a
+  // human reads counts, so they have to follow the feed rather than a 15s poll. It answers for the
+  // whole Fallen-8, so it is keyed by the RAW instance id: strip the bound view's "/{namespace}"
+  // suffix back off (see boundInstance in instances/registry.ts for where it goes on).
+  const rawInstanceId =
+    instance.namespace !== undefined && instance.id.endsWith(`/${instance.namespace}`)
+      ? instance.id.slice(0, -(instance.namespace.length + 1))
+      : instance.id;
+
   // Debounced, deduplicated invalidation: bursts of events (a batch transaction, a
   // generate run) collapse into one round of refetches per affected key.
   const pending = new Map<string, readonly unknown[]>();
@@ -159,6 +169,9 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
     schedule([instance.id, "status"]);
     if (event.kind !== "propertySet" && event.kind !== "propertyRemoved") {
       schedule([instance.id, "graph"]);
+      // …and so do the top bar's counts, which come from the inventory rather than /status.
+      // Property writes change neither total, so they are the one kind that skips this.
+      schedule([rawInstanceId, "namespaces"]);
     }
 
     // Document lifecycle (feature unstructured-ingestion): the ingest pipeline commits the
@@ -191,6 +204,16 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
       store.getState().clearCanvas();
     }
     void queryClient.invalidateQueries({ queryKey: [instance.id] });
+    // The namespace inventory (the top bar's counts) is keyed by the RAW instance id, so the
+    // BOUND-id prefix above does not reach it - and the clear() a few lines up just dropped the
+    // scheduled invalidation for it, because a resync usually arrives at the END of the burst that
+    // caused it. That combination left the counts to wait out the inventory's own 15s poll, which
+    // is exactly how this frame published "0 v · 0 e" next to a list of fresh creations. A resync
+    // is also when the counts are least trustworthy (trim/tabulaRasa/load replace the graph), so
+    // re-read them explicitly. Skipped on an unbound instance, where the prefix already covers it.
+    if (rawInstanceId !== instance.id) {
+      void queryClient.invalidateQueries({ queryKey: [rawInstanceId, "namespaces"] });
+    }
   };
 
   const dispose = () => {

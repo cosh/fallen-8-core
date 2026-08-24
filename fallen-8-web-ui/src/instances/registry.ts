@@ -278,7 +278,7 @@ export function useActiveInstance(): InstanceConfig | null {
  * A server known to predate namespaces (namespaceSupported === false) gets the UNBOUND view
  * instead: bare paths, which are the whole graph there - full graceful degradation.
  */
-export function boundInstance(
+function boundInstance(
   instance: InstanceConfig,
   namespace: string,
   namespaceSupported: boolean | undefined,

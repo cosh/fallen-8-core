@@ -154,7 +154,7 @@ beforeEach(() => {
 });
 
 describe("the auto-show decides to open", () => {
-  it("opens for a newcomer on an empty namespace, whatever screen they are on", async () => {
+  it("opens for a newcomer on an empty namespace, on whichever graph screen they are on", async () => {
     renderShell("/q/default/query");
 
     await waitFor(() => expect(screen.getByTestId("first-run-overlay")).toBeInTheDocument());
@@ -162,10 +162,26 @@ describe("the auto-show decides to open", () => {
     expect(screen.getByText(/Your graph is empty/i)).toBeInTheDocument();
   });
 
-  it("opens on a flat route too (Connect), where no screen could have hosted it", async () => {
-    renderShell("/");
+  it("opens on the Canvas too, so it is not one screen's empty state in disguise", async () => {
+    renderShell("/q/default/canvas");
 
     await waitFor(() => expect(screen.getByTestId("first-run-overlay")).toBeInTheDocument());
+  });
+
+  it("stays shut on Connect - a newcomer there is mid-registration, not asking for a tour", async () => {
+    // Measured, not theorised: an auto-opening modal over Connect lands on top of a half-finished
+    // instance registration and blocks the radio that activates it.
+    renderShell("/");
+
+    await waitFor(() => expect(screen.getByTestId("health-chip")).toHaveTextContent("online"));
+    expect(screen.queryByTestId("first-run-overlay")).toBeNull();
+  });
+
+  it("stays shut on the other Fallen-8-level screens (Save games, Integrations)", async () => {
+    renderShell("/save-games");
+
+    await waitFor(() => expect(screen.getByTestId("health-chip")).toHaveTextContent("online"));
+    expect(screen.queryByTestId("first-run-overlay")).toBeNull();
   });
 
   it("stays shut on a populated namespace", async () => {

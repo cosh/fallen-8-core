@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture for the semantic-search frame on the Samples page. Output:
  *   docs/src/assets/images/query-semantic-search.png
@@ -67,6 +69,9 @@ async function registerSecuredInstance(page: Page, name = INSTANCE_NAME) {
 /** Load a curated sample through the gallery, which also builds the sample's index recipes. */
 async function loadSample(page: Page, id: string) {
   await page.goto("/q/default/samples");
+  // Entered on an empty graph: the first-run walkthrough opens itself over the gallery and its
+  // scrim would swallow the load click below.
+  await closeIntroIfOpen(page);
   await expect(page.getByTestId(`sample-card-${id}`)).toBeVisible({ timeout: 30_000 });
   await page.getByTestId(`load-sample-${id}`).click();
   // Only the WAIT may fail (a fresh graph loads with no wipe confirm). Wrapping the fill and the
@@ -124,10 +129,14 @@ test("capture semantic search over the Movie Night embeddings index", async ({ p
   // "0.xxxx" (ElementTable toFixed(4)), so a row-level check for "0" would pass on ANY ranking.
   const topRow = page.locator("tbody tr").first();
   await expect(topRow.locator("td").first()).toHaveText("0");
-  // Vertex 0 IS Inception in movie-night.jsonl, so the exact id cell above is the real rank-1 pin.
-  // The properties cell only corroborates it: do not assert `title=` there, because that cell prints
-  // properties in a nondeterministic order and truncates (one run leads with title=, the next with
-  // icon=), and the film name appears either way.
-  await expect(topRow).toContainText("Inception");
+  // Vertex 0 IS Inception in movie-night.jsonl, so the exact id cell above is the whole rank-1 pin.
+  //
+  // There used to be a `toContainText("Inception")` here as corroboration. It is gone because it
+  // could never corroborate anything: the properties cell prints properties in a nondeterministic
+  // order and TRUNCATES, so the film name surviving into the visible text was luck. That luck ran
+  // out once the provider-written `$embeddingModel:default=…` marker joined the list and pushed
+  // `title=` past the cut - the row then read "year=2010, $embeddingModel…, plot=A thief who
+  // steals…", which is Inception by every other measure and failed the assertion anyway. A check
+  // that fails on a correct ranking is worse than no check; the id cell states the real claim.
   await page.screenshot({ path: "../docs/src/assets/images/query-semantic-search.png" });
 });

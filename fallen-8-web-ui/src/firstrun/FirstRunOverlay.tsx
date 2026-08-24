@@ -38,11 +38,11 @@ import type { NamespaceSignals } from "../app/namespaceSignals";
  *
  * It opens on two paths, and the difference is entirely in what closing means:
  *
- * - **auto** - the active namespace is empty and this newcomer has not dismissed the show for it.
- *   Closing by ANY route (Close, Escape, the scrim, "Explore on my own") records the dismissal;
- *   an auto-opening modal that came back on the next navigation would be unusable. The memory is
- *   per namespace and re-armed the moment that namespace is seen non-empty, so a graph that
- *   genuinely empties later shows the intro again.
+ * - **auto** - the operator is on a screen ABOUT a graph, that graph is empty, and this newcomer
+ *   has not dismissed the show for it. Closing by ANY route (Close, Escape, the scrim, "Explore on
+ *   my own") records the dismissal; an auto-opening modal that came back on the next navigation
+ *   would be unusable. The memory is per namespace and re-armed the moment that namespace is seen
+ *   non-empty, so a graph that genuinely empties later shows the intro again.
  * - **replay** - the rail's Intro button, available at any time regardless of the connection
  *   state, the graph being empty, or the dismissal. Closing it never touches the flag.
  *
@@ -53,6 +53,7 @@ import type { NamespaceSignals } from "../app/namespaceSignals";
 export function FirstRunOverlay({
   signals,
   connected,
+  onGraphScreen,
 }: {
   /** The active namespace's shell-level signals - what decides the auto path. */
   signals: NamespaceSignals;
@@ -62,6 +63,17 @@ export function FirstRunOverlay({
    * the operator with a walkthrough on top of the "rejected the credential" guard.
    */
   connected: boolean;
+  /**
+   * Whether the current route is a namespace-scoped screen (`/q/{ns}/…`).
+   *
+   * The auto path is deliberately silent on the Fallen-8-level screens - Connect, Save games,
+   * Integrations. The walkthrough is about a GRAPH, and those three are where you wire one up:
+   * registering an instance, naming namespaces, restoring a checkpoint, pointing an integration at
+   * a system. Interrupting that with a modal is not onboarding, it is an ambush, and the very
+   * first thing a newcomer does after connecting is click a rail entry - which lands them on a
+   * scoped screen, where the show opens with nothing half-finished behind it.
+   */
+  onGraphScreen: boolean;
 }) {
   const replayOpen = useFirstRun((s) => s.replayOpen);
   const closeReplay = useFirstRun((s) => s.closeReplay);
@@ -84,7 +96,8 @@ export function FirstRunOverlay({
   // The durability warning WINS over the welcome: a truncated recovery is a leading reason a
   // namespace you expected to hold data is empty, and the shell banner that says so must not sit
   // behind this modal's scrim. The rail's Intro button still plays the show on demand.
-  const auto = connected && signals.empty && !signals.durabilityUnhealthy && !dismissed;
+  const auto =
+    connected && onGraphScreen && signals.empty && !signals.durabilityUnhealthy && !dismissed;
   const open = replayOpen || auto;
   const variant = replayOpen ? "replay" : "auto";
 

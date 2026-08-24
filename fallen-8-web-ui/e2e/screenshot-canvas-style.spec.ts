@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture (feature canvas-color-property-default): the Canvas style panel
  * with a control switched to "property", showing the property-name field seeded with a real
@@ -58,6 +60,8 @@ test("capture the canvas style panel with a seeded color property", async ({ pag
   // A vertex with a typed property, so the style panel has a real key ("age") to seed.
   const label = `person-shot-${Math.floor(Math.random() * 1e6)}`;
   await page.goto("/browser");
+  // Empty graph: the first-run walkthrough opens itself over this screen and blocks the form.
+  await closeIntroIfOpen(page);
   await page.getByTestId("new-vertex-label").fill(label);
   await page.getByTestId("create-vertex").click();
   await expect(page.getByTestId("mutation-message")).toContainText(label);

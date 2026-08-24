@@ -55,7 +55,7 @@ import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
 /**
  * Save games (feature save-games + graph-namespaces): the persistence home. The top is the
- * **Administration** section — the persistence/lifecycle and jsonl interchange actions, which are
+ * **Administration** section - the persistence/lifecycle and jsonl interchange actions, which are
  * NAMESPACE-scoped (they act on the active namespace shown in the top bar), so they run through
  * the namespace-bound instance. Below it is the Fallen-8-level
  * checkpoint registry (using the raw Fallen-8-level instance) — an entry can span several

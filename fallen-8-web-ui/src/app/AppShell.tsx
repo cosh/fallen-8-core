@@ -266,67 +266,67 @@ export function AppShell({ children }: { children: ReactNode }) {
           data-testid="nav-rail-items"
           className="rail-scroll flex min-h-0 w-full flex-1 flex-col items-center gap-1 pb-3"
         >
-        {NAV.filter((item) => navCapability(item) !== "integrations" || integrations !== "absent").map((item) => {
-          const testid = `nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`;
-          const target = navTarget(item);
-          const inner = (
-            <>
-              <span aria-hidden className="text-base leading-none">
-                {item.icon}
-              </span>
-              <span className="text-[9px] tracking-wide uppercase">{item.label}</span>
-            </>
-          );
-          // Everything beyond Connect is locked until the active instance is connected.
-          if (item.leaf !== "/" && connection !== "connected") {
+          {NAV.filter((item) => navCapability(item) !== "integrations" || integrations !== "absent").map((item) => {
+            const testid = `nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`;
+            const target = navTarget(item);
+            const inner = (
+              <>
+                <span aria-hidden className="text-base leading-none">
+                  {item.icon}
+                </span>
+                <span className="text-[9px] tracking-wide uppercase">{item.label}</span>
+              </>
+            );
+            // Everything beyond Connect is locked until the active instance is connected.
+            if (item.leaf !== "/" && connection !== "connected") {
+              return (
+                <span
+                  key={item.label}
+                  data-testid={testid}
+                  aria-disabled="true"
+                  title={`${item.label} — needs a connected instance (see Connect)`}
+                  className="text-fg-faint flex w-14 shrink-0 cursor-not-allowed flex-col items-center gap-0.5 rounded px-1 py-2 text-center opacity-50"
+                >
+                  {inner}
+                </span>
+              );
+            }
             return (
-              <span
+              <Link
                 key={item.label}
+                to={navMask(item) as "/q/$ns/browser"}
+                params={{ ns }}
                 data-testid={testid}
-                aria-disabled="true"
-                title={`${item.label} — needs a connected instance (see Connect)`}
-                className="text-fg-faint flex w-14 shrink-0 cursor-not-allowed flex-col items-center gap-0.5 rounded px-1 py-2 text-center opacity-50"
+                title={item.label}
+                className={`flex w-14 shrink-0 flex-col items-center gap-0.5 rounded px-1 py-2 text-center transition-colors ${
+                  pathname === target
+                    ? "bg-panel-2 text-accent"
+                    : "text-fg-dim hover:text-fg"
+                }`}
               >
                 {inner}
-              </span>
+              </Link>
             );
-          }
-          return (
-            <Link
-              key={item.label}
-              to={navMask(item) as "/q/$ns/browser"}
-              params={{ ns }}
-              data-testid={testid}
-              title={item.label}
-              className={`flex w-14 shrink-0 flex-col items-center gap-0.5 rounded px-1 py-2 text-center transition-colors ${
-                pathname === target
-                  ? "bg-panel-2 text-accent"
-                  : "text-fg-dim hover:text-fg"
-              }`}
-            >
-              {inner}
-            </Link>
-          );
-        })}
+          })}
 
-        {/* Persistent, always-available replay of the first-run show (feature studio-first-run).
-            Not gated by the connection state, the dismissed flag, or the graph being empty: it
-            opens the SAME <FirstRunShow> as an overlay on the mock graph and creates nothing.
-            `mt-auto` pins it to the bottom when the entries leave room and simply follows them
-            when they do not - the scroll box above owns the overflow either way. */}
-        <button
-          type="button"
-          data-testid="nav-replay-intro"
-          title="Replay intro: the Fallen-8 walkthrough (creates nothing)"
-          aria-label="Replay intro"
-          onClick={openReplay}
-          className="text-fg-dim hover:text-fg mt-auto flex w-14 shrink-0 cursor-pointer flex-col items-center gap-0.5 rounded px-1 py-2 text-center transition-colors"
-        >
-          <span aria-hidden className="text-base leading-none">
-            ✦
-          </span>
-          <span className="text-[9px] tracking-wide uppercase">Intro</span>
-        </button>
+          {/* Persistent, always-available replay of the first-run show (feature studio-first-run).
+              Not gated by the connection state, the dismissed flag, or the graph being empty: it
+              opens the SAME <FirstRunShow> as an overlay on the mock graph and creates nothing.
+              `mt-auto` pins it to the bottom when the entries leave room and simply follows them
+              when they do not - the scroll box above owns the overflow either way. */}
+          <button
+            type="button"
+            data-testid="nav-replay-intro"
+            title="Replay intro: the Fallen-8 walkthrough (creates nothing)"
+            aria-label="Replay intro"
+            onClick={openReplay}
+            className="text-fg-dim hover:text-fg mt-auto flex w-14 shrink-0 cursor-pointer flex-col items-center gap-0.5 rounded px-1 py-2 text-center transition-colors"
+          >
+            <span aria-hidden className="text-base leading-none">
+              ✦
+            </span>
+            <span className="text-[9px] tracking-wide uppercase">Intro</span>
+          </button>
         </div>
       </nav>
 
@@ -436,7 +436,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Shell chrome, not screen content (feature platform-integrity-audit W5): silent while
             durability is healthy, and on EVERY screen when it is not. It used to live on the
             Dashboard, where only an operator who thought to open that screen ever saw the one
-            warning that says their commits are not reaching disk. */}
+            warning that says their commits are not reaching disk.
+            The guard is about the PADDING, not the notice - <DurabilityNotice> already renders
+            nothing when there is nothing to say, but this wrapper's inset would still be there. */}
         {signals.durabilityUnhealthy && (
           <div className="shrink-0 px-4 pt-4">
             <DurabilityNotice durability={signals.durability} />
@@ -478,7 +480,11 @@ export function AppShell({ children }: { children: ReactNode }) {
       {/* Rendered once; portals to the scope root. Opened by the rail's Intro button, and by
           itself for a newcomer on an empty namespace - the two paths and what closing means for
           each are the overlay's own doc. */}
-      <FirstRunOverlay signals={signals} connected={connection === "connected"} />
+      <FirstRunOverlay
+        signals={signals}
+        connected={connection === "connected"}
+        onGraphScreen={pathname.startsWith("/q/")}
+      />
 
       {/* The Events slide-over, keyed by scope so a namespace/instance switch remounts it
           onto that scope's buffer (same isolation the screens get from the keyed subtree). */}

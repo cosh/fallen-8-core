@@ -205,7 +205,7 @@ describe("the shell durability banner", () => {
   it("keeps the empty-graph welcome unpolluted when durability is healthy", async () => {
     statusMock.mockResolvedValue(status(0, healthy));
 
-    renderShell();
+    renderShell("/q/default/browser");
 
     await waitFor(() => expect(screen.getByTestId("first-run-overlay")).toBeInTheDocument());
     expect(screen.queryByTestId("durability-notice")).toBeNull();
