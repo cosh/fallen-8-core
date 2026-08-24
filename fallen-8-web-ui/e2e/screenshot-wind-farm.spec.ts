@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture (feature knowledge-demo): the Wind Farm Fleet Integrity sample, which
  * ingests three real documents through the live semantic layer. Capture-only.
@@ -72,6 +74,9 @@ test("capture the wind-farm sample card, its load, and both graphs on the canvas
   await registerSecuredInstance(page);
 
   await page.goto("/q/default/samples");
+  // Entered on an empty graph, so the first-run walkthrough opens itself over the gallery: its
+  // scrim would dim the card shot below and swallow the load click after it.
+  await closeIntroIfOpen(page);
   const card = page.getByTestId("sample-card-wind-farm");
   await expect(card).toBeVisible({ timeout: 30_000 });
   await card.scrollIntoViewIfNeeded();

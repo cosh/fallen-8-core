@@ -61,7 +61,9 @@ test("capture the first-run show", async ({ page }) => {
   await page.getByTestId("confirm-action").click();
   await expect(page.getByTestId("admin-message")).toContainText("erased", { timeout: 20_000 });
 
-  await page.goto("/dashboard");
+  // Any screen: the show opens ITSELF as a shell-level overlay on an empty namespace.
+  await page.goto("/q/default/browser");
+  await expect(page.getByTestId("first-run-overlay")).toBeVisible();
   await expect(page.getByTestId("first-run-show")).toBeVisible();
   // Let the staggered bloom finish (~1.1s) so every emoji vertex is drawn, then jump to the Path
   // beat (the blast-radius story) so the capture shows the highlighted directed route + caption.

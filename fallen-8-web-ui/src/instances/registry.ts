@@ -269,10 +269,28 @@ export function useActiveInstance(): InstanceConfig | null {
 }
 
 /**
+ * The NAMESPACE-BOUND view of an instance (feature graph-namespaces), and the one home for that
+ * rule: a bound instance addresses /ns/{namespace}/… explicitly, and its id is
+ * "<instance-id>/<namespace>" ON PURPOSE, so every react-query key and cache derived from
+ * `instance.id` becomes per-namespace at once and no screen can serve another namespace's cached
+ * results. The registry keeps the raw id.
+ *
+ * A server known to predate namespaces (namespaceSupported === false) gets the UNBOUND view
+ * instead: bare paths, which are the whole graph there - full graceful degradation.
+ */
+function boundInstance(
+  instance: InstanceConfig,
+  namespace: string,
+  namespaceSupported: boolean | undefined,
+): InstanceConfig {
+  if (namespaceSupported === false) return instance;
+  return { ...instance, id: `${instance.id}/${namespace}`, namespace };
+}
+
+/**
  * The active instance plus its per-namespace workspace store - the preamble every connected
  * screen needs (the AppShell connection gate guarantees an active instance, hence the non-null).
- * The returned instance is NAMESPACE-BOUND (feature graph-namespaces): its API calls address
- * /ns/{activeNamespace}/… explicitly, and the workspace store is keyed per namespace so
+ * The instance is bound per `boundInstance`, and the workspace store is keyed per namespace so
  * results, drafts and canvas state never cross namespaces.
  */
 export function useInstanceStore() {
@@ -280,21 +298,24 @@ export function useInstanceStore() {
   const namespace = useActiveNamespace();
   const supported = useRegistry((s) => s.namespaceSupport[instance.id]);
 
-  // A server known to predate namespaces gets the UNBOUND view: bare paths (which are the
-  // whole graph there) and the legacy workspace store — full graceful degradation.
-  if (supported === false) {
-    return { instance, store: getInstanceStore(instance.id) };
-  }
-
   return {
-    instance: {
-      ...instance,
-      // The bound view's id is "<instance-id>/<namespace>" ON PURPOSE: every react-query
-      // key and cache derived from `instance.id` becomes per-namespace at once, so no
-      // screen can serve another namespace's cached results. The registry keeps the raw id.
-      id: `${instance.id}/${namespace}`,
-      namespace,
-    },
-    store: getInstanceStore(instance.id, namespace),
+    instance: boundInstance(instance, namespace, supported),
+    store:
+      supported === false
+        ? getInstanceStore(instance.id)
+        : getInstanceStore(instance.id, namespace),
   };
+}
+
+/**
+ * The bound active instance for SHELL-level consumers, or null when no instance is active.
+ * `useInstanceStore` is this plus the workspace store, but it asserts an instance because it is
+ * only ever called from a screen behind the connection gate; the shell itself (the durability
+ * banner, the first-run auto-show) renders before that gate and must tolerate "none".
+ */
+export function useBoundInstance(): InstanceConfig | null {
+  const instance = useActiveInstance();
+  const namespace = useActiveNamespace();
+  const supported = useRegistry((s) => (instance ? s.namespaceSupport[instance.id] : undefined));
+  return instance ? boundInstance(instance, namespace, supported) : null;
 }

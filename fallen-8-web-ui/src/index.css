@@ -156,6 +156,29 @@ body {
   box-shadow: inset 0 -1px 0 var(--color-line);
 }
 
+/* ---- Icon-rail scroll box (AppShell) ----
+   The rail's entries scroll inside the rail rather than overflowing it, so its panel background
+   and right border always reach the bottom of the viewport (see the note in AppShell). The bar is
+   deliberately thin and themed: a 15px platform scrollbar would eat a quarter of a 64px rail, and
+   it only appears when the entries genuinely do not fit. Never `display: none` - the entries below
+   the fold have to be reachable, and a hidden scrollbar hides that there is anything down there. */
+:where(.f8-studio) .rail-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+:where(.f8-studio) .rail-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+:where(.f8-studio) .rail-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+:where(.f8-studio) .rail-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 3px;
+}
+
 /* ---- First-run show (feature studio-first-run) ----
    A code-driven SVG walkthrough of the "Asymmetric Cyber Warfare" mock graph. Nodes are emoji;
    edges are directed with arrowheads. All colour comes from the theme tokens so it is native to

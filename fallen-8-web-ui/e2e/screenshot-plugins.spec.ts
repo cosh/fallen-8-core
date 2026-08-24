@@ -25,6 +25,8 @@
 
 import { expect, test } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture: the Plugins screen listing the built-in plugin families (index /
  * path / subgraph / analytics / service) reported by /status. Capture-only; needs no graph data.
@@ -55,6 +57,7 @@ test("capture the Plugins screen", async ({ page, request }) => {
   await expect(page.getByTestId("health-chip")).toContainText(/online/i, { timeout: 20_000 });
 
   await page.goto("/q/default/plugins");
+  await closeIntroIfOpen(page);
   await expect(page.getByText("Index plugins")).toBeVisible({ timeout: 20_000 });
 
   await page.screenshot({ path: "../docs/src/assets/images/screen-plugins.png" });

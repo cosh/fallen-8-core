@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 /**
- * One labeled stat cell (Dashboard counts, benchmark results, Graph shape numbers, and
+ * One labeled stat cell (benchmark results, Graph shape numbers, and
  * value tiles fed user/algorithm-controlled strings such as the embedding model id or an
  * analytics statistic key). Both lines truncate with a full-value title so an unbounded
  * label or value can never overflow the fixed-width tile.

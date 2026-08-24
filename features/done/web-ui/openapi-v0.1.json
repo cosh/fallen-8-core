@@ -20610,7 +20610,7 @@
               "integer",
               "string"
             ],
-            "description": "The namespace's vertex count, or `null` when it is `notLoaded` and this\r\nprocess therefore has no count to report. Never `0` in that case: the Studio\r\ndashboard branches on `vertexCount === 0` to replay the first-run walkthrough, so a\r\nzero would greet an operator with \"get started\" over a namespace that holds data, and a\r\nreconciling writer would read \"healthy and empty\" and delete on that basis.",
+            "description": "The namespace's vertex count, or `null` when it is `notLoaded` and this\r\nprocess therefore has no count to report. Never `0` in that case: the Studio shell\r\nbranches on `vertexCount === 0` to replay the first-run walkthrough, so a zero\r\nwould greet an operator with \"get started\" over a namespace that holds data, and a\r\nreconciling writer would read \"healthy and empty\" and delete on that basis.",
             "format": "int32"
           },
           "edgeCount": {

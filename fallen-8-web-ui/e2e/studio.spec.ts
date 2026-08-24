@@ -44,13 +44,34 @@ async function registerSecuredInstance(page: Page, name = "e2e") {
   await page.getByRole("radio", { name: `activate ${name}` }).check();
   // The endpoint hint carries the namespace prefix (feature graph-namespaces).
   await expect(page.getByTestId("active-endpoint")).toContainText("same origin");
+  // Then do what a newcomer does first: open a graph screen, meet the first-run walkthrough, and
+  // put it away. It is MODAL and opens itself on any graph screen of an empty namespace, so
+  // leaving it up would make every scenario below click at its scrim instead of its own screen.
+  // The dismissal is per namespace, which is why scenario 12 repeats it for the one it creates.
+  await dismissIntroOnGraphScreen(page, DEFAULT_NAMESPACE);
+}
+
+/** The reserved namespace every scenario starts in (bare URLs alias it). */
+const DEFAULT_NAMESPACE = "default";
+
+/**
+ * Land on a graph screen of `namespace`, close the first-run walkthrough if it opened itself, and
+ * come back to Connect - which is where the setup left the caller before the show existed, and what
+ * the scenarios that go on to use the Connect panels rely on. The Browser is the cheapest graph
+ * screen to detour through: it fetches nothing until asked.
+ */
+async function dismissIntroOnGraphScreen(page: Page, namespace: string) {
+  await page.goto(`/q/${namespace}/browser`);
+  await dismissFirstRunIfPresent(page);
+  await page.goto("/");
 }
 
 /**
- * On an empty namespace the Dashboard shows the first-run walkthrough (feature
- * studio-first-run) in place of the stat tiles. Scenarios that land on an empty Dashboard and
- * assert the tiles dismiss it first (Skip to the handoff, then Explore on my own). A no-op when
- * the graph is already populated (no show) or on a fresh context where it never appeared.
+ * On an empty namespace the first-run walkthrough (feature studio-first-run) opens ITSELF as a
+ * shell-level overlay, over whatever screen is showing. Scenarios that then interact with that
+ * screen dismiss it first (Skip to the handoff, then Explore on my own, which records the
+ * dismissal). A no-op when the graph is already populated, or on a fresh context where the
+ * instance is not connected yet and the show therefore never appeared.
  */
 async function dismissFirstRunIfPresent(page: Page) {
   const show = page.getByTestId("first-run-show");
@@ -63,6 +84,22 @@ async function dismissFirstRunIfPresent(page: Page) {
   if (await skip.count()) await skip.click().catch(() => {});
   await page.getByTestId("first-run-explore").click();
   await show.waitFor({ state: "hidden" });
+}
+
+/**
+ * The active namespace's vertex count, read where it lives now: the top bar's namespace switcher
+ * ("<name> N v · M e", from GET /ns), which every screen carries. It used to be a Dashboard
+ * tile, and the Dashboard was removed precisely because the top bar already said this. Returns NaN
+ * while the inventory reports no counts, so callers poll.
+ *
+ * Anchored on the " v · " pair rather than on "digits then v": the cell text begins with the
+ * NAMESPACE NAME, and a namespace called e.g. "q3-2026" would otherwise donate its digits to the
+ * count. Namespace names may hold digits, so that is a real input, not a hypothetical.
+ */
+async function activeVertexCount(page: Page): Promise<number> {
+  const text = (await page.getByTestId("namespace-switcher").textContent()) ?? "";
+  const match = /(\d[\d,]*) v · /.exec(text);
+  return match ? Number(match[1].replace(/\D/g, "")) : NaN;
 }
 
 /**
@@ -86,7 +123,7 @@ async function createVertex(page: Page, labelPrefix: string): Promise<number> {
   return id;
 }
 
-test("scenario 1: connect, dashboard, health, disconnected overview", async ({ page }) => {
+test("scenario 1: connect, health, disconnected overview", async ({ page }) => {
   await registerSecuredInstance(page);
 
   // A dead endpoint is visible in the overview before switching to it (FR-1a).
@@ -98,10 +135,14 @@ test("scenario 1: connect, dashboard, health, disconnected overview", async ({ p
     page.getByTestId("instance-row-dead").getByText("unreachable"),
   ).toBeVisible({ timeout: 20_000 });
 
+  // A legacy /dashboard bookmark forwards to the Browser in the active namespace: the screen is
+  // gone, its URL still answers rather than rendering a blank shell.
   await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/q\/default\/browser$/);
   await dismissFirstRunIfPresent(page);
-  await expect(page.getByTestId("stat-vertices")).toBeVisible();
   await expect(page.getByTestId("health-chip")).toHaveText("online");
+  // What the Dashboard's tiles said is in the top bar, on this screen and every other one.
+  await expect(page.getByTestId("namespace-switcher")).toContainText(/\d+ v/);
 });
 
 test("scenario 2: the Benchmark tab generates a graph and shows structured numbers", async ({
@@ -119,13 +160,8 @@ test("scenario 2: the Benchmark tab generates a graph and shows structured numbe
   await expect(page.getByTestId("stat-into-namespace")).toHaveText("default");
   await expect(page.getByTestId("stat-vertices-created")).not.toHaveText("0");
 
-  await page.goto("/dashboard");
-  await expect
-    .poll(
-      async () => Number((await page.getByTestId("stat-vertices").textContent())?.replace(/\D/g, "")),
-      { timeout: 30_000 },
-    )
-    .toBeGreaterThan(0);
+  // The generated vertices show up in the top bar's live counts, on whatever screen we are on.
+  await expect.poll(async () => activeVertexCount(page), { timeout: 30_000 }).toBeGreaterThan(0);
 
   // Structured benchmark output rendered as stat tiles, plus the session run history.
   await page.goto("/q/default/benchmarks");
@@ -309,10 +345,9 @@ test("scenario 8: erasing a namespace demands its typed NAME (feature graph-name
     timeout: 20_000,
   });
 
-  // The count reads 0 back on the Dashboard (the empty graph shows the first-run walkthrough).
-  await page.goto("/dashboard");
-  await dismissFirstRunIfPresent(page);
-  await expect(page.getByTestId("stat-vertices")).toHaveText("0");
+  // The count reads 0 in the top bar. No intro to dismiss: this screen is /save-games, a flat
+  // route, where the auto-show stays silent by design.
+  await expect.poll(async () => activeVertexCount(page), { timeout: 30_000 }).toBe(0);
 });
 
 test("scenario 9: an unreachable instance shows the disconnected state, not a blank screen", async ({
@@ -325,12 +360,21 @@ test("scenario 9: an unreachable instance shows the disconnected state, not a bl
   await page.getByTestId("instance-save").click();
   await page.getByRole("radio", { name: "activate down" }).check();
 
-  await page.goto("/dashboard");
-  await expect(page.getByRole("alert")).toBeVisible({ timeout: 20_000 });
-  await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+  await page.goto("/q/default/browser");
   await expect(page.getByTestId("health-chip")).toHaveText("unreachable", {
     timeout: 20_000,
   });
+  // NOT BLANK is the claim in the title, so it has to be asserted about the screen area, not just
+  // the chip. This used to land on the Dashboard, whose ErrorBox rendered role=alert + "Retry" on a
+  // failed /status; the Browser fetches nothing until asked, so there is no error box here. What
+  // the shell does guarantee on a merely-unreachable instance is that the screen stays MOUNTED (a
+  // 15s health blip must not throw away in-progress work) while the rail locks behind the gate.
+  await expect(page.getByTestId("new-vertex-label")).toBeVisible();
+  await expect(page.getByTestId("connection-guard")).toHaveCount(0);
+  await expect(page.getByTestId("nav-browser")).toHaveAttribute("aria-disabled", "true");
+  // And the instance overview still names the failure in words rather than leaving a blank row.
+  await page.goto("/");
+  await expect(page.getByTestId("instance-row-down")).toContainText("unreachable");
 });
 
 test("scenario 10 (instance default): assist is usable with zero config; editor fully usable", async ({
@@ -366,8 +410,9 @@ test("scenario 12 (graph-namespaces): create, populate, isolate, save all, drop,
   await expect(page.getByTestId("namespace-row-flights")).toBeVisible({ timeout: 20_000 });
 
   // Switch to it: the namespace lands in the app URL and in the endpoint hint.
+  // Switching FROM the Connect screen stays on the Connect screen: only the top bar changes.
   await page.getByTestId("namespace-switch-flights").click();
-  await expect(page).toHaveURL(/\/q\/flights\/dashboard/);
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.getByTestId("active-endpoint")).toContainText("/ns/flights/*");
 
   // Populate flights with a uniquely-labelled vertex (createVertex navigates to the
@@ -375,6 +420,9 @@ test("scenario 12 (graph-namespaces): create, populate, isolate, save all, drop,
   const label = `plane-${Date.now().toString(36)}`;
   await page.goto("/browser");
   await expect(page).toHaveURL(/\/q\/flights\/browser/);
+  // "flights" is brand new, so it is empty and gets its own first-run show; the dismissal is
+  // remembered per namespace, not per browser.
+  await dismissFirstRunIfPresent(page);
   await page.getByTestId("new-vertex-label").fill(label);
   await page.getByTestId("create-vertex").click();
   await expect(page.getByTestId("mutation-message")).toContainText(label);
@@ -445,6 +493,9 @@ test("scenario 13 (graph-namespaces): benchmark generation writes the SELECTED n
     await page.goto(`/q/${ns}/benchmarks`);
     // The screen names the graph it acts on (instance / namespace).
     await expect(page.getByRole("heading", { level: 1 })).toContainText(ns);
+    // A namespace created for this test, so it is empty and gets its own first-run show over
+    // this screen. The setup dismissed it for `default` only - the memory is per namespace.
+    await dismissFirstRunIfPresent(page);
 
     await page.getByTestId("generate-sample").click();
     await expect(page.getByTestId("generate-result")).toBeVisible({ timeout: 30_000 });
@@ -489,24 +540,25 @@ test("scenario 11: nav stays locked until the active instance is connected AND a
   await expect(page.getByTestId("health-chip")).toHaveText("unauthorized", {
     timeout: 20_000,
   });
-  await expect(page.getByTestId("nav-dashboard")).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByTestId("nav-browser")).toHaveAttribute("aria-disabled", "true");
   await expect(page.getByTestId("nav-canvas")).toHaveAttribute("aria-disabled", "true");
   await expect(
     page.getByTestId("instance-row-local").getByText("unauthorized — check the API key"),
   ).toBeVisible();
 
   // A deep link cannot bypass the gate either.
-  await page.goto("/dashboard");
+  await page.goto("/q/default/browser");
   await expect(page.getByTestId("connection-guard")).toBeVisible({ timeout: 20_000 });
 
   // With a keyed instance active the nav unlocks and actually navigates.
   await registerSecuredInstance(page);
   await expect(page.getByTestId("health-chip")).toHaveText("online", { timeout: 20_000 });
-  const dashboard = page.getByTestId("nav-dashboard");
-  await expect(dashboard).not.toHaveAttribute("aria-disabled", "true");
-  await dashboard.click();
+  const browser = page.getByTestId("nav-browser");
+  await expect(browser).not.toHaveAttribute("aria-disabled", "true");
+  await browser.click();
   await dismissFirstRunIfPresent(page);
-  await expect(page.getByTestId("stat-vertices")).toBeVisible();
+  await expect(page).toHaveURL(/\/q\/default\/browser$/);
+  await expect(page.getByTestId("new-vertex-label")).toBeVisible();
 });
 
 test("per-section help opens the docs for the current screen", async ({ page }) => {

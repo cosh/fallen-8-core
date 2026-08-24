@@ -26,7 +26,7 @@
 /**
  * Sample-graph manifest types (feature sample-graphs): the contract between the build
  * script (scripts/build-samples.ts, which writes public/samples/index.json) and the
- * Dashboard's Sample graphs section, which renders the card grid and runs the loader
+ * Samples screen, which renders the card grid and runs the loader
  * purely from this data. Adding a static sample is a script + manifest change — no UI
  * code.
  */

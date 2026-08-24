@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture for the two worked-result frames on the Samples page. Outputs:
  *   docs/src/assets/images/path-result.png      (samples.md: a path result)
@@ -34,7 +36,7 @@ import { expect, test, type Page } from "@playwright/test";
  *
  * WHY THIS SPEC EXISTS: both images were published by hand in 2026-07 and no spec produced them, so
  * every later recapture pass silently skipped them and they went stale by six UI features: an
- * 11-entry nav rail against today's 15, no help button, no events bell, and copy that has since
+ * 11-entry nav rail against today's 14, no help button, no events bell, and copy that has since
  * changed. The ids in them were always right, though: the engine assigns ids at import rather than
  * taking them from the sample file, so the loaded karate club is 0..33 no matter what
  * karate-club.jsonl numbers its rows, and 0 -> 33 (Mr. Hi to the Officer) is the pair the sample's
@@ -60,6 +62,9 @@ async function registerSecuredInstance(page: Page, name = INSTANCE_NAME) {
 /** Load a curated sample through the gallery, which also builds the sample's index recipes. */
 async function loadSample(page: Page, id: string) {
   await page.goto("/q/default/samples");
+  // Entered on an empty graph: the walkthrough opens over the gallery and its scrim would
+  // swallow the load click below.
+  await closeIntroIfOpen(page);
   await expect(page.getByTestId(`sample-card-${id}`)).toBeVisible({ timeout: 30_000 });
   await page.getByTestId(`load-sample-${id}`).click();
   const typed = page.getByTestId("confirm-typed");

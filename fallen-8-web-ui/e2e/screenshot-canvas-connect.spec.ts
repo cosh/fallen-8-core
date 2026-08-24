@@ -25,6 +25,8 @@
 
 import { expect, test, type Page } from "@playwright/test";
 
+import { closeIntroIfOpen } from "./firstRun";
+
 /**
  * Docs screenshot capture (feature canvas-find-connect): the Canvas "Connect" tab finding
  * shortest paths between the vertices on the canvas. Loads the karate-club sample (a small,
@@ -60,6 +62,9 @@ test("capture the canvas Connect tab finding paths between picked vertices", asy
 
   // Karate club: a small, single-component graph, so any picked vertices have paths.
   await page.goto("/q/default/samples");
+  // The graph is empty at this point, so the first-run walkthrough opens itself over this
+  // screen and is modal: the sample card below is unclickable until it is closed.
+  await closeIntroIfOpen(page);
   await expect(page.getByTestId("sample-card-karate-club")).toBeVisible({ timeout: 30_000 });
   await page.getByTestId("load-sample-karate-club").click();
   const typed = page.getByTestId("confirm-typed");

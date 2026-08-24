@@ -111,10 +111,15 @@ layer, which is indistinguishable from "server down", so it shows a CORS hint ne
 - **Recapturing the docs screenshots:** the `e2e/screenshot-*.spec.ts` specs are skipped unless
   `F8_SCREENSHOT=1`, so a plain `npm run e2e` runs only the two functional specs. They write
   straight into `docs/src/assets/images/` and target an already-running instance, e.g.
-  `F8_SCREENSHOT=1 F8_UI_URL=http://127.0.0.1:5000 npx playwright test e2e/screenshot-dashboard.spec.ts`
+  `F8_SCREENSHOT=1 F8_UI_URL=http://127.0.0.1:5000 npx playwright test e2e/screenshot-browser.spec.ts`
   from `fallen-8-web-ui/`. They authenticate with `e2e-key` unless `F8_E2E_API_KEY` overrides
   it, and half of them start with `HEAD /tabularasa/all`, which erases **every** namespace, so
   the same throwaway-instance rule applies.
+  - **A capture that starts on an empty graph must close the intro first.** The first-run
+    walkthrough opens itself as a modal over any namespace-scoped screen of an empty namespace,
+    and a fresh browser profile is exactly that state. Call `closeIntroIfOpen(page)` from
+    `e2e/firstRun.ts` after the auth handshake, or the shot photographs its scrim: this is not
+    caught by the specs' own guards, because a scrim over a valid screen still satisfies them.
 - **UI unit/component:** `npm run test:ui` (Vitest).
 - **Backend (MSTest):** the .NET Test Explorer debugs a single method; CLI is
   `dotnet test fallen-8-core.sln`.
