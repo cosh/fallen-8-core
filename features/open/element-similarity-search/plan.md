@@ -124,6 +124,6 @@ true, it becomes mandatory.
 | P2 | done | checkbox + name field + template disclosure + honest tile; 8 tests, mutation-checked |
 | P3 | done | prefill from status.embedding with edit-wins; empty-index hint on Query; 8 tests, mutation-checked |
 | P4 | done | client-side gesture, bound-index lookup, label inheritance, k+1 + visible exclusion; 17 tests, mutation-checked |
-| P5 | not started | |
+| P5 | done | 7 arms on the real-server fixture: cosine ranking, label+kind constraints, arg errors, provider-absent semantic. set_embedding still uncovered (write tier, separate class) |
 | P6 | not started | |
 | P7 | not started | |
