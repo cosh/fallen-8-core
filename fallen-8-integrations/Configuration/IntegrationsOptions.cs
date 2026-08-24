@@ -56,14 +56,26 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   deliberately no files directory beside it: a file arrives with the job that needs it and is
         ///   dropped when the run ends, so this container mounts nothing, opens nothing and has no name to
         ///   resolve. The ceiling exists because the alternative is a caller deciding how much memory this
-        ///   process spends; it matches the instance's own upload ceiling
-        ///   (<c>Fallen8:Ingestion:MaxUploadBytes</c>) so the two doors are the same width.
+        ///   process spends.
+        ///
+        ///   <para>128 MiB, and that number came from a real file rather than from symmetry with something
+        ///   else. It was first sized like the instance's document-upload ceiling
+        ///   (<c>Fallen8:Ingestion:MaxUploadBytes</c>, 32 MiB), which turned out to refuse the very thing
+        ///   this feature exists to read: an AUTOSAR system extract for one vehicle platform runs to tens
+        ///   of megabytes, and the first one anybody pointed at it was a large size.</para>
         ///
         ///   <para>Zero or less switches the ceiling OFF rather than refusing every file, and the runtime
-        ///   warns at startup when it is. Raising it past about 34 MiB has no effect in the shipped
+        ///   warns at startup when it is. Raising it past about 144 MiB has no effect in the shipped
         ///   deployment: the apiApp's proxy is the only way in and carries its own fixed body bound.</para>
+        ///
+        ///   <para>A file this big is not free, and the cost is not hidden: it arrives base64 (a third
+        ///   larger), is decoded to bytes, and is decoded again to TEXT for the provider - two bytes per
+        ///   character for XML - so a run over a maximal extract peaks in the high hundreds of megabytes
+        ///   before the provider has parsed anything. The mount this replaced cost the same; what is new
+        ///   is that a caller rather than an operator picks the size, which is why the ceiling is here at
+        ///   all.</para>
         /// </summary>
-        public Int64 MaxFileBytes { get; set; } = 33_554_432;
+        public Int64 MaxFileBytes { get; set; } = 134_217_728;
 
         /// <summary>Where a run holding a credential may send it.</summary>
         public CredentialsOptions Credentials { get; set; } = new CredentialsOptions();

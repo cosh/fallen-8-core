@@ -79,14 +79,22 @@ exactly as long as the run that needed it, which is the same rule
 - An **empty** file is refused rather than read as an empty source, because a complete snapshot
   describing nothing withdraws every element the integration ever claimed.
 
-`Integrations:MaxFileBytes` (default 32 MiB, measured on the decoded bytes) is the ceiling, and it
-belongs to the **runtime's** configuration rather than the instance you submit through. A file over
-it is refused with both numbers named.
+`Integrations:MaxFileBytes` (default **128 MiB**, measured on the decoded bytes) is the ceiling, and
+it belongs to the **runtime's** configuration rather than the instance you submit through. A file over
+it is refused with both numbers named. That default is sized for the real thing: an AUTOSAR system
+extract for one vehicle platform runs to tens of megabytes, and a 100 MiB device list or extract goes
+through in one run.
 
-Above it sits a fixed 48 MiB bound on the request body itself, at the API's proxy - base64 costs a
-third, so a maximal legal job arrives at about 42.7 MiB and never meets it. It is deliberately not
+Above it sits a fixed 192 MiB bound on the request body itself, at the API's proxy - base64 costs a
+third, so a maximal legal job arrives at about 171 MiB and never meets it. It is deliberately not
 configurable, which has one consequence worth stating: raising `Integrations:MaxFileBytes` past about
-34 MiB has no effect, because the proxy is the only way in (the runtime publishes no port).
+144 MiB has no effect, because the proxy is the only way in (the runtime publishes no port).
+
+A file that size is not free. It arrives base64, is decoded to bytes, and is decoded again to text for
+the integration - two bytes per character for XML - so a run over a maximal extract peaks in the high
+hundreds of megabytes before anything is parsed, and the elements it produces are written to the graph
+in batches rather than one enormous transaction. Budget memory for the runtime container accordingly;
+the ceiling exists precisely because the caller, not the operator, picks the size.
 
 There is deliberately **no schedule, no interval and no run history** anywhere in the runtime.
 Timing belongs to whoever wants the data: run a job from cron, from a CI pipeline, from a

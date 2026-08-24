@@ -25,6 +25,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -107,6 +109,73 @@ namespace NoSQL.GraphDB.Tests
                 "the ids come back in INPUT order, or a run claims the wrong element");
             Assert.AreEqual("second", read[ids[1]].Properties["csv.name"].Text);
             Assert.AreEqual("device", read[ids[0]].Label);
+        }
+
+        [TestMethod]
+        public async Task AWriteBiggerThanOneBatch_KeepsTheIdsInInputOrder_AcrossEveryBatch()
+        {
+            // More than the REST target's write batch (500), so the write is split. It has to be pinned
+            // on the CONTRACT rather than on that target, because the ordering promise is what callers
+            // build on and the in-memory target must make the same one.
+            //
+            // Why batching exists at all: a run over a 99 MiB device list produced a single PUT vertices
+            // body of about 110 MB, which the graph's own route refuses at Kestrel's 30 MB default - and
+            // the runtime could only report it as "the graph did not answer", for a graph that was fine.
+            // Splitting the body fixed that; getting the SPLIT wrong instead attaches every edge after
+            // the first batch to the wrong vertex, which is plausible nonsense nothing detects later.
+            const Int32 Count = 1200;
+
+            using var target = await CreateTargetAsync();
+            await target.EnsureIndicesAsync(CancellationToken.None);
+
+            var writes = new List<VertexWrite>(Count);
+            for (var i = 0; i < Count; i++)
+            {
+                writes.Add(Vertex("device", ("csv.name", "device-" + i.ToString(CultureInfo.InvariantCulture))));
+            }
+
+            var ids = await target.CreateVerticesAsync(writes, CancellationToken.None);
+
+            Assert.AreEqual(Count, ids.Count, "every vertex sent comes back with an id");
+            CollectionAssert.AllItemsAreUnique(ids.ToList(),
+                "a repeated id means one batch's answer was counted twice, and two rows then share an element");
+
+            // Spot-checked at the batch SEAMS, which is where an off-by-one lands: the last of one batch
+            // and the first of the next.
+            var probes = new[] { 0, 499, 500, 501, 999, 1000, Count - 1 };
+            var read = await target.ReadElementsAsync(probes.Select(p => ids[p]).ToArray(),
+                CancellationToken.None);
+
+            foreach (var probe in probes)
+            {
+                Assert.AreEqual("device-" + probe.ToString(CultureInfo.InvariantCulture),
+                    read[ids[probe]].Properties["csv.name"].Text, String.Format(
+                        "the id at input position {0} must name the element written at position {0}. A batch " +
+                        "boundary that shifts the ids makes every claim and every edge after it point at the " +
+                        "wrong element, and the run reports success", probe));
+            }
+
+            // Edges too: the ARXML integration is overwhelmingly edges, so a vertex-only check would leave
+            // the half that matters most to it unexercised.
+            var edgeWrites = new List<EdgeWrite>(Count);
+            for (var i = 0; i < Count; i++)
+            {
+                edgeWrites.Add(new EdgeWrite(ids[i], ids[(i + 1) % Count], "uplink",
+                    new[] { new GraphProperty("csv.hop", "System.String", "hop-" + i.ToString(CultureInfo.InvariantCulture)) }));
+            }
+
+            var edgeIds = await target.CreateEdgesAsync(edgeWrites, CancellationToken.None);
+
+            Assert.AreEqual(Count, edgeIds.Count, "every edge sent comes back with an id");
+            CollectionAssert.AllItemsAreUnique(edgeIds.ToList(), "no edge id is reported twice");
+
+            var edgeRead = await target.ReadElementsAsync(new[] { edgeIds[0], edgeIds[500], edgeIds[Count - 1] },
+                CancellationToken.None);
+            Assert.AreEqual("hop-0", edgeRead[edgeIds[0]].Properties["csv.hop"].Text);
+            Assert.AreEqual("hop-500", edgeRead[edgeIds[500]].Properties["csv.hop"].Text,
+                "the first edge of the second batch, which is where a mis-split shows");
+            Assert.AreEqual("hop-" + (Count - 1).ToString(CultureInfo.InvariantCulture),
+                edgeRead[edgeIds[Count - 1]].Properties["csv.hop"].Text);
         }
 
         [TestMethod]

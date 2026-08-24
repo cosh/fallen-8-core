@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.IO;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -96,6 +97,17 @@ namespace NoSQL.GraphDB.App.Integrations
         Task<SidecarResponse> ForwardAsync(HttpMethod method, String path, String jsonBody,
             CancellationToken cancellationToken);
 
+        /// <summary>
+        ///   Forwards a request whose body is COPIED STRAIGHT THROUGH from the caller's stream, never
+        ///   parsed and never held whole. For the one route whose body carries a file: a job with a
+        ///   100 MB extract on it would otherwise be resident about four times over in this process -
+        ///   the parsed document, the UTF-16 string a re-serialisation produces, and the UTF-8 bytes it
+        ///   is encoded back into - which is hundreds of megabytes of large-object heap per in-flight
+        ///   request, for a hop that is not allowed to look at the body anyway.
+        /// </summary>
+        Task<SidecarResponse> ForwardStreamAsync(HttpMethod method, String path, Stream body,
+            String contentType, CancellationToken cancellationToken);
+
         Task<Boolean> IsReachableAsync(CancellationToken cancellationToken);
     }
 
@@ -153,6 +165,54 @@ namespace NoSQL.GraphDB.App.Integrations
                         var body = await response.Content.ReadAsStringAsync(cancellationToken);
                         var contentType = response.Content.Headers.ContentType?.ToString();
                         return new SidecarResponse((Int32)response.StatusCode, body, contentType);
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
+            {
+                throw new IntegrationsUnavailableException(String.Format(
+                    "The integrations runtime did not answer: {0}", ex.Message), ex);
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<SidecarResponse> ForwardStreamAsync(HttpMethod method, String path, Stream body,
+            String contentType, CancellationToken cancellationToken)
+        {
+            if (!Configured)
+            {
+                throw new IntegrationsUnavailableException(
+                    "No integrations endpoint is configured (Fallen8:Integrations:Endpoint).");
+            }
+
+            try
+            {
+                using (var request = new HttpRequestMessage(method, path))
+                {
+                    // StreamContent over the caller's own body, so the bytes are copied through in
+                    // chunks and nothing here ever holds the whole job. The content type is the
+                    // caller's verbatim: this hop decides nothing about the body, including how it is
+                    // labelled.
+                    var content = new StreamContent(body);
+                    content.Headers.TryAddWithoutValidation("Content-Type",
+                        String.IsNullOrEmpty(contentType) ? "application/json" : contentType);
+                    request.Content = content;
+
+                    // ResponseHeadersRead so the forwarding does not wait on a body it is about to read
+                    // itself, which for a long-running job run is the difference between streaming and
+                    // sitting on a buffer.
+                    using (var response = await Http.SendAsync(request,
+                        HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                    {
+                        // The RESPONSE is still read whole, deliberately: it is a job report, bounded by
+                        // its own diagnostics list, and the proxy has to hand it back as one string.
+                        var answered = await response.Content.ReadAsStringAsync(cancellationToken);
+                        var answeredType = response.Content.Headers.ContentType?.ToString();
+                        return new SidecarResponse((Int32)response.StatusCode, answered, answeredType);
                     }
                 }
             }
