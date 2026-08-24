@@ -292,6 +292,14 @@ export function QueryScreen() {
     (vectorSource === "text"
       ? !vectorSearchText.trim() || providerEnabled !== true
       : !parsedVector?.ok);
+  // An empty vector index is indistinguishable from "nothing is similar" at the search surface: kNN
+  // over a zero-length scan succeeds, so both handlers answer 200 with an empty list. The member
+  // count is already on the inventory row, one screen away from where the confusion happens.
+  const emptyVectorIndex =
+    mode === "index" &&
+    form === "vector" &&
+    selectedIndex != null &&
+    selectedIndex.values === 0;
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -741,6 +749,15 @@ export function QueryScreen() {
             >
               {scan.isPending ? "Running…" : "Run query"}
             </button>
+            {emptyVectorIndex && (
+              <span className="text-warn text-[11px]" data-testid="empty-vector-index-hint">
+                '{indexId}' has no members yet, so this can only answer 0 hits
+                {selectedIndex?.embeddingName
+                  ? ` — it is bound to the '${selectedIndex.embeddingName}' embedding, so write that embedding on some elements (or check the name)`
+                  : " — add vectors to it, or bind it to an element embedding when you create it"}
+                .
+              </span>
+            )}
           </div>
 
           {progress && (
