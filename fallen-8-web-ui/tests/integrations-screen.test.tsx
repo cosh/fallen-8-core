@@ -33,6 +33,7 @@ import type {
   IntegrationJobReport,
   IntegrationJobRequest,
   IntegrationProvider,
+  StatusREST,
 } from "../src/api/types";
 import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 import { capList, LIST_MAX_ROWS, SCROLL_ROWS } from "../src/lib/listCaps";
@@ -50,6 +51,8 @@ import { ListCapNote } from "../src/components/ListCapNote";
 const listProvidersMock = vi.fn<(i: InstanceConfig) => Promise<IntegrationProvider[] | null>>();
 const submitJobMock =
   vi.fn<(i: InstanceConfig, job: IntegrationJobRequest) => Promise<IntegrationJobReport | null>>();
+const getStatusMock =
+  vi.fn<(i: InstanceConfig, signal?: AbortSignal) => Promise<StatusREST | null>>();
 
 vi.mock("../src/api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/api/endpoints")>();
@@ -57,6 +60,7 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
     ...original,
     listIntegrationProviders: (i: InstanceConfig) => listProvidersMock(i),
     submitIntegrationJob: (i: InstanceConfig, job: IntegrationJobRequest) => submitJobMock(i, job),
+    getStatus: (i: InstanceConfig, s?: AbortSignal) => getStatusMock(i, s),
   };
 });
 
@@ -111,6 +115,32 @@ function report(overrides: Partial<IntegrationJobReport> = {}): IntegrationJobRe
   };
 }
 
+/**
+ * A status whose embedding block says the provider is on or off. The embed opt-in gates on it, because
+ * a run that asks a target with no provider to embed succeeds and embeds nothing.
+ */
+function status(embeddingEnabled: boolean): StatusREST {
+  return {
+    vertexCount: 0,
+    edgeCount: 0,
+    usedMemory: 0,
+    indices: [],
+    availableIndexPlugins: [],
+    availablePathPlugins: [],
+    availableAnalyticsPlugins: [],
+    availableServicePlugins: [],
+    embedding: {
+      enabled: embeddingEnabled,
+      backend: "Ollama",
+      modelName: "bge-m3",
+      modelVersion: null,
+      dimension: 1024,
+      intendedMetric: "Cosine",
+      loaded: false,
+    },
+  };
+}
+
 function renderScreen() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -125,6 +155,7 @@ beforeEach(() => {
   localStorage.clear();
   listProvidersMock.mockReset().mockResolvedValue([fourthIntegration()]);
   submitJobMock.mockReset().mockResolvedValue(report());
+  getStatusMock.mockReset().mockResolvedValue(status(true));
 });
 
 describe("the settings form is rendered from the descriptor alone", () => {
@@ -490,5 +521,128 @@ describe("the provider list obeys the standing list-cap policy", () => {
 
     rerender(<ListCapNote shown={2} total={5} />);
     expect(screen.getByText(/Showing the first/)).toBeInTheDocument();
+  });
+});
+
+describe("the embed opt-in, which is the only way a Studio run writes summary embeddings", () => {
+  it("is not offered at all for a provider that declares no summary template", async () => {
+    listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: null }]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    // Offering it would be offering a control that cannot work: with no template there is no text to
+    // embed, so the run would succeed and embed nothing.
+    expect(screen.queryByTestId("integration-embed")).not.toBeInTheDocument();
+  });
+
+  it("sends BOTH halves of the opt-in, because the runtime needs both", async () => {
+    listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" }]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+    await userEvent.click(await screen.findByTestId("integration-embed-toggle"));
+    await userEvent.type(await screen.findByTestId("integration-embed-name"), "arxml-summary");
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+    const job = submitJobMock.mock.calls[0][1];
+    expect(job.embedSummaries).toBe(true);
+    expect(job.embeddingName).toBe("arxml-summary");
+  });
+
+  it("sends NEITHER half when the operator did not ask, because embedding is opt-in", async () => {
+    listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" }]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+    const job = submitJobMock.mock.calls[0][1];
+    expect(job.embedSummaries).toBeUndefined();
+    // A name with the flag off would read on the wire as an opt-in nobody made.
+    expect(job.embeddingName).toBeUndefined();
+  });
+
+  it("omits the name when left blank, so the runtime's own default applies", async () => {
+    listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" }]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+    await userEvent.click(await screen.findByTestId("integration-embed-toggle"));
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+    expect(submitJobMock.mock.calls[0][1].embedSummaries).toBe(true);
+    expect(submitJobMock.mock.calls[0][1].embeddingName).toBeUndefined();
+  });
+
+  it("is disabled and says so when the embedding provider is off on this instance", async () => {
+    getStatusMock.mockResolvedValue(status(false));
+    listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" }]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    const toggle = await screen.findByTestId("integration-embed-toggle");
+    expect(toggle).toBeDisabled();
+    // Dead-ending is the failure mode this replaces: the sentence names where the switch lives.
+    expect(await screen.findByTestId("integration-embed-off")).toHaveTextContent(
+      /embedding provider is off/,
+    );
+  });
+
+  it("shows the template it will embed, so what lands is visible before the run and not after", async () => {
+    listProvidersMock.mockResolvedValue([
+      {
+        ...fourthIntegration(),
+        entitySummaryTemplate: "{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, {arxml.unit}",
+      },
+    ]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+    await userEvent.click(await screen.findByTestId("integration-embed-toggle"));
+
+    expect(await screen.findByTestId("integration-embed-template")).toHaveTextContent(
+      "{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, {arxml.unit}",
+    );
+  });
+
+  it("reads 'not requested' rather than 0 for a run that never asked to embed", async () => {
+    listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" }]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    // A 0 here collapsed three different states, and read as "the run tried and found nothing" for
+    // every run Studio has ever launched - since Studio could not ask at all.
+    expect(await screen.findByTestId("report-embedded")).toHaveTextContent("not requested");
+  });
+
+  it("reads the count once the run DID ask", async () => {
+    submitJobMock.mockResolvedValue(report({ summariesEmbedded: 7 }));
+    listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" }]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+    await userEvent.click(await screen.findByTestId("integration-embed-toggle"));
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    expect(await screen.findByTestId("report-embedded")).toHaveTextContent("7");
   });
 });
