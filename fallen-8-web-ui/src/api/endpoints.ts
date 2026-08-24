@@ -108,8 +108,16 @@ const WAIT = { waitForCompletion: true } as const;
 
 // ---- status + admin (FR-2/3/4) ----
 
+/**
+ * The reachability probe, and the ONE call with a deadline (see `RequestOptions.timeoutMs`).
+ *
+ * `/status` answers in milliseconds or the instance is not usable, so a probe still pending after
+ * ten seconds has told us what we needed to know. Without the deadline a hung connection leaves the
+ * promise pending for ever, and every screen that renders "checking..." until this succeeds says
+ * "checking..." for ever - which is worse than an error, because an error names an address.
+ */
 export const getStatus = (i: InstanceConfig, signal?: AbortSignal) =>
-  apiRequest<StatusREST>(i, "/status", { signal });
+  apiRequest<StatusREST>(i, "/status", { signal, timeoutMs: 10_000 });
 
 /**
  * Instance configuration (feature instance-config): the read-only operator view of the
