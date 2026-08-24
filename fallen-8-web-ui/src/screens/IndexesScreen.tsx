@@ -281,8 +281,12 @@ function CreatePanel({ onCreated }: { onCreated: () => void }) {
   const [indexId, setIndexId] = useState("");
   const [indexType, setIndexType] = useState("DictionaryIndex");
   const [message, setMessage] = useState<string | null>(null);
-  const [dimension, setDimension] = useState("384");
-  const [metric, setMetric] = useState("Cosine");
+  // NULL means "nobody has typed here yet", which is what lets the provider's own numbers be the
+  // default WITHOUT an effect that would clobber a typed value when the status request lands. A
+  // hardcoded 384 against the shipped 1024 provider produced an index that 409s every later embed
+  // and search, and made the integration's own summary write fail rather than degrade.
+  const [dimensionEdit, setDimensionEdit] = useState<string | null>(null);
+  const [metricEdit, setMetricEdit] = useState<string | null>(null);
   const [embeddingName, setEmbeddingName] = useState("");
   const [model, setModel] = useState("");
 
@@ -290,6 +294,13 @@ function CreatePanel({ onCreated }: { onCreated: () => void }) {
   // servers predating the field / an unreachable status).
   const status = useStatus(instance).data;
   const availableTypes = status?.availableIndexPlugins ?? [];
+
+  // The provider is the authority on both numbers: a bound index whose dimension or metric disagrees
+  // with the model writing into it is refused on every use, so guessing is worse than asking.
+  const provider = status?.embedding ?? null;
+  const providerReady = provider !== null && provider.enabled && provider.dimension > 0;
+  const dimension = dimensionEdit ?? (providerReady ? String(provider!.dimension) : "384");
+  const metric = metricEdit ?? (providerReady && provider!.intendedMetric ? provider!.intendedMetric : "Cosine");
 
   const isVectorIndex = indexType.trim() === "VectorIndex";
   // SpatialIndex.Initialize needs CLR objects (metric, dimensions) that JSON plugin
@@ -399,16 +410,18 @@ function CreatePanel({ onCreated }: { onCreated: () => void }) {
                 type="number"
                 min={1}
                 max={4096}
+                data-testid="vector-dimension-opt"
                 value={dimension}
-                onChange={(e) => setDimension(e.target.value)}
+                onChange={(e) => setDimensionEdit(e.target.value)}
               />
             </Field>
             <Field helpKey="vectorMetric" label="metric" htmlFor="vector-metric">
               <select
                 id="vector-metric"
                 className="input w-auto"
+                data-testid="vector-metric"
                 value={metric}
-                onChange={(e) => setMetric(e.target.value)}
+                onChange={(e) => setMetricEdit(e.target.value)}
               >
                 <option>Cosine</option>
                 <option>DotProduct</option>
@@ -462,6 +475,22 @@ function CreatePanel({ onCreated }: { onCreated: () => void }) {
             </span>
           )
         )}
+        {isVectorIndex &&
+          (providerReady ? (
+            <p className="text-fg-faint basis-full text-[11px]" data-testid="vector-provider-note">
+              Prefilled from this instance's embedding provider: {provider!.modelName ?? "model not named"}{" "}
+              at {provider!.dimension} dimensions, {provider!.intendedMetric ?? "Cosine"}. Change them only
+              for an index you will fill with vectors from somewhere else.
+            </p>
+          ) : (
+            <p className="text-warn basis-full text-[11px]" data-testid="vector-provider-off">
+              {provider === null
+                ? "This server reports no embedding provider, so these are defaults rather than its numbers"
+                : "The embedding provider is off on this instance, so these are defaults rather than its numbers"}{" "}
+              — an index whose dimension disagrees with whatever writes into it is refused on every
+              embed and every search.
+            </p>
+          ))}
         {isVectorIndex && embeddingName.trim() && (
           <p className="text-fg-faint basis-full text-[11px]" data-testid="bound-create-note">
             Bound: this index auto-maintains a projection of the '{embeddingName.trim()}'

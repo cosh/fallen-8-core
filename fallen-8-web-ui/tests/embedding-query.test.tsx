@@ -196,3 +196,60 @@ describe("semantic search by text (Query screen)", () => {
     expect(screen.getByTestId("vector-source-text")).toBeDisabled();
   });
 });
+
+describe("an empty vector index says so, instead of reading as 'nothing is similar'", () => {
+  function statusWithCounts(values: number): StatusREST {
+    return {
+      ...statusWithProvider(true),
+      indices: [
+        {
+          indexId: "emb",
+          pluginType: "VectorIndex",
+          embeddingName: "default",
+          model: null,
+          capabilities: ["vector"],
+          keys: 0,
+          values,
+        },
+      ],
+    };
+  }
+
+  it("warns when the selected index has no members, and names the embedding it is bound to", async () => {
+    getStatusMock.mockResolvedValue(statusWithCounts(0));
+    const user = userEvent.setup();
+    renderScreen(QueryScreen);
+    await user.selectOptions(screen.getByTestId("query-mode"), "index");
+    await waitFor(() => expect(screen.getByTestId("index-select")).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId("index-select"), "emb");
+
+    // kNN over a zero-length scan SUCCEEDS, so both search handlers answer 200 with an empty list.
+    // Without this the operator reads "no similar elements" when the truth is "nothing written yet".
+    const hint = await screen.findByTestId("empty-vector-index-hint");
+    expect(hint).toHaveTextContent(/no members yet/);
+    expect(hint).toHaveTextContent(/'default' embedding/);
+  });
+
+  it("stays quiet for an index that has members", async () => {
+    getStatusMock.mockResolvedValue(statusWithCounts(5));
+    const user = userEvent.setup();
+    renderScreen(QueryScreen);
+    await user.selectOptions(screen.getByTestId("query-mode"), "index");
+    await waitFor(() => expect(screen.getByTestId("index-select")).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId("index-select"), "emb");
+
+    expect(screen.queryByTestId("empty-vector-index-hint")).not.toBeInTheDocument();
+  });
+
+  it("stays quiet when the server does not report a member count, rather than guessing empty", async () => {
+    getStatusMock.mockResolvedValue(statusWithProvider(true));
+    const user = userEvent.setup();
+    renderScreen(QueryScreen);
+    await user.selectOptions(screen.getByTestId("query-mode"), "index");
+    await waitFor(() => expect(screen.getByTestId("index-select")).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId("index-select"), "emb");
+
+    // An absent count is "not reported", which is not the same claim as zero.
+    expect(screen.queryByTestId("empty-vector-index-hint")).not.toBeInTheDocument();
+  });
+});
