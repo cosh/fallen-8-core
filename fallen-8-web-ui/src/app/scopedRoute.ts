@@ -43,8 +43,14 @@ export function scopedLeaf(pathname: string): string {
  * the caller supplies it. The cast is unavoidable and harmless: the leaf comes from the live
  * pathname, so no literal route id can be inferred from it, and every scoped id types a
  * `navigate` call identically.
+ *
+ * With NO leaf - a hand-typed or truncated `/q/{ns}` - it falls back to the Browser rather than to
+ * `/q/$ns` itself. `/q/$ns` is a real route but has no index child, so navigating there renders
+ * the shell around an empty `<Outlet/>`: the same blank screen the removed Dashboard's URL is
+ * redirected away from, and reachable from the very button that exists to get an operator OUT of a
+ * namespace this process cannot read.
  */
 export function sameScopedScreen(pathname: string): "/q/$ns/browser" {
   const leaf = scopedLeaf(pathname);
-  return (leaf ? `/q/$ns/${leaf}` : "/q/$ns") as "/q/$ns/browser";
+  return (leaf ? `/q/$ns/${leaf}` : "/q/$ns/browser") as "/q/$ns/browser";
 }

@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -117,9 +117,12 @@ function status(
   };
 }
 
+/** The client the current render is using, so a test can push a refetch through the shared rows. */
+let client: QueryClient;
+
 function renderShell(path = "/q/default/browser") {
   currentPath = path;
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
       <AppShell>
@@ -135,9 +138,14 @@ beforeEach(() => {
   navigateMock.mockClear();
   listIntegrationProvidersMock.mockReset().mockResolvedValue([]);
   statusMock.mockReset().mockResolvedValue(status(0));
+  // The per-instance maps are reset too: the re-latch test below switches the active namespace to
+  // "flights", and without this it stays active for every test after it - which silently moves
+  // BOUND_KEY out from under them, so a dismissal written under one key is read under another.
   useRegistry.setState({
     instances: [SAME_ORIGIN_INSTANCE],
     activeId: SAME_ORIGIN_INSTANCE.id,
+    activeNamespaces: {},
+    namespaceSupport: {},
   });
   useFirstRun.setState({ dismissed: {}, replayOpen: false });
   // Reduced motion: the show rests on its handoff instead of autoplaying on timers.
@@ -304,6 +312,122 @@ describe("closing an auto-opened show", () => {
 
     expect(useFirstRun.getState().dismissed[BOUND_KEY]).toBe(true);
     expect(navigateMock).toHaveBeenCalledWith({ to: "/save-games" });
+  });
+});
+
+/**
+ * The two bugs the merge council found, both of which the suite above was green through. Neither is
+ * about whether the show CAN open - it is about `open` having been derived live from a count that
+ * the change feed moves under it, and about `open` having two reasons while closing cleared one.
+ */
+describe("the auto-show does not ambush work that passes through empty", () => {
+  it("stays shut when a POPULATED namespace empties under the operator", async () => {
+    // The primary path: loading a sample is a tabula rasa followed by an import, so the count is 0
+    // for the duration of the import. Deriving `open` from the live count put the walkthrough over
+    // the Samples screen for that whole window, with the loader's own progress behind its scrim.
+    statusMock.mockResolvedValue(status(3));
+    renderShell("/q/default/samples");
+    await waitFor(() => expect(screen.getByTestId("health-chip")).toHaveTextContent("online"));
+    expect(screen.queryByTestId("first-run-overlay")).toBeNull();
+
+    // The graph is wiped by the load, and the feed pushes the new count within ~300ms.
+    statusMock.mockResolvedValue(status(0));
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+
+    // A graph emptying under you is not a first run.
+    expect(screen.queryByTestId("first-run-overlay")).toBeNull();
+  });
+
+  it("still opens for a namespace that was ALREADY empty on arrival", async () => {
+    // The latch must not be a blanket suppression: the actual newcomer case still has to work,
+    // including after the count is refreshed by the feed.
+    renderShell("/q/default/samples");
+    await waitFor(() => expect(screen.getByTestId("first-run-overlay")).toBeInTheDocument());
+
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+
+    expect(screen.getByTestId("first-run-overlay")).toBeInTheDocument();
+  });
+
+  it("does not come back when the operator POPULATES the namespace it greeted them on", async () => {
+    // The regression scenario 13 of the e2e suite caught: the show fires on a fresh namespace, the
+    // operator dismisses it and generates a graph, and `clearIfPopulated` re-arms the dismissal -
+    // so a latch that still said "arrived empty" re-opened the walkthrough over the Benchmark
+    // screen mid-run. Populating a graph is the opposite of needing an introduction to one.
+    const user = userEvent.setup();
+    renderShell("/q/default/benchmarks");
+    await waitFor(() => expect(screen.getByTestId("first-run-overlay")).toBeInTheDocument());
+    await user.click(screen.getByTestId("first-run-overlay-close"));
+    await waitFor(() => expect(screen.queryByTestId("first-run-overlay")).toBeNull());
+
+    // The generate lands, the feed pushes the count, and the dismissal is re-armed by design.
+    statusMock.mockResolvedValue(status(200));
+    await act(async () => {
+      await client.invalidateQueries();
+    });
+    await waitFor(() => expect(useFirstRun.getState().dismissed[BOUND_KEY]).toBeUndefined());
+
+    expect(screen.queryByTestId("first-run-overlay")).toBeNull();
+  });
+
+  it("re-latches per namespace, so an empty one still greets after a populated one", async () => {
+    statusMock.mockImplementation((i) =>
+      Promise.resolve(i.namespace === "flights" ? status(0) : status(7)),
+    );
+    renderShell("/q/default/browser");
+    await waitFor(() => expect(screen.getByTestId("health-chip")).toHaveTextContent("online"));
+    expect(screen.queryByTestId("first-run-overlay")).toBeNull();
+
+    // Switching namespace changes the bound key, which is what the latch is keyed by.
+    await act(async () => {
+      useRegistry.getState().setActiveNamespace(SAME_ORIGIN_INSTANCE.id, "flights");
+    });
+
+    await waitFor(() => expect(screen.getByTestId("first-run-overlay")).toBeInTheDocument());
+  });
+});
+
+describe("closing the overlay clears BOTH reasons it can be open", () => {
+  it("a replay closed on an empty graph does not hand over to the auto path", async () => {
+    // Reachable in two clicks on a fresh install: Intro on the Connect screen (where the auto path
+    // is silent), then "Browse sample graphs" - which closed the replay and navigated onto a scoped
+    // screen, where the auto path re-opened the dialog the user had just dismissed.
+    const user = userEvent.setup();
+    currentPath = "/";
+    renderShell("/");
+    await waitFor(() => expect(screen.getByTestId("nav-replay-intro")).toBeInTheDocument());
+
+    await user.click(screen.getByTestId("nav-replay-intro"));
+    await waitFor(() => expect(screen.getByTestId("first-run-overlay")).toBeInTheDocument());
+    await user.click(screen.getByTestId("first-run-browse-samples"));
+
+    // The navigation is mocked, so assert the STATE that would have re-opened it: the dismissal is
+    // recorded even though it was the replay path that was showing.
+    expect(navigateMock).toHaveBeenCalledWith({
+      to: "/q/$ns/samples",
+      params: { ns: "default" },
+    });
+    expect(useFirstRun.getState().dismissed[BOUND_KEY]).toBe(true);
+    await waitFor(() => expect(screen.queryByTestId("first-run-overlay")).toBeNull());
+  });
+
+  it("a replay closed on a POPULATED graph still records nothing", async () => {
+    // The other half of the rule: with the auto path not armed, the replay stays a pure viewer.
+    const user = userEvent.setup();
+    statusMock.mockResolvedValue(status(3));
+    renderShell();
+    await waitFor(() => expect(screen.getByTestId("nav-replay-intro")).toBeInTheDocument());
+
+    await user.click(screen.getByTestId("nav-replay-intro"));
+    await waitFor(() => expect(screen.getByTestId("first-run-overlay")).toBeInTheDocument());
+    await user.click(screen.getByTestId("first-run-overlay-close"));
+
+    await waitFor(() => expect(screen.queryByTestId("first-run-overlay")).toBeNull());
+    expect(useFirstRun.getState().dismissed[BOUND_KEY]).toBeUndefined();
   });
 });
 

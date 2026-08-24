@@ -88,13 +88,17 @@ async function dismissFirstRunIfPresent(page: Page) {
 
 /**
  * The active namespace's vertex count, read where it lives now: the top bar's namespace switcher
- * ("<name> N v / M e", from GET /ns), which every screen carries. It used to be a Dashboard tile,
- * and the Dashboard was removed precisely because the top bar already said this. Returns NaN
+ * ("<name> N v · M e", from GET /ns), which every screen carries. It used to be a Dashboard
+ * tile, and the Dashboard was removed precisely because the top bar already said this. Returns NaN
  * while the inventory reports no counts, so callers poll.
+ *
+ * Anchored on the " v · " pair rather than on "digits then v": the cell text begins with the
+ * NAMESPACE NAME, and a namespace called e.g. "q3-2026" would otherwise donate its digits to the
+ * count. Namespace names may hold digits, so that is a real input, not a hypothetical.
  */
 async function activeVertexCount(page: Page): Promise<number> {
   const text = (await page.getByTestId("namespace-switcher").textContent()) ?? "";
-  const match = /([\d,]+)\s*v\s/.exec(text);
+  const match = /(\d[\d,]*) v · /.exec(text);
   return match ? Number(match[1].replace(/\D/g, "")) : NaN;
 }
 
@@ -341,9 +345,8 @@ test("scenario 8: erasing a namespace demands its typed NAME (feature graph-name
     timeout: 20_000,
   });
 
-  // The count reads 0 in the top bar - and, the graph now being empty, the first-run walkthrough
-  // opens itself over the screen, so it is dismissed before the count is polled.
-  await dismissFirstRunIfPresent(page);
+  // The count reads 0 in the top bar. No intro to dismiss: this screen is /save-games, a flat
+  // route, where the auto-show stays silent by design.
   await expect.poll(async () => activeVertexCount(page), { timeout: 30_000 }).toBe(0);
 });
 
@@ -361,8 +364,17 @@ test("scenario 9: an unreachable instance shows the disconnected state, not a bl
   await expect(page.getByTestId("health-chip")).toHaveText("unreachable", {
     timeout: 20_000,
   });
-  // The shell says what is wrong rather than going blank, and the rail locks behind the gate.
+  // NOT BLANK is the claim in the title, so it has to be asserted about the screen area, not just
+  // the chip. This used to land on the Dashboard, whose ErrorBox rendered role=alert + "Retry" on a
+  // failed /status; the Browser fetches nothing until asked, so there is no error box here. What
+  // the shell does guarantee on a merely-unreachable instance is that the screen stays MOUNTED (a
+  // 15s health blip must not throw away in-progress work) while the rail locks behind the gate.
+  await expect(page.getByTestId("new-vertex-label")).toBeVisible();
+  await expect(page.getByTestId("connection-guard")).toHaveCount(0);
   await expect(page.getByTestId("nav-browser")).toHaveAttribute("aria-disabled", "true");
+  // And the instance overview still names the failure in words rather than leaving a blank row.
+  await page.goto("/");
+  await expect(page.getByTestId("instance-row-down")).toContainText("unreachable");
 });
 
 test("scenario 10 (instance default): assist is usable with zero config; editor fully usable", async ({

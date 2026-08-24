@@ -23,6 +23,11 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+/// <reference types="node" />
+
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -317,8 +322,13 @@ describe("top bar column split", () => {
  * is how `bg-panel` and `border-r` came to stop short of the bottom with the last two entries
  * drawn on bare page background. Fixing it by removing an entry would only move the threshold, so
  * what is pinned here is the structure that makes the height irrelevant: the <nav> owns no
- * overflowable content and a child scroll box takes the remaining height. jsdom computes no
- * layout, so the declarations that decide it are the assertion.
+ * overflowable content and a child scroll box takes the remaining height.
+ *
+ * jsdom computes no layout, so the declarations that decide it are the assertion - and one of them
+ * is NOT reachable through the DOM: `overflow-y: auto` lives on `.rail-scroll` in src/index.css,
+ * which Vitest never applies (no `css: true` in vite.config.ts). Asserting only that the class name
+ * is present would let someone delete the whole stylesheet rule with all 1076 tests still green, so
+ * the rule itself is read from source, the way section-help.test.tsx reads the docs directory.
  */
 describe("icon rail overflow", () => {
   it("scrolls the entries inside the rail instead of overflowing its background", () => {
@@ -338,6 +348,19 @@ describe("icon rail overflow", () => {
     expect(items.className).toContain("rail-scroll");
     expect(items.className).toContain("flex-1");
     expect(items.className).toContain("min-h-0");
+  });
+
+  it("backs `.rail-scroll` with a real overflow rule, not just a class name", () => {
+    // The half the DOM cannot show. Deleting this rule is what would bring the reported bug back,
+    // and no rendered assertion in this suite would notice.
+    const here = dirname(fileURLToPath(import.meta.url));
+    const css = readFileSync(resolve(here, "..", "src", "index.css"), "utf8");
+    const rule = /\.rail-scroll\s*\{([^}]*)\}/.exec(css);
+    expect(rule, "src/index.css declares no .rail-scroll rule").not.toBeNull();
+    expect(rule![1]).toMatch(/overflow-y:\s*auto/);
+    // Never `display: none` on the bar: the entries below the fold have to stay reachable, and a
+    // hidden scrollbar hides that there is anything down there.
+    expect(css).not.toMatch(/\.rail-scroll::-webkit-scrollbar\s*\{[^}]*display:\s*none/);
   });
 
   it("keeps every entry, and the Intro control, inside that scroll box", () => {

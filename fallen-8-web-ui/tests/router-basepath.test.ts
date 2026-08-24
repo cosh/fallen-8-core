@@ -106,6 +106,23 @@ describe("createStudioRouter basepath", () => {
   });
 
   /**
+   * A bare `/q/{ns}` is a real route with no index child, so TanStack renders the shell around an
+   * empty Outlet there. `sameScopedScreen` therefore must not fall back to it: the button that
+   * offers a way OUT of an unreadable namespace would land the operator on a blank screen, which is
+   * the exact failure the redirect below exists to prevent.
+   */
+  it("never resolves the no-leaf case to a route with no screen", async () => {
+    const { sameScopedScreen, scopedLeaf } = await import("../src/app/scopedRoute");
+    expect(scopedLeaf("/q/ghost")).toBe("");
+    expect(sameScopedScreen("/q/ghost")).toBe("/q/$ns/browser");
+
+    const r = createStudioRouter({ history: "memory" });
+    await r.load();
+    await r.navigate({ to: sameScopedScreen("/q/ghost"), params: { ns: "default" } });
+    expect(r.state.matches.at(-1)?.routeId).toBe("/q/$ns/browser");
+  });
+
+  /**
    * The Dashboard's two URLs outlive the screen. Dropping the routes would have answered every
    * bookmark with the shell wrapped around an empty <Outlet/> (there is no not-found component),
    * so both forward to the Browser in the namespace they named - the flat one through the scoped

@@ -37,6 +37,24 @@ export function isReservedEmbeddingProperty(propertyId: string): boolean {
   );
 }
 
+/**
+ * The element's own properties first, engine-written embedding state last, order otherwise
+ * preserved. For a TRUNCATED preview (the element table's properties cell), which is the only
+ * place this matters: a reserved marker is bookkeeping the operator did not write and cannot edit
+ * here, so spending the character budget on it before their own data is backwards.
+ *
+ * It was not hypothetical. On a graph with embeddings, `$embeddingModel:default=bge-m3#1024#Cosine`
+ * is ~44 of the ~80 available characters, and the REST egress emits properties in no guaranteed
+ * order - so a movie row rendered as "year=2010, $embeddingModel:default=…, plot=A thief who
+ * steals…" with `title=` cut off entirely, and the published semantic-search screenshot showed no
+ * film title in any of its ten rows.
+ */
+export function userPropertiesFirst<T extends { propertyId: string }>(properties: T[]): T[] {
+  const reserved = (p: T) => (isReservedEmbeddingProperty(p.propertyId) ? 1 : 0);
+  // Array.prototype.sort is stable (spec-guaranteed), so this only ever moves reserved keys down.
+  return [...properties].sort((a, b) => reserved(a) - reserved(b));
+}
+
 /** A one-line preview of a stored vector value. The REST egress sends Single[] values as
  * the bracketed string form (see AGraphElement.FormatPropertyValue), so both shapes are
  * truncated — a 1024-dim embedding must never dump raw into the table. */
