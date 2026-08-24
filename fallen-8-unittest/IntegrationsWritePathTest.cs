@@ -25,8 +25,11 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -554,6 +557,81 @@ namespace NoSQL.GraphDB.Tests
 
             StringAssert.Contains(failure.Message, "embedding write",
                 "and the failure names which write did not come back: " + failure.Message);
+        }
+
+        [TestMethod]
+        public async Task ALargeSummaryWrite_IsChunked_BecauseTheRouteCapsITEMSNotBytes()
+        {
+            // The defect this pins was silent at fixture size and fatal at real size: every summary went out in
+            // ONE post, the route refuses a batch over Fallen8:Embedding:MaxBatchSize (default 64, and 32 under
+            // the Nahil compose), and 400 is correctly NOT in the degrade set - so a many-entity system extract
+            // failed the run with errorKind "graph" AFTER its graph writes had landed and BEFORE reconciliation.
+            var handler = new EmbedBatchRecordingHandler();
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var outcome = await target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None);
+
+            Assert.AreEqual(200, outcome.Written, "every summary is embedded, across however many requests it takes");
+            Assert.IsNull(outcome.Degraded, "and nothing degraded, because the target answered every chunk");
+            Assert.AreEqual(200, handler.BatchSizes.Sum(), "no summary is dropped, and none is sent twice");
+            Assert.IsTrue(handler.BatchSizes.All(size => size <= 32),
+                "no chunk may exceed the SMALLEST cap this product ships, or every Nahil deployment fails every " +
+                "run: " + String.Join(", ", handler.BatchSizes));
+        }
+
+        [TestMethod]
+        public async Task AProviderThatStopsAnsweringMidChunk_StillReportsWhatAlreadyLanded()
+        {
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 3, status: HttpStatusCode.ServiceUnavailable);
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var outcome = await target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None);
+
+            Assert.AreEqual(64, outcome.Written,
+                "two chunks landed before the provider stopped answering, and those vectors are ON their " +
+                "elements - reporting zero for them would be a false report, and a bound index answers " +
+                "searches over them either way");
+            Assert.IsNotNull(outcome.Degraded, "and the absence of the rest is reported rather than silent");
+            Assert.AreEqual(3, handler.BatchSizes.Count,
+                "503 describes the PROVIDER rather than this batch, so the remaining chunks are not tried: a " +
+                "large extract would otherwise spend hundreds of round-trips proving the same thing");
+        }
+
+        [TestMethod]
+        public async Task ARefusalThatIsNotTheProviderBeingAbsent_IsStillAGraphFailure_EvenMidChunk()
+        {
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 2, status: HttpStatusCode.BadRequest);
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var failure = await Assert.ThrowsExceptionAsync<GraphTargetException>(
+                () => target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None),
+                "chunking must not turn a real refusal into a degradation: 400 says the runtime sent something " +
+                "the route will never accept, which is this deployable's defect and has to surface as one");
+
+            StringAssert.Contains(failure.Message, "400", "and the status is named: " + failure.Message);
+        }
+
+        [TestMethod]
+        public async Task APartiallyEmbeddedRun_ReportsTheCountThatLanded_AndNamesOnlyTheShortfall()
+        {
+            var graph = new PartiallyEmbeddingTarget(new InMemoryGraphTarget(), embedsAtMost: 1);
+
+            var report = await ApplyAsync(graph,
+                Document(Device("44:D2:44:AA:BB:CC", ("csv.name", "printer")),
+                    Device("44:D2:44:AA:BB:CD", ("csv.name", "switch"))),
+                summary: new SummaryRequest("{kind} {csv.name}", "default"));
+
+            Assert.AreEqual(2, report.ElementsCreated, "the graph write is the point of the run");
+            Assert.AreEqual(1, report.SummariesEmbedded,
+                "the report counts what LANDED: a partial embed that reports zero makes the operator re-import " +
+                "a namespace whose vectors are half present");
+            var degraded = report.Diagnostics.Single(d => d.Code == DiagnosticCodes.SummaryEmbeddingUnavailable);
+            StringAssert.Contains(degraded.Message, "1 of 2",
+                "and the diagnostic names the SHORTFALL rather than the whole batch, which is a different " +
+                "false statement: " + degraded.Message);
         }
 
         #endregion
@@ -1323,6 +1401,80 @@ namespace NoSQL.GraphDB.Tests
                 throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout",
                     new TimeoutException());
             }
+        }
+
+        /// <summary>
+        ///   Records the ITEM COUNT of every embedding batch, and can refuse the Nth one. The count PER REQUEST
+        ///   is the whole subject: the route caps items rather than bytes, so a chunking defect is invisible in
+        ///   a total and shows up only request by request.
+        /// </summary>
+        private sealed class EmbedBatchRecordingHandler : HttpMessageHandler
+        {
+            private readonly Int32 _failOnCall;
+            private readonly HttpStatusCode _status;
+
+            public EmbedBatchRecordingHandler(Int32 failOnCall = 0,
+                HttpStatusCode status = HttpStatusCode.ServiceUnavailable)
+            {
+                _failOnCall = failOnCall;
+                _status = status;
+            }
+
+            public List<Int32> BatchSizes { get; } = new List<Int32>();
+
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                var body = await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                using var parsed = JsonDocument.Parse(body);
+                BatchSizes.Add(parsed.RootElement.GetProperty("items").GetArrayLength());
+
+                if (_failOnCall > 0 && BatchSizes.Count == _failOnCall)
+                {
+                    return new HttpResponseMessage(_status) { Content = new StringContent("refused") };
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("true") };
+            }
+        }
+
+        /// <summary>
+        ///   A target whose provider stops answering PART WAY through the chunked embedding write, which is the
+        ///   state chunking introduced and which no fixture could produce before: some vectors landed and the
+        ///   rest did not.
+        /// </summary>
+        private sealed class PartiallyEmbeddingTarget : DelegatingGraphTarget
+        {
+            private readonly Int32 _embedsAtMost;
+
+            public PartiallyEmbeddingTarget(IGraphTarget inner, Int32 embedsAtMost)
+                : base(inner)
+            {
+                _embedsAtMost = embedsAtMost;
+            }
+
+            public override Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
+                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken)
+            {
+                var written = Math.Min(_embedsAtMost, summaries.Count);
+
+                return Task.FromResult(new EmbeddingWriteOutcome(written,
+                    written == summaries.Count
+                        ? null
+                        : "the target answered 503 to the embedding write (the backend is unavailable)"));
+            }
+        }
+
+        /// <summary>Summaries enough to need more than one chunk, since one chunk is the whole defect.</summary>
+        private static SummaryWrite[] Summaries(Int32 count)
+        {
+            var summaries = new SummaryWrite[count];
+            for (var i = 0; i < count; i++)
+            {
+                summaries[i] = new SummaryWrite(i, "signal Odo_ST" + i.ToString(CultureInfo.InvariantCulture));
+            }
+
+            return summaries;
         }
 
         /// <summary>
