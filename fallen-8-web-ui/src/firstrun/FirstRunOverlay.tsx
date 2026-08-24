@@ -23,41 +23,91 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import { useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useNavigate } from "@tanstack/react-router";
 import { useActiveNamespace } from "../instances/registry";
 import { FirstRunShow } from "./FirstRunShow";
 import { useFirstRun } from "./firstRunStore";
 import { usePortalContainer } from "../app/studioConfig";
+import type { NamespaceSignals } from "../app/namespaceSignals";
 
 /**
- * Manual-replay overlay (feature studio-first-run). Renders the SAME <FirstRunShow> the
- * Dashboard auto-shows, on top of the current screen, from beat 1. Radix Dialog gives the focus
- * trap, Escape-to-close, and focus restore for free. Closing never touches the dismissed flag.
+ * The first-run show's ONE host (feature studio-first-run), rendered once by the app shell. Radix
+ * Dialog gives the focus trap, Escape-to-close, and focus restore for free.
+ *
+ * It opens on two paths, and the difference is entirely in what closing means:
+ *
+ * - **auto** - the active namespace is empty and this newcomer has not dismissed the show for it.
+ *   Closing by ANY route (Close, Escape, the scrim, "Explore on my own") records the dismissal;
+ *   an auto-opening modal that came back on the next navigation would be unusable. The memory is
+ *   per namespace and re-armed the moment that namespace is seen non-empty, so a graph that
+ *   genuinely empties later shows the intro again.
+ * - **replay** - the rail's Intro button, available at any time regardless of the connection
+ *   state, the graph being empty, or the dismissal. Closing it never touches the flag.
  *
  * The show creates NOTHING: its handoff buttons only navigate (to the Sample gallery or the
  * import screen) or dismiss. The unit-test graph endpoint is deliberately never wired in (see
  * CLAUDE.md); newcomers reach a populated graph through the curated Sample gallery.
  */
-export function FirstRunOverlay() {
+export function FirstRunOverlay({
+  signals,
+  connected,
+}: {
+  /** The active namespace's shell-level signals - what decides the auto path. */
+  signals: NamespaceSignals;
+  /**
+   * Whether the active instance answered AND authorized. /status reports real counts to an
+   * unauthorized caller too, so without this an instance that rejected the credential would greet
+   * the operator with a walkthrough on top of the "rejected the credential" guard.
+   */
+  connected: boolean;
+}) {
   const replayOpen = useFirstRun((s) => s.replayOpen);
   const closeReplay = useFirstRun((s) => s.closeReplay);
+  const dismiss = useFirstRun((s) => s.dismiss);
+  const clearIfPopulated = useFirstRun((s) => s.clearIfPopulated);
   const namespace = useActiveNamespace();
   const navigate = useNavigate();
   const portalContainer = usePortalContainer();
 
+  const key = signals.key;
+  // No key means no instance, and an unknown namespace counts as dismissed rather than as fresh.
+  const dismissed = useFirstRun((s) => (key === null ? true : (s.dismissed[key] ?? false)));
+
+  // Re-arm the auto-show once the namespace is seen non-empty, so a graph that genuinely empties
+  // later shows the intro again.
+  useEffect(() => {
+    if (key !== null && signals.populated) clearIfPopulated(key);
+  }, [key, signals.populated, clearIfPopulated]);
+
+  // The durability warning WINS over the welcome: a truncated recovery is a leading reason a
+  // namespace you expected to hold data is empty, and the shell banner that says so must not sit
+  // behind this modal's scrim. The rail's Intro button still plays the show on demand.
+  const auto = connected && signals.empty && !signals.durabilityUnhealthy && !dismissed;
+  const open = replayOpen || auto;
+  const variant = replayOpen ? "replay" : "auto";
+
+  const close = () => {
+    if (replayOpen) {
+      closeReplay();
+    } else if (key !== null) {
+      dismiss(key);
+    }
+  };
+
   const onBrowseSamples = () => {
-    closeReplay();
+    close();
     void navigate({ to: "/q/$ns/samples", params: { ns: namespace } });
   };
 
   const onImport = () => {
-    closeReplay();
+    close();
     void navigate({ to: "/save-games" });
   };
 
   return (
-    <Dialog.Root open={replayOpen} onOpenChange={(o) => !o && closeReplay()}>
+    <Dialog.Root open={open} onOpenChange={(o) => !o && close()}>
       <Dialog.Portal container={portalContainer}>
         <Dialog.Overlay className="fixed inset-0 z-40 bg-black/70" />
         <Dialog.Content
@@ -81,8 +131,8 @@ export function FirstRunOverlay() {
           </div>
           <div className="min-h-0 flex-1">
             <FirstRunShow
-              variant="replay"
-              onExplore={closeReplay}
+              variant={variant}
+              onExplore={close}
               onBrowseSamples={onBrowseSamples}
               onImport={onImport}
             />

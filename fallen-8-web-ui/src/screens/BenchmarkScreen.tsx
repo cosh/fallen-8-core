@@ -39,7 +39,7 @@ import { ABSENT, formatCompact, formatCountOrDash, formatExact } from "../lib/fo
 
 /**
  * Benchmark workspace (feature sample-graphs): graph generation + the traversal
- * benchmark, moved out of the Dashboard playground into their own growing tab. The
+ * benchmark, in their own growing tab. The
  * benchmark follows every out-edge of every vertex regardless of edge-property-id
  * (feature schema-agnostic-benchmark), so it measures whatever graph is currently loaded;
  * generation is just a convenient way to conjure a graph of a chosen size to measure.

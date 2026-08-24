@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 import { useEffect } from "react";
-import { Outlet, useNavigate, useParams } from "@tanstack/react-router";
+import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRegistry, useActiveInstance, DEFAULT_NAMESPACE } from "../instances/registry";
 import { activateNamespace, listNamespaces, createNamespace } from "../api/endpoints";
@@ -32,6 +32,7 @@ import { purgeInstanceStore } from "../state/instanceStore";
 import { bumpFeedGeneration } from "../state/liveFeed";
 import { ErrorBox } from "../components/ErrorBox";
 import { useStudioConfig } from "./studioConfig";
+import { sameScopedScreen } from "./scopedRoute";
 
 /**
  * Layout under /q/$ns/… (feature graph-namespaces): keeps the registry's active namespace
@@ -50,6 +51,15 @@ export function NamespaceScope() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { lockNamespace } = useStudioConfig();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  /**
+   * Both ways out of a namespace this process cannot read keep the SCREEN and change only the
+   * namespace (see scopedRoute.ts): someone who deep-linked into the Query screen of a dropped
+   * namespace came for the Query screen.
+   */
+  const switchToDefault = () =>
+    navigate({ to: sameScopedScreen(pathname), params: { ns: DEFAULT_NAMESPACE } });
 
   useEffect(() => {
     if (instance) setActiveNamespace(instance.id, ns);
@@ -113,9 +123,7 @@ export function NamespaceScope() {
               type="button"
               data-testid="namespace-recover-switch"
               className="btn"
-              onClick={() =>
-                navigate({ to: "/q/$ns/dashboard", params: { ns: DEFAULT_NAMESPACE } })
-              }
+              onClick={() => void switchToDefault()}
             >
               Switch to “{DEFAULT_NAMESPACE}”
             </button>
@@ -183,9 +191,7 @@ export function NamespaceScope() {
                 type="button"
                 data-testid="namespace-not-loaded-switch"
                 className="btn"
-                onClick={() =>
-                  navigate({ to: "/q/$ns/dashboard", params: { ns: DEFAULT_NAMESPACE } })
-                }
+                onClick={() => void switchToDefault()}
               >
                 Switch to “{DEFAULT_NAMESPACE}”
               </button>

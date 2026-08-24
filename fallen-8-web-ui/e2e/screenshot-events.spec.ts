@@ -58,7 +58,7 @@ test("capture the Events panel with live change-feed rows", async ({ page, reque
   await expect(page.getByTestId("active-endpoint")).toContainText("same origin");
   await expect(page.getByTestId("health-chip")).toContainText(/online/i, { timeout: 20_000 });
 
-  await page.goto("/q/default/dashboard");
+  await page.goto("/q/default/browser");
   // The stream must be up BEFORE mutating, so the events arrive live and the bell counts.
   await expect(page.getByTestId("live-chip")).toHaveText("live", { timeout: 20_000 });
 

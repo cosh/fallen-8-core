@@ -73,14 +73,6 @@ export const SECTION_HELP: Record<string, SectionHelpEntry> = {
       { slug: "security", title: "Security", blurb: "The optional all-or-nothing API key; set one before exposing the service." },
     ],
   },
-  dashboard: {
-    heading: "How the dashboard works",
-    links: [
-      { slug: "studio", title: "F8 Studio", blurb: "The browser workbench: browse, query, visualize, and author C# delegates." },
-      { slug: "observability", title: "Observability", blurb: "Metrics, traces, a graph-shape snapshot, and health probes." },
-      { slug: "namespaces", title: "Namespaces", blurb: "Many isolated graphs in one Fallen-8, addressable under /ns/{name}/." },
-    ],
-  },
   samples: {
     heading: "How samples work",
     links: [

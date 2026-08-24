@@ -243,7 +243,8 @@ export interface StatusREST {
  * a single outcome. The reason it is on the cheap status surface at all: a client that reconciles
  * against the graph and then deletes what nothing asserts any more would otherwise draw that
  * conclusion from truncated history with no way to know. The integrations runtime does exactly
- * that and defers deletion on this block; a human watching a dashboard deserves the same signal.
+ * that and defers deletion on this block; the human watching deserves the same signal, which is
+ * why the app shell renders it too (see DurabilityNotice).
  */
 export interface DurabilityREST {
   walEnabled: boolean;
