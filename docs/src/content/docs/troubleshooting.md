@@ -202,10 +202,44 @@ call is cross-origin, and CORS is deny-all until the UI's origin is allow-listed
 like a dead server, which is why the Connect screen shows a CORS hint for cross-origin
 instances.
 
-**Fix.** Allow-list the UI's origin on the data plane. The compose overlay allow-lists exactly
-`http://localhost:<F8_UI_PORT>`, so this bites when you reach Studio under another host name
-(`127.0.0.1`, a LAN address) or run a hand-rolled deployment. Exact key and form:
-[Standalone deployment](/standalone-ui/).
+**Fix.** Allow-list the UI's origin on the data plane. The compose overlay allow-lists **both
+loopback spellings** of the UI (`http://localhost:<F8_UI_PORT>` and
+`http://127.0.0.1:<F8_UI_PORT>`), so this bites when you reach Studio under a name that is neither
+- a LAN address, a hostname, a reverse proxy - or run a hand-rolled deployment. Exact key and
+form: [Standalone deployment](/standalone-ui/).
+
+## Studio says "checking…" for ever, and never says anything else
+
+**Symptom.** The health chip, the Configuration panel and the instance row all sit on `checking…`
+indefinitely. Not "unreachable", not "unauthorized" - no verdict at all. The API is up, and
+`docker ps` says its container is healthy.
+
+**Cause.** Something **accepted** the TCP connection and then sent nothing back. A refused
+connection fails fast and reads as `unreachable`; a silent one leaves the request pending, and a
+pending request is not an error, so the UI keeps waiting. The usual culprit on Windows with Docker
+Desktop is a wedged IPv6 loopback forward for one published port: `localhost` resolves to `::1`
+first, so every call goes down the dead path while the service answers perfectly on IPv4.
+
+**Confirm it** - the asymmetry is the whole diagnosis, and it takes two commands:
+
+```bash
+curl -4 -m 5 -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/status   # 200
+curl -6 -m 5 -o /dev/null -w '%{http_code}\n' http://[::1]:8080/status       # hangs, then 000
+```
+
+Compare another published port (`3000`, `8081`) the same way. If only one port is affected, it is
+the forward and not the app.
+
+**Fix.** Point the instance at `http://127.0.0.1:<port>` - and reach Studio at a `127.0.0.1`
+origin too if it is on its own port, since the page's origin has to stay allow-listed (both
+loopback spellings are, above). To get `localhost` working again, `wsl --shutdown` and start Docker
+Desktop: restarting Docker Desktop **alone does not recycle `wslrelay`**, which is the process
+holding the broken forward, so the fault survives it. Rule out a genuine reservation first with
+`netsh int ipv6 show excludedportrange protocol=tcp`.
+
+Since the [Studio's](/studio/) reachability probe carries a 10 s deadline, a silence now reads as
+**no answer** with the address named, rather than as an endless spinner - but an older Studio, or a
+hung call on any other screen, still shows the spinner.
 
 ## The F8 Studio container will not start
 
