@@ -4410,9 +4410,17 @@
         "tags": [
           "Integrations"
         ],
-        "summary": "Runs one integration job and returns its report (feature integrations)",
-        "description": "A job carries everything one run needs: which provider, the identity it asserts\r\n    as, the namespace to write into, the provider's settings, its credentials as VALUES in\r\n    credentialValues, and any file it reads as a name plus its bytes in files. The runtime\r\n    stores none of them: it holds a credential and a file for the run that needs them and\r\n    drops both when the run ends, mounts no directory, keeps no job history, and no route\r\n    reads a job back. All of that travels through here in the request body, so serve this API\r\n    over TLS. The call is synchronous: the source is read, what it\r\n    said is written, the report comes back, and the runtime keeps nothing. A job that ran and\r\n    failed still answers 200 with the failure on its report; one that could not be run at all\r\n    is the runtime's 400 or its 409 (one job at a time per identity).\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://docs.fallen-8.com/integrations/. The caller owns the stability of the\r\n    integration instance id, which nothing can validate: a run under an identity that\r\n    integration has not always used withdraws and deletes what the real one claimed.\r\n    Because a file travels in the body, this is the one route besides document upload\r\n    whose body bound is larger than the 1 MiB every other endpoint carries. That bound (48 MiB)\r\n    sits above any legal job and below the runtime's own, so an oversized FILE is refused by the\r\n    runtime with a message naming both its size and the ceiling, while an absurd BODY is refused\r\n    here with a 413 - and neither is ever reported as a runtime that did not answer. It is fixed\r\n    rather than configurable, so raising the runtime's Integrations:MaxFileBytes past about 34 MiB\r\n    has no effect through this proxy, which is the only way in.",
+        "summary": "Starts one integration job and returns a run id to watch it by (feature integrations)",
+        "description": "A job carries everything one run needs: which provider, the identity it asserts\r\n    as, the namespace to write into, the provider's settings, its credentials as VALUES in\r\n    credentialValues, and any file it reads as a name plus its bytes in files. The runtime\r\n    stores none of them: it holds a credential and a file for the run that needs them and\r\n    drops both when the run ends, mounts no directory, keeps no job history, and no route\r\n    reads a job back. All of that travels through here in the request body, so serve this API\r\n    over TLS.\r\n    The call is ACCEPTED, not awaited: it answers 202 with a run id, and the run is watched\r\n    through GET /integrations/run/{instanceId}. Everything that can REJECT a job is still judged\r\n    before the answer, so a 202 means the run really started and a 400 or 409 means it never did.\r\n    Pass wait=true for the old synchronous shape, which returns the report itself - suitable for a\r\n    small source and a script, and not for a large one, because this proxy holds a connection for a\r\n    bounded time while a real import runs far longer.\r\n    A job that ran and\r\n    failed still answers 200 with the failure on its report; one that could not be run at all\r\n    is the runtime's 400 or its 409 (one job at a time per identity).\r\n    The request and response bodies are the RUNTIME's own contract and are deliberately\r\n    untyped here, so there is exactly one definition of them:\r\n    https://docs.fallen-8.com/integrations/. The caller owns the stability of the\r\n    integration instance id, which nothing can validate: a run under an identity that\r\n    integration has not always used withdraws and deletes what the real one claimed.\r\n    Because a file travels in the body, this is the one route besides document upload\r\n    whose body bound is larger than the 1 MiB every other endpoint carries. That bound (48 MiB)\r\n    sits above any legal job and below the runtime's own, so an oversized FILE is refused by the\r\n    runtime with a message naming both its size and the ceiling, while an absurd BODY is refused\r\n    here with a 413 - and neither is ever reported as a runtime that did not answer. It is fixed\r\n    rather than configurable, so raising the runtime's Integrations:MaxFileBytes past about 34 MiB\r\n    has no effect through this proxy, which is the only way in.",
         "parameters": [
+          {
+            "name": "wait",
+            "in": "query",
+            "description": "Wait for the run and return its report instead of a run id. For a small\r\n    source and a script only: this proxy holds a connection for a bounded time.",
+            "schema": {
+              "type": "boolean"
+            }
+          },
           {
             "name": "api-version",
             "in": "query",
@@ -4431,6 +4439,12 @@
         "responses": {
           "200": {
             "description": "The job report, including a run that failed",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "202": {
+            "description": "Accepted",
             "content": {
               "application/json": { }
             }
@@ -4564,6 +4578,148 @@
           },
           "409": {
             "description": "The runtime reported a conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/run": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Reports every integration run this runtime knows about (feature integration-run-visibility)",
+        "description": "What is happening NOW, and what happened LAST, per integration identity - and nothing\r\n    else. This is deliberately not a run log: the runtime keeps one slot per identity, superseded by\r\n    that identity's next run, in memory, dropped on restart, and capped so a caller inventing an\r\n    identity per run cannot grow it without bound.\r\n    It exists because a report used to be unreachable. The job route's answer was the only copy\r\n    the runtime made, and any real source outlives the connection that would have carried it.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Every tracked run, newest first",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/integrations/run/{instanceId}": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Reports one integration identity's current or most recent run (feature integration-run-visibility)",
+        "description": "While a run is in flight this carries the phase it is in and how far through that phase\r\n    it is; once it ends it carries the report itself, or the error if it produced none. The phases are\r\n    observe, validate, resolve, write-elements, write-edges, embed-summaries and reconcile - and two of\r\n    them matter most, because both can run for a long time while the graph shows no change at all: a\r\n    large extract parses for minutes, and summary embedding is model inference for hours.\r\n    A 404 means this runtime has no slot for that identity: it has not run in this process, or a\r\n    restart or enough other identities have displaced it.",
+        "parameters": [
+          {
+            "name": "instanceId",
+            "in": "path",
+            "description": "The integration identity the run asserts as",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The run, in flight or finished",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No run is tracked for that identity",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {

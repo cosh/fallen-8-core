@@ -162,8 +162,65 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
-        /// Runs one integration job and returns its report (feature integrations)
+        /// Reports every integration run this runtime knows about (feature integration-run-visibility)
         /// </summary>
+        /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
+        /// <remarks>What is happening NOW, and what happened LAST, per integration identity - and nothing
+        /// else. This is deliberately not a run log: the runtime keeps one slot per identity, superseded by
+        /// that identity's next run, in memory, dropped on restart, and capped so a caller inventing an
+        /// identity per run cannot grow it without bound.
+        /// <para>It exists because a report used to be unreachable. The job route's answer was the only copy
+        /// the runtime made, and any real source outlives the connection that would have carried it.</para></remarks>
+        /// <response code="200">Every tracked run, newest first</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>
+        /// <response code="503">No runtime is configured, or it did not answer</response>
+        [HttpGet("/integrations/run")]
+        [Produces("application/json")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public Task<IActionResult> Runs(CancellationToken cancellationToken)
+        {
+            return Forward(HttpMethod.Get, "integration/run", null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Reports one integration identity's current or most recent run (feature integration-run-visibility)
+        /// </summary>
+        /// <param name="instanceId">The integration identity the run asserts as</param>
+        /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
+        /// <remarks>While a run is in flight this carries the phase it is in and how far through that phase
+        /// it is; once it ends it carries the report itself, or the error if it produced none. The phases are
+        /// observe, validate, resolve, write-elements, write-edges, embed-summaries and reconcile - and two of
+        /// them matter most, because both can run for a long time while the graph shows no change at all: a
+        /// large extract parses for minutes, and summary embedding is model inference for hours.
+        /// <para>A 404 means this runtime has no slot for that identity: it has not run in this process, or a
+        /// restart or enough other identities have displaced it.</para></remarks>
+        /// <response code="200">The run, in flight or finished</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>
+        /// <response code="404">No run is tracked for that identity</response>
+        /// <response code="503">No runtime is configured, or it did not answer</response>
+        [HttpGet("/integrations/run/{instanceId}")]
+        [Produces("application/json")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public Task<IActionResult> Run([FromRoute] String instanceId, CancellationToken cancellationToken)
+        {
+            return Forward(HttpMethod.Get, "integration/run/" + Uri.EscapeDataString(instanceId ?? String.Empty),
+                null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Starts one integration job and returns a run id to watch it by (feature integrations)
+        /// </summary>
+        /// <param name="wait">Wait for the run and return its report instead of a run id. For a small
+        /// source and a script only: this proxy holds a connection for a bounded time.</param>
         /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
         /// <remarks>A job carries everything one run needs: which provider, the identity it asserts
         /// as, the namespace to write into, the provider's settings, its credentials as VALUES in
@@ -171,8 +228,14 @@ namespace NoSQL.GraphDB.App.Controllers
         /// stores none of them: it holds a credential and a file for the run that needs them and
         /// drops both when the run ends, mounts no directory, keeps no job history, and no route
         /// reads a job back. All of that travels through here in the request body, so serve this API
-        /// over TLS. The call is synchronous: the source is read, what it
-        /// said is written, the report comes back, and the runtime keeps nothing. A job that ran and
+        /// over TLS.
+        /// <para>The call is ACCEPTED, not awaited: it answers 202 with a run id, and the run is watched
+        /// through GET /integrations/run/{instanceId}. Everything that can REJECT a job is still judged
+        /// before the answer, so a 202 means the run really started and a 400 or 409 means it never did.
+        /// Pass wait=true for the old synchronous shape, which returns the report itself - suitable for a
+        /// small source and a script, and not for a large one, because this proxy holds a connection for a
+        /// bounded time while a real import runs far longer.</para>
+        /// A job that ran and
         /// failed still answers 200 with the failure on its report; one that could not be run at all
         /// is the runtime's 400 or its 409 (one job at a time per identity).
         /// <para>The request and response bodies are the RUNTIME's own contract and are deliberately
@@ -199,13 +262,14 @@ namespace NoSQL.GraphDB.App.Controllers
         [Consumes("application/json")]
         [Produces("application/json")]
         [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
         [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-        public async Task<IActionResult> Job(CancellationToken cancellationToken)
+        public async Task<IActionResult> Job([FromQuery] Boolean? wait, CancellationToken cancellationToken)
         {
             // The body is STREAMED, not bound. There is deliberately no [FromBody] parameter: a job can
             // carry a 128 MiB file, and binding it would leave the whole thing resident here about four
@@ -219,7 +283,10 @@ namespace NoSQL.GraphDB.App.Controllers
             SidecarResponse response;
             try
             {
-                response = await _client.ForwardStreamAsync(HttpMethod.Post, "integration/job",
+                // The query has to be carried explicitly: this hop forwards a PATH, so a `wait` the caller
+                // asked for would otherwise be silently dropped and they would get a 202 they cannot use.
+                response = await _client.ForwardStreamAsync(HttpMethod.Post,
+                    wait == true ? "integration/job?wait=true" : "integration/job",
                     Request.Body, Request.ContentType, cancellationToken);
             }
             catch (IntegrationsUnavailableException ex)
