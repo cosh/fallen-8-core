@@ -442,7 +442,8 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
         /// <inheritdoc />
         public Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
-            IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken)
+            IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
+            NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null)
         {
             if (!_embedding.Available)
             {
@@ -461,6 +462,10 @@ namespace NoSQL.GraphDB.Integrations.Graph
             {
                 EmbeddedSummaries[summary.ElementId] = summary.Text;
             }
+
+            // This target does no inference, so there is one tick: it lands all at once. Reported anyway,
+            // so a fixture can assert the applier threads the sink this far rather than dropping it.
+            progress?.Advance(summaries.Count, summaries.Count);
 
             return Task.FromResult(new EmbeddingWriteOutcome(summaries.Count, null));
         }

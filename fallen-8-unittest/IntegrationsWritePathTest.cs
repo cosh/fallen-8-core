@@ -1424,7 +1424,8 @@ namespace NoSQL.GraphDB.Tests
             }
 
             public override Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
-                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken)
+                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
+                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null)
             {
                 _caller.Cancel();
                 throw new TaskCanceledException("the embedding sidecar did not answer in time");
@@ -1497,7 +1498,8 @@ namespace NoSQL.GraphDB.Tests
             }
 
             public override Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
-                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken)
+                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
+                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null)
             {
                 var written = Math.Min(_embedsAtMost, summaries.Count);
 
@@ -1604,9 +1606,10 @@ namespace NoSQL.GraphDB.Tests
             }
 
             public virtual Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
-                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken)
+                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
+                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null)
             {
-                return _inner.EmbedSummariesAsync(embeddingName, summaries, cancellationToken);
+                return _inner.EmbedSummariesAsync(embeddingName, summaries, cancellationToken, progress);
             }
 
             public void Dispose()

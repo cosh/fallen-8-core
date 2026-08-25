@@ -175,8 +175,15 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///   dependence on the AI capabilities, which is why the degradation matrix over it has two honest cells
         ///   rather than sixteen decorative ones.</para>
         /// </summary>
+        /// <remarks>
+        ///   <paramref name="progress" /> ticks per CHUNK, which is the finest granularity available: a
+        ///   chunk is one call to the target. It matters here more than anywhere else on this interface,
+        ///   because this is the only method whose duration is model inference - hours for a real extract -
+        ///   and a phase counter that never moves is indistinguishable from a hang.
+        /// </remarks>
         Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
-            IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken);
+            IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
+            NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null);
     }
 
     /// <summary>
