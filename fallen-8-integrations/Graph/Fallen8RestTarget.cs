@@ -490,7 +490,8 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
         /// <inheritdoc />
         public async Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
-            IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken)
+            IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
+            NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null)
         {
             if (summaries == null || summaries.Count == 0)
             {
@@ -531,6 +532,10 @@ namespace NoSQL.GraphDB.Integrations.Graph
                     if (response.IsSuccessStatusCode)
                     {
                         written += take;
+                        // Per chunk, because that is the only tick this loop has. At ~3 s an element it is a
+                        // visible move roughly every 45 s, which is the difference between "working" and
+                        // "hung" for a phase that runs for hours.
+                        progress?.Advance(written, summaries.Count);
                         continue;
                     }
 

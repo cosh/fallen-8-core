@@ -84,8 +84,18 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   was asked, so the interesting outcome is the run's. A job that could not be run at all raises
         ///   <see cref="JobRejectedException"/>.</para>
         /// </summary>
-        public async Task<JobReport> RunAsync(IntegrationJob job, CancellationToken cancellationToken)
+        /// <param name="job">The whole configuration of one run.</param>
+        /// <param name="cancellationToken">Honoured up to the point of no return, and not after it.</param>
+        /// <param name="progress">
+        ///   Where the run says what it is doing while it does it. Optional and defaulted to a no-op, so
+        ///   every caller that drives a run without watching it - the conformance suite, the write-path
+        ///   tests, anything scripted - keeps meaning exactly what it meant before.
+        /// </param>
+        public async Task<JobReport> RunAsync(IntegrationJob job, CancellationToken cancellationToken,
+            IRunProgress? progress = null)
         {
+            progress ??= NoRunProgress.Instance;
+
             if (job == null)
             {
                 throw new JobRejectedException(JobErrorKinds.Configuration, "A job definition is required.");
@@ -175,6 +185,10 @@ namespace NoSQL.GraphDB.Integrations.Run
                         diagnostics, runFiles.ReadAsync,
                         key => runFiles.TryResolve(key, out var failure) ? null : failure);
 
+                    // Named before the call, because this is the phase that looks like a hang: an a large size
+                    // extract parses for minutes and writes nothing, so "observe" is the only thing that
+                    // distinguishes working from stuck.
+                    progress.EnterPhase(RunPhases.Observe);
                     var snapshot = await provider.ObserveAsync(context, cancellationToken).ConfigureAwait(false);
 
                     foreach (var diagnostic in diagnostics)
@@ -205,6 +219,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                     {
                         report.Diagnostics.Add(diagnostic);
                     }
+
+                    progress.EnterPhase(RunPhases.Validate);
 
                     if (!validated.EnvelopeAccepted)
                     {
@@ -238,8 +254,12 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // THE POINT OF NO RETURN, and the one place this runtime deliberately stops honouring the
                     // caller's cancellation. Everything above - the source read, which is the slow part, and the
                     // validation - is cancellable, and a caller that walks away during it loses nothing. The apply
-                    // phase is different: it is a bounded handful of batched writes, seconds of work, and
-                    // interrupting it midway leaves a half-applied snapshot. That is not a rollback but a
+                    // phase is different: interrupting it midway leaves a half-applied snapshot.
+                    //
+                    // It used to be fair to call it "seconds of work". Summary embedding ended that: the embed
+                    // phase is model inference, and a many-entity extract against a CPU-backed model is
+                    // HOURS. The decision below is unchanged and now matters far more - but it is also why the
+                    // run has to be observable from outside, because nobody can hold a connection that long. That is not a rollback but a
                     // repairable-yet-invisible state, so the run finishes what it started even if nobody is left
                     // to read the answer.
                     //
@@ -253,7 +273,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // Set BEFORE the call, not after it: the flag answers "could a write have happened", and the
                     // answer becomes yes the moment control enters the applier.
                     applyStarted = true;
-                    await _applier.ApplyAsync(validated, instanceId, target, report, summary, CancellationToken.None)
+                    await _applier.ApplyAsync(validated, instanceId, target, report, summary,
+                            CancellationToken.None, progress)
                         .ConfigureAwait(false);
 
                     return Complete(report, stopwatch, null, null, descriptor.Id);

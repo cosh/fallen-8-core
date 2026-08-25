@@ -138,9 +138,16 @@ namespace NoSQL.GraphDB.Tests
             // needs the file's bytes as base64 IN the tool call, which is token-hostile over MCP and
             // caps the useful extract at a fraction of what the runtime accepts. Either leg alone would
             // be enough; both together mean this is not a close call.
+            // The two RUN-OBSERVATION routes (feature integration-run-visibility) are deferred too, and
+            // this is a decision rather than the prefix absorbing them. They are deferred BECAUSE the job
+            // route is: an agent cannot start a run, so all these would let it do is watch a run a person
+            // started. That is a narrow case, and the MCP surface is deliberately frugal - a tool earns its
+            // tokens or it is not added. The two travel together on purpose: whenever the job route is
+            // bridged, these are bridged in the same change, because starting something an agent then cannot
+            // observe would be strictly worse than not starting it. Revisit exactly then, and not separately.
             // Contains, not StartsWith: the predicate matches "METHOD /path".
             new(op => op.Contains("/integrations"),
-                "the integration runtime proxy is deferred: three routes are declarations, and a job run is a complete-snapshot write no unverifiable identity may trigger"),
+                "the integration runtime proxy is deferred: three routes are declarations, a job run is a complete-snapshot write no unverifiable identity may trigger, and the two run-observation routes are withheld with it because an agent that cannot start a run has little use for watching one"),
         };
 
         [TestMethod]

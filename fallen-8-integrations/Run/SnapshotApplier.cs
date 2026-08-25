@@ -94,9 +94,14 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <param name="summary">The entity summary to embed, when BOTH halves of the opt-in are set. Null
         /// otherwise, which is the default and the common case.</param>
         /// <param name="cancellationToken">Aborts the run.</param>
+        /// <param name="progress">Where the phases are reported. Defaulted to a no-op, so a caller that
+        /// drives an apply without watching it keeps meaning what it meant before.</param>
         public async Task ApplyAsync(ValidatedSnapshot snapshot, String instanceId, IGraphTarget target,
-            JobReport report, SummaryRequest? summary, CancellationToken cancellationToken)
+            JobReport report, SummaryRequest? summary, CancellationToken cancellationToken,
+            IRunProgress? progress = null)
         {
+            progress ??= NoRunProgress.Instance;
+
             if (snapshot == null)
             {
                 throw new ArgumentNullException(nameof(snapshot));
@@ -145,6 +150,8 @@ namespace NoSQL.GraphDB.Integrations.Run
             // endpoint's primary key comes from the claims THIS snapshot asserts, which makes the whole run a
             // function of what the source said. The batch comes back already narrowed to what this instance may
             // write to, and also carries the un-narrowed answer, which the edge rule needs.
+            progress.EnterPhase(RunPhases.Resolve);
+            progress.Advance(0, keys.Count);
             var lookup = await ResolveWithRepairAsync(target, keys, instanceId, report, cancellationToken)
                 .ConfigureAwait(false);
             var states = lookup.Elements;
@@ -283,6 +290,10 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             if (creates.Count > 0)
             {
+                // BEFORE the writes, not after them. Entered afterwards the phase named work that was
+                // already done, and its counter read "all of them" before any of it had been issued.
+                progress.EnterPhase(RunPhases.WriteElements);
+                progress.Advance(0, creates.Count);
                 var ids = await target.CreateVerticesAsync(creates, cancellationToken).ConfigureAwait(false);
                 for (var i = 0; i < ids.Count; i++)
                 {
@@ -322,11 +333,14 @@ namespace NoSQL.GraphDB.Integrations.Run
                 indexEntries, cancellationToken).ConfigureAwait(false);
 
             // The edges' own claims; the list was cleared above, so this indexes exactly what wiring added.
+            progress.EnterPhase(RunPhases.WriteEdges);
+            progress.Advance(0, plan.Count);
             await FlushIndexEntriesAsync(target, report, indexEntries, cancellationToken).ConfigureAwait(false);
 
             if (summary != null)
             {
                 await EmbedSummariesAsync(snapshot, summary, target, report, elementIdByEntity, summaryDirty,
+                    progress,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -342,6 +356,7 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             if (snapshot.Completeness == SnapshotCompleteness.Complete)
             {
+                progress.EnterPhase(RunPhases.Reconcile);
                 await ReconcileAsync(instanceId, target, report, claimedNow, cancellationToken)
                     .ConfigureAwait(false);
             }
@@ -576,7 +591,7 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// </summary>
         private static async Task EmbedSummariesAsync(ValidatedSnapshot snapshot, SummaryRequest summary,
             IGraphTarget target, JobReport report, Int32[] elementIdByEntity, IReadOnlyCollection<Int32> summaryDirty,
-            CancellationToken cancellationToken)
+            IRunProgress progress, CancellationToken cancellationToken)
         {
             var writes = new List<SummaryWrite>();
             foreach (var entityIndex in summaryDirty)
@@ -601,6 +616,11 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             // The dimension and the metric are the TARGET'S, read from what it publishes, so no model, dimension
             // or metric is named anywhere in this runtime.
+            // Entered with its total BEFORE the provider is asked, so the phase is visible even while the
+            // first chunk is still in the model. This is the phase that runs for hours.
+            progress.EnterPhase(RunPhases.EmbedSummaries);
+            progress.Advance(0, writes.Count);
+
             var state = await target.ReadEmbeddingStateAsync(cancellationToken).ConfigureAwait(false);
             if (!state.Available)
             {
@@ -614,7 +634,8 @@ namespace NoSQL.GraphDB.Integrations.Run
             EmbeddingWriteOutcome outcome;
             try
             {
-                outcome = await target.EmbedSummariesAsync(summary.EmbeddingName, writes, cancellationToken)
+                outcome = await target
+                    .EmbedSummariesAsync(summary.EmbeddingName, writes, cancellationToken, progress)
                     .ConfigureAwait(false);
             }
             catch (GraphTargetException failure)

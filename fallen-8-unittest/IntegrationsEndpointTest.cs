@@ -53,13 +53,178 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class IntegrationsEndpointTest
     {
+
+        #region the run is observable while it happens, and knowable after it ends
+
+        /// <summary>
+        ///   The default shape: accepted, with the id and the place to watch it. The synchronous shape it
+        ///   replaced could not survive a real source - the report is the only copy this runtime makes, the
+        ///   proxy holds a connection for a bounded time, and the run is built to outlive its caller.
+        /// </summary>
+        [TestMethod]
+        public async Task AnAcceptedJob_Answers202WithARunIdAndWhereToWatchIt()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync("/integration/job",
+                Json(JobBody(FroniusProviderId, "watch-me", "{\"baseUrl\":\"http://127.0.0.1:1\"}")));
+
+            Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode,
+                "the job route waited for the run, which no real source survives: " + await ReadText(response));
+            var body = await ReadJson(response);
+            Assert.IsFalse(String.IsNullOrWhiteSpace(body.GetProperty("runId").GetString()),
+                "an accepted run carries no id, so a caller cannot tell its own run from a later one");
+            Assert.AreEqual("/integration/run/watch-me", body.GetProperty("progress").GetString(),
+                "the answer does not say where to watch the run it just started");
+        }
+
+        /// <summary>
+        ///   The point of the feature: the outcome outlives the request that started it. This source is a
+        ///   closed port, so the run starts, fails at its source, and its FAILURE is what has to be
+        ///   readable afterwards - the case where the old contract lost everything.
+        /// </summary>
+        [TestMethod]
+        public async Task TheOutcomeIsReadableAfterTheRequestIsLongGone()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using (var accepted = await client.PostAsync("/integration/job",
+                Json(JobBody(FroniusProviderId, "outcome", "{\"baseUrl\":\"http://127.0.0.1:1\"}"))))
+            {
+                Assert.AreEqual(HttpStatusCode.Accepted, accepted.StatusCode);
+            }
+
+            System.Text.Json.JsonElement state = default;
+            for (var attempt = 0; attempt < 100; attempt++)
+            {
+                using var polled = await client.GetAsync("/integration/run/outcome");
+                Assert.AreEqual(HttpStatusCode.OK, polled.StatusCode,
+                    "the run this process just accepted is not tracked");
+                state = await ReadJson(polled);
+                if (!state.GetProperty("running").GetBoolean())
+                {
+                    break;
+                }
+
+                await Task.Delay(50);
+            }
+
+            Assert.IsFalse(state.GetProperty("running").GetBoolean(), "the run never finished");
+            Assert.IsTrue(state.TryGetProperty("report", out var report) &&
+                          report.ValueKind != System.Text.Json.JsonValueKind.Null,
+                "the run ended with no report anywhere, which is exactly the hole this feature closes");
+            Assert.AreEqual("source", report.GetProperty("errorKind").GetString(),
+                "a closed port is a source failure, and the report that says so has to survive the request");
+        }
+
+        /// <summary>
+        ///   A run in flight reports a PHASE. Without this, "observe" - which parses a large extract for
+        ///   minutes while writing nothing - is indistinguishable from a hang.
+        /// </summary>
+        [TestMethod]
+        public async Task ARunInFlight_ReportsThePhaseItIsIn()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using (var accepted = await client.PostAsync("/integration/job",
+                Json(JobBody(FroniusProviderId, "phased", "{\"baseUrl\":\"http://127.0.0.1:1\"}"))))
+            {
+                Assert.AreEqual(HttpStatusCode.Accepted, accepted.StatusCode);
+            }
+
+            using var polled = await client.GetAsync("/integration/run/phased");
+            var state = await ReadJson(polled);
+
+            // Either it is still observing, or it already finished - both are fine. What must never be true
+            // is a tracked run that names no phase and carries no outcome.
+            var running = state.GetProperty("running").GetBoolean();
+            var phase = state.TryGetProperty("phase", out var p) ? p.GetString() : null;
+            var hasOutcome = state.TryGetProperty("report", out var r) &&
+                             r.ValueKind != System.Text.Json.JsonValueKind.Null;
+            Assert.IsTrue(running ? phase != null : hasOutcome || state.GetProperty("error").ValueKind !=
+                System.Text.Json.JsonValueKind.Null,
+                "a tracked run reported neither a phase nor an outcome, so a reader learns nothing");
+        }
+
+        /// <summary>
+        ///   A job the runtime refused never ran, so it must leave nothing behind. Otherwise a rejection
+        ///   would appear in the tracker as a run that happened.
+        /// </summary>
+        [TestMethod]
+        public async Task ARejectedJob_IsStillRefusedSynchronously_AndTracksNothing()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using (var refused = await client.PostAsync("/integration/job",
+                Json(JobBody("no-such-provider", "never-ran", null))))
+            {
+                Assert.AreEqual(HttpStatusCode.BadRequest, refused.StatusCode,
+                    "an unknown provider was ACCEPTED, so the caller is told to watch a run that cannot exist");
+            }
+
+            using var polled = await client.GetAsync("/integration/run/never-ran");
+            Assert.AreEqual(HttpStatusCode.NotFound, polled.StatusCode,
+                "a job that never ran is tracked as a run: " + await ReadText(polled));
+        }
+
+        /// <summary>
+        ///   A run can END before it enters a phase: the credential-unusable class returns a REPORT rather
+        ///   than throwing. Treating that as "started" answered 202 with a progress URL, while the report -
+        ///   the only copy the runtime makes - was dropped on the floor and the poll 404'd forever. This is
+        ///   asserted on the DEFAULT route, because that is the one every shipped client now uses.
+        /// </summary>
+        [TestMethod]
+        public async Task ARunThatEndsBeforeItsFirstPhase_AnswersItsReportInline_NotA202()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync("/integration/job",
+                Json("{\"providerId\":\"" + UnifiProviderId + "\",\"integrationInstanceId\":\"blank-key\"," +
+                     "\"settings\":{\"baseUrl\":\"http://127.0.0.1:1\"}," +
+                     "\"credentialValues\":{\"apiKey\":\"   \"}}"));
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "a run that ended before it had a phase was accepted as though it were in flight, so its " +
+                "report - the only copy this runtime makes - is unreachable: " + await ReadText(response));
+
+            var body = await ReadJson(response);
+            Assert.AreEqual("credential", body.GetProperty("errorKind").GetString(),
+                "the report came back but not the reason, which is the one thing the caller can act on");
+        }
+
+        [TestMethod]
+        public async Task AnUnknownIdentity_Is404_SayingWhyItMightBeMissing()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var polled = await client.GetAsync("/integration/run/never-heard-of-it");
+
+            Assert.AreEqual(HttpStatusCode.NotFound, polled.StatusCode);
+            var text = await ReadText(polled);
+            StringAssert.Contains(text, "restart",
+                "the 404 does not explain that this runtime forgets runs on restart, so a reader assumes a bug: "
+                + text);
+        }
+
+        #endregion
+
         #region routes and shipped ids
 
         private const String HealthRoute = "/health";
         private const String RuntimeProvidersRoute = "/integration/providers";
         private const String RuntimeVocabularyRoute = "/integration/vocabulary";
         private const String RuntimeValidateRoute = "/integration/snapshot/validate";
-        private const String RuntimeJobRoute = "/integration/job";
+        // WAITED on purpose. Every test using this constant asserts what a run OUTCOME was - the report, its
+        // errorKind, which failure a status maps to - and the waited shape is the one that answers with a
+        // report. The route's default is now to accept and return a run id, and that behaviour has tests of
+        // its own further down; pointing these at ?wait=true keeps each set testing one thing.
+        private const String RuntimeJobRoute = "/integration/job?wait=true";
 
         private const String ProxyProvidersRoute = "/integrations/providers";
         private const String ProxyVocabularyRoute = "/integrations/vocabulary";

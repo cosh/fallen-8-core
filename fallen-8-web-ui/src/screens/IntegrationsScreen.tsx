@@ -24,12 +24,13 @@
 // SOFTWARE.
 
 import { useMemo, useRef, useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { useActiveInstance, useActiveNamespace } from "../instances/registry";
-import { submitIntegrationJob } from "../api/endpoints";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useActiveInstance, useActiveNamespace, useInstanceStore } from "../instances/registry";
+import { getIntegrationRun, submitIntegrationJob } from "../api/endpoints";
 import type {
   IntegrationJobReport,
   IntegrationJobRequest,
+  IntegrationRunState,
   IntegrationProvider,
   IntegrationSetting,
   SettingKind,
@@ -43,6 +44,7 @@ import { ListCapNote } from "../components/ListCapNote";
 import { Truncated } from "../components/Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { capList, SCROLL_ROWS, scrollRows } from "../lib/listCaps";
+import { RUN_PHASES } from "../api/types";
 
 /**
  * Integrations (feature integrations): the integrations this instance's runtime ships, a settings
@@ -53,12 +55,15 @@ import { capList, SCROLL_ROWS, scrollRows } from "../lib/listCaps";
  * needed its own component would be a contract failure rather than a UI task, and the agent that
  * writes the fourth integration cannot write a React component for it anyway.
  *
- * There is no schedule, no run history and no saved job list here, because the runtime keeps none:
- * timing belongs to whoever wants the data, and a Studio-side copy would be a second home for a
- * decision this screen cannot judge. Submitting is a one-shot action.
+ * Submitting STARTS a run and does not wait for it: the runtime answers a run id, and this screen
+ * then watches that run - the phase it is in, and its report once it ends. That is not a run history.
+ * The runtime keeps one slot per identity, superseded by that identity's next run and dropped on
+ * restart, so there is still no schedule, no list of past runs and no saved job list here; timing
+ * belongs to whoever wants the data.
  */
 export function IntegrationsScreen() {
   const instance = useActiveInstance()!;
+  const { store } = useInstanceStore();
   const namespace = useActiveNamespace();
   const providers = useIntegrationProviders(instance);
   const capability = capabilityOf(providers);
@@ -68,12 +73,19 @@ export function IntegrationsScreen() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<Record<string, StagedFile>>({});
   const [fileProblems, setFileProblems] = useState<Record<string, string>>({});
-  const [report, setReport] = useState<IntegrationJobReport | null>(null);
+  // PERSISTED, so reopening the screen re-attaches to a run instead of losing it. A run can take
+  // hours and deliberately outlives the request that started it, so "which identity am I watching"
+  // is the only durable handle on it.
+  const watching = store((state) => state.integrationWatch);
+  const setWatching = store((state) => state.setIntegrationWatch);
   const [embedSummaries, setEmbedSummaries] = useState(false);
   const [embeddingName, setEmbeddingName] = useState("");
   // What the run that produced `report` ASKED for. Without it the embedded tile cannot tell "the run
   // embedded nothing" from "nobody asked", and it read as the first for every run Studio ever launched.
-  const [reportAskedToEmbed, setReportAskedToEmbed] = useState(false);
+  // The run id the last submit was told to expect, so a re-run under one identity is not served from
+  // the previous run's cache.
+  const [expectedRunId, setExpectedRunId] = useState<string | null>(null);
+  const submitStartedRef = useRef(false);
 
   const catalog = useMemo(() => providers.data ?? [], [providers.data]);
   const selected = catalog.find((provider) => provider.id === selectedId) ?? null;
@@ -102,15 +114,18 @@ export function IntegrationsScreen() {
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
-  const run = useMutation({
+  const submit = useMutation({
     mutationFn: () =>
       submitIntegrationJob(
         instance,
         buildJob(selected!, namespace, instanceId, values, files, embedRequested, embeddingName),
       ),
-    onSuccess: (result) => {
-      setReport(result);
-      setReportAskedToEmbed(embedRequested);
+    onSuccess: (accepted) => {
+      // The answer is a run id, not a report. The identity is what survives a reload, because it is what
+      // the runtime keys its slot by; the run id is what tells this run apart from the identity's last.
+      setWatching(instanceId.trim().toLowerCase());
+      setExpectedRunId(accepted?.runId ?? null);
+      submitStartedRef.current = true;
       // The job has reported, so a secret typed into this form has done its work: drop it. Only on
       // success, and success here includes a run that FAILED - the report came back either way. A job
       // the runtime refused (400, 409, 503) never ran, so the form keeps its values for the retry
@@ -124,6 +139,32 @@ export function IntegrationsScreen() {
     },
   });
 
+  // Polled while the run is in flight and left alone once it ends, so a finished run costs nothing.
+  // A 404 means this runtime has no slot for the identity (a restart, or enough other identities
+  // since), which is a fact to render rather than an error to retry.
+  // The expected run id is part of the key, so a SECOND run under the same identity is a different
+  // query rather than a cache hit. Without it the screen served the finished previous run from cache,
+  // never refetched (its `running` was false, so the interval was off), and presented the old run's
+  // report as the new run's outcome.
+  const runQuery = useQuery({
+    queryKey: [instance.id, "integration-run", watching, expectedRunId],
+    queryFn: () => getIntegrationRun(instance, watching!),
+    enabled: watching !== null,
+    retry: false,
+    refetchInterval: (query) =>
+      (query.state.data as IntegrationRunState | undefined)?.running ? 2000 : false,
+  });
+
+  // A 404 is authoritative: the runtime has no slot for this identity, so whatever is cached is stale
+  // and must not keep rendering as a live run. Anything else is an error about the REQUEST, not about
+  // the run, and claiming "not tracked" for a 503 or a 401 would assert a cause the answer never gave.
+  const untracked = runQuery.error instanceof ApiError && runQuery.error.status === 404;
+  const run = untracked ? null : (runQuery.data ?? null);
+  const report = run?.report ?? null;
+  // A run started but not yet visible: the slot appears on its first phase, so a poll can 404 for a
+  // moment right after a submit. Only a watch we did not start is genuinely untracked.
+  const startedHere = submitStartedRef.current;
+
   const identityProblem = describeIdentityProblem(instanceId);
   const missing = selected ? missingRequired(selected, values, files) : [];
   const canSubmit =
@@ -134,8 +175,8 @@ export function IntegrationsScreen() {
 
   function select(provider: IntegrationProvider) {
     setSelectedId(provider.id);
-    setReport(null);
-    run.reset();
+    // Not the watch: a run in flight stays watchable while the operator looks at another integration.
+    submit.reset();
 
     // Staged files are dropped with the provider that asked for them. Two integrations can declare
     // the same setting key, so keeping them would send one integration's extract to another.
@@ -378,10 +419,10 @@ export function IntegrationsScreen() {
                 type="button"
                 className="btn btn-accent"
                 data-testid="integration-run"
-                disabled={!canSubmit || run.isPending}
-                onClick={() => run.mutate()}
+                disabled={!canSubmit || submit.isPending}
+                onClick={() => submit.mutate()}
               >
-                {run.isPending ? "running" : "run now"}
+                {submit.isPending ? "starting…" : "run now"}
               </button>
               {missing.length > 0 && (
                 <span className="text-fg-faint text-[11px]" data-testid="integration-missing">
@@ -390,10 +431,10 @@ export function IntegrationsScreen() {
               )}
             </div>
 
-            {run.isError && (
+            {submit.isError && (
               <div className="space-y-1" data-testid="integration-run-error">
-                <ErrorBox error={run.error} />
-                {run.error instanceof ApiError && run.error.status === 413 && (
+                <ErrorBox error={submit.error} />
+                {submit.error instanceof ApiError && submit.error.status === 413 && (
                   <p className="text-fg-dim text-[12px]">
                     The request body was refused before the run started - the file is larger than this
                     instance forwards. Nothing was read and nothing was withdrawn.
@@ -405,7 +446,27 @@ export function IntegrationsScreen() {
         </section>
       )}
 
-      {report && <ReportPanel report={report} askedToEmbed={reportAskedToEmbed} />}
+      {run && <RunPanel run={run} />}
+      {watching !== null && untracked && !startedHere && (
+        <section className="panel" data-testid="run-untracked">
+          <div className="panel-title">run</div>
+          <p className="text-fg-faint px-3 pb-3 text-[11px]">
+            This runtime is not tracking a run for '{watching}'. It has not run in this process, or a
+            restart or enough other identities have displaced it. Nothing is wrong with the graph -
+            the runtime keeps only the current and most recent run per identity, in memory.
+          </p>
+        </section>
+      )}
+      {watching !== null && runQuery.isError && !untracked && (
+        <section className="panel" data-testid="run-poll-error">
+          <div className="panel-title">run</div>
+          <div className="px-3 pb-3">
+            {/* NOT "not tracked": this answer says nothing about whether the run exists. */}
+            <ErrorBox error={runQuery.error} />
+          </div>
+        </section>
+      )}
+      {report && <ReportPanel report={report} askedToEmbed={run?.embedRequested === true} />}
     </div>
   );
 }
@@ -618,6 +679,84 @@ function FileField(props: {
 }
 
 /** The counts, the failure kind when there is one, and every diagnostic with its own code. */
+/**
+ * A run while it happens: which phase, how far through it, and how long it has been going.
+ *
+ * The phase list is rendered from RUN_PHASES rather than from what the run has reported, so an
+ * operator can see what is still to come and not only what has passed - which is the difference
+ * between "it is on step 3 of 7" and "it said something once". Two of these phases can run for a long
+ * time while the graph shows no change at all (a large extract parsing, and summary embedding), and
+ * those are exactly the ones that used to be indistinguishable from a hang.
+ */
+function RunPanel({ run }: { run: IntegrationRunState }) {
+  const done = new Set(run.completedPhases);
+  const elapsed = formatElapsed(run.elapsedMilliseconds);
+
+  return (
+    <section className="panel" data-testid="run-panel">
+      <div className="panel-title">
+        run — {run.running ? "in flight" : "finished"}
+        <span className="text-fg-faint normal-case" data-testid="run-elapsed">
+          {run.integrationInstanceId} · {elapsed}
+        </span>
+      </div>
+      <ul className="space-y-1 px-3 pb-3 text-[12px]">
+        {RUN_PHASES.map((phase) => {
+          const isCurrent = run.phase === phase;
+          const isDone = done.has(phase);
+          const state = isCurrent ? "running" : isDone ? "done" : "pending";
+          return (
+            <li
+              key={phase}
+              className="flex items-center gap-2"
+              data-testid={`run-phase-${phase}`}
+              data-state={state}
+            >
+              <span
+                className={
+                  isCurrent ? "text-accent" : isDone ? "text-fg" : "text-fg-faint"
+                }
+              >
+                {isDone ? "✓" : isCurrent ? "▸" : "·"}
+              </span>
+              <span className={isCurrent ? "text-accent" : isDone ? "text-fg" : "text-fg-faint"}>
+                {phase}
+              </span>
+              {isCurrent && run.phaseTotal > 0 && (
+                <span className="text-fg-faint" data-testid={`run-count-${phase}`}>
+                  {run.phaseDone.toLocaleString()} / {run.phaseTotal.toLocaleString()}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {run.running && (
+        <p className="text-fg-faint px-3 pb-3 text-[11px]">
+          This run continues on the server whether or not this page is open, and closing the browser
+          does not stop it. Come back to this screen and it re-attaches.
+        </p>
+      )}
+      {run.error && (
+        <p className="text-warn px-3 pb-3 text-[11px]" data-testid="run-error">
+          The run ended without producing a report: {run.error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** Elapsed time as a person reads it. Hours matter here: an embedding phase runs for them. */
+function formatElapsed(milliseconds: number): string {
+  const total = Math.max(0, Math.floor(milliseconds / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (hours > 0) return `${hours}h ${minutes.toString().padStart(2, "0")}m`;
+  if (minutes > 0) return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
+  return `${seconds}s`;
+}
+
 function ReportPanel({
   report,
   askedToEmbed,

@@ -269,6 +269,7 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
   ensureDocumentBinding: () => endpoints.ensureDocumentBinding(instance),
   listEntities: () => endpoints.listEntities(instance),
   listIntegrationProviders: () => endpoints.listIntegrationProviders(instance),
+  getIntegrationRun: () => endpoints.getIntegrationRun(instance, "office-inventory"),
   submitIntegrationJob: () =>
     endpoints.submitIntegrationJob(instance, {
       providerId: "csv-device-list",

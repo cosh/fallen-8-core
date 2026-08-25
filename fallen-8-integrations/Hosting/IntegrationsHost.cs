@@ -85,6 +85,9 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             services.AddSingleton<IJobFilesFactory, JobFilesFactory>();
             services.AddSingleton<IProviderHttpFactory, ProviderHttpFactory>();
             services.AddSingleton<RunGate>();
+            // Singleton because it IS the process's memory of what is running. One slot per identity, dropped
+            // on restart - not a run log (see RunTracker).
+            services.AddSingleton<RunTracker>();
 
             // Pure, and therefore reviewable and testable with nothing in the way.
             services.AddSingleton<IdentityResolver>();

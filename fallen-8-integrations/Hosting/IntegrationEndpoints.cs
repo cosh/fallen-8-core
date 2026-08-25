@@ -75,30 +75,166 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                     return Results.Ok(validator.Validate(document));
                 });
 
-            app.MapPost("/integration/job", async (IntegrationJob? job, JobRunner runner,
-                CancellationToken cancellationToken) =>
+            // ACCEPTED, not awaited. The synchronous shape this route used to have could not survive a real
+            // source: the report is the only copy this runtime produces, the proxy in front holds a
+            // connection for a bounded time, and the run is deliberately built to outlive its caller. So a
+            // long run used to be unobservable while it happened AND unknowable after it ended.
+            //
+            // What is still synchronous is every judgement that can REJECT the job - its shape, the
+            // provider, the identity, the files, and the run gate. An accepted job is one that really
+            // started; a rejected one never ran, exactly as before.
+            app.MapPost("/integration/job", async (IntegrationJob? job, JobRunner runner, RunTracker tracker,
+                Boolean? wait, CancellationToken cancellationToken) =>
             {
                 if (job == null)
                 {
                     return Problem(StatusCodes.Status400BadRequest, "A job definition is required.");
                 }
 
-                try
+                // The old contract, on request. Kept for scripts and small sources, and NOT the default,
+                // because the proxy timeout still applies to it.
+                if (wait == true)
                 {
-                    var report = await runner.RunAsync(job, cancellationToken).ConfigureAwait(false);
+                    // Tracked as well, even though the caller is holding the answer. Otherwise a waited run
+                    // leaves the identity's slot showing an OLDER run, and "what happened last" is a lie for
+                    // whoever polls next.
+                    var waited = String.IsNullOrWhiteSpace(job.IntegrationInstanceId)
+                        ? null
+                        : tracker.Begin(Guid.NewGuid().ToString("N"), job.ProviderId ?? String.Empty,
+                            job.IntegrationInstanceId!, job.Namespace, job.EmbedSummaries);
+                    try
+                    {
+                        // A job that RAN and failed answers 200 with the failure on the report: the request did
+                        // what was asked, so the interesting outcome is the run's.
+                        var report = await runner
+                            .RunAsync(job, cancellationToken, waited ?? (IRunProgress)NoRunProgress.Instance)
+                            .ConfigureAwait(false);
+                        if (waited != null)
+                        {
+                            tracker.Finish(job.IntegrationInstanceId!, waited.RunId, report);
+                        }
 
-                    // A job that RAN and failed answers 200 with the failure on the report: the request did what
-                    // was asked, so the interesting outcome is the run's.
-                    return Results.Ok(report);
+                        return Results.Ok(report);
+                    }
+                    catch (JobRejectedException ex)
+                    {
+                        return Reject(ex);
+                    }
+                    catch (Exception failure) when (waited != null && waited.Started.IsCompleted)
+                    {
+                        tracker.Abort(job.IntegrationInstanceId!, waited.RunId, failure.Message);
+                        throw;
+                    }
                 }
-                catch (JobRejectedException ex)
+
+                var instanceId = job.IntegrationInstanceId;
+                if (String.IsNullOrWhiteSpace(instanceId))
                 {
-                    var status = ex.Kind == JobErrorKinds.Conflict
-                        ? StatusCodes.Status409Conflict
-                        : StatusCodes.Status400BadRequest;
-                    return Problem(status, ex.Message, ex.Kind);
+                    // No identity means nothing to track a run under and nothing to reconcile it against, so
+                    // the run itself refuses it. Its message is the one worth returning.
+                    try
+                    {
+                        return Results.Ok(await runner.RunAsync(job, cancellationToken).ConfigureAwait(false));
+                    }
+                    catch (JobRejectedException ex)
+                    {
+                        return Reject(ex);
+                    }
                 }
+
+                var handle = tracker.Begin(Guid.NewGuid().ToString("N"), job.ProviderId ?? String.Empty,
+                    instanceId!, job.Namespace, job.EmbedSummaries);
+
+                // Task.Run, because otherwise this is not a background run at all: everything up to the
+                // provider's first await - including a file provider decoding and parsing its whole extract -
+                // would execute on the request thread, and the 202 would wait for it.
+                var run = Task.Run(() => ExecuteAsync(runner, tracker, job, instanceId!, handle));
+
+                // Deterministic, not timed. But NOT a dichotomy: a run can also RETURN a report before it
+                // ever enters a phase - the credential-unusable class does exactly that - and treating that
+                // as "started" answered 202 and then threw the only copy of the report away, because there
+                // is no slot to poll. That case is answered inline, which is what it did before this feature.
+                if (await Task.WhenAny(run, handle.Started).ConfigureAwait(false) == run)
+                {
+                    JobReport? ended;
+                    try
+                    {
+                        ended = await run.ConfigureAwait(false);
+                    }
+                    catch (JobRejectedException ex)
+                    {
+                        return Reject(ex);
+                    }
+
+                    if (!handle.Started.IsCompleted && ended != null)
+                    {
+                        return Results.Ok(ended);
+                    }
+                }
+
+                tracker.Attach(instanceId!, handle.RunId, run);
+                return Results.Accepted((String?)null, new RunAcceptedDto
+                {
+                    RunId = handle.RunId,
+                    ProviderId = job.ProviderId ?? String.Empty,
+                    IntegrationInstanceId = instanceId!,
+                    Progress = "/integration/run/" + instanceId,
+                });
             });
+
+            // What is happening now, and what happened last, per identity. Deliberately not a run log: one
+            // slot per identity, in memory, superseded by that identity's next run (see RunTracker).
+            app.MapGet("/integration/run", (RunTracker tracker) => Results.Ok(tracker.All()));
+
+            app.MapGet("/integration/run/{instanceId}", (String instanceId, RunTracker tracker) =>
+                tracker.TryGet(instanceId, out var state)
+                    ? Results.Ok(state)
+                    : Problem(StatusCodes.Status404NotFound,
+                        String.Format(System.Globalization.CultureInfo.InvariantCulture,
+                            "No run is tracked for identity '{0}'. Either it has never run in this process, or " +
+                            "a restart or 32 other identities have since displaced it.", instanceId)));
+        }
+
+        /// <summary>
+        ///   Runs the job and records its outcome on the tracker.
+        ///
+        ///   <para>The token is deliberately NOT the request's: the caller walking away must not stop a run,
+        ///   which is the same principle the apply phase already held for half the run and this now holds for
+        ///   all of it.</para>
+        ///
+        ///   <para>A failure is RETHROWN only while the run has not started, because that is the case the
+        ///   route is still waiting to map into a 400 or a 409. Once it has started, nobody is waiting on this
+        ///   task, so a rethrow would be an unobserved exception; the failure is recorded on the slot instead,
+        ///   which is the only place a reader could ever find it.</para>
+        /// </summary>
+        private static async Task<JobReport?> ExecuteAsync(JobRunner runner, RunTracker tracker,
+            IntegrationJob job, String instanceId, RunTracker.RunHandle handle)
+        {
+            try
+            {
+                var report = await runner.RunAsync(job, CancellationToken.None, handle).ConfigureAwait(false);
+                tracker.Finish(instanceId, handle.RunId, report);
+                return report;
+            }
+            catch (Exception failure)
+            {
+                if (!handle.Started.IsCompleted)
+                {
+                    throw;
+                }
+
+                tracker.Abort(instanceId, handle.RunId, failure.Message);
+                return null;
+            }
+        }
+
+        /// <summary>A job the runtime refused: it never ran, and the caller has something to fix.</summary>
+        private static IResult Reject(JobRejectedException failure)
+        {
+            var status = failure.Kind == JobErrorKinds.Conflict
+                ? StatusCodes.Status409Conflict
+                : StatusCodes.Status400BadRequest;
+            return Problem(status, failure.Message, failure.Kind);
         }
 
         /// <summary>

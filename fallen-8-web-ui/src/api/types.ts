@@ -1190,6 +1190,62 @@ export interface IntegrationProvider {
   entitySummaryTemplate?: string | null;
 }
 
+/**
+ * The phases a run passes through, in order. Mirrors RunPhases in the integrations runtime, which is
+ * the one place they are defined; the Studio renders a row per phase, so a name that drifts is a
+ * silently missing row rather than a failure.
+ */
+export const RUN_PHASES = [
+  "observe",
+  "validate",
+  "resolve",
+  "write-elements",
+  "write-edges",
+  "embed-summaries",
+  "reconcile",
+] as const;
+
+/** What the job route answers when it ACCEPTS a run rather than waiting for it. */
+export interface IntegrationRunAccepted {
+  runId: string;
+  providerId: string;
+  integrationInstanceId: string;
+  /** Where to watch it, as the runtime spells it. */
+  progress: string;
+}
+
+/**
+ * One identity's current or most recent run.
+ *
+ * Deliberately not a run history: the runtime keeps one slot per identity, superseded by that
+ * identity's next run and dropped on restart. It exists because the report used to be unreachable -
+ * a real import outlives the connection that would have carried it.
+ */
+export interface IntegrationRunState {
+  runId: string;
+  providerId: string;
+  integrationInstanceId: string;
+  namespace?: string | null;
+  startedAt: string;
+  finishedAt?: string | null;
+  running: boolean;
+  elapsedMilliseconds: number;
+  /** The phase now, or null once the run has ended. */
+  phase?: string | null;
+  /** How far through the current phase, where it counts. Zero when it does not. */
+  phaseDone: number;
+  phaseTotal: number;
+  completedPhases: string[];
+  /** The phase a run STOPPED in when it did not finish cleanly; null for a clean or in-flight run. */
+  stoppedInPhase?: string | null;
+  /** Whether the JOB asked for summary embedding. A fact about the run, not about this component. */
+  embedRequested?: boolean;
+  /** Present once there is one, for a failed run as well as a successful one. */
+  report?: IntegrationJobReport | null;
+  /** Set only when the run produced no report at all because it threw. */
+  error?: string | null;
+}
+
 /** Something a run needs a reader to know, with a stable code to grep for and alert on. */
 export interface IntegrationDiagnostic {
   code: string;
