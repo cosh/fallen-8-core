@@ -63,7 +63,12 @@ fixture well under the cap.
 
 Fix: an offset chunk loop mirroring the `SendBatchedAsync` / `WriteBatchSize` pattern already in
 that same file (`Fallen8RestTarget.cs:327`, `:775`), summing the written count across chunks.
-Chunk size is an open question below.
+
+**Chunk size, settled by measurement (2026-08-25).** Shipped as 32 on the item cap alone, which was
+wrong: the binding constraint is the 120 s client timeout, not the cap. A CPU-backed bge-m3 costs
+~3.5 s per element here, so 32 elements is ~113 s. A real many-entity run died on its 86th chunk.
+Now 16. The full-extract cost on this hardware is ~10.5 h of inference either way - that is a
+deployment property, and the lever for it is a GPU or the Nahil backend rather than the chunk size.
 
 ## Studio cannot ask a run to embed
 

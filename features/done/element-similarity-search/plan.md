@@ -172,11 +172,21 @@ Mutation-checked: inverting the flag reddens that test alone.
 
 ## Carried forward, deliberately
 
-1. **Acceptance 1 is unproven at scale.** A run over the recorded many-entity extract has only
-   been demonstrated at fixture scale. ~384 chunks is exactly where the rate limiter becomes
-   reachable, and per-chunk latency on a real GPU Ollama or Nahil worker is unmeasured here, so
-   whether 429 fires on every large import or almost never is unknown. It now degrades rather than
-   failing, which is why this is a note and not a blocker.
+1. ~~**Acceptance 1 is unproven at scale.**~~ **MEASURED 2026-08-25, and it failed.** A real run
+   over a many-entity extract embedded exactly **many chunks and then died on the 86th**,
+   leaving the graph a fifth embedded and losing ~2 h of inference. Cause: a chunk's duration is
+   model inference, and the measured cost against this deployment's CPU-backed bge-m3 is **~3.5 s
+   per element**, so 32 elements is ~113 s against the graph target's **120 s** client timeout
+   (`GraphTargetFactory.cs:83`) - six percent of headroom. `EmbedBatchSize` is now **16** (~56 s,
+   twice the headroom); see the FR-1 correction in spec.md.
+
+   Two things this measurement also settled. The rate limiter is **not** the practical risk after
+   all: chunks are sequential, so at any backend speed the request rate stays under the route's
+   30-per-10 s window (on CPU it is three orders of magnitude under). And the whole-extract cost on
+   this hardware is ~10.5 h of inference, which is a **deployment** fact rather than a code one -
+   the honest fix for an operator who wants it faster is a GPU or the Nahil backend, not a smaller
+   chunk. Revisit trigger for adaptive sizing (halve on timeout, floor at 4): a deployment whose
+   per-element cost falls outside the ~50 ms GPU to ~3.5 s CPU range this 16 was chosen across.
 2. **MCP `f8_mutate set_embedding` remains executed by no test**, so FR-10's second clause is unmet.
    No `fallen-8-mcp` file changed on this branch, the arm is main's untested code, and the read-tier
    fixture deliberately cannot register `f8_mutate`. It belongs in `McpWriteToolsTest.cs` as a

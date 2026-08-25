@@ -26,9 +26,13 @@ Three things are wrong today, in descending order of how much they cost:
 ### FR summary
 
 - **FR-1 Chunked summary write.** `Fallen8RestTarget.EmbedSummariesAsync` sends the summaries in
-  chunks of at most **32** items - the smallest cap the product ships, not the 64 the apiApp
-  defaults to, because `docker-compose.nahil.yml` sets 32 - summing the written count across
-  chunks. A chunk that fails follows the existing rule, widened by one status: `{403, 429, 502,
+  chunks of at most **16** items, summing the written count across chunks. Two ceilings bound that
+  number and the tighter wins: the route's ITEM cap, whose smallest shipped value is 32
+  (`docker-compose.nahil.yml`; the apiApp defaults to 64), and the client TIMEOUT, which is what
+  actually decides it. A chunk is model inference rather than graph work, and at the ~3.5 s per
+  element a CPU-backed bge-m3 costs, 32 elements is ~113 s against the graph target's 120 s client
+  timeout. *(Corrected 2026-08-25 from 32, after a real many-entity extract died on its 86th chunk
+  for exactly that reason - see the run ledger.)* A chunk that fails follows the existing rule, widened by one status: `{403, 429, 502,
   503}` degrade the write to absent with a diagnostic, anything else is a graph failure. 429 is
   in that set *because* of chunking: the route carries the sensitive-endpoint rate limit, so many
   chunks can trip a throttle one unchunked request never could. Partial success is reported

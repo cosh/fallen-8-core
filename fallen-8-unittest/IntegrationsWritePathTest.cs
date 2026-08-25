@@ -575,9 +575,15 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(200, outcome.Written, "every summary is embedded, across however many requests it takes");
             Assert.IsNull(outcome.Degraded, "and nothing degraded, because the target answered every chunk");
             Assert.AreEqual(200, handler.BatchSizes.Sum(), "no summary is dropped, and none is sent twice");
-            Assert.IsTrue(handler.BatchSizes.All(size => size <= 32),
-                "no chunk may exceed the SMALLEST cap this product ships, or every Nahil deployment fails every " +
-                "run: " + String.Join(", ", handler.BatchSizes));
+            // TWO ceilings, and the chunk has to clear both. 32 is the smallest ITEM cap the product ships
+            // (the Nahil compose), and exceeding it answers 400 - outside the degrade set, so it fails a run
+            // whose graph writes already landed. 16 is the TIME budget: a chunk is model inference, and at the
+            // ~3.5 s per element a CPU-backed bge-m3 actually costs, 32 elements is ~113 s against this
+            // target's 120 s client timeout. A real many-entity extract died on its 86th chunk of 32 for
+            // exactly that reason, so this pins the tighter bound rather than the cap.
+            Assert.IsTrue(handler.BatchSizes.All(size => size <= 16),
+                "a chunk must stay inside BOTH the smallest shipped item cap and the client timeout: " +
+                String.Join(", ", handler.BatchSizes));
         }
 
         [TestMethod]
@@ -589,7 +595,7 @@ namespace NoSQL.GraphDB.Tests
 
             var outcome = await target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None);
 
-            Assert.AreEqual(64, outcome.Written,
+            Assert.AreEqual(32, outcome.Written,
                 "two chunks landed before the provider stopped answering, and those vectors are ON their " +
                 "elements - reporting zero for them would be a false report, and a bound index answers " +
                 "searches over them either way");
@@ -627,7 +633,7 @@ namespace NoSQL.GraphDB.Tests
 
             var outcome = await target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None);
 
-            Assert.AreEqual(32, outcome.Written, "the first chunk landed and is reported");
+            Assert.AreEqual(16, outcome.Written, "the first chunk landed and is reported");
             Assert.IsNotNull(outcome.Degraded, "and the throttle is named rather than swallowed");
             Assert.AreEqual(2, handler.BatchSizes.Count,
                 "a throttle describes the WINDOW, not this batch, so hammering the remaining chunks would " +
@@ -646,7 +652,7 @@ namespace NoSQL.GraphDB.Tests
 
             // The run fails, and that is right. But two chunks put real vectors on real elements, and a
             // report of zero would send the operator to a tabula rasa they do not need.
-            Assert.AreEqual(64, failure.SummariesWritten,
+            Assert.AreEqual(32, failure.SummariesWritten,
                 "the count rides on the failure, because it is a fact about the graph rather than about the " +
                 "refusal");
         }
