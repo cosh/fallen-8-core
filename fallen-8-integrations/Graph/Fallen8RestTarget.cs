@@ -81,11 +81,23 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///   different limit bounds it: the embedding route counts ITEMS and refuses any batch larger than
         ///   the target's <c>Fallen8:Embedding:MaxBatchSize</c>.
         ///
-        ///   <para>32 is the SMALLEST cap this product ships, not the default one: the apiApp defaults to
-        ///   64, and the Nahil compose sets 32. Sizing to the default would leave every Nahil deployment
-        ///   failing, and a refusal here is not survivable - the route answers 400, which is correctly NOT
-        ///   in the degrade set, so it fails a run whose graph writes have already landed. So the chunk is
-        ///   sized to the smallest shipped cap and every shipped configuration works.</para>
+        ///   <para>TWO limits bound this number and the tighter one wins. The first is that item cap, whose
+        ///   smallest shipped value is 32 (the apiApp defaults to 64; the Nahil compose sets 32), and
+        ///   exceeding it is not survivable: the route answers 400, correctly outside the degrade set, so it
+        ///   fails a run whose graph writes have already landed.</para>
+        ///
+        ///   <para>The second is the client TIMEOUT, and it is why this is 16 rather than 32. A chunk's
+        ///   duration is model inference, not graph work: measured against a CPU-backed bge-m3, one element
+        ///   costs ~3.5 s, so 32 elements is ~113 s against this target's 120 s client timeout
+        ///   (<c>GraphTargetFactory</c>) - six percent of headroom. That is not a theoretical margin. A real
+        ///   many-entity extract embedded exactly many chunks and then died on the 86th, losing two
+        ///   hours of inference and leaving the graph a fifth embedded. 16 halves it to ~56 s, which is
+        ///   twice the headroom, and costs only more round-trips - and those stay cheap because chunks are
+        ///   sequential, so the request RATE never approaches the route's rate limit whatever the backend.</para>
+        ///
+        ///   <para>Revisit by making the size ADAPTIVE (halve on timeout, retry, floor at 4) when a
+        ///   deployment appears whose per-element cost is far outside the ~50 ms GPU to ~3.5 s CPU range this
+        ///   number was chosen across.</para>
         ///
         ///   <para>A constant rather than a read of that setting, because the target does not publish it.
         ///   The runtime already asks the target for the numbers it owns - dimension, metric, model - and a
@@ -98,7 +110,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///   recorded many-entity system extract was both hundreds of times over the item cap and past
         ///   that megabyte, which is why no real extract could be embedded before this.</para>
         /// </summary>
-        private const Int32 EmbedBatchSize = 32;
+        private const Int32 EmbedBatchSize = 16;
 
         /// <summary>The equality operator's wire code, from the engine's own operator enum.</summary>
         private const Int32 EqualsOperator = 0;
