@@ -35,8 +35,9 @@ import type {
   DocumentSearchSpecification,
   DocumentSummary,
   IngestTextSpecification,
-  IntegrationJobReport,
   IntegrationJobRequest,
+  IntegrationRunAccepted,
+  IntegrationRunState,
   IntegrationProvider,
   NamespaceActivationREST,
   NamespaceEntry,
@@ -789,9 +790,24 @@ export const listIntegrationProviders = (i: InstanceConfig, signal?: AbortSignal
   apiRequest<IntegrationProvider[]>(i, "/integrations/providers", { signal, scope: "fallen8" });
 
 /** Runs one job and returns its report. A job that RAN and failed still answers 200. */
+/**
+ * Starts a run. Answers a run id, NOT a report: the report is read afterwards from
+ * getIntegrationRun, because any real source outlives the connection that would have carried it.
+ * Everything that can reject the job still fails this call, so a resolved promise means it started.
+ */
 export const submitIntegrationJob = (i: InstanceConfig, job: IntegrationJobRequest) =>
-  apiRequest<IntegrationJobReport>(i, "/integrations/job", {
+  apiRequest<IntegrationRunAccepted>(i, "/integrations/job", {
     method: "POST",
     body: job,
+    scope: "fallen8",
+  });
+
+/**
+ * One identity's current or most recent run: the phase while it runs, the report once it ends.
+ * Answers 404 when the runtime has no slot for that identity, which a caller should read as "not
+ * this process" rather than as an error.
+ */
+export const getIntegrationRun = (i: InstanceConfig, instanceId: string) =>
+  apiRequest<IntegrationRunState>(i, `/integrations/run/${encodeURIComponent(instanceId)}`, {
     scope: "fallen8",
   });

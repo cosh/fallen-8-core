@@ -33,9 +33,14 @@ import type {
   IntegrationJobReport,
   IntegrationJobRequest,
   IntegrationProvider,
+  IntegrationRunAccepted,
+  IntegrationRunState,
   StatusREST,
 } from "../src/api/types";
-import { resetInstanceStoresForTests } from "../src/state/instanceStore";
+import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/instanceStore";
+import { SAME_ORIGIN_INSTANCE } from "../src/instances/registry";
+
+const store = () => getInstanceStore(SAME_ORIGIN_INSTANCE.id);
 import { capList, LIST_MAX_ROWS, SCROLL_ROWS } from "../src/lib/listCaps";
 import { ListCapNote } from "../src/components/ListCapNote";
 
@@ -49,8 +54,12 @@ import { ListCapNote } from "../src/components/ListCapNote";
  */
 
 const listProvidersMock = vi.fn<(i: InstanceConfig) => Promise<IntegrationProvider[] | null>>();
+// The POST answers a run ID now, not a report: the report is read afterwards from the run, because a
+// real import outlives the connection that would have carried it.
 const submitJobMock =
-  vi.fn<(i: InstanceConfig, job: IntegrationJobRequest) => Promise<IntegrationJobReport | null>>();
+  vi.fn<(i: InstanceConfig, job: IntegrationJobRequest) => Promise<IntegrationRunAccepted | null>>();
+const getRunMock =
+  vi.fn<(i: InstanceConfig, instanceId: string) => Promise<IntegrationRunState | null>>();
 const getStatusMock =
   vi.fn<(i: InstanceConfig, signal?: AbortSignal) => Promise<StatusREST | null>>();
 
@@ -60,6 +69,7 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
     ...original,
     listIntegrationProviders: (i: InstanceConfig) => listProvidersMock(i),
     submitIntegrationJob: (i: InstanceConfig, job: IntegrationJobRequest) => submitJobMock(i, job),
+    getIntegrationRun: (i: InstanceConfig, instanceId: string) => getRunMock(i, instanceId),
     getStatus: (i: InstanceConfig, s?: AbortSignal) => getStatusMock(i, s),
   };
 });
@@ -141,6 +151,48 @@ function status(embeddingEnabled: boolean): StatusREST {
   };
 }
 
+function accepted(): IntegrationRunAccepted {
+  return {
+    runId: "run-abc",
+    providerId: "hypothetical-fourth",
+    integrationInstanceId: "office-inventory",
+    progress: "/integration/run/office-inventory",
+  };
+}
+
+/** A run that has ended, carrying its report - which is where the report now comes from. */
+function finishedRun(withReport: IntegrationJobReport): IntegrationRunState {
+  return {
+    runId: "run-abc",
+    providerId: "hypothetical-fourth",
+    integrationInstanceId: "office-inventory",
+    startedAt: "2026-08-25T09:00:00.0000000Z",
+    finishedAt: "2026-08-25T09:00:04.0000000Z",
+    running: false,
+    elapsedMilliseconds: 4000,
+    phase: null,
+    phaseDone: 0,
+    phaseTotal: 0,
+    completedPhases: ["observe", "validate", "resolve", "write-elements"],
+    report: withReport,
+  };
+}
+
+/** A run still in flight, in the phase that used to look exactly like a hang. */
+function runningRun(phase: string, done: number, total: number): IntegrationRunState {
+  return {
+    ...finishedRun(report()),
+    finishedAt: null,
+    running: true,
+    elapsedMilliseconds: 3 * 3600 * 1000 + 7 * 60 * 1000,
+    phase,
+    phaseDone: done,
+    phaseTotal: total,
+    completedPhases: ["observe", "validate", "resolve", "write-elements", "write-edges"],
+    report: null,
+  };
+}
+
 function renderScreen() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -154,7 +206,8 @@ beforeEach(() => {
   resetInstanceStoresForTests();
   localStorage.clear();
   listProvidersMock.mockReset().mockResolvedValue([fourthIntegration()]);
-  submitJobMock.mockReset().mockResolvedValue(report());
+  submitJobMock.mockReset().mockResolvedValue(accepted());
+  getRunMock.mockReset().mockResolvedValue(finishedRun(report()));
   getStatusMock.mockReset().mockResolvedValue(status(true));
 });
 
@@ -428,17 +481,19 @@ describe("the report is shown as the runtime wrote it", () => {
   });
 
   it("shows a failed run's kind and says nothing was withdrawn", async () => {
-    submitJobMock.mockResolvedValue(
-      report({
-        errorKind: "source",
-        error: "the console did not answer",
-        elementsCreated: 0,
-        elementsMatched: 0,
-        claimsWithdrawn: 0,
-        elementsDeleted: 0,
-        issuedMutations: false,
-        diagnostics: [],
-      }),
+    getRunMock.mockResolvedValue(
+      finishedRun(
+        report({
+          errorKind: "source",
+          error: "the console did not answer",
+          elementsCreated: 0,
+          elementsMatched: 0,
+          claimsWithdrawn: 0,
+          elementsDeleted: 0,
+          issuedMutations: false,
+          diagnostics: [],
+        }),
+      ),
     );
 
     renderScreen();
@@ -651,7 +706,7 @@ describe("the embed opt-in, which is the only way a Studio run writes summary em
   });
 
   it("reads the count once the run DID ask", async () => {
-    submitJobMock.mockResolvedValue(report({ summariesEmbedded: 7 }));
+    getRunMock.mockResolvedValue(finishedRun(report({ summariesEmbedded: 7 })));
     listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" }]);
     renderScreen();
     await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
@@ -663,5 +718,88 @@ describe("the embed opt-in, which is the only way a Studio run writes summary em
     await userEvent.click(screen.getByTestId("integration-run"));
 
     expect(await screen.findByTestId("report-embedded")).toHaveTextContent("7");
+  });
+});
+
+describe("a run is watched rather than awaited (feature integration-run-visibility)", () => {
+  async function startARun() {
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+  }
+
+  it("renders every phase, marking the one in flight and the ones already done", async () => {
+    getRunMock.mockResolvedValue(runningRun("embed-summaries", 4320, 9478));
+    await startARun();
+
+    const panel = await screen.findByTestId("run-panel");
+    expect(panel).toBeInTheDocument();
+    // The whole list, not only what has been reported: an operator needs to see what is still to come.
+    expect(screen.getByTestId("run-phase-observe")).toHaveAttribute("data-state", "done");
+    expect(screen.getByTestId("run-phase-embed-summaries")).toHaveAttribute("data-state", "running");
+    expect(screen.getByTestId("run-phase-reconcile")).toHaveAttribute("data-state", "pending");
+  });
+
+  it("shows the count for the phase that runs for hours, which is the whole point", async () => {
+    getRunMock.mockResolvedValue(runningRun("embed-summaries", 4320, 9478));
+    await startARun();
+
+    // Without this, embedding is indistinguishable from a hang for hours.
+    // Built the same way the component builds it: the thousands separator is the runtime locale's,
+    // and hard-coding one makes this pass or fail by where the machine thinks it is.
+    expect(await screen.findByTestId("run-count-embed-summaries")).toHaveTextContent(
+      `${(4320).toLocaleString()} / ${(9478).toLocaleString()}`,
+    );
+    expect(screen.getByTestId("run-elapsed")).toHaveTextContent("3h 07m");
+  });
+
+  it("says the run continues without the page, because it does", async () => {
+    getRunMock.mockResolvedValue(runningRun("observe", 0, 0));
+    await startARun();
+
+    expect(await screen.findByText(/continues on the server/)).toBeInTheDocument();
+  });
+
+  it("renders the report once the run ends, since that is where the report now comes from", async () => {
+    getRunMock.mockResolvedValue(finishedRun(report({ elementsCreated: 12 })));
+    await startARun();
+
+    expect(await screen.findByTestId("report-created")).toHaveTextContent("12");
+  });
+
+  it("re-attaches to a run in flight on a fresh mount, without submitting anything", async () => {
+    // A run outlives the request that started it, so reopening the screen has to find it again. The
+    // identity is the durable handle, and it is persisted for exactly this.
+    store().getState().setIntegrationWatch("office-inventory");
+    getRunMock.mockResolvedValue(runningRun("embed-summaries", 100, 9478));
+
+    renderScreen();
+
+    expect(await screen.findByTestId("run-panel")).toBeInTheDocument();
+    expect(submitJobMock).not.toHaveBeenCalled();
+  });
+
+  it("says so when the runtime has no slot for the identity, rather than showing an error", async () => {
+    store().getState().setIntegrationWatch("forgotten");
+    getRunMock.mockRejectedValue(new ApiError(404, "/integrations/run/forgotten", "not found"));
+
+    renderScreen();
+
+    expect(await screen.findByTestId("run-untracked")).toHaveTextContent(/not tracking a run/);
+  });
+
+  it("reports a run that ended with no report at all", async () => {
+    getRunMock.mockResolvedValue({
+      ...finishedRun(report()),
+      report: null,
+      error: "The graph refused the embedding write with 400",
+    });
+    await startARun();
+
+    expect(await screen.findByTestId("run-error")).toHaveTextContent("400");
   });
 });

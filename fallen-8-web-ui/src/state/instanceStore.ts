@@ -424,6 +424,15 @@ export interface WorkspaceState {
   feedFilter: FeedFilterDraft;
   /** One-shot navigation intent: "open the Browser inspecting this element id". */
   inspectPrefill: number | null;
+  /**
+   * The integration identity whose run this instance is watching, or null.
+   *
+   * PERSISTED, unlike the one-shot prefills, and that is the point: a run outlives the request that
+   * started it and can take hours, so reopening the screen - or reloading the page - has to re-attach
+   * to it rather than lose it. The identity is enough to re-find the run, because the runtime keys its
+   * slot by exactly that.
+   */
+  integrationWatch: string | null;
   canvasNodes: Record<number, CanvasNode>;
   canvasEdges: Record<number, CanvasEdge>;
   styleConfig: StyleConfig;
@@ -460,6 +469,7 @@ export interface WorkspaceState {
   setScanPrefill: (prefill: ScanPrefill | null) => void;
   setFeedFilter: (patch: Partial<FeedFilterDraft>) => void;
   setInspectPrefill: (id: number | null) => void;
+  setIntegrationWatch: (instanceId: string | null) => void;
 }
 
 function createWorkspaceStore(instanceId: string) {
@@ -481,6 +491,7 @@ function createWorkspaceStore(instanceId: string) {
         scanPrefill: null,
         feedFilter: { ...DEFAULT_FEED_FILTER },
         inspectPrefill: null,
+        integrationWatch: null,
 
         mergeIntoCanvas: (vertices, edges) =>
           set((s) => {
@@ -573,6 +584,7 @@ function createWorkspaceStore(instanceId: string) {
           set((s) => ({ feedFilter: { ...s.feedFilter, ...patch } })),
 
         setInspectPrefill: (inspectPrefill) => set({ inspectPrefill }),
+        setIntegrationWatch: (integrationWatch) => set({ integrationWatch }),
       }),
       {
         name: workspaceStorageName(instanceId),
@@ -618,6 +630,7 @@ function createWorkspaceStore(instanceId: string) {
             // persisted before the partialize existed.
             scanPrefill: null,
             inspectPrefill: null,
+            integrationWatch: null,
           };
         },
       },
