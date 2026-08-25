@@ -70,6 +70,11 @@ vi.mock("../src/canvas/GraphCanvas", () => ({
   ),
 }));
 
+const navigateMock = vi.fn(() => Promise.resolve());
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => navigateMock,
+}));
+
 import { CanvasScreen } from "../src/screens/CanvasScreen";
 import { FindPanel } from "../src/canvas/FindPanel";
 import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/instanceStore";
@@ -116,6 +121,7 @@ beforeEach(() => {
   getStatisticsMock.mockReset().mockResolvedValue(null);
   getStatusMock.mockReset().mockResolvedValue(null);
   getEdgeMock.mockReset().mockImplementation((_i, id) => Promise.resolve(edge(id, 1, 2)));
+  navigateMock.mockClear();
 });
 
 describe("tool strip", () => {
@@ -491,6 +497,7 @@ describe("find similar, from the Detail panel (feature element-similarity-search
       label: "signal",
       kind: "vertex",
     });
+    expect(navigateMock).toHaveBeenCalledWith({ to: "/query" });
   });
 
   it("constrains an EDGE to edges, which no other test or live run has ever exercised", async () => {
