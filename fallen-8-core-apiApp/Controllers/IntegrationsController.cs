@@ -244,13 +244,15 @@ namespace NoSQL.GraphDB.App.Controllers
         /// integration instance id, which nothing can validate: a run under an identity that
         /// integration has not always used withdraws and deletes what the real one claimed.</para>
         /// <para>Because a file travels in the body, this is the one route besides document upload
-        /// whose body bound is larger than the 1 MiB every other endpoint carries. That bound (48 MiB)
+        /// whose body bound is larger than the 1 MiB every other endpoint carries. That bound (192 MiB)
         /// sits above any legal job and below the runtime's own, so an oversized FILE is refused by the
         /// runtime with a message naming both its size and the ceiling, while an absurd BODY is refused
         /// here with a 413 - and neither is ever reported as a runtime that did not answer. It is fixed
-        /// rather than configurable, so raising the runtime's Integrations:MaxFileBytes past about 34 MiB
-        /// has no effect through this proxy, which is the only way in.</para></remarks>
-        /// <response code="200">The job report, including a run that failed</response>
+        /// rather than configurable, so raising the runtime's Integrations:MaxFileBytes past about 144 MiB
+        /// has no effect through this proxy, which is the only way in (base64 costs a third, so a maximal
+        /// 128 MiB file arrives at about 171 MiB).</para></remarks>
+        /// <response code="200">The report, for a run that ended before it had a phase or when wait=true</response>
+        /// <response code="202">The run was accepted; watch it at /integrations/run/{instanceId}</response>
         /// <response code="400">The runtime refused the job as written, its own message saying why</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>

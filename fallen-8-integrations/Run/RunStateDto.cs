@@ -64,6 +64,19 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <summary>The current phase from <see cref="RunPhases" />, or null once the run has ended.</summary>
         public String? Phase { get; set; }
 
+        /// <summary>
+        ///   The phase a run STOPPED in, when it did not finish cleanly. Null for a clean run and while one
+        ///   is in flight. Without it a failed run's last phase reads as one that never happened.
+        /// </summary>
+        public String? StoppedInPhase { get; set; }
+
+        /// <summary>
+        ///   Whether the JOB asked for summary embedding. It lives here rather than in the client, because
+        ///   it is a fact about the run and a client holding it in component state reports it wrongly after
+        ///   any remount - claiming nobody asked for embedding that actually happened.
+        /// </summary>
+        public Boolean EmbedRequested { get; set; }
+
         /// <summary>How far through the current phase, where it counts. Zero when it does not.</summary>
         public Int32 PhaseDone { get; set; }
 

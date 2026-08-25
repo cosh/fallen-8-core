@@ -55,9 +55,11 @@ import { RUN_PHASES } from "../api/types";
  * needed its own component would be a contract failure rather than a UI task, and the agent that
  * writes the fourth integration cannot write a React component for it anyway.
  *
- * There is no schedule, no run history and no saved job list here, because the runtime keeps none:
- * timing belongs to whoever wants the data, and a Studio-side copy would be a second home for a
- * decision this screen cannot judge. Submitting is a one-shot action.
+ * Submitting STARTS a run and does not wait for it: the runtime answers a run id, and this screen
+ * then watches that run - the phase it is in, and its report once it ends. That is not a run history.
+ * The runtime keeps one slot per identity, superseded by that identity's next run and dropped on
+ * restart, so there is still no schedule, no list of past runs and no saved job list here; timing
+ * belongs to whoever wants the data.
  */
 export function IntegrationsScreen() {
   const instance = useActiveInstance()!;
@@ -80,7 +82,10 @@ export function IntegrationsScreen() {
   const [embeddingName, setEmbeddingName] = useState("");
   // What the run that produced `report` ASKED for. Without it the embedded tile cannot tell "the run
   // embedded nothing" from "nobody asked", and it read as the first for every run Studio ever launched.
-  const [reportAskedToEmbed, setReportAskedToEmbed] = useState(false);
+  // The run id the last submit was told to expect, so a re-run under one identity is not served from
+  // the previous run's cache.
+  const [expectedRunId, setExpectedRunId] = useState<string | null>(null);
+  const submitStartedRef = useRef(false);
 
   const catalog = useMemo(() => providers.data ?? [], [providers.data]);
   const selected = catalog.find((provider) => provider.id === selectedId) ?? null;
@@ -115,11 +120,12 @@ export function IntegrationsScreen() {
         instance,
         buildJob(selected!, namespace, instanceId, values, files, embedRequested, embeddingName),
       ),
-    onSuccess: () => {
-      // The answer is a run id, not a report. What we keep is the identity, because that is what the
-      // runtime keys its slot by and what survives a reload.
+    onSuccess: (accepted) => {
+      // The answer is a run id, not a report. The identity is what survives a reload, because it is what
+      // the runtime keys its slot by; the run id is what tells this run apart from the identity's last.
       setWatching(instanceId.trim().toLowerCase());
-      setReportAskedToEmbed(embedRequested);
+      setExpectedRunId(accepted?.runId ?? null);
+      submitStartedRef.current = true;
       // The job has reported, so a secret typed into this form has done its work: drop it. Only on
       // success, and success here includes a run that FAILED - the report came back either way. A job
       // the runtime refused (400, 409, 503) never ran, so the form keeps its values for the retry
@@ -136,16 +142,28 @@ export function IntegrationsScreen() {
   // Polled while the run is in flight and left alone once it ends, so a finished run costs nothing.
   // A 404 means this runtime has no slot for the identity (a restart, or enough other identities
   // since), which is a fact to render rather than an error to retry.
+  // The expected run id is part of the key, so a SECOND run under the same identity is a different
+  // query rather than a cache hit. Without it the screen served the finished previous run from cache,
+  // never refetched (its `running` was false, so the interval was off), and presented the old run's
+  // report as the new run's outcome.
   const runQuery = useQuery({
-    queryKey: [instance.id, "integration-run", watching],
+    queryKey: [instance.id, "integration-run", watching, expectedRunId],
     queryFn: () => getIntegrationRun(instance, watching!),
     enabled: watching !== null,
     retry: false,
     refetchInterval: (query) =>
       (query.state.data as IntegrationRunState | undefined)?.running ? 2000 : false,
   });
-  const run = runQuery.data ?? null;
+
+  // A 404 is authoritative: the runtime has no slot for this identity, so whatever is cached is stale
+  // and must not keep rendering as a live run. Anything else is an error about the REQUEST, not about
+  // the run, and claiming "not tracked" for a 503 or a 401 would assert a cause the answer never gave.
+  const untracked = runQuery.error instanceof ApiError && runQuery.error.status === 404;
+  const run = untracked ? null : (runQuery.data ?? null);
   const report = run?.report ?? null;
+  // A run started but not yet visible: the slot appears on its first phase, so a poll can 404 for a
+  // moment right after a submit. Only a watch we did not start is genuinely untracked.
+  const startedHere = submitStartedRef.current;
 
   const identityProblem = describeIdentityProblem(instanceId);
   const missing = selected ? missingRequired(selected, values, files) : [];
@@ -429,7 +447,7 @@ export function IntegrationsScreen() {
       )}
 
       {run && <RunPanel run={run} />}
-      {watching !== null && runQuery.isError && (
+      {watching !== null && untracked && !startedHere && (
         <section className="panel" data-testid="run-untracked">
           <div className="panel-title">run</div>
           <p className="text-fg-faint px-3 pb-3 text-[11px]">
@@ -439,7 +457,16 @@ export function IntegrationsScreen() {
           </p>
         </section>
       )}
-      {report && <ReportPanel report={report} askedToEmbed={reportAskedToEmbed} />}
+      {watching !== null && runQuery.isError && !untracked && (
+        <section className="panel" data-testid="run-poll-error">
+          <div className="panel-title">run</div>
+          <div className="px-3 pb-3">
+            {/* NOT "not tracked": this answer says nothing about whether the run exists. */}
+            <ErrorBox error={runQuery.error} />
+          </div>
+        </section>
+      )}
+      {report && <ReportPanel report={report} askedToEmbed={run?.embedRequested === true} />}
     </div>
   );
 }

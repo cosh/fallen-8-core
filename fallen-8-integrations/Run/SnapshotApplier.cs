@@ -290,6 +290,10 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             if (creates.Count > 0)
             {
+                // BEFORE the writes, not after them. Entered afterwards the phase named work that was
+                // already done, and its counter read "all of them" before any of it had been issued.
+                progress.EnterPhase(RunPhases.WriteElements);
+                progress.Advance(0, creates.Count);
                 var ids = await target.CreateVerticesAsync(creates, cancellationToken).ConfigureAwait(false);
                 for (var i = 0; i < ids.Count; i++)
                 {
@@ -318,8 +322,6 @@ namespace NoSQL.GraphDB.Integrations.Run
             // and indexing before the claim PROPERTY lands is the safe way round: an element the index names
             // but that carries no claim is an orphan, which the next run reclaims (it is in scope) - the
             // reverse is what does not heal.
-            progress.EnterPhase(RunPhases.WriteElements);
-            progress.Advance(snapshot.Entities.Length, snapshot.Entities.Length);
             await FlushIndexEntriesAsync(target, report, indexEntries, cancellationToken).ConfigureAwait(false);
 
             if (propertyWrites.Count > 0)
@@ -332,7 +334,7 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             // The edges' own claims; the list was cleared above, so this indexes exactly what wiring added.
             progress.EnterPhase(RunPhases.WriteEdges);
-            progress.Advance(report.EdgesCreated, plan.Count);
+            progress.Advance(0, plan.Count);
             await FlushIndexEntriesAsync(target, report, indexEntries, cancellationToken).ConfigureAwait(false);
 
             if (summary != null)

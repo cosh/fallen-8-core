@@ -1236,6 +1236,10 @@ export interface IntegrationRunState {
   phaseDone: number;
   phaseTotal: number;
   completedPhases: string[];
+  /** The phase a run STOPPED in when it did not finish cleanly; null for a clean or in-flight run. */
+  stoppedInPhase?: string | null;
+  /** Whether the JOB asked for summary embedding. A fact about the run, not about this component. */
+  embedRequested?: boolean;
   /** Present once there is one, for a failed run as well as a successful one. */
   report?: IntegrationJobReport | null;
   /** Set only when the run produced no report at all because it threw. */

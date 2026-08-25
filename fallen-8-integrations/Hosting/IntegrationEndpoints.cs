@@ -95,15 +95,35 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                 // because the proxy timeout still applies to it.
                 if (wait == true)
                 {
+                    // Tracked as well, even though the caller is holding the answer. Otherwise a waited run
+                    // leaves the identity's slot showing an OLDER run, and "what happened last" is a lie for
+                    // whoever polls next.
+                    var waited = String.IsNullOrWhiteSpace(job.IntegrationInstanceId)
+                        ? null
+                        : tracker.Begin(Guid.NewGuid().ToString("N"), job.ProviderId ?? String.Empty,
+                            job.IntegrationInstanceId!, job.Namespace, job.EmbedSummaries);
                     try
                     {
                         // A job that RAN and failed answers 200 with the failure on the report: the request did
                         // what was asked, so the interesting outcome is the run's.
-                        return Results.Ok(await runner.RunAsync(job, cancellationToken).ConfigureAwait(false));
+                        var report = await runner
+                            .RunAsync(job, cancellationToken, waited ?? (IRunProgress)NoRunProgress.Instance)
+                            .ConfigureAwait(false);
+                        if (waited != null)
+                        {
+                            tracker.Finish(job.IntegrationInstanceId!, waited.RunId, report);
+                        }
+
+                        return Results.Ok(report);
                     }
                     catch (JobRejectedException ex)
                     {
                         return Reject(ex);
+                    }
+                    catch (Exception failure) when (waited != null && waited.Started.IsCompleted)
+                    {
+                        tracker.Abort(job.IntegrationInstanceId!, waited.RunId, failure.Message);
+                        throw;
                     }
                 }
 
@@ -123,20 +143,32 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                 }
 
                 var handle = tracker.Begin(Guid.NewGuid().ToString("N"), job.ProviderId ?? String.Empty,
-                    instanceId!, job.Namespace);
-                var run = ExecuteAsync(runner, tracker, job, instanceId!, handle);
+                    instanceId!, job.Namespace, job.EmbedSummaries);
 
-                // Deterministic, not timed: either the run enters its first phase, or it ends without ever
-                // entering one - which is precisely what "it was rejected" means.
+                // Task.Run, because otherwise this is not a background run at all: everything up to the
+                // provider's first await - including a file provider decoding and parsing its whole extract -
+                // would execute on the request thread, and the 202 would wait for it.
+                var run = Task.Run(() => ExecuteAsync(runner, tracker, job, instanceId!, handle));
+
+                // Deterministic, not timed. But NOT a dichotomy: a run can also RETURN a report before it
+                // ever enters a phase - the credential-unusable class does exactly that - and treating that
+                // as "started" answered 202 and then threw the only copy of the report away, because there
+                // is no slot to poll. That case is answered inline, which is what it did before this feature.
                 if (await Task.WhenAny(run, handle.Started).ConfigureAwait(false) == run)
                 {
+                    JobReport? ended;
                     try
                     {
-                        await run.ConfigureAwait(false);
+                        ended = await run.ConfigureAwait(false);
                     }
                     catch (JobRejectedException ex)
                     {
                         return Reject(ex);
+                    }
+
+                    if (!handle.Started.IsCompleted && ended != null)
+                    {
+                        return Results.Ok(ended);
                     }
                 }
 
@@ -175,13 +207,14 @@ namespace NoSQL.GraphDB.Integrations.Hosting
         ///   task, so a rethrow would be an unobserved exception; the failure is recorded on the slot instead,
         ///   which is the only place a reader could ever find it.</para>
         /// </summary>
-        private static async Task ExecuteAsync(JobRunner runner, RunTracker tracker, IntegrationJob job,
-            String instanceId, RunTracker.RunHandle handle)
+        private static async Task<JobReport?> ExecuteAsync(JobRunner runner, RunTracker tracker,
+            IntegrationJob job, String instanceId, RunTracker.RunHandle handle)
         {
             try
             {
                 var report = await runner.RunAsync(job, CancellationToken.None, handle).ConfigureAwait(false);
                 tracker.Finish(instanceId, handle.RunId, report);
+                return report;
             }
             catch (Exception failure)
             {
@@ -191,6 +224,7 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                 }
 
                 tracker.Abort(instanceId, handle.RunId, failure.Message);
+                return null;
             }
         }
 

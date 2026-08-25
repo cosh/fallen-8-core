@@ -78,18 +78,22 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <param name="providerId">Which integration is running, echoed to readers.</param>
         /// <param name="instanceId">The identity, which is also this slot's key.</param>
         /// <param name="namespaceName">The namespace being written into, or null for the default.</param>
-        public RunHandle Begin(String runId, String providerId, String instanceId, String? namespaceName)
+        /// <param name="embedRequested">Whether the job asked for summary embedding, which is a fact about
+        /// the run and belongs with it rather than in a client's component state.</param>
+        public RunHandle Begin(String runId, String providerId, String instanceId, String? namespaceName,
+            Boolean embedRequested = false)
         {
             if (String.IsNullOrWhiteSpace(instanceId))
             {
                 throw new ArgumentException("An integration instance id is required.", nameof(instanceId));
             }
 
-            return new RunHandle(this, runId, providerId, instanceId, namespaceName);
+            return new RunHandle(this, runId, providerId, instanceId, namespaceName, embedRequested);
         }
 
         /// <summary>Opens the slot, replacing whatever that identity held before. Called on the first phase.</summary>
-        private Slot Materialise(String runId, String providerId, String instanceId, String? namespaceName)
+        private Slot Materialise(String runId, String providerId, String instanceId, String? namespaceName,
+            Boolean embedRequested)
         {
             if (!_byInstance.ContainsKey(instanceId))
             {
@@ -102,6 +106,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                 ProviderId = providerId,
                 InstanceId = instanceId,
                 Namespace = namespaceName,
+                EmbedRequested = embedRequested,
                 StartedUtc = DateTimeOffset.UtcNow,
                 Sequence = ++_sequence,
                 Phase = null,
@@ -128,6 +133,25 @@ namespace NoSQL.GraphDB.Integrations.Run
                 {
                     slot.FinishedUtc = DateTimeOffset.UtcNow;
                     slot.Report = report;
+
+                    // The phase a run ENDED in has to go somewhere, or every successful import shows its
+                    // last phase as never having run. A clean finish completes it; a failed one records
+                    // where it stopped, which is the more useful fact of the two.
+                    if (slot.Phase != null)
+                    {
+                        if (String.IsNullOrEmpty(report?.ErrorKind))
+                        {
+                            if (!slot.Completed.Contains(slot.Phase))
+                            {
+                                slot.Completed.Add(slot.Phase);
+                            }
+                        }
+                        else
+                        {
+                            slot.StoppedInPhase = slot.Phase;
+                        }
+                    }
+
                     slot.Phase = null;
                 }
             }
@@ -147,6 +171,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                 {
                     slot.FinishedUtc = DateTimeOffset.UtcNow;
                     slot.Error = error;
+                    slot.StoppedInPhase = slot.Phase;
                     slot.Phase = null;
                 }
             }
@@ -244,6 +269,8 @@ namespace NoSQL.GraphDB.Integrations.Run
             public DateTimeOffset? FinishedUtc;
             public Int64 Sequence;
             public String? Phase;
+            public String? StoppedInPhase;
+            public Boolean EmbedRequested;
             public Int32 PhaseDone;
             public Int32 PhaseTotal;
             public readonly List<String> Completed = new List<String>();
@@ -265,6 +292,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                     ElapsedMilliseconds =
                         (Int64)((FinishedUtc ?? DateTimeOffset.UtcNow) - StartedUtc).TotalMilliseconds,
                     Phase = Phase,
+                    StoppedInPhase = StoppedInPhase,
+                    EmbedRequested = EmbedRequested,
                     PhaseDone = PhaseDone,
                     PhaseTotal = PhaseTotal,
                     CompletedPhases = Completed.ToArray(),
@@ -295,16 +324,18 @@ namespace NoSQL.GraphDB.Integrations.Run
             private readonly String _providerId;
             private readonly String _instanceId;
             private readonly String? _namespace;
+            private readonly Boolean _embedRequested;
             private Slot? _slot;
 
             public RunHandle(RunTracker tracker, String runId, String providerId, String instanceId,
-                String? namespaceName)
+                String? namespaceName, Boolean embedRequested)
             {
                 _tracker = tracker;
                 _runId = runId;
                 _providerId = providerId;
                 _instanceId = instanceId;
                 _namespace = namespaceName;
+                _embedRequested = embedRequested;
             }
 
             public void EnterPhase(String phase)
@@ -314,7 +345,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // First phase IS "the run started", which is the only moment a slot may be opened.
                     if (_slot == null)
                     {
-                        _slot = _tracker.Materialise(_runId, _providerId, _instanceId, _namespace);
+                        _slot = _tracker.Materialise(_runId, _providerId, _instanceId, _namespace,
+                            _embedRequested);
                         _started.TrySetResult();
                     }
 

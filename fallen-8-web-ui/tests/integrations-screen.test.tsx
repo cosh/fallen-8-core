@@ -161,7 +161,7 @@ function accepted(): IntegrationRunAccepted {
 }
 
 /** A run that has ended, carrying its report - which is where the report now comes from. */
-function finishedRun(withReport: IntegrationJobReport): IntegrationRunState {
+function finishedRun(withReport: IntegrationJobReport, embedRequested = false): IntegrationRunState {
   return {
     runId: "run-abc",
     providerId: "hypothetical-fourth",
@@ -174,6 +174,7 @@ function finishedRun(withReport: IntegrationJobReport): IntegrationRunState {
     phaseDone: 0,
     phaseTotal: 0,
     completedPhases: ["observe", "validate", "resolve", "write-elements"],
+    embedRequested,
     report: withReport,
   };
 }
@@ -706,7 +707,7 @@ describe("the embed opt-in, which is the only way a Studio run writes summary em
   });
 
   it("reads the count once the run DID ask", async () => {
-    getRunMock.mockResolvedValue(finishedRun(report({ summariesEmbedded: 7 })));
+    getRunMock.mockResolvedValue(finishedRun(report({ summariesEmbedded: 7 }), true));
     listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), entitySummaryTemplate: "{kind} {csv.name}" }]);
     renderScreen();
     await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
@@ -801,5 +802,77 @@ describe("a run is watched rather than awaited (feature integration-run-visibili
     await startARun();
 
     expect(await screen.findByTestId("run-error")).toHaveTextContent("400");
+  });
+});
+
+describe("the run survives a reload, and a poll failure is not diagnosed as absence", () => {
+  it("re-attaches through REHYDRATION, not just through an in-memory store", async () => {
+    // The previous test for this seeded the live store, so it could never catch the actual defect: the
+    // watch was written to local storage by partialize and then nulled by merge on the way back in, so a
+    // real reload lost the run entirely. This goes through storage.
+    localStorage.setItem(
+      "f8.workspace.local",
+      JSON.stringify({ state: { integrationWatch: "office-inventory" }, version: 0 }),
+    );
+    resetInstanceStoresForTests();
+    getRunMock.mockResolvedValue(runningRun("embed-summaries", 100, 9478));
+
+    renderScreen();
+
+    expect(await screen.findByTestId("run-panel")).toBeInTheDocument();
+    expect(submitJobMock).not.toHaveBeenCalled();
+  });
+
+  it("does not claim a run is untracked when the poll failed for another reason", async () => {
+    // A 503 or a 401 says nothing about whether the run exists. Rendering the untracked copy for it
+    // asserts a cause the answer never gave, and sends the operator looking for the wrong thing.
+    store().getState().setIntegrationWatch("office-inventory");
+    getRunMock.mockRejectedValue(new ApiError(503, "/integrations/run/office-inventory", "sidecar down"));
+
+    renderScreen();
+
+    expect(await screen.findByTestId("run-poll-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("run-untracked")).not.toBeInTheDocument();
+  });
+
+  it("stops rendering a stale run as in flight once the runtime says it has none", async () => {
+    store().getState().setIntegrationWatch("office-inventory");
+    getRunMock.mockRejectedValue(new ApiError(404, "/integrations/run/office-inventory", "no run"));
+
+    renderScreen();
+
+    expect(await screen.findByTestId("run-untracked")).toBeInTheDocument();
+    expect(screen.queryByTestId("run-panel")).not.toBeInTheDocument();
+  });
+});
+
+describe("a second run under one identity is not served from the first run's cache", () => {
+  it("asks again for the new run id instead of replaying the finished one", async () => {
+    // The finished previous run has running=false, so the poll interval is off. Keyed on the identity
+    // alone, react-query served that cached run forever and presented its report as the new run's
+    // outcome - the run appearing to have finished before it started.
+    submitJobMock.mockResolvedValue({ ...accepted(), runId: "run-1" });
+    getRunMock.mockResolvedValue(finishedRun(report({ elementsCreated: 1 })));
+
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "office-inventory");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(screen.getByTestId("report-created")).toHaveTextContent("1"));
+
+    const pollsAfterFirst = getRunMock.mock.calls.length;
+
+    // Second run, same identity, different run id and a different outcome.
+    submitJobMock.mockResolvedValue({ ...accepted(), runId: "run-2" });
+    getRunMock.mockResolvedValue(finishedRun(report({ elementsCreated: 42 })));
+    // The form forgets the secret once a run reports, and it is required - so without re-typing it the
+    // button stays disabled and the second click does nothing.
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    await waitFor(() => expect(getRunMock.mock.calls.length).toBeGreaterThan(pollsAfterFirst));
+    await waitFor(() => expect(screen.getByTestId("report-created")).toHaveTextContent("42"));
   });
 });

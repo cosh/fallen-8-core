@@ -26,6 +26,7 @@
 import { describe, expect, it } from "vitest";
 import type { EdgeREST, IndexDescription, VertexREST } from "../src/api/types";
 import { similarSearchesFor } from "../src/lib/findSimilar";
+import { RUN_PHASES } from "../src/api/types";
 import { vectorQueryText } from "../src/lib/embeddingProperties";
 
 /**
@@ -159,5 +160,23 @@ describe("which index can answer 'what is like this'", () => {
   it("tolerates a missing inventory rather than throwing on a server that reports none", () => {
     expect(similarSearchesFor(vertex(), null, false)).toEqual([]);
     expect(similarSearchesFor(vertex(), undefined, false)).toEqual([]);
+  });
+});
+
+describe("the run phase list is the runtime's, and drifting it silently is the failure mode", () => {
+  it("is exactly the seven phases, in run order", () => {
+    // COUNTERPART: RunPhases.InOrder in fallen-8-integrations/Run/IRunProgress.cs, pinned by
+    // IntegrationsRunTrackerTest.ThePhaseListIsExactlyTheSevenNamedPhases_InRunOrder. A phase renamed on
+    // one side only leaves BOTH suites green while the Studio's row for it goes permanently pending -
+    // these two tests exist so that is a two-file edit somebody has to notice.
+    expect([...RUN_PHASES]).toEqual([
+      "observe",
+      "validate",
+      "resolve",
+      "write-elements",
+      "write-edges",
+      "embed-summaries",
+      "reconcile",
+    ]);
   });
 });

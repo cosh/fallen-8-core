@@ -236,6 +236,68 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void TheLastPhaseOfACleanRun_IsMarkedCompleted_NotLeftLookingLikeItNeverRan()
+        {
+            var tracker = new RunTracker();
+            var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
+            progress.EnterPhase(RunPhases.EmbedSummaries);
+            progress.EnterPhase(RunPhases.Reconcile);
+
+            tracker.Finish("office", "run-1", new JobReport());
+
+            Assert.IsTrue(tracker.TryGet("office", out var state));
+            CollectionAssert.Contains(state!.CompletedPhases, RunPhases.Reconcile,
+                "the phase a successful run ENDED in is shown as never having run, so every clean import " +
+                "reads as having skipped its last step");
+            Assert.IsNull(state.StoppedInPhase, "a clean run did not stop anywhere");
+        }
+
+        [TestMethod]
+        public void AFailedRun_RecordsWhereItStopped_RatherThanCompletingThatPhase()
+        {
+            var tracker = new RunTracker();
+            var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
+            progress.EnterPhase(RunPhases.EmbedSummaries);
+
+            tracker.Finish("office", "run-1", new JobReport { ErrorKind = "graph" });
+
+            Assert.IsTrue(tracker.TryGet("office", out var state));
+            Assert.AreEqual(RunPhases.EmbedSummaries, state!.StoppedInPhase);
+            CollectionAssert.DoesNotContain(state.CompletedPhases, RunPhases.EmbedSummaries,
+                "the phase a run FAILED in is reported as completed, which is the opposite of what happened");
+        }
+
+        [TestMethod]
+        public void TheEmbedRequest_IsCarriedOnTheRun_NotLeftToTheClientToRemember()
+        {
+            // A client holding this in component state reports it wrongly after any remount - claiming
+            // nobody asked for embedding that actually happened.
+            var tracker = new RunTracker();
+            tracker.Begin("run-1", "csv-device-list", "office", null, embedRequested: true)
+                .EnterPhase(RunPhases.Observe);
+
+            Assert.IsTrue(tracker.TryGet("office", out var state));
+            Assert.IsTrue(state!.EmbedRequested);
+        }
+
+        [TestMethod]
+        public void ThePhaseListIsExactlyTheSevenNamedPhases_InRunOrder()
+        {
+            // RunPhases.InOrder is what a reader renders a row per. Its COUNTERPART is RUN_PHASES in
+            // fallen-8-web-ui/src/api/types.ts, pinned by its own test there: a phase renamed on one side
+            // only leaves both suites green while the Studio row goes permanently pending, so the two tests
+            // exist to make that a two-file edit somebody has to notice.
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "observe", "validate", "resolve", "write-elements", "write-edges", "embed-summaries",
+                    "reconcile",
+                },
+                RunPhases.InOrder,
+                "the phase list changed; update RUN_PHASES in the Studio in the same change");
+        }
+
+        [TestMethod]
         public void AFinishArrivingAfterTheNextRunStarted_IsDropped()
         {
             // The run gate is released when a run returns, and its report is recorded a moment later, so a

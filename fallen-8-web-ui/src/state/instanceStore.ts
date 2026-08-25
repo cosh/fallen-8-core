@@ -630,7 +630,10 @@ function createWorkspaceStore(instanceId: string) {
             // persisted before the partialize existed.
             scanPrefill: null,
             inspectPrefill: null,
-            integrationWatch: null,
+            // integrationWatch is deliberately NOT reset here. It is not a one-shot: a run outlives the
+            // request that started it and can take hours, so surviving a reload is the whole point of
+            // persisting it. Nulling it here silently defeated that - the field was written to storage by
+            // partialize and thrown away on the way back in.
           };
         },
       },

@@ -171,6 +171,32 @@ namespace NoSQL.GraphDB.Tests
                 "a job that never ran is tracked as a run: " + await ReadText(polled));
         }
 
+        /// <summary>
+        ///   A run can END before it enters a phase: the credential-unusable class returns a REPORT rather
+        ///   than throwing. Treating that as "started" answered 202 with a progress URL, while the report -
+        ///   the only copy the runtime makes - was dropped on the floor and the poll 404'd forever. This is
+        ///   asserted on the DEFAULT route, because that is the one every shipped client now uses.
+        /// </summary>
+        [TestMethod]
+        public async Task ARunThatEndsBeforeItsFirstPhase_AnswersItsReportInline_NotA202()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync("/integration/job",
+                Json("{\"providerId\":\"" + UnifiProviderId + "\",\"integrationInstanceId\":\"blank-key\"," +
+                     "\"settings\":{\"baseUrl\":\"http://127.0.0.1:1\"}," +
+                     "\"credentialValues\":{\"apiKey\":\"   \"}}"));
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "a run that ended before it had a phase was accepted as though it were in flight, so its " +
+                "report - the only copy this runtime makes - is unreachable: " + await ReadText(response));
+
+            var body = await ReadJson(response);
+            Assert.AreEqual("credential", body.GetProperty("errorKind").GetString(),
+                "the report came back but not the reason, which is the one thing the caller can act on");
+        }
+
         [TestMethod]
         public async Task AnUnknownIdentity_Is404_SayingWhyItMightBeMissing()
         {
