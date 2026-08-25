@@ -53,6 +53,37 @@ curl -sS -X POST http://localhost:8080/integrations/job \
       }')"
 ```
 
+That call **accepts** the run rather than waiting for it. It answers `202` with a run id, because
+a source worth importing takes longer than any connection in front of it will stay open, and the
+run is deliberately built to outlive its caller. Everything that can *reject* the job is still
+judged before the answer, so a `202` means the run really started and a `400` or `409` means it
+never did.
+
+Watch it, or read its outcome afterwards:
+
+```bash
+curl -sS http://localhost:8080/integrations/run/office-inventory
+```
+
+While a run is in flight that carries the phase it is in and how far through it is; once it ends it
+carries the report itself, or the error if it produced none. The phases are `observe`, `validate`,
+`resolve`, `write-elements`, `write-edges`, `embed-summaries` and `reconcile`. Two of them matter
+most, because both can run for a long time while the graph shows no change at all and used to be
+indistinguishable from a hang: a large extract **parses** for minutes, and summary **embedding** is
+model inference for hours.
+
+In [F8 Studio](/studio/) this is the run panel on the Integrations screen. It survives a page
+reload, because the identity is enough to re-find the run.
+
+Add `?wait=true` to the job call for the old synchronous shape, which returns the report itself. It
+is for a small source and a script: the API's proxy holds a connection for a bounded time, so a real
+import will outlast it.
+
+What is remembered is deliberately narrow: **one slot per identity**, superseded by that identity's
+next run, held in memory and dropped on restart, capped so a caller inventing an identity per run
+cannot grow it without bound. There is still no run history, no schedule and no list of past runs -
+only what is happening now and what happened last.
+
 Ask `GET /integrations/providers` what each integration's settings are; every one carries a
 label, a kind and a sentence saying where to find the value in the source system. That is
 deliberately enough to render a form from, so a new integration needs no new UI code when a
@@ -96,7 +127,7 @@ hundreds of megabytes before anything is parsed, and the elements it produces ar
 in batches rather than one enormous transaction. Budget memory for the runtime container accordingly;
 the ceiling exists precisely because the caller, not the operator, picks the size.
 
-There is deliberately **no schedule, no interval and no run history** anywhere in the runtime.
+There is deliberately **no schedule, no interval and no list of past runs** anywhere in the runtime.
 Timing belongs to whoever wants the data: run a job from cron, from a CI pipeline, from a
 button. A runtime holding a schedule would own a second copy of a decision it has no way to
 judge.

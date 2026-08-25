@@ -137,6 +137,33 @@ environment has it on unless you set `F8_EMBEDDINGS=false`. A 409 means the prov
 name/dimension/metric does not match the vectors baked into your data. Bring-your-own-vector
 scans work regardless. Full rules: [Semantic traversal](/semantic-traversal/).
 
+## An integration run vanished, or timed out while the graph kept changing
+
+**Symptom.** You started a run, the call failed or timed out after a couple of minutes, and yet the
+graph carried on filling. Or the page was closed and now there is no way to tell whether the run
+finished.
+
+**Cause.** A run is deliberately built to outlive its caller: interrupting it midway would leave a
+half-applied snapshot, so it finishes what it started even when nobody is left to read the answer.
+Older builds paired that with a synchronous job call, so the connection that would have carried the
+report was gone long before the run ended and the outcome was lost for good.
+
+**Fix.** Nothing is wrong with the graph, and the run is almost certainly fine. Ask for it:
+
+```bash
+curl -sS http://localhost:8080/integrations/run/<your-integration-identity>
+```
+
+That answers the phase it is in while it runs, and the report once it has ended. F8 Studio shows the
+same thing as a run panel on the Integrations screen, and it re-attaches after a reload. If you get a
+`404`, the runtime has no slot for that identity: it has not run in this process, or a restart or
+enough other identities have displaced it - the runtime keeps only the current and most recent run
+per identity, in memory.
+
+If a run really is taking hours, check whether it is in `embed-summaries`. That phase is model
+inference, not graph work, and on a CPU-backed model it costs seconds per element
+([Integrations](/integrations/)).
+
 ## Semantic search succeeds but finds nothing
 
 **Symptom.** A vector or text-in search returns `200` with an empty result list. Nothing is
