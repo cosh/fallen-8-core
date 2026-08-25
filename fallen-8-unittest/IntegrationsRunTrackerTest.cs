@@ -123,7 +123,7 @@ namespace NoSQL.GraphDB.Tests
             var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
             progress.EnterPhase(RunPhases.Observe);
 
-            tracker.Finish("office", new JobReport { ElementsCreated = 7 });
+            tracker.Finish("office", "run-1", new JobReport { ElementsCreated = 7 });
 
             Assert.IsTrue(tracker.TryGet("office", out var state));
             Assert.IsFalse(state!.Running, "a finished run still reports itself as running");
@@ -139,7 +139,7 @@ namespace NoSQL.GraphDB.Tests
             var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
             progress.EnterPhase(RunPhases.EmbedSummaries);
 
-            tracker.Abort("office", "the graph refused the embedding write with 400");
+            tracker.Abort("office", "run-1", "the graph refused the embedding write with 400");
 
             Assert.IsTrue(tracker.TryGet("office", out var state));
             Assert.IsFalse(state!.Running);
@@ -157,7 +157,7 @@ namespace NoSQL.GraphDB.Tests
                 var progress = tracker.Begin("run-" + i.ToString(CultureInfo.InvariantCulture),
                     "csv-device-list", id, null);
                 progress.EnterPhase(RunPhases.Observe);
-                tracker.Finish(id, new JobReport());
+                tracker.Finish(id, "run-" + i.ToString(CultureInfo.InvariantCulture), new JobReport());
             }
 
             Assert.AreEqual(RunTracker.MaxIdentities, tracker.All().Count);
@@ -197,7 +197,7 @@ namespace NoSQL.GraphDB.Tests
             var tracker = new RunTracker();
             var first = tracker.Begin("run-1", "csv-device-list", "office", null);
             first.EnterPhase(RunPhases.Observe);
-            tracker.Finish("office", new JobReport { ElementsCreated = 1 });
+            tracker.Finish("office", "run-1", new JobReport { ElementsCreated = 1 });
 
             var second = tracker.Begin("run-2", "csv-device-list", "office", null);
             second.EnterPhase(RunPhases.Observe);
@@ -233,6 +233,28 @@ namespace NoSQL.GraphDB.Tests
             handle.EnterPhase(RunPhases.Observe);
 
             Assert.IsTrue(handle.Started.IsCompleted);
+        }
+
+        [TestMethod]
+        public void AFinishArrivingAfterTheNextRunStarted_IsDropped()
+        {
+            // The run gate is released when a run returns, and its report is recorded a moment later, so a
+            // second run under the same identity can open its own slot in between. Without the run-id scope
+            // the older report lands on the newer run: in flight, but reading as finished, with someone
+            // else's counts.
+            var tracker = new RunTracker();
+            var first = tracker.Begin("run-1", "csv-device-list", "office", null);
+            first.EnterPhase(RunPhases.Observe);
+
+            var second = tracker.Begin("run-2", "csv-device-list", "office", null);
+            second.EnterPhase(RunPhases.Observe);
+
+            tracker.Finish("office", "run-1", new JobReport { ElementsCreated = 99 });
+
+            Assert.IsTrue(tracker.TryGet("office", out var state));
+            Assert.AreEqual("run-2", state!.RunId);
+            Assert.IsTrue(state.Running, "the new run was marked finished by the previous run's report");
+            Assert.IsNull(state.Report, "the new run is reporting counts from a run that already ended");
         }
     }
 }

@@ -140,7 +140,7 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                     }
                 }
 
-                tracker.Attach(instanceId!, run);
+                tracker.Attach(instanceId!, handle.RunId, run);
                 return Results.Accepted((String?)null, new RunAcceptedDto
                 {
                     RunId = handle.RunId,
@@ -181,7 +181,7 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             try
             {
                 var report = await runner.RunAsync(job, CancellationToken.None, handle).ConfigureAwait(false);
-                tracker.Finish(instanceId, report);
+                tracker.Finish(instanceId, handle.RunId, report);
             }
             catch (Exception failure)
             {
@@ -190,7 +190,7 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                     throw;
                 }
 
-                tracker.Abort(instanceId, failure.Message);
+                tracker.Abort(instanceId, handle.RunId, failure.Message);
             }
         }
 

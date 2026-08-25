@@ -110,12 +110,21 @@ namespace NoSQL.GraphDB.Integrations.Run
             return slot;
         }
 
-        /// <summary>Records the report of a run that finished, successfully or not.</summary>
-        public void Finish(String instanceId, JobReport report)
+        /// <summary>
+        ///   Records the report of a run that finished, successfully or not.
+        ///
+        ///   <para>Scoped by RUN ID, and that is not defensive dressing. The run gate is released when the
+        ///   run returns, and the report is recorded a moment later, so a second run under the same identity
+        ///   can be accepted and open its own slot in between. Writing by identity alone would then stamp the
+        ///   previous run's report onto the new run's slot: a run actually in flight would read as finished,
+        ///   with counts from a run that already ended. A stale finish is dropped instead.</para>
+        /// </summary>
+        public void Finish(String instanceId, String runId, JobReport report)
         {
             lock (_gate)
             {
-                if (_byInstance.TryGetValue(instanceId, out var slot))
+                if (_byInstance.TryGetValue(instanceId, out var slot) &&
+                    String.Equals(slot.RunId, runId, StringComparison.Ordinal))
                 {
                     slot.FinishedUtc = DateTimeOffset.UtcNow;
                     slot.Report = report;
@@ -129,11 +138,12 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   FAILED, which has a report carrying its own errorKind: this is the case where there is
         ///   nothing but the exception, and reporting nothing would leave the slot in flight forever.
         /// </summary>
-        public void Abort(String instanceId, String error)
+        public void Abort(String instanceId, String runId, String error)
         {
             lock (_gate)
             {
-                if (_byInstance.TryGetValue(instanceId, out var slot))
+                if (_byInstance.TryGetValue(instanceId, out var slot) &&
+                    String.Equals(slot.RunId, runId, StringComparison.Ordinal))
                 {
                     slot.FinishedUtc = DateTimeOffset.UtcNow;
                     slot.Error = error;
@@ -147,11 +157,12 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   process-level unhandled rejection waiting to happen, and this is the one place that can hold
         ///   it without inventing a scheduler.
         /// </summary>
-        public void Attach(String instanceId, Task task)
+        public void Attach(String instanceId, String runId, Task task)
         {
             lock (_gate)
             {
-                if (_byInstance.TryGetValue(instanceId, out var slot))
+                if (_byInstance.TryGetValue(instanceId, out var slot) &&
+                    String.Equals(slot.RunId, runId, StringComparison.Ordinal))
                 {
                     slot.Task = task;
                 }
