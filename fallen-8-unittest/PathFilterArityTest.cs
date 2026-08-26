@@ -48,6 +48,16 @@ namespace NoSQL.GraphDB.Tests
     /// the shipped defaults now compile end-to-end, that a real path is returned, and that a genuinely
     /// malformed fragment surfaces as <c>400</c> (not a silent empty).
     /// </summary>
+    /// <remarks>
+    ///   This is also the home of the "nothing to compile" short-circuit (audit defect <b>B24</b>): a
+    ///   <c>/path</c> request that supplies no filter and no cost fragment must compile NOTHING (no
+    ///   Roslyn Emit, no collectible load context) and still behave exactly like the generated
+    ///   all-<c>return null;</c> provider it replaces. The two subjects belong together because they are
+    ///   the two halves of one question, what a filter block does to the compile path, and because the
+    ///   boundary between them is easy to get wrong: a PRESENT default filter block carries real
+    ///   fragments (<c>"return (v) =&gt; true;"</c>) and therefore DOES compile, while an ABSENT one, or
+    ///   one whose every fragment is blank, must not.
+    /// </remarks>
     [TestClass]
     public class PathFilterArityTest
     {
@@ -153,10 +163,115 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNull(traverser, "A failed compile must not produce a traverser.");
         }
 
+        // ---- B24: nothing to compile short-circuits Roslyn ----------------------------------------
+        //      The mirror image of the group above: where a PRESENT filter block must reach the
+        //      compiler and bind, an absent (or wholly blank) one must not reach it at all, while
+        //      still behaving like the all-null provider it replaces.
+
+        [TestMethod]
+        public void B24_FilterlessSpecification_CompilesNothing_AndMatchesEverything()
+        {
+            // The default REST body (and the default MCP f8_paths call): no filter, no cost.
+            var definition = new PathSpecification();
+            Assert.IsNull(definition.Filter, "precondition: filter defaults to absent");
+            Assert.IsNull(definition.Cost, "precondition: cost defaults to absent");
+
+            var before = CodeGenerationHelper.PathCompileCount;
+
+            var message = CodeGenerationHelper.GeneratePathTraverser(out IPathTraverser traverser, definition);
+
+            Assert.IsNull(message, "A code-free specification is not an error. Got: " + message);
+            Assert.IsNotNull(traverser,
+                "A null traverser means 'compile failed' to the controller, so the short-circuit must still hand one back.");
+            Assert.AreEqual(0, CodeGenerationHelper.PathCompileCount - before,
+                "A request with nothing to compile must not reach Roslyn (no Emit, no collectible load context).");
+
+            // Byte-for-byte the behaviour of the generated provider it replaces: every factory
+            // returns null, which IPathTraverser defines as match-everything / default cost.
+            Assert.IsNull(traverser.VertexFilter(TraversalContext.Empty), "no vertex filter was supplied");
+            Assert.IsNull(traverser.EdgeFilter(TraversalContext.Empty), "no edge filter was supplied");
+            Assert.IsNull(traverser.EdgePropertyFilter(TraversalContext.Empty), "no edge-property filter was supplied");
+            Assert.IsNull(traverser.VertexCost(TraversalContext.Empty), "no vertex cost was supplied");
+            Assert.IsNull(traverser.EdgeCost(TraversalContext.Empty), "no edge cost was supplied");
+        }
+
+        [TestMethod]
+        public void B24_FilterlessSpecification_ReusesOneStatelessInstance()
+        {
+            var before = CodeGenerationHelper.PathCompileCount;
+
+            Assert.IsNull(CodeGenerationHelper.GeneratePathTraverser(out IPathTraverser first, new PathSpecification()));
+            Assert.IsNull(CodeGenerationHelper.GeneratePathTraverser(out IPathTraverser second, new PathSpecification()));
+
+            Assert.AreSame(first, second,
+                "The no-op traverser is stateless, so it must be a shared instance rather than a per-request allocation.");
+            Assert.AreEqual(0, CodeGenerationHelper.PathCompileCount - before, "Still nothing to compile.");
+        }
+
+        [TestMethod]
+        public void B24_PresentButAllBlankFragments_AlsoCompileNothing()
+        {
+            // Present blocks whose every fragment is blank: GenerateMethodSyntax would have emitted
+            // the same all-null provider, so this is the same "nothing to compile" case.
+            var definition = new PathSpecification
+            {
+                Filter = new PathFilterSpecification { Vertex = "   ", Edge = null, EdgeProperty = "" },
+                Cost = new PathCostSpecification { Vertex = "\t", Edge = null }
+            };
+
+            var before = CodeGenerationHelper.PathCompileCount;
+
+            var message = CodeGenerationHelper.GeneratePathTraverser(out IPathTraverser traverser, definition);
+
+            Assert.IsNull(message, "Blank fragments have always meant match-everything, not an error. Got: " + message);
+            Assert.IsNotNull(traverser);
+            Assert.AreEqual(0, CodeGenerationHelper.PathCompileCount - before,
+                "Whitespace-only fragments carry no code, so nothing may be compiled.");
+            Assert.IsNull(traverser.VertexFilter(TraversalContext.Empty));
+            Assert.IsNull(traverser.VertexCost(TraversalContext.Empty));
+        }
+
+        [TestMethod]
+        public void B24_ASingleNonBlankFragment_StillCompiles_AndLeavesTheOtherSlotsNull()
+        {
+            // The negative case: ONE fragment is enough to keep the compile path, and the blank
+            // siblings must still come back null (unchanged behaviour).
+            var (fallen8, _, _) = TwoConnectedVertices();
+            var vertex = fallen8.GetAllVertices().First();
+
+            var definition = new PathSpecification
+            {
+                Filter = new PathFilterSpecification
+                {
+                    Vertex = "return (v) => v.Label == \"person\";",
+                    Edge = null,
+                    EdgeProperty = "   "
+                }
+            };
+
+            var before = CodeGenerationHelper.PathCompileCount;
+
+            var message = CodeGenerationHelper.GeneratePathTraverser(out IPathTraverser traverser, definition);
+
+            Assert.IsNull(message, "A valid fragment must compile. Got: " + message);
+            Assert.IsNotNull(traverser);
+            Assert.AreEqual(1, CodeGenerationHelper.PathCompileCount - before,
+                "A specification carrying real code must still be compiled exactly once.");
+
+            var vertexFilter = traverser.VertexFilter(TraversalContext.Empty);
+            Assert.IsNotNull(vertexFilter, "The supplied fragment must be bound.");
+            Assert.IsTrue(vertexFilter(vertex), "The compiled filter must match a 'person' vertex.");
+            Assert.IsNull(traverser.EdgeFilter(TraversalContext.Empty), "A blank sibling stays null (match everything).");
+            Assert.IsNull(traverser.EdgePropertyFilter(TraversalContext.Empty), "A blank sibling stays null.");
+            Assert.IsNull(traverser.VertexCost(TraversalContext.Empty), "An absent cost block stays null.");
+
+            fallen8.Dispose();
+        }
+
         // ---- controller: default filters find the path; malformed -> 400 --------------------------
 
         [TestMethod]
-        public void Controller_WithDefaultFilterBlock_ReturnsThePath_NotEmpty()
+        public void Controller_WithDefaultFilterBlock_AndWithNoFilterAtAll_ReturnsThePath_NotEmpty()
         {
             var (fallen8, a, b) = TwoConnectedVertices();
             var controller = new GraphController(new UnitTestLogger<GraphController>(), fallen8);
@@ -173,6 +288,26 @@ namespace NoSQL.GraphDB.Tests
             var result = controller.CalculateShortestPath(a, b, spec).Result;
             Assert.IsNotNull(result.Value, "A default filter block must not produce a BadRequest.");
             Assert.AreEqual(1, result.Value.Count, "A path exists, so the default-filter request must return it, not [].");
+
+            // B24, merged in: the same end-to-end equivalence for a request that carries NO filter
+            // block at all. Skipping the compile must not turn the match-everything traversal into a
+            // no-match one. Both bodies are exercised here on purpose, because they are NOT the same
+            // input: the default filter block above carries real fragments and does reach Roslyn,
+            // whereas an absent block has nothing to compile and must not pay for one.
+            var before = CodeGenerationHelper.PathCompileCount;
+
+            var filterless = controller.CalculateShortestPath(a, b, new PathSpecification
+            {
+                PathAlgorithmName = "BLS",
+                MaxDepth = 3,
+                MaxResults = 1
+            }).Result;
+
+            Assert.IsNotNull(filterless.Value, "A code-free request must not produce an error result.");
+            Assert.AreEqual(1, filterless.Value.Count,
+                "A path exists, so a filterless request must return it - the short-circuit keeps match-everything semantics.");
+            Assert.AreEqual(0, CodeGenerationHelper.PathCompileCount - before,
+                "The default /path body must not pay a Roslyn compile.");
 
             fallen8.Dispose();
         }

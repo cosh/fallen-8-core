@@ -1227,5 +1227,163 @@ namespace NoSQL.GraphDB.Tests
         }
 
         #endregion
+
+        #region the refusal names the actual cause, not the nearest one
+
+        // The 422 used to blame the type allow-list for EVERY rejected property, including an
+        // allow-listed String/Char carrying an unpaired surrogate - which sent an operator hunting an
+        // exotic type that was not there. Each cause is now told apart from the others, so these tests
+        // pin the WORDING; the status and the problem-body shape are pinned by
+        // Export_NonAllowListedEngineProperty_Is422_BeforeAnyStreaming above.
+
+        /// <summary>The pieces of the 422 problem body a caller diagnoses from.</summary>
+        private sealed class ExportRefusal
+        {
+            public HttpStatusCode Status;
+            public String MediaType;
+            public String PropertyKey;
+            public String Detail;
+        }
+
+        /// <summary>
+        ///   Seeds ONE vertex carrying property "p" with <paramref name="propertyValue"/> straight
+        ///   on the engine (the REST write path cannot create these values at all), then exports.
+        /// </summary>
+        private static async Task<ExportRefusal> ExportWithProperty(Object propertyValue)
+        {
+            using var factory = new BulkFactory();
+            var engine = EngineOf(factory);
+
+            var vtx = new CreateVerticesTransaction();
+            vtx.AddVertex(1u, "person", new Dictionary<String, Object> { { "p", propertyValue } });
+            engine.EnqueueTransaction(vtx).WaitUntilFinished();
+
+            using var client = factory.CreateClient();
+            using var response = await client.GetAsync("/bulk/export");
+            var body = await response.Content.ReadAsStringAsync();
+
+            var refusal = new ExportRefusal
+            {
+                Status = response.StatusCode,
+                MediaType = response.Content.Headers.ContentType?.MediaType,
+                Detail = body
+            };
+
+            if (response.StatusCode == HttpStatusCode.UnprocessableEntity)
+            {
+                using var problem = JsonDocument.Parse(body);
+                refusal.PropertyKey = problem.RootElement.GetProperty("propertyKey").GetString();
+                refusal.Detail = problem.RootElement.GetProperty("detail").GetString();
+            }
+
+            return refusal;
+        }
+
+        private static void AssertRefused(ExportRefusal refusal)
+        {
+            Assert.AreEqual(HttpStatusCode.UnprocessableEntity, refusal.Status, refusal.Detail);
+            Assert.AreEqual("application/problem+json", refusal.MediaType,
+                "the failure is a problem body, never a half-written NDJSON file");
+            Assert.AreEqual("p", refusal.PropertyKey, "the offending property is still pinpointed");
+        }
+
+        [TestMethod]
+        public async Task Export_422_NullValue_IsAttributedToTheNullValue()
+        {
+            var refusal = await ExportWithProperty(null);
+
+            AssertRefused(refusal);
+            StringAssert.Contains(refusal.Detail, "its value is null", refusal.Detail);
+            Assert.IsFalse(refusal.Detail.Contains("allow-list"),
+                "a null value has no runtime type, so the allow-list must not be blamed");
+        }
+
+        [TestMethod]
+        public async Task Export_422_NonAllowListedType_NamesTheTypeAndTheAllowList()
+        {
+            var refusal = await ExportWithProperty(new Int32[] { 1, 2, 3 });
+
+            // No AssertRefused here: Export_NonAllowListedEngineProperty_Is422_BeforeAnyStreaming
+            // refuses the SAME int[] value and already asserts the 422, the problem media type and the
+            // pinpointed property key. What is new is the wording - and only a 422 problem body has a
+            // "detail" to read at all, so these assertions still fail if the refusal goes away.
+            StringAssert.Contains(refusal.Detail, "System.Int32[]", refusal.Detail);
+            StringAssert.Contains(refusal.Detail, "outside the exportable allow-list", refusal.Detail);
+            Assert.IsFalse(refusal.Detail.Contains("null"),
+                "the value is present, so nullness must not be offered as the cause");
+        }
+
+        [TestMethod]
+        public async Task Export_422_UnpairedSurrogateInAString_IsNotBlamedOnTheAllowList()
+        {
+            // System.String IS allow-listed: the refusal happens AFTER that check passes, so the
+            // old wording ("a type outside the exportable allow-list") was simply false here.
+            var refusal = await ExportWithProperty("bad\ud800tail");
+
+            AssertRefused(refusal);
+            StringAssert.Contains(refusal.Detail, "unpaired surrogate", refusal.Detail);
+            StringAssert.Contains(refusal.Detail, "invalid UTF-16", refusal.Detail);
+            StringAssert.Contains(refusal.Detail, "String", refusal.Detail);
+            Assert.IsFalse(refusal.Detail.Contains("allow-list"),
+                "System.String is allow-listed; blaming the allow-list sends the operator hunting an exotic type");
+            Assert.IsFalse(refusal.Detail.Contains("null"), refusal.Detail);
+        }
+
+        [TestMethod]
+        public async Task Export_422_UnpairedSurrogateChar_IsNotBlamedOnTheAllowList()
+        {
+            var refusal = await ExportWithProperty('\ud800');
+
+            AssertRefused(refusal);
+            StringAssert.Contains(refusal.Detail, "unpaired surrogate", refusal.Detail);
+            StringAssert.Contains(refusal.Detail, "Char", refusal.Detail);
+            Assert.IsFalse(refusal.Detail.Contains("allow-list"),
+                "System.Char is allow-listed too");
+        }
+
+        [TestMethod]
+        public void TryFormatValue_ClassifiesEachRejection_AndSaysNothingOnSuccess()
+        {
+            // The single home of the classification: one distinct reason per false, null on true.
+            // This is the FOUR-argument overload; the three-argument one above it (the streaming hot
+            // path) is covered by NullValues_AndNonAllowListedTypes_AreNotFormattable and
+            // UnpairedSurrogates_AreRejectedAtFormatTime, so the booleans below are the only place
+            // the reason-carrying overload's own verdict is pinned.
+            Assert.IsFalse(JsonlGraphFormat.TryFormatValue(null, out _, out _, out var nullReason));
+            StringAssert.Contains(nullReason, "null", nullReason);
+
+            Assert.IsFalse(JsonlGraphFormat.TryFormatValue(new Object(), out _, out _, out var typeReason));
+            StringAssert.Contains(typeReason, "System.Object", typeReason);
+            StringAssert.Contains(typeReason, "allow-list", typeReason);
+
+            Assert.IsFalse(JsonlGraphFormat.TryFormatValue('\ud800', out _, out _, out var charReason));
+            StringAssert.Contains(charReason, "unpaired surrogate", charReason);
+            Assert.IsFalse(charReason.Contains("allow-list"), charReason);
+
+            Assert.IsFalse(JsonlGraphFormat.TryFormatValue("\udc00head", out _, out _, out var lowReason));
+            StringAssert.Contains(lowReason, "unpaired surrogate", lowReason);
+            Assert.IsFalse(lowReason.Contains("allow-list"), lowReason);
+
+            // Every cause reads differently: a caller can act on the message.
+            CollectionAssert.AllItemsAreUnique(new[] { nullReason, typeReason, charReason });
+
+            // Success says nothing at all. A WELL-FORMED surrogate pair (U+1F600, written as escapes
+            // rather than a literal so that a re-encoding of this file cannot silently change the
+            // case) must pass: the check refuses unpaired surrogates, never astral characters. Same
+            // for the one non-scalar type.
+            Assert.IsTrue(JsonlGraphFormat.TryFormatValue("ok \ud83d\ude00 pair", out _, out _, out var okReason));
+            Assert.IsNull(okReason);
+            Assert.IsTrue(JsonlGraphFormat.TryFormatValue(new Single[] { 1f, 2f }, out _, out _, out var vectorReason));
+            Assert.IsNull(vectorReason);
+
+            // The three-argument overload keeps behaving exactly as before (its refusals are
+            // asserted by UnpairedSurrogates_AreRejectedAtFormatTime; what is added here is that a
+            // plain success still reports the type name and the formatted text).
+            Assert.IsTrue(JsonlGraphFormat.TryFormatValue("plain", out var typeName, out var formatted));
+            Assert.AreEqual("System.String", typeName);
+            Assert.AreEqual("plain", formatted);
+        }
+
+        #endregion
     }
 }

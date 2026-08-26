@@ -547,11 +547,16 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        ///   The catalog's own promise: a live entry can apply itself, and its tier and apply mode agree.
-        ///   Cheap, and it is what stops a future promotion shipping a tier with no way to honour it.
+        ///   The catalog's own promise: every live entry declares the apply mode its behaviour actually
+        ///   honours, and the tranche is the size the spec says. Cheap, and it is what stops a future
+        ///   promotion shipping a tier whose promise the key cannot keep.
+        ///   <para>That a live entry HAS an apply delegate (and that no other entry carries one) is
+        ///   pinned bidirectionally for the whole catalog by
+        ///   <c>SettingCatalogTest.EveryLiveEntry_HasAnApplyDelegate_AndNoOtherEntryCarriesOne</c>, so
+        ///   it is not re-asserted here.</para>
         /// </summary>
         [TestMethod]
-        public void EveryPromotedKey_DeclaresItsApplyModeAndCanApply()
+        public void EveryPromotedKey_DeclaresItsApplyMode_AndTheTrancheIsTheSizeTheSpecSays()
         {
             var live = Fallen8SettingCatalog.Entries
                 .Where(entry => entry.Tier == Fallen8SettingTier.Live)
@@ -561,7 +566,6 @@ namespace NoSQL.GraphDB.Tests
 
             foreach (var entry in live)
             {
-                Assert.IsNotNull(entry.ApplyNow, entry.Key + " claims to be live with no way to apply");
                 Assert.AreEqual(Fallen8SettingApplyMode.LiveForNewWork, entry.ApplyMode,
                     entry.Key + " is a cap consulted when work starts, so it must promise new work only");
             }

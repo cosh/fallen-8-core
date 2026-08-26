@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectMcpAlgorithmTest.cs
+// McpAlgorithmSelectorTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -37,17 +37,21 @@ using NoSQL.GraphDB.Mcp.Tools;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   Audit defect B49 (engine -> REST -> MCP propagation, field level): the algorithm selector
-    ///   of <c>f8_paths</c> and <c>f8_subgraph</c>. REST resolves a runtime-registered Path plugin
+    ///   The algorithm selector of <c>f8_paths</c> and <c>f8_subgraph</c>: the advertised schema
+    ///   shape AND what actually reaches the wire. REST resolves a runtime-registered Path plugin
     ///   by name and <c>PUT /subgraph</c> takes an optional <c>algorithm</c>, so neither tool may
     ///   advertise a closed enum (f8_paths did) or hide the knob entirely (f8_subgraph did) - an
     ///   MCP client that validates arguments against the advertised schema would then have strictly
-    ///   less reach than Studio or raw REST. The route/method guards (<c>McpContractTest</c>,
-    ///   <c>McpRestCoverageTest</c>) are endpoint-level and cannot see this, hence these
-    ///   field-level tests: they pin the schema shape AND what actually reaches the wire.
+    ///   less reach than Studio or raw REST. That gap was audit defect B49 (engine -> REST -> MCP
+    ///   propagation, at field level); the route/method guards (<c>McpContractTest</c>,
+    ///   <c>McpRestCoverageTest</c>) are endpoint-level and cannot see it, hence these field-level
+    ///   tests.
+    ///
+    ///   <para>This class is also the ONLY coverage of <c>PathsTool</c> and <c>SubgraphTool</c> in
+    ///   the whole suite: thin it and those two tools have no test at all.</para>
     /// </summary>
     [TestClass]
-    public class AuditDefectMcpAlgorithmTest
+    public class McpAlgorithmSelectorTest
     {
         /// <summary>Captures the bridged HTTP request (method, path, body) and answers a canned
         /// 200, so a test can assert what the tool really sent downstream.</summary>

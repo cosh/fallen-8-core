@@ -138,7 +138,7 @@ namespace NoSQL.GraphDB.Tests
 
         /// <summary>
         /// Poisons a vertex's raw out-edge bucket with a null entry via the internal
-        /// fault-injection hook (reflection, same pattern as CorrectnessFixesFollowupsTest), so a
+        /// fault-injection hook (reflection, same pattern as RemovalRollbackTest), so a
         /// subsequent removal of an edge in that bucket faults deterministically inside
         /// RemoveOutGoingEdge (RemoveById dereferences the null).
         /// </summary>

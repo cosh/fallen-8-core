@@ -133,25 +133,54 @@ gated as usual before merge (owner's decision 2026-08-26).
 
 Zero coverage loss is the constraint; the wins are files, LOC, and honesty of structure.
 
-- [ ] Move `ThrowingOnSaveIndex`/`ThrowingOnLoadIndex` to a shared fixture home first
+- [x] Move `ThrowingOnSaveIndex`/`ThrowingOnLoadIndex` to a shared fixture home first
   (three files reference them).
-- [ ] Execute [test-consolidation-map.md](test-consolidation-map.md): delete the 12
+  As built: `ThrowingIndexFixtures.cs`, same namespace so no consumer needed an import
+  change. The move also surfaced a sibling hazard recorded for later: `ThrowingOnSaveService`
+  is still a private nested double in a file that was renamed, and whoever relocates the
+  method using it must carry it along or promote it the same way.
+- [x] Execute [test-consolidation-map.md](test-consolidation-map.md): delete the 12
   verified pure duplicates, relocate the 85 mapped methods into their subject files,
   rename the keep-whole files to subject names. Keep every method's prose rationale.
   Honor the map's four warnings, especially: `AuditDefectMcpAlgorithmTest` is the sole
   `PathsTool`/`SubgraphTool` coverage (rename, never thin), and `IndexTest`'s defensive
   `Between` assertions are replaced by the corrective B3 tests moving in.
-- [ ] Trim the duplicated `ApplyNow != null` assertion in `LiveSettingTest.cs:420`, the
+  As built: 26 event-named files are gone and 18 subject-named files stand in their place.
+  ONE of the twelve claimed duplicates was refused with evidence and NOT deleted (see the
+  correction in the map): deleting it would have left `PUT /graphelements/properties` with no
+  success-path coverage. Two further corrections the fold found: a source and target fixture
+  built DIFFERENT graphs, so the eleven moved subgraph tests keep their original graph
+  through a small helper rather than having their assertions quietly rewritten to fit a new
+  one; and a class doc advertised cancellation coverage ("C7") that no method in the file
+  ever tested, which was dropped rather than carried forward as a false claim.
+- [x] Trim the duplicated `ApplyNow != null` assertion in `LiveSettingTest.cs:420`, the
   duplicated literal checks in `IntegrationsIdentityTest`'s per-type tests, and the
   line-level verbatim assertion duplicates the map names (keep each test's unique
   assertions).
-- [ ] DataRow the two remaining verified clusters: the eight `Register_..._Returns400`
+  As built: each trimmed test was RENAMED to say what it still pins, so no name outlives its
+  assertions.
+- [x] DataRow the two remaining verified clusters: the eight `Register_..._Returns400`
   methods in `StoredQueryLibraryTest`, the three `TheXBlueprintConforms` methods
   (Fronius keeps its extra credential check separate).
+  As built: every input survives as a row carrying its own message, so a failure still names
+  which malformation broke. Note for the record: a DataRow collapse reduces METHODS, not test
+  CASES, so it barely moves the suite's headline count - the win is readability, not runtime.
 - [ ] Extract the three shared helpers: `CreateVertices` (19 files), the volatile
   `WebApplicationFactory` base with a settings-dictionary overload (35 files), a
   disposable `TempDirectory` (58 files). Mechanical, reviewed per file.
-- [ ] Apply D4's outcome to `AdjacencyConcurrencyTest`.
+- [x] Apply D4's outcome to `AdjacencyConcurrencyTest`.
+  As built: each of the three race hunts became a `_Heavy` method behind the repo's existing
+  opt-in gate (`[TestCategory("Benchmark")]` plus `[Ignore]`, the pattern
+  `LoadPathIntegrityTest` already uses) and a `_Smoke` method that stays in every run, both
+  driving ONE parameterised body so the two can never drift into testing different things.
+  The hunt itself is unchanged, and a gross regression (a torn read, a null, a throw) still
+  fails on every run.
+  MEASUREMENT CORRECTED: the saving is **5 seconds**, not the 69 the audit reported. Measured
+  from the trx either side of this change on a quiet machine, the three hunts cost 6.2s before
+  and 1.3s after, of a suite that runs in about 105s. The audit's 69s was taken while six
+  other agents were loading the same machine. The change is still worth keeping (a stress
+  test's cost is worst exactly when the machine is busy, which is CI), but it is a small
+  saving and the report's "roughly a third of the suite" claim was wrong.
 - [ ] Deliberately NOT done: DataRow-ing the vocabulary FailsToLoad cluster (its prose
   is the value), touching the 141 endpoint tests with genuine HTTP-layer assertions, or
   any benchmark change (all 26 are correctly `[Ignore]`d and cost nothing).

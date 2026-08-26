@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectNeighboursTest.cs
+// VertexNeighbourProjectionTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -34,13 +34,14 @@ using NoSQL.GraphDB.Core.Transaction;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Regression tests for audit defect B10: <c>VertexModel.GetAllNeighbors</c> projected BOTH
-    /// directions through the edge's target vertex, so an in-edge yielded the vertex itself instead of
-    /// its predecessor. The contract these pin is stated on the member: every edge is projected onto
-    /// its far endpoint, out-neighbours first, one entry per connecting edge.
+    /// The directional projection of <c>VertexModel.GetAllNeighbors</c>. The contract these pin is
+    /// stated on the member: every edge is projected onto its far endpoint, out-neighbours first,
+    /// one entry per connecting edge.
+    /// <para>History (audit defect B10): the member projected BOTH directions through the edge's
+    /// target vertex, so an in-edge yielded the vertex itself instead of its predecessor.</para>
     /// </summary>
     [TestClass]
-    public class AuditDefectNeighboursTest
+    public class VertexNeighbourProjectionTest
     {
         private const string VertexLabel = "person";
         private const string EdgeLabel = "knows";

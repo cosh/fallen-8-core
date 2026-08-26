@@ -1,6 +1,6 @@
 // MIT License
 //
-// IngestionCouncilFixesTest.cs
+// IngestionRecoveryAndConcurrencyTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -26,67 +26,28 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
-using System.Net.Http;
-using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.ChangeFeed;
-using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   Council merge-review fixes for feature unstructured-ingestion. Each test pins one
-    ///   finding so a regression re-opens it:
-    ///   - C2/E1: RegExIndex refuses a removed element (the add-after-remove tombstone leak).
-    ///   - C1: concurrent first-ingests into a fresh namespace all succeed (index-ensure race).
-    ///   - F2: /status does not report the docling sidecar reachable when the capability is off.
-    ///   - S2: ingest progress is observable on the change feed.
-    ///   - C7: a caller-cancelled docling call is not mislabelled as a sidecar fault.
+    ///   Feature unstructured-ingestion, the ingest pipeline OUTSIDE one happy request: what many
+    ///   ingests arriving at once do to each other, what a previous process that died mid-flight
+    ///   leaves behind, and what an observer sees while a job runs.
+    ///
+    ///   <para>Three subjects, one per region: the index-ensure race on a first ingest into a fresh
+    ///   namespace (C1), the startup sweep of interrupted documents including the entity-index
+    ///   reconcile (FR-2/FR-6), and ingest progress on the change feed (S2). Each pins a finding so a
+    ///   regression re-opens it.</para>
     /// </summary>
     [TestClass]
-    public class IngestionCouncilFixesTest
+    public class IngestionRecoveryAndConcurrencyTest
     {
-        #region C2/E1 - RegExIndex removed-element guard
-
-        [TestMethod]
-        public void RegExIndex_RefusesARemovedElement_ButKeepsLiveOnes()
-        {
-            using var engine = new Fallen8(TestLoggerFactory.Create(), new ChangeFeedOptions());
-            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out var index, "ft", "RegExIndex"));
-
-            var liveTx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u, Label = "Chunk" } };
-            engine.EnqueueTransaction(liveTx).WaitUntilFinished();
-            var live = liveTx.VertexCreated;
-
-            var doomedTx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u, Label = "Chunk" } };
-            engine.EnqueueTransaction(doomedTx).WaitUntilFinished();
-            var doomed = doomedTx.VertexCreated;
-
-            // A live element indexes normally (the guard must not break the happy path).
-            index.AddOrUpdate("alpha content", live);
-            Assert.AreEqual(1, index.CountOfValues());
-
-            // Remove the second vertex, then replay a stale add of it - exactly the
-            // add-after-remove race a concurrent DELETE creates during ingest. The guard must
-            // skip it so no tombstone is pinned in the index.
-            engine.EnqueueTransaction(new RemoveGraphElementsTransaction
-            {
-                GraphElementIds = new List<Int32> { doomed.Id }
-            }).WaitUntilFinished();
-            Assert.IsFalse(engine.TryGetVertex(out _, doomed.Id), "precondition: the vertex is removed");
-
-            index.AddOrUpdate("beta content", doomed);
-            Assert.AreEqual(1, index.CountOfValues(), "a removed element must not enter the index");
-            Assert.IsFalse(index.TryGetValue(out _, "beta content"), "its key must be absent");
-        }
-
-        #endregion
-
         #region C1 - concurrent first-ingest index-ensure race
 
         [TestMethod]
@@ -118,6 +79,10 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(engine.IndexFactory.TryGetIndex(out _, "documents"), "the bound vector index exists once");
             Assert.IsTrue(engine.IndexFactory.TryGetIndex(out _, "documents-text"), "the fulltext index exists once");
         }
+
+        #endregion
+
+        #region startup sweep of what a previous process left mid-flight (FR-2, FR-6)
 
         [TestMethod]
         public void StartupSweep_ReclaimsZombie_RemovesChunksAndFails()
@@ -208,32 +173,6 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.IsTrue(index.TryGetValue(out var hits, key), "reconcile re-added the entity's key");
             Assert.IsTrue(hits.Any(hit => hit.Id == entityId));
-        }
-
-        #endregion
-
-        #region F2 - /status does not probe docling when the capability is off
-
-        [TestMethod]
-        public async Task Status_WithIngestionOff_ReportsDoclingNotReachable_EvenWhenSidecarIsUp()
-        {
-            using var factory = new IngestionFactory(new Dictionary<String, String>
-            {
-                { "Fallen8:Ingestion:Enabled", "false" }
-            });
-            // The sidecar IS configured and healthy; the gate must still report it unreachable
-            // because the capability is off (the "off => no sidecar contacted" invariant).
-            factory.Docling.ConfiguredFlag = true;
-            factory.Docling.Reachable = true;
-            using var client = factory.CreateClient();
-
-            using var response = await client.GetAsync("/status");
-            var ingestion = (await IngestionTestHelper.ReadJson(response)).GetProperty("ingestion");
-
-            Assert.IsFalse(ingestion.GetProperty("enabled").GetBoolean());
-            Assert.IsTrue(ingestion.GetProperty("docling").GetProperty("configured").GetBoolean());
-            Assert.IsFalse(ingestion.GetProperty("docling").GetProperty("reachable").GetBoolean(),
-                "reachable must be false when the capability is off, regardless of the sidecar");
         }
 
         #endregion

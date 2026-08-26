@@ -177,18 +177,6 @@ namespace NoSQL.GraphDB.Tests
         // --- csv-device-list: through the verifier, which runs the real stack -----------------------
 
         [TestMethod]
-        public async Task TheShippedCsvBlueprintConforms()
-        {
-            var provider = new CsvDeviceListProvider();
-
-            var report = await ConformanceVerifier.VerifyAsync(provider, CsvJob(HappyCsv),cancellationToken: CancellationToken.None);
-
-            Assert.IsTrue(report.Conforms,
-                "the floor of the provider contract must pass every check, or the suite that licenses a " +
-                "fourth integration without an identity review is not trustworthy: " + Failures(report));
-        }
-
-        [TestMethod]
         public async Task EveryNamedDelimiterFormAndASingleLiteralCharacterReadTheWholeFile()
         {
             var forms = new[]
@@ -830,19 +818,6 @@ namespace NoSQL.GraphDB.Tests
                 "describes is noise in every comparison this integration's embeddings ever take part in");
         }
 
-        [TestMethod]
-        public async Task TheUnifiNetworkBlueprintConforms()
-        {
-            var provider = new UnifiNetworkProvider();
-
-            var report = await VerifyUnifiAsync(provider, new SourceDouble(HappyConsole));
-
-            Assert.IsTrue(report.Conforms,
-                "the many-entity blueprint must pass every check: it is the one that proves entity ordering " +
-                "is not a provider's problem and that a credential's lifetime is the runtime's: " +
-                Failures(report));
-        }
-
         // --- fronius-solar ------------------------------------------------------------------------
 
         [TestMethod]
@@ -1276,6 +1251,58 @@ namespace NoSQL.GraphDB.Tests
                 Failures(report));
         }
 
+        // --- every shipped blueprint conforms -------------------------------------------------------
+
+        /// <summary>
+        ///   Every shipped blueprint passes EVERY conformance check, because that suite is what licenses
+        ///   the next integration without an identity review. One row per blueprint, each carrying what
+        ///   its own blueprint is the proof of, so a failure names the shipped provider that stopped
+        ///   conforming rather than "a blueprint".
+        ///   <para>fronius-solar is deliberately NOT a row here: its verdict is inseparable from the
+        ///   assertion that nothing in the contract FORCES a credential, so it stays
+        ///   <see cref="TheFroniusSolarBlueprintConformsWithNoCredentialSetting"/>.</para>
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("csv-device-list",
+            "the floor of the provider contract must pass every check, or the suite that licenses a " +
+            "fourth integration without an identity review is not trustworthy")]
+        [DataRow("unifi-network",
+            "the many-entity blueprint must pass every check: it is the one that proves entity ordering " +
+            "is not a provider's problem and that a credential's lifetime is the runtime's")]
+        [DataRow("autosar-arxml",
+            "the standards blueprint must pass every check, or the suite that licenses a fifth " +
+            "integration without an identity review is not trustworthy")]
+        public async Task EveryShippedBlueprintConforms(String blueprint, String why)
+        {
+            var report = await VerifyShippedBlueprintAsync(blueprint);
+
+            Assert.IsTrue(report.Conforms,
+                "the '" + blueprint + "' blueprint no longer conforms. " + why + ": " + Failures(report));
+        }
+
+        /// <summary>
+        ///   One shipped blueprint's happy run through the PUBLIC verifier, keyed by the provider id the
+        ///   descriptor declares. Each arm is the provider's own happy fixture, which is why this is a
+        ///   switch rather than one loop over a provider list.
+        /// </summary>
+        private static Task<ConformanceReport> VerifyShippedBlueprintAsync(String blueprint)
+        {
+            switch (blueprint)
+            {
+                case "csv-device-list":
+                    return ConformanceVerifier.VerifyAsync(new CsvDeviceListProvider(), CsvJob(HappyCsv),
+                        cancellationToken: CancellationToken.None);
+                case "unifi-network":
+                    return VerifyUnifiAsync(new UnifiNetworkProvider(), new SourceDouble(HappyConsole));
+                case "autosar-arxml":
+                    return ConformanceVerifier.VerifyAsync(new AutosarArxmlProvider(), ArxmlJob(HappyArxml),
+                        cancellationToken: CancellationToken.None);
+                default:
+                    throw new AssertFailedException("no shipped blueprint is registered under '" + blueprint +
+                        "', so this row would verify nothing at all rather than failing");
+            }
+        }
+
         // --- fixtures and helpers -----------------------------------------------------------------
 
         private const String HappyCsv =
@@ -1433,18 +1460,6 @@ namespace NoSQL.GraphDB.Tests
               </AR-PACKAGES>
             </AUTOSAR>
             """;
-
-        [TestMethod]
-        public async Task TheShippedArxmlBlueprintConforms()
-        {
-            var provider = new AutosarArxmlProvider();
-
-            var report = await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(HappyArxml),cancellationToken: CancellationToken.None);
-
-            Assert.IsTrue(report.Conforms,
-                "the standards blueprint must pass every check, or the suite that licenses a fifth " +
-                "integration without an identity review is not trustworthy: " + Failures(report));
-        }
 
         [TestMethod]
         public async Task TheArxmlRunDescribesTheWholeMatrix_WithItsFlowAndContainment()

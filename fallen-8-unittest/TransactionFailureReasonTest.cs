@@ -25,7 +25,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -228,6 +230,58 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region engine level - the single worker survives a faulting transaction
+
+        [TestMethod]
+        public void TransactionWorker_WhenATransactionThrows_ShouldStillProcessSubsequentTransactions()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+
+            // A RemoveGraphElementTransaction with an out-of-range id makes TryExecute throw
+            // (GetGraphElementForMutation's bounds check throws ArgumentOutOfRangeException before the
+            // internal try/catch), which faults the worker task.
+            var faultingTx = new RemoveGraphElementTransaction { GraphElementId = int.MaxValue };
+            var faultingInfo = fallen8.EnqueueTransaction(faultingTx);
+            try
+            {
+                // On the buggy code this observes the faulted task; on fixed code it returns cleanly.
+                faultingInfo.WaitUntilFinished();
+            }
+            catch (Exception)
+            {
+                // Swallow the observed fault so it does not fail the test directly - the point of the
+                // test is whether the worker survives.
+            }
+
+            // Act - enqueue a normal transaction after the faulting one.
+            var normalTx = new CreateVertexTransaction
+            {
+                Definition = new VertexDefinition { CreationDate = 1, Properties = null }
+            };
+            fallen8.EnqueueTransaction(normalTx);
+
+            // Poll (do not WaitUntilFinished - that would hang forever if the worker died).
+            var stopwatch = Stopwatch.StartNew();
+            bool finished = false;
+            while (stopwatch.Elapsed < TimeSpan.FromSeconds(10))
+            {
+                if (fallen8.GetTransactionState(normalTx.TransactionId) == TransactionState.Finished)
+                {
+                    finished = true;
+                    break;
+                }
+                Thread.Sleep(20);
+            }
+
+            // Assert
+            Assert.IsTrue(finished,
+                "The worker thread must survive a faulting transaction and process subsequent ones.");
+            Assert.AreEqual(1, fallen8.VertexCount, "The follow-up vertex should have been created.");
+        }
+
+        #endregion
+
         #region engine level - subgraph create/remove reasons
 
         private static SubGraphDefinition PersonsDefinition(string name)
@@ -378,6 +432,35 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(StatusCodes.Status404NotFound, StatusCodeOf(result),
                 "A waited-on edge create to a missing source vertex maps to 404.");
+        }
+
+        [TestMethod]
+        public async Task AddEdge_WhenWaitingAndReferencingNonExistentVertex_Returns404()
+        {
+            // Arrange - one real vertex so the source resolves but the target does not.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var controller = new GraphController(_loggerFactory.CreateLogger<GraphController>(), fallen8);
+            var vertices = CreateVertices(fallen8, 1);
+
+            var edgeSpec = new EdgeSpecification
+            {
+                CreationDate = 1,
+                Label = "knows",
+                SourceVertex = vertices[0].Id,
+                TargetVertex = int.MaxValue, // non-existent
+                EdgePropertyId = "knows",
+                Properties = new List<PropertySpecification>()
+            };
+
+            // Act
+            var result = await controller.AddEdge(edgeSpec, waitForCompletion: true);
+
+            // Assert - MIGRATED (transaction-failure-reasons): a referenced vertex that does not
+            // exist is a client-caused NotFound. The engine no longer lets the master-store bounds
+            // check throw; the edge transaction rolls back cleanly with NotFound, so the waited-on
+            // create returns 404, not the misleading 500 it produced before.
+            Assert.AreEqual(StatusCodes.Status404NotFound, StatusCodeOf(result),
+                "Creating an edge to a non-existent vertex must be reported as 404 (NotFound), not 500.");
         }
 
         [TestMethod]

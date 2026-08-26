@@ -21,12 +21,21 @@ subject name). Methods not listed below are keeps.
 | `CorrectnessFixesFollowupsTest.ProcessTransaction_WhenTryExecuteReturnsFalseCleanly_RollsBackWithNullError` | `TransactionFailureReasonTest.RemoveSubGraph_Missing_RollsBackWithNotFound` |
 | `CorrectnessFixesFollowupsTest.SaveAndLoad_WithSpatialIndexPresent_SpatialIndexSurvivesAndIsQueryable` | `PersistenceEncodingTest.Spatial_PointAndMbrEntries_RoundTripAndAreQueryableOnReload` |
 
-Also verified as pure duplicates outside these 26 files (from the cross-layer and config
+Also claimed as pure duplicates outside these 26 files (from the cross-layer and config
 audits): `SubGraphControllerTest.Create_DoesNotMutateSourceGraph`,
 `PropertyMutationEndpointTest.PutProperties_SetsAndRemoves_InOneBatch`,
 `NamespaceDurabilityTest.AddressingANotLoadedNamespace_Answers503_NotFound404` (strict
-subset of `NamespaceEndpointTest.DataRoute_OnANotLoadedNamespace_...`). Total verified
-deletes: 12.
+subset of `NamespaceEndpointTest.DataRoute_OnANotLoadedNamespace_...`).
+
+**CORRECTION, made at implementation time: one of those three was WRONG and was NOT
+deleted.** `PropertyMutationEndpointTest.PutProperties_SetsAndRemoves_InOneBatch` is not a
+duplicate. Both halves of the audit's evidence fail against the code: no sibling in that
+file asserts `Accepted` for `PUT /graphelements/properties` (every other 202 assertion is on
+a different route, and the only other test on this route asserts `BadRequest`), so deleting
+it would have left the batch route with NO success-path coverage at all. The engine-level
+`PropertyReplaceTest.SetProperties_SetsAndRemoves_InOneAtomicBatch` does not reach the route.
+Verified deletes are therefore **11**, not 12. Recorded here because this map is the thing a
+later reader would trust.
 
 ## Relocation targets (85 methods; whole-file moves where all rows agree)
 

@@ -24,7 +24,9 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.Net;
+using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
@@ -40,6 +42,13 @@ namespace NoSQL.GraphDB.Tests
     /// return structured JSON instead of a formatted (locale-dependent) string, the benchmark
     /// defaults to 1000 iterations when the parameter is omitted, and the empty-graph and bad-input
     /// cases map to 400 instead of a 200 with an error sentence.
+    ///
+    /// The iteration count is also BOUNDED: the benchmark used to accept any positive count although
+    /// one pass saturates every core and cannot be interrupted once started, so a mistyped extra zero
+    /// pinned the host until it finished. It now refuses anything above
+    /// <c>Fallen8:Security:BenchmarkMaxIterations</c> and clamps the omitted-count default to that
+    /// ceiling; the ceiling VALUE's own contract (default, and self-correction of a non-positive
+    /// configuration) lives with the options class in <c>SettingCatalogTest</c>.
     /// </summary>
     /// <remarks>
     /// Every URL here is EXPLICITLY scoped, because these two routes are the only namespace-scoped
@@ -56,11 +65,45 @@ namespace NoSQL.GraphDB.Tests
 
         private sealed class VolatileFactory : WebApplicationFactory<Program>
         {
+            private readonly IDictionary<String, String> _settings;
+
+            public VolatileFactory(IDictionary<String, String> settings = null)
+            {
+                _settings = settings;
+            }
+
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                // Volatile durability: booting the host writes no checkpoint/WAL into the test bin.
                 builder.UseSetting("Fallen8:Durability:Volatile", "true");
+
+                if (_settings == null)
+                {
+                    return;
+                }
+
+                foreach (var setting in _settings)
+                {
+                    builder.UseSetting(setting.Key, setting.Value);
+                }
             }
         }
+
+        #region helpers
+
+        private static async Task<JsonElement> ReadJson(HttpResponseMessage response)
+        {
+            return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        }
+
+        /// <summary>Gives the addressed namespace a small graph, so the benchmark has edges to follow.</summary>
+        private static async Task Generate(HttpClient client)
+        {
+            using var response = await client.GetAsync(Ns + "/generate?nodeCount=20&edgeCount=2");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, "GET " + Ns + "/generate");
+        }
+
+        #endregion
 
         [TestMethod]
         public async Task Benchmark_OnGeneratedGraph_ReturnsStructuredStatistics()
@@ -112,6 +155,82 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(HttpStatusCode.BadRequest, garbage.StatusCode);
         }
 
+        #region the iteration ceiling
+
+        [TestMethod]
+        public async Task Benchmark_AboveTheConfiguredCeiling_Returns400_NamingTheKeyAndTheCeiling()
+        {
+            using var factory = new VolatileFactory(new Dictionary<String, String>
+            {
+                ["Fallen8:Security:BenchmarkMaxIterations"] = "3"
+            });
+            using var client = factory.CreateClient();
+            await Generate(client);
+
+            using var tooMany = await client.GetAsync(Ns + "/benchmark?iterations=4");
+            Assert.AreEqual(HttpStatusCode.BadRequest, tooMany.StatusCode);
+            Assert.AreEqual("application/problem+json", tooMany.Content.Headers.ContentType?.MediaType);
+            var detail = (await ReadJson(tooMany)).GetProperty("detail").GetString();
+            StringAssert.Contains(detail, "3", "the ceiling is named so the caller can lower the count");
+            StringAssert.Contains(detail, "Fallen8:Security:BenchmarkMaxIterations",
+                "the caller is told which key raises it");
+
+            // The boundary itself runs.
+            using var atCeiling = await client.GetAsync(Ns + "/benchmark?iterations=3");
+            Assert.AreEqual(HttpStatusCode.OK, atCeiling.StatusCode);
+            Assert.AreEqual(3, (await ReadJson(atCeiling)).GetProperty("iterations").GetInt32(),
+                "an accepted count is run and echoed, never silently clamped");
+        }
+
+        [TestMethod]
+        public async Task Benchmark_WithoutIterations_ClampsTheDefaultToTheCeiling()
+        {
+            // The endpoint default is 1000; with a lower ceiling a request that names NO count must
+            // still succeed (it never asked for the rejected value) and report what it ran.
+            using var factory = new VolatileFactory(new Dictionary<String, String>
+            {
+                ["Fallen8:Security:BenchmarkMaxIterations"] = "2"
+            });
+            using var client = factory.CreateClient();
+            await Generate(client);
+
+            using var response = await client.GetAsync(Ns + "/benchmark");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual(2, (await ReadJson(response)).GetProperty("iterations").GetInt32());
+        }
+
+        [TestMethod]
+        public async Task Benchmark_UnconfiguredCeiling_RejectsTheMistypedExtraZero_AndKeepsTheOldFourHundreds()
+        {
+            using var factory = new VolatileFactory();
+            using var client = factory.CreateClient();
+            await Generate(client);
+
+            // The pre-fix footgun: this used to start a pass nothing could interrupt.
+            using var tooMany = await client.GetAsync(Ns + "/benchmark?iterations=10001");
+            Assert.AreEqual(HttpStatusCode.BadRequest, tooMany.StatusCode);
+            Assert.AreEqual("application/problem+json", tooMany.Content.Headers.ContentType?.MediaType);
+            StringAssert.Contains((await ReadJson(tooMany)).GetProperty("detail").GetString(), "10000");
+
+            // Unchanged: the ceiling check is additional, the existing 400s still answer first AND
+            // still name their own cause. Their STATUS is asserted verbatim by
+            // Benchmark_NonPositiveOrGarbageIterations_Return400 above, so only the wording the
+            // ceiling could have swallowed is asserted here - and a 200 carries no "detail" at all,
+            // so these still fail if the refusal itself ever goes away.
+            using var zero = await client.GetAsync(Ns + "/benchmark?iterations=0");
+            StringAssert.Contains((await ReadJson(zero)).GetProperty("detail").GetString(), "greater than 0");
+
+            using var garbage = await client.GetAsync(Ns + "/benchmark?iterations=abc");
+            StringAssert.Contains((await ReadJson(garbage)).GetProperty("detail").GetString(), "not a valid");
+
+            // And a normal small run is unaffected.
+            using var ok = await client.GetAsync(Ns + "/benchmark?iterations=2");
+            Assert.AreEqual(HttpStatusCode.OK, ok.StatusCode);
+            Assert.AreEqual(2, (await ReadJson(ok)).GetProperty("iterations").GetInt32());
+        }
+
+        #endregion
+
         [TestMethod]
         public async Task Generate_PreferentialDistribution_ProducesHubs_AndTheExactEdgeCount()
         {
@@ -142,7 +261,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(engine.EdgeCount, generated.RootElement.GetProperty("edgeCountAfter").GetInt32());
 
             // The point of preferential attachment: heavy-tailed in-degrees. Uniform random
-            // in-degrees are ~Poisson(3) (max ≈ 12 over 2000 draws); Barabási–Albert growth
+            // in-degrees are ~Poisson(3) (max ≈ 12 over 2000 draws); Barabási-Albert growth
             // gives the earliest vertices in-degrees in the hundreds - 10× the mean separates
             // the two distributions with enormous margin, keeping the assertion seed-proof.
             var maxInDegree = 0u;

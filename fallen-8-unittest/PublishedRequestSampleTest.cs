@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectPublishedSamplesTest.cs
+// PublishedRequestSampleTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -67,7 +67,7 @@ namespace NoSQL.GraphDB.Tests
     /// </para>
     /// </remarks>
     [TestClass]
-    public class AuditDefectPublishedSamplesTest
+    public class PublishedRequestSampleTest
     {
         private const String DocumentPath = "/openapi/v0.1.json";
         private const String SampleMarker = "Sample request:";

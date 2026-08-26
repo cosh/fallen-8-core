@@ -955,6 +955,74 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(completion.Wait(5000), "the subscriber stream completes on engine dispose");
         }
 
+        #region a refusal names its own cause: disposal is not the subscriber limit
+
+        // Subscribing to a DISPOSED feed was reported as "subscriber limit reached" although no limit
+        // was hit, which sends an operator after the wrong knob. IsDisposed is what tells the two
+        // refusals apart, so each one is pinned against it here.
+
+        [TestMethod]
+        public void TrySubscribe_AfterFeedDispose_FailsForDisposal_NotTheSubscriberLimit()
+        {
+            var engine = new Fallen8(_loggerFactory, new ChangeFeedOptions { MaxSubscribers = 32 });
+
+            // The in-flight request's captured reference: the engine nulls its own property on
+            // dispose, the dispatcher instance the request already holds stays reachable.
+            var feed = engine.ChangeFeed;
+            Assert.IsFalse(feed.IsDisposed, "a live feed is not disposed");
+
+            engine.Dispose();
+
+            Assert.IsTrue(feed.IsDisposed, "the dropped/shut-down engine disposed its feed");
+            Assert.AreEqual(0, feed.SubscriberCount,
+                "no subscriber is registered, so the limit demonstrably is NOT the cause");
+            Assert.IsFalse(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription),
+                "a disposed feed accepts nobody");
+            Assert.IsNull(subscription);
+        }
+
+        [TestMethod]
+        public void TrySubscribe_AtTheSubscriberLimit_IsNotReportedAsDisposal()
+        {
+            using var engine = new Fallen8(_loggerFactory, new ChangeFeedOptions { MaxSubscribers = 1 });
+            var feed = engine.ChangeFeed;
+
+            Assert.IsTrue(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var first));
+
+            // MaxSubscribers_IsEnforced_AndUnsubscribeFreesTheSlot owns the refusal-and-slot contract
+            // at a limit of two; what these assertions add is the CAUSE, at the tightest limit there
+            // is - a one-slot feed, where a full feed and a shut-down feed look alike from outside.
+            Assert.IsFalse(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out _),
+                "the second subscriber exceeds MaxSubscribers");
+            Assert.IsFalse(feed.IsDisposed, "the limit refusal must not read as a shut-down feed");
+            Assert.AreEqual(feed.Options.MaxSubscribers, feed.SubscriberCount,
+                "the limit is genuinely reached: that IS the cause here");
+
+            // Freeing the slot lifts the refusal, and the feed was never disposed.
+            first.Dispose();
+            Assert.IsTrue(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var second));
+            Assert.IsFalse(feed.IsDisposed);
+            second.Dispose();
+        }
+
+        [TestMethod]
+        public void FeedIsDisposed_IsIdempotentAcrossRepeatedDisposal()
+        {
+            var feed = new ChangeFeedDispatcher(new ChangeFeedOptions(),
+                _loggerFactory.CreateLogger<ChangeFeedDispatcher>());
+
+            Assert.IsFalse(feed.IsDisposed);
+
+            feed.Dispose();
+            Assert.IsTrue(feed.IsDisposed);
+
+            // Dispose is documented as idempotent; the flag must not flip back.
+            feed.Dispose();
+            Assert.IsTrue(feed.IsDisposed);
+        }
+
+        #endregion
+
         [TestMethod]
         public void EventPayloads_NeverContainPropertyValues()
         {

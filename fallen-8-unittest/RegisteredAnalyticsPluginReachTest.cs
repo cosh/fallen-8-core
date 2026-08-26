@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectAnalyticsReachTest.cs
+// RegisteredAnalyticsPluginReachTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -42,19 +42,25 @@ using NoSQL.GraphDB.Core.Transaction;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   Reach of the analytics endpoints for RUNTIME-REGISTERED analytics plugins (audit defect
-    ///   B04): the run and partition-membership endpoints pre-check the algorithm name, and that
-    ///   pre-check used to consult only the base-directory DLL scan (the built-ins), so a plugin
-    ///   registered through <c>POST /plugins/algorithm</c> with contract Analytics answered a
-    ///   permanent 404 even though the engine resolves it first and <c>GET /analytics/algorithms</c>
-    ///   advertised it. The contract pinned here: the LIST and the PRE-CHECK are the same set, that
-    ///   set is built-ins unioned with the addressed namespace's registry, and it is read live (a
-    ///   delete puts the name back to 404). Registration goes through the real
-    ///   <see cref="PluginsController"/> (Roslyn compile + contract validation), so the artifact is
-    ///   a genuine collectible-ALC plugin type, exactly as at runtime.
+    ///   The ONLY coverage of RUNTIME-REGISTERED Analytics plugins reaching
+    ///   <see cref="AnalyticsController"/> (audit defect B04): the run and partition-membership
+    ///   endpoints pre-check the algorithm name, and that pre-check used to consult only the
+    ///   base-directory DLL scan (the built-ins), so a plugin registered through
+    ///   <c>POST /plugins/algorithm</c> with contract Analytics answered a permanent 404 even though
+    ///   the engine resolves it first and <c>GET /analytics/algorithms</c> advertised it. The
+    ///   contract pinned here: the LIST and the PRE-CHECK are the same set, that set is built-ins
+    ///   unioned with the addressed namespace's registry, and it is read live (a delete puts the
+    ///   name back to 404). Registration goes through the real <see cref="PluginsController"/>
+    ///   (Roslyn compile + contract validation), so the artifact is a genuine collectible-ALC plugin
+    ///   type, exactly as at runtime.
+    ///   <para>
+    ///   No other file combines runtime plugins with <see cref="AnalyticsController"/>:
+    ///   <c>AnalyticsEndpointTest</c> exercises the same endpoints over HTTP but only ever with the
+    ///   built-ins and an empty registry.
+    ///   </para>
     /// </summary>
     [TestClass]
-    public class AuditDefectAnalyticsReachTest
+    public class RegisteredAnalyticsPluginReachTest
     {
         private Fallen8 _fallen8;
         private AnalyticsController _analytics;
@@ -379,21 +385,6 @@ public sealed class AuditPath : IShortestPathAlgorithm
                 _analytics.GetPartitionMembers("auditScore", 0, new AnalyticsSpecification()),
                 StatusCodes.Status400BadRequest);
             StringAssert.Contains(problem.Detail, "not a partition algorithm");
-        }
-
-        [TestMethod]
-        public void BuiltInAlgorithm_IsUnchanged_WithAnEmptyRegistry()
-        {
-            // The unchanged default: no registration at all, the built-in still runs and the empty
-            // registry contributes nothing to the list.
-            AddVertices(2);
-
-            var payload = RunOk("DEGREE");
-            Assert.AreEqual("DEGREE", payload.Algorithm);
-            Assert.AreEqual(2, payload.VertexCount);
-
-            Assert.AreEqual(0, _fallen8.Plugins.Count);
-            Assert.IsTrue(ListedAlgorithms().ContainsKey("DEGREE"));
         }
     }
 }

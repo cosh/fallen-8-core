@@ -1,6 +1,6 @@
 // MIT License
 //
-// EnginePerformanceFollowupsTest.cs
+// OrderedIndexScanTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -38,7 +38,8 @@ using NoSQL.GraphDB.Core.Transaction;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Behaviour regression tests for the "engine-performance-followups" feature.
+    /// Ordered-operator index scans: the O(log n + k) RangeIndex reroute must be invisible in the
+    /// RESULT a scan returns, being a speed change and not a behaviour change.
     ///
     ///  - P4: <see cref="Fallen8.IndexScan"/> routes ORDERED operators (Greater / GreaterOrEquals /
     ///        Lower / LowerOrEquals) on a RangeIndex through the index's O(log n + k) sorted methods
@@ -52,7 +53,7 @@ namespace NoSQL.GraphDB.Tests
     /// a positional list comparison - matching the only ordering contract IndexScan has ever offered.
     /// </summary>
     [TestClass]
-    public class EnginePerformanceFollowupsTest
+    public class OrderedIndexScanTest
     {
         private ILoggerFactory _loggerFactory;
 

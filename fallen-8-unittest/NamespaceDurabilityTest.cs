@@ -596,28 +596,6 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        ///   Addressing a not-loaded namespace answers 503 with its own title and a
-        ///   <c>namespaceState</c> extension - never 404, because the Studio client turns a 404
-        ///   carrying a <c>namespace</c> extension into a recover state whose primary action
-        ///   recreates the namespace EMPTY, i.e. destroys the data this refusal is protecting.
-        /// </summary>
-        [TestMethod]
-        public async Task AddressingANotLoadedNamespace_Answers503_NotFound404()
-        {
-            using var host = NewHost(saveOnShutdown: false);
-            using var client = host.CreateClient();
-            AddNotLoadedNamespace(Collection(host), "archived", "ns-archived-fixture");
-
-            using var response = await client.GetAsync("/ns/archived/vertex/count");
-
-            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-            var problem = await ReadJson(response);
-            Assert.AreEqual("Namespace not loaded", problem.GetProperty("title").GetString());
-            Assert.AreEqual("archived", problem.GetProperty("namespace").GetString());
-            Assert.AreEqual("notLoaded", problem.GetProperty("namespaceState").GetString());
-        }
-
-        /// <summary>
         ///   The engine accessor throws rather than returning null, so a dereference site the sweep
         ///   missed fails diagnosably (and, inside the shutdown save's per-namespace catch, means
         ///   "skip") instead of NullReferenceException-ing. This repo has no nullable-reference

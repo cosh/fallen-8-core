@@ -167,6 +167,12 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task PutProperties_SetsAndRemoves_InOneBatch()
         {
+            // The batch route's happy path over the real pipeline. It LOOKS like
+            // PropertyReplaceTest.SetProperties_SetsAndRemoves_InOneAtomicBatch, and the semantic it
+            // relies on is indeed proven there on SetPropertiesTransaction in process. What lives only
+            // here is the WIRE half: that a "remove": true entry reaches RemoveProperty (no other test
+            // in the suite sends that flag over HTTP) and that a valid batch answers 202 on this route,
+            // whose only other test asserts a 400. Do not fold it into the engine test.
             using var factory = new VolatileFactory();
             using var client = factory.CreateClient();
             var id = await NewVertex(client, "w2-batch");

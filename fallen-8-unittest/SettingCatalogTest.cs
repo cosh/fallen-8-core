@@ -834,10 +834,10 @@ namespace NoSQL.GraphDB.Tests
 
         /// <summary>
         ///   R7, following the precedent of the removed <c>MaxSensitiveRequestBodyBytes</c> knob
-        ///   (<see cref="AuditDefectLimitsTest"/>): a property that is bound and documented but read by
-        ///   no product code advertises a control the app does not implement. Phase 1 deleted the two
-        ///   such properties it found rather than catalogue them, because a never-writable entry still
-        ///   publishes the key and would keep advertising it.
+        ///   (<see cref="SecurityOptions_ExposeNoRequestBodyKnob"/>): a property that is bound and
+        ///   documented but read by no product code advertises a control the app does not implement.
+        ///   Phase 1 deleted the two such properties it found rather than catalogue them, because a
+        ///   never-writable entry still publishes the key and would keep advertising it.
         ///
         ///   <c>Fallen8:Security:AllowRemoteAccess</c> promised a loopback posture nothing enforced.
         ///   Note this is the apiApp's knob only: <c>Mcp:Security:AllowRemoteAccess</c> is a different
@@ -866,6 +866,37 @@ namespace NoSQL.GraphDB.Tests
             // The neighbouring knobs that ARE read stay untouched.
             Assert.AreEqual(30, new Fallen8SecurityOptions().SensitiveRateLimitPermitPerWindow);
             Assert.AreEqual(10000, new Fallen8SecurityOptions().BenchmarkMaxIterations);
+        }
+
+        /// <summary>
+        ///   R7 again, for the knob whose removal set the precedent: <c>MaxSensitiveRequestBodyBytes</c>
+        ///   was bound but read nowhere while its XML doc promised a 413, so an operator could believe
+        ///   they had raised or tightened the code-endpoint body cap. The cap that is actually in force
+        ///   is a compile-time attribute, pinned by <see cref="SensitiveRequestBodyLimitTest"/>.
+        /// </summary>
+        [TestMethod]
+        public void SecurityOptions_ExposeNoRequestBodyKnob()
+        {
+            var properties = typeof(Fallen8SecurityOptions)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Select(property => property.Name)
+                .ToList();
+
+            CollectionAssert.DoesNotContain(properties, "MaxSensitiveRequestBodyBytes",
+                "the option promised a 413 it never enforced and was removed");
+
+            // Guard against the same lie coming back under a new name: the body cap is not
+            // configurable at all, it is the attribute asserted in SensitiveRequestBodyLimitTest.
+            foreach (var name in properties)
+            {
+                Assert.IsFalse(name.IndexOf("RequestBody", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                               name.IndexOf("BodyBytes", StringComparison.OrdinalIgnoreCase) >= 0,
+                    "Fallen8SecurityOptions must not advertise a request-body cap it cannot enforce: " + name);
+            }
+
+            // The knobs that ARE read stay untouched. (The permit-per-window default is asserted by
+            // SecurityOptions_ExposeNoBindAddressKnob above, verbatim, so it is not repeated here.)
+            Assert.AreEqual(10, new Fallen8SecurityOptions().RateLimitWindowSeconds);
         }
 
         /// <summary>
@@ -917,6 +948,29 @@ namespace NoSQL.GraphDB.Tests
             var nlp = new Fallen8NlpOptions();
             configuration.GetSection(Fallen8NlpOptions.SectionName).Bind(nlp);
             Assert.AreEqual(7, nlp.MaxEntitiesPerChunk, "the neighbouring NLP key still binds");
+        }
+
+        #endregion
+
+        #region option values that correct themselves rather than trust configuration
+
+        /// <summary>
+        ///   <c>Fallen8:Security:BenchmarkMaxIterations</c> is the ceiling on
+        ///   <c>GET /ns/{ns}/benchmark</c>, which accepted any positive iteration count although one
+        ///   pass saturates every core. The property is the ONE home of that ceiling's value, so a 0
+        ///   or a negative in configuration resets to the default instead of rejecting every request.
+        ///   What the endpoint does with the ceiling is pinned by <see cref="BenchmarkEndpointTest"/>.
+        /// </summary>
+        [TestMethod]
+        public void BenchmarkCeiling_DefaultsToTenThousand_AndRejectsNonPositiveConfiguration()
+        {
+            // Same guard as the analytics options: a 0 or negative in configuration would otherwise
+            // reject every request, so it resets to the default. (The bare default is asserted
+            // verbatim by SecurityOptions_ExposeNoBindAddressKnob, so it is not repeated here; the
+            // reset cases below pin the same value from the other side.)
+            Assert.AreEqual(10000, new Fallen8SecurityOptions { BenchmarkMaxIterations = 0 }.BenchmarkMaxIterations);
+            Assert.AreEqual(10000, new Fallen8SecurityOptions { BenchmarkMaxIterations = -5 }.BenchmarkMaxIterations);
+            Assert.AreEqual(7, new Fallen8SecurityOptions { BenchmarkMaxIterations = 7 }.BenchmarkMaxIterations);
         }
 
         #endregion

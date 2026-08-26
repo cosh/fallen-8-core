@@ -47,7 +47,7 @@ namespace NoSQL.GraphDB.Tests
     public class McpSettingsToolTest
     {
         /// <summary>Captures the bridged request and answers a canned 200 (the shape
-        /// AuditDefectMcpAlgorithmTest uses; private per file, following that convention).</summary>
+        /// McpAlgorithmSelectorTest uses; private per file, following that convention).</summary>
         private sealed class CapturingHandler : HttpMessageHandler
         {
             private readonly String _responseBody;

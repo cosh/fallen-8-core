@@ -56,6 +56,20 @@ namespace NoSQL.GraphDB.Tests
     ///
     /// Readers run on dedicated background threads (not the thread pool) so they cannot starve
     /// the pool threads the TransactionManager uses to execute transactions.
+    ///
+    /// <b>Two scales over ONE body.</b> Each guard below exists twice: a <c>_Heavy</c> variant at
+    /// the exhaustive iteration/thread counts, gated opt-in exactly the way
+    /// <c>LoadPathIntegrityTest.Load_CrossBunchEdges_Heavy</c> is (the three exhaustive race hunts
+    /// cost ~69s, about a third of the whole suite's wall clock), and a <c>_Smoke</c> variant that
+    /// stays in the default run at materially smaller counts. Both call the SAME parameterised
+    /// private body with the SAME assertions, so the two can never drift into testing different
+    /// things - an assertion added or changed applies to both. The smoke deliberately cannot win a
+    /// race hunt (that is the heavy sibling's whole purpose); it is there so a GROSS regression
+    /// still fails on every single run: a null edge slot, a null endpoint, an edge filed under the
+    /// wrong vertex or direction, a mutating captured view, a regressing out-degree, an unresolvable
+    /// traversal, or any throw out of the read surface. Both scales also assert that the readers
+    /// completed at least one pass, so a run that raced nothing fails loudly instead of passing
+    /// vacuously.
     /// </summary>
     [TestClass]
     public class AdjacencyConcurrencyTest
@@ -65,7 +79,19 @@ namespace NoSQL.GraphDB.Tests
         private const string EdgePropertyId = "friend";
         private const string EdgePropertyIdB = "colleague";
 
-        private static int ReaderCount => Math.Max(4, Environment.ProcessorCount);
+        /// <summary>
+        /// Reader threads for the exhaustive hunts: as many as the machine has cores, never fewer
+        /// than four, so real hardware parallelism is put against the single writer.
+        /// </summary>
+        private static int HeavyReaderCount => Math.Max(4, Environment.ProcessorCount);
+
+        /// <summary>
+        /// Reader threads for the default-run smokes. Two is the smallest count that is still
+        /// genuinely concurrent (readers racing the single writer on the same adjacency), which is
+        /// all a smoke needs: it exists to catch a gross regression on every run, not to hunt a rare
+        /// interleaving.
+        /// </summary>
+        private const int SmokeReaderCount = 2;
 
         private ILoggerFactory _loggerFactory;
 
@@ -75,16 +101,52 @@ namespace NoSQL.GraphDB.Tests
             _loggerFactory = TestLoggerFactory.Create();
         }
 
+        #region single-group edge churn
+
         /// <summary>
         /// Single-group churn: every edge the writer adds shares ONE edge-property-id, so every
         /// hot-set vertex stays in <c>EdgeAdjacency</c>'s inline shape (no backing dictionary). This
         /// pins the common-case read path under concurrency.
+        ///
+        /// The exhaustive hunt, at the counts this guard was written with; the smoke sibling runs the
+        /// identical body and assertions in the default suite (see the class remarks).
         /// </summary>
         [TestMethod]
-        public void ConcurrentReaders_DuringSingleWriterEdgeChurn_NeverSeeTornAdjacencyOrThrow()
+        [TestCategory("Benchmark")]
+        [Ignore("Opt-in adjacency-race stress; not part of the default suite.")]
+        public void ConcurrentReaders_DuringSingleWriterEdgeChurn_NeverSeeTornAdjacencyOrThrow_Heavy()
         {
-            RunEdgeChurnStress(new[] { EdgePropertyId });
+            RunEdgeChurnStress(
+                churnEdgePropertyIds: new[] { EdgePropertyId },
+                vertexCount: 400,
+                hotSet: 40,
+                edgeChurnRounds: 6000,
+                liveEdgeCap: 64,
+                readerBatchSize: 512,
+                readerCount: HeavyReaderCount);
         }
+
+        /// <summary>
+        /// Default-run smoke of
+        /// <see cref="ConcurrentReaders_DuringSingleWriterEdgeChurn_NeverSeeTornAdjacencyOrThrow_Heavy" />:
+        /// same body, same assertions, small counts.
+        /// </summary>
+        [TestMethod]
+        public void ConcurrentReaders_DuringSingleWriterEdgeChurn_NeverSeeTornAdjacencyOrThrow_Smoke()
+        {
+            RunEdgeChurnStress(
+                churnEdgePropertyIds: new[] { EdgePropertyId },
+                vertexCount: 40,
+                hotSet: 8,
+                edgeChurnRounds: 150,
+                liveEdgeCap: 8,
+                readerBatchSize: 32,
+                readerCount: SmokeReaderCount);
+        }
+
+        #endregion
+
+        #region multi-group edge churn
 
         /// <summary>
         /// Multi-group churn: the single writer churns edges across TWO distinct edge-property-ids on
@@ -93,31 +155,68 @@ namespace NoSQL.GraphDB.Tests
         /// rebuilding that map, while the readers hammer the identical read surface. This exercises the
         /// inline-&gt;map promotion and the map's copy-on-write publication under real concurrency - a
         /// path the single-group test above never reaches and the single-threaded tests never race.
+        ///
+        /// The exhaustive hunt, at the counts this guard was written with; the smoke sibling runs the
+        /// identical body and assertions in the default suite (see the class remarks).
         /// </summary>
         [TestMethod]
-        public void ConcurrentReaders_DuringMultiGroupEdgeChurn_NeverSeeTornAdjacencyOrThrow()
+        [TestCategory("Benchmark")]
+        [Ignore("Opt-in adjacency-race stress; not part of the default suite.")]
+        public void ConcurrentReaders_DuringMultiGroupEdgeChurn_NeverSeeTornAdjacencyOrThrow_Heavy()
         {
-            RunEdgeChurnStress(new[] { EdgePropertyId, EdgePropertyIdB });
+            RunEdgeChurnStress(
+                churnEdgePropertyIds: new[] { EdgePropertyId, EdgePropertyIdB },
+                vertexCount: 400,
+                hotSet: 40,
+                edgeChurnRounds: 6000,
+                liveEdgeCap: 64,
+                readerBatchSize: 512,
+                readerCount: HeavyReaderCount);
         }
 
         /// <summary>
-        /// Shared stress body for both churn variants. Many readers hammer the adjacency of a small
-        /// hot-set of vertices while the single writer adds and removes edges on that same hot-set one
-        /// small transaction at a time (maximising the number of publish boundaries, i.e. race
-        /// windows), cycling the edge-property-id through <paramref name="churnEdgePropertyIds" />.
+        /// Default-run smoke of
+        /// <see cref="ConcurrentReaders_DuringMultiGroupEdgeChurn_NeverSeeTornAdjacencyOrThrow_Heavy" />:
+        /// same body, same assertions, small counts. The churn still cycles BOTH edge-property-ids over
+        /// a small hot-set with a small live-edge cap, so hot vertices keep crossing the
+        /// inline-&gt;map promotion boundary - the shape under test is not what shrinks, only the
+        /// number of times it is crossed.
+        /// </summary>
+        [TestMethod]
+        public void ConcurrentReaders_DuringMultiGroupEdgeChurn_NeverSeeTornAdjacencyOrThrow_Smoke()
+        {
+            RunEdgeChurnStress(
+                churnEdgePropertyIds: new[] { EdgePropertyId, EdgePropertyIdB },
+                vertexCount: 40,
+                hotSet: 8,
+                edgeChurnRounds: 150,
+                liveEdgeCap: 8,
+                readerBatchSize: 32,
+                readerCount: SmokeReaderCount);
+        }
+
+        #endregion
+
+        /// <summary>
+        /// Shared stress body for both churn variants at both scales. Many readers hammer the adjacency
+        /// of a small hot-set of vertices while the single writer adds and removes edges on that same
+        /// hot-set one small transaction at a time (maximising the number of publish boundaries, i.e.
+        /// race windows), cycling the edge-property-id through <paramref name="churnEdgePropertyIds" />.
         /// Every edge a reader resolves must be fully published: non-null, with non-null endpoints,
         /// filed under the correct vertex and direction; every degree/neighbour/id query must agree
         /// with a captured view and never throw.
         /// </summary>
-        private void RunEdgeChurnStress(string[] churnEdgePropertyIds)
+        /// <param name="churnEdgePropertyIds">The edge-property-ids the writer cycles through: one id keeps every hot vertex inline, two ids drive the inline-&gt;map promotion.</param>
+        /// <param name="vertexCount">Total vertices the readers sample from.</param>
+        /// <param name="hotSet">The leading vertices the writer churns, kept small so readers and the writer collide on the very same adjacency.</param>
+        /// <param name="edgeChurnRounds">Writer rounds; each round is one add transaction (plus one remove once the live set is full).</param>
+        /// <param name="liveEdgeCap">How many added edges stay live before the oldest is removed, so add and remove interleave.</param>
+        /// <param name="readerBatchSize">Adjacency reads a reader performs between two path traversals.</param>
+        /// <param name="readerCount">Reader threads racing the single writer.</param>
+        private void RunEdgeChurnStress(string[] churnEdgePropertyIds, int vertexCount, int hotSet,
+            int edgeChurnRounds, int liveEdgeCap, int readerBatchSize, int readerCount)
         {
             var fallen8 = new Fallen8(_loggerFactory);
-
-            const int vertexCount = 400;
-            // The hot-set the writer keeps churning; kept small so readers and the writer collide
-            // on the very same vertices' adjacency (the interesting race).
-            const int hotSet = 40;
-            const int edgeChurnRounds = 6000;
 
             var vertexTx = new CreateVerticesTransaction();
             for (var i = 0; i < vertexCount; i++)
@@ -152,13 +251,14 @@ namespace NoSQL.GraphDB.Tests
 
             var errors = new ConcurrentQueue<Exception>();
             int writerDone = 0;
+            long readerPasses = 0;
 
             var readers = StartReaders(() =>
             {
                 var rng = new Random(Thread.CurrentThread.ManagedThreadId * 7919 + Environment.TickCount);
                 while (Volatile.Read(ref writerDone) == 0)
                 {
-                    for (var k = 0; k < 512; k++)
+                    for (var k = 0; k < readerBatchSize; k++)
                     {
                         int id = rng.Next(0, vertexCount);
 
@@ -266,8 +366,10 @@ namespace NoSQL.GraphDB.Tests
                     bool found = fallen8.TryCalculateShortestPath(out paths, "BLS", definition);
                     Assert.IsTrue(found && paths.Count >= 1,
                         "A path traversal over the frozen stable subgraph must resolve under concurrent edge churn.");
+
+                    Interlocked.Increment(ref readerPasses);
                 }
-            }, errors);
+            }, errors, readerCount);
 
             try
             {
@@ -295,7 +397,7 @@ namespace NoSQL.GraphDB.Tests
                     }
 
                     // Once the live set grows, remove the oldest edge so add and remove interleave.
-                    if (live.Count > 64)
+                    if (live.Count > liveEdgeCap)
                     {
                         int toRemove = live.Dequeue();
                         fallen8.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = toRemove })
@@ -310,6 +412,7 @@ namespace NoSQL.GraphDB.Tests
 
             JoinReaders(readers);
             AssertNoErrors(errors);
+            AssertReadersRaced(readerPasses);
 
             // Post-hoc sanity: the surviving adjacency is coherent - every out-edge is mirrored as an
             // in-edge of its target and vice versa, with no null slots.
@@ -335,6 +438,8 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
+        #region monotonic hub growth
+
         /// <summary>
         /// Growing-hub guard (feature supernode-adjacency-build Step 2). A single vertex's out-group
         /// grows monotonically to a high degree, one small transaction at a time, driving the
@@ -345,15 +450,43 @@ namespace NoSQL.GraphDB.Tests
         /// / null spare slot, and (b) never observe the out-degree REGRESS - append-only growth means a
         /// reader's successive volatile reads must be non-decreasing, which a torn count/array mismatch
         /// would violate.
+        ///
+        /// The exhaustive hunt, at the counts this guard was written with; the smoke sibling runs the
+        /// identical body and assertions in the default suite (see the class remarks).
         /// </summary>
         [TestMethod]
-        public void ConcurrentReaders_DuringMonotonicHubGrowth_NeverSeeTornAdjacencyOrRegressingDegree()
+        [TestCategory("Benchmark")]
+        [Ignore("Opt-in adjacency-race stress; not part of the default suite.")]
+        public void ConcurrentReaders_DuringMonotonicHubGrowth_NeverSeeTornAdjacencyOrRegressingDegree_Heavy()
+        {
+            RunMonotonicHubGrowthStress(leafCount: 3000, readerCount: HeavyReaderCount);
+        }
+
+        /// <summary>
+        /// Default-run smoke of
+        /// <see cref="ConcurrentReaders_DuringMonotonicHubGrowth_NeverSeeTornAdjacencyOrRegressingDegree_Heavy" />:
+        /// same body, same assertions, small counts. The hazard itself is still crossed repeatedly - a
+        /// hub grown to 150 edges reallocates at capacities 1, 2, 4 ... 128, 256, so all but nine of
+        /// the appends write a spare slot of a SHARED backing array while the readers are looking.
+        /// </summary>
+        [TestMethod]
+        public void ConcurrentReaders_DuringMonotonicHubGrowth_NeverSeeTornAdjacencyOrRegressingDegree_Smoke()
+        {
+            RunMonotonicHubGrowthStress(leafCount: 150, readerCount: SmokeReaderCount);
+        }
+
+        #endregion
+
+        /// <summary>
+        /// Shared growing-hub body for both scales: one hub plus <paramref name="leafCount" /> leaves,
+        /// every edge under ONE edge-property-id so the hub stays inline and its single out-group grows
+        /// through the x2 spare-capacity reallocations (the Step 2 path), with
+        /// <paramref name="readerCount" /> readers hammering the hub throughout.
+        /// </summary>
+        private void RunMonotonicHubGrowthStress(int leafCount, int readerCount)
         {
             var fallen8 = new Fallen8(_loggerFactory);
 
-            // One hub + many leaves. Every edge shares ONE edge-property-id, so the hub stays inline and
-            // its single out-group grows through the ×2 spare-capacity reallocations (the Step 2 path).
-            const int leafCount = 3000;
             var vertexTx = new CreateVerticesTransaction();
             vertexTx.AddVertex(1u, VertexLabel); // the hub
             for (var i = 0; i < leafCount; i++)
@@ -366,6 +499,7 @@ namespace NoSQL.GraphDB.Tests
 
             var errors = new ConcurrentQueue<Exception>();
             int writerDone = 0;
+            long readerPasses = 0;
 
             var readers = StartReaders(() =>
             {
@@ -410,8 +544,10 @@ namespace NoSQL.GraphDB.Tests
                     {
                         Assert.IsNotNull(neighbour, "GetAllNeighbors must never yield a null neighbour under growth.");
                     }
+
+                    Interlocked.Increment(ref readerPasses);
                 }
-            }, errors);
+            }, errors, readerCount);
 
             try
             {
@@ -429,6 +565,7 @@ namespace NoSQL.GraphDB.Tests
 
             JoinReaders(readers);
             AssertNoErrors(errors);
+            AssertReadersRaced(readerPasses);
 
             // Final state: exactly leafCount out-edges, one group, no null slot, all rooted at the hub.
             Assert.IsTrue(fallen8.TryGetVertex(out var finalHub, hubId));
@@ -458,9 +595,9 @@ namespace NoSQL.GraphDB.Tests
             return count;
         }
 
-        private static Thread[] StartReaders(Action readerBody, ConcurrentQueue<Exception> errors)
+        private static Thread[] StartReaders(Action readerBody, ConcurrentQueue<Exception> errors, int readerCount)
         {
-            var threads = new Thread[ReaderCount];
+            var threads = new Thread[readerCount];
             for (var i = 0; i < threads.Length; i++)
             {
                 threads[i] = new Thread(() =>
@@ -498,6 +635,20 @@ namespace NoSQL.GraphDB.Tests
                 var distinct = errors.Select(e => e.GetType().Name + ": " + e.Message).Distinct().Take(10);
                 Assert.Fail("Concurrent adjacency readers observed " + errors.Count + " error(s):\n" + string.Join("\n", distinct));
             }
+        }
+
+        /// <summary>
+        /// Guards the test's own premise, the way LoadPathIntegrityTest guards its bunch count: the
+        /// readers only race the writer while the writer is still running, so a run in which no reader
+        /// completed a single pass asserted nothing about concurrent adjacency reads. That must fail
+        /// loudly rather than pass vacuously - it matters most for the small smoke scales, where the
+        /// writer's work is short. Called only after <see cref="JoinReaders" />, whose Join is the
+        /// barrier that makes every reader's increments visible here.
+        /// </summary>
+        private static void AssertReadersRaced(long readerPasses)
+        {
+            Assert.IsTrue(readerPasses > 0,
+                "No reader completed a pass while the writer was running, so this run raced nothing (vacuous stress).");
         }
 
         #endregion

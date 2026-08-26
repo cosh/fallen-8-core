@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectRemarksTest.cs
+// PublishedRemarksBlockTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -38,11 +38,13 @@ using NoSQL.GraphDB.App;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Pins audit defect B07: the three code endpoints (POST /storedquery, POST /path/{from}/to/{to},
-    /// PUT /subgraph) each carried TWO <c>&lt;remarks&gt;</c> elements, and .NET 10's native XML-doc
-    /// reader maps only the FIRST one to the operation description - so the trust-boundary SECURITY
-    /// paragraph, the semantic-traversal contract and the execution-budget rules never reached the
-    /// published document, although the compiled XML file contained them.
+    /// Pins the one-<c>&lt;remarks&gt;</c>-element-per-doc-comment rule and the paragraphs it decides
+    /// to publish: .NET 10's native XML-doc reader maps only the FIRST <c>&lt;remarks&gt;</c> element of
+    /// a member to the operation description, so a second one is dropped in silence.
+    /// <para>History (audit defect B07): the three code endpoints (POST /storedquery,
+    /// POST /path/{from}/to/{to}, PUT /subgraph) each carried TWO of them, so the trust-boundary
+    /// SECURITY paragraph, the semantic-traversal contract and the execution-budget rules never
+    /// reached the published document, although the compiled XML file contained them.</para>
     /// </summary>
     /// <remarks>
     /// The fix merged each action's second block into its single <c>&lt;remarks&gt;</c> element, so the
@@ -52,7 +54,7 @@ namespace NoSQL.GraphDB.Tests
     /// cheaper test so the trap cannot be re-entered by a future edit.
     /// </remarks>
     [TestClass]
-    public class AuditDefectRemarksTest
+    public class PublishedRemarksBlockTest
     {
         private const String DocumentPath = "/openapi/v0.1.json";
 

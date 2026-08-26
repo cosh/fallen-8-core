@@ -109,6 +109,21 @@ namespace NoSQL.GraphDB.Tests
             return new VertexModel[] { vertexTx1.VertexCreated, vertexTx2.VertexCreated, vertexTx3.VertexCreated };
         }
 
+        /// <summary>
+        /// A batch of plain, indistinguishable vertices for the multi-value and range tests, which
+        /// care only about identity, not about property content.
+        /// </summary>
+        private VertexModel[] CreateVertices(Fallen8 fallen8, int count)
+        {
+            var tx = new CreateVerticesTransaction();
+            for (int i = 0; i < count; i++)
+            {
+                tx.AddVertex(1, "test", new Dictionary<string, object> { { "idx", i } });
+            }
+            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+            return tx.GetCreatedVertices().ToArray();
+        }
+
         #region Dictionary Index Tests
 
         [TestMethod]
@@ -357,37 +372,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1, result.Count, "Range index should find 1 vertex with value greater than 20 (exclusive)");
             Assert.AreSame(testVertex3, result[0], "Range index should return testVertex3 for GreaterThan 20 (exclusive)");
 
-            // The Between operation seems to work differently than expected - we'll adjust our assertions
-            // to match the actual behavior of the implementation.
-            found = rangeIndex.Between(out result, 5, 25, true, true);
-            if (found && result.Count > 0)
-            {
-                // If the Between method returns results, verify they're in the expected range
-                foreach (var element in result)
-                {
-                    int elementKey = -1;
-                    bool foundElement = false;
-                    foreach (var kvp in keys.OfType<int>())
-                    {
-                        if (result.Contains(testVertices.First(v => rangeIndex.TryGetValue(out var r, kvp) && r.Contains(v))))
-                        {
-                            foundElement = true;
-                            elementKey = kvp;
-                            break;
-                        }
-                    }
-
-                    Assert.IsTrue(foundElement, "Found element should have a corresponding key in the index");
-                    Assert.IsTrue(elementKey >= 5 && elementKey <= 25,
-                        $"Element with key {elementKey} should be in range 5-25");
-                }
-            }
-            else
-            {
-                // If no results, we'll just skip this test since it appears the Between implementation
-                // might have a different behavior than we expected
-                Console.WriteLine("Note: Between operation returned no results for range 5-25");
-            }
+            // Between is asserted by the RangeIndex_Between_* tests below.
 
             // Act - TryRemoveKey
             bool keyRemoved = rangeIndex.TryRemoveKey(20);
@@ -406,6 +391,162 @@ namespace NoSQL.GraphDB.Tests
 
             // Clean up
             rangeIndex.Dispose();
+        }
+
+        // The tests below are the corrective pins for defect B3, the inverted Between predicate. They
+        // REPLACE the Between assertions that used to sit inside
+        // RangeIndex_BasicOperations_ShouldWorkCorrectly: those were written around the bug ("we'll
+        // adjust our assertions to match the actual behavior of the implementation") and wrapped in
+        // "if (found && result.Count > 0)", so they could not fail whichever way Between behaved.
+
+        [TestMethod]
+        public void RangeIndex_Between_WithLowerBelowUpper_ShouldReturnInRangeElements()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+            var index = new RangeIndex();
+            index.Initialize(fallen8, null);
+            index.AddOrUpdate(10, vertices[0]);
+            index.AddOrUpdate(20, vertices[1]);
+            index.AddOrUpdate(30, vertices[2]);
+
+            // Act - inclusive range [15, 25] should catch only key 20
+            ImmutableList<AGraphElementModel> result;
+            bool found = index.Between(out result, 15, 25, true, true);
+
+            // Assert
+            Assert.IsTrue(found, "Between should report success.");
+            Assert.AreEqual(1, result.Count, "Only the element at key 20 is inside [15, 25].");
+            Assert.AreSame(vertices[1], result[0], "The in-range element must be the one at key 20.");
+        }
+
+        [TestMethod]
+        public void RangeIndex_Between_InclusiveBounds_ShouldReturnAllElementsInRange()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+            var index = new RangeIndex();
+            index.Initialize(fallen8, null);
+            index.AddOrUpdate(10, vertices[0]);
+            index.AddOrUpdate(20, vertices[1]);
+            index.AddOrUpdate(30, vertices[2]);
+
+            // Act - inclusive range [10, 30] should catch all three keys
+            ImmutableList<AGraphElementModel> result;
+            bool found = index.Between(out result, 10, 30, true, true);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(3, result.Count, "All three elements are inside the inclusive range [10, 30].");
+            CollectionAssert.AreEquivalent(
+                new AGraphElementModel[] { vertices[0], vertices[1], vertices[2] },
+                result.ToList());
+        }
+
+        [TestMethod]
+        public void RangeIndex_Between_ExclusiveBounds_ShouldHonorBoundaryFlags()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+            var index = new RangeIndex();
+            index.Initialize(fallen8, null);
+            index.AddOrUpdate(10, vertices[0]);
+            index.AddOrUpdate(20, vertices[1]);
+            index.AddOrUpdate(30, vertices[2]);
+
+            // Act - exclusive range (10, 30) should catch only key 20
+            ImmutableList<AGraphElementModel> result;
+            bool found = index.Between(out result, 10, 30, false, false);
+
+            // Assert
+            Assert.IsTrue(found);
+            Assert.AreEqual(1, result.Count, "With both boundaries excluded only key 20 remains.");
+            Assert.AreSame(vertices[1], result[0]);
+        }
+
+        [TestMethod]
+        public void RangeIndexScan_ViaFallen8_ShouldReturnInRangeElements()
+        {
+            // Arrange - reach the Between predicate through the public Fallen8 surface.
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+
+            IIndex index;
+            Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out index, "ageRange", "RangeIndex"),
+                "The range index should be created.");
+            index.AddOrUpdate(10, vertices[0]);
+            index.AddOrUpdate(20, vertices[1]);
+            index.AddOrUpdate(30, vertices[2]);
+
+            // Act
+            IReadOnlyList<AGraphElementModel> result;
+            bool found = fallen8.RangeIndexScan(out result, "ageRange", 15, 25, true, true);
+
+            // Assert
+            Assert.IsTrue(found, "RangeIndexScan should report success.");
+            Assert.AreEqual(1, result.Count, "Only the element at key 20 is inside [15, 25].");
+            Assert.AreSame(vertices[1], result[0]);
+        }
+
+        // Multi-value retention under ONE range key: the RangeIndex must not discard the
+        // ImmutableList its bucket returns (the same defect class as the dictionary/RegEx indices).
+
+        [TestMethod]
+        public void RangeIndex_WhenAddingMultipleValuesUnderOneKey_RangeQueryShouldReturnAllOfThem()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+            var index = new RangeIndex();
+            index.Initialize(fallen8, null);
+
+            // Act - three elements share the single range key 20.
+            index.AddOrUpdate(20, vertices[0]);
+            index.AddOrUpdate(20, vertices[1]);
+            index.AddOrUpdate(20, vertices[2]);
+
+            // Assert - a range that covers key 20 must return ALL three, not just the first.
+            ImmutableList<AGraphElementModel> result;
+            bool found = index.Between(out result, 10, 30, true, true);
+            Assert.IsTrue(found, "The range scan should report success.");
+            Assert.AreEqual(3, result.Count, "All three values under the covered range key must be retained.");
+            CollectionAssert.AreEquivalent(
+                new AGraphElementModel[] { vertices[0], vertices[1], vertices[2] },
+                result.ToList(),
+                "The range bucket must contain exactly the three added elements.");
+
+            // ...and a direct key lookup must agree.
+            ImmutableList<AGraphElementModel> byKey;
+            Assert.IsTrue(index.TryGetValue(out byKey, 20), "The key should be present in the index.");
+            Assert.AreEqual(3, byKey.Count, "All three values must be retained under the key.");
+        }
+
+        [TestMethod]
+        public void RangeIndex_WhenRemovingOneValueFromAKey_RangeQueryShouldKeepTheRest()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+            var index = new RangeIndex();
+            index.Initialize(fallen8, null);
+            index.AddOrUpdate(20, vertices[0]);
+            index.AddOrUpdate(20, vertices[1]);
+            index.AddOrUpdate(20, vertices[2]);
+
+            // Act
+            index.RemoveValue(vertices[1]);
+
+            // Assert - the removed value is gone, the rest remain and are still range-queryable.
+            ImmutableList<AGraphElementModel> result;
+            bool found = index.Between(out result, 10, 30, true, true);
+            Assert.IsTrue(found, "The range scan should still report success.");
+            Assert.AreEqual(2, result.Count, "Exactly the removed value should be gone.");
+            Assert.IsTrue(result.Contains(vertices[0]), "The first value must remain.");
+            Assert.IsTrue(result.Contains(vertices[2]), "The third value must remain.");
+            Assert.IsFalse(result.Contains(vertices[1]), "The removed value must be gone.");
         }
 
         #endregion
@@ -497,6 +638,59 @@ namespace NoSQL.GraphDB.Tests
 
             // Clean up
             regExIndex.Dispose();
+        }
+
+        // Multi-value retention under ONE key: the RegExIndex must not discard the ImmutableList its
+        // bucket returns (defect B2, the same defect class as the dictionary and range indices).
+
+        [TestMethod]
+        public void RegExIndex_WhenAddingMultipleValuesUnderOneKey_ShouldReturnAllOfThem()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+            var index = new RegExIndex();
+            index.Initialize(fallen8, null);
+
+            // Act
+            index.AddOrUpdate("the quick brown fox", vertices[0]);
+            index.AddOrUpdate("the quick brown fox", vertices[1]);
+            index.AddOrUpdate("the quick brown fox", vertices[2]);
+
+            // Assert
+            ImmutableList<AGraphElementModel> result;
+            bool found = index.TryGetValue(out result, "the quick brown fox");
+            Assert.IsTrue(found, "The key should be present in the index.");
+            Assert.AreEqual(3, result.Count, "All three values added under one key must be retained.");
+            CollectionAssert.AreEquivalent(
+                new AGraphElementModel[] { vertices[0], vertices[1], vertices[2] },
+                result.ToList(),
+                "The bucket must contain exactly the three added elements.");
+        }
+
+        [TestMethod]
+        public void RegExIndex_WhenRemovingOneValueFromAKey_ShouldKeepTheRest()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var vertices = CreateVertices(fallen8, 3);
+            var index = new RegExIndex();
+            index.Initialize(fallen8, null);
+            index.AddOrUpdate("the quick brown fox", vertices[0]);
+            index.AddOrUpdate("the quick brown fox", vertices[1]);
+            index.AddOrUpdate("the quick brown fox", vertices[2]);
+
+            // Act
+            index.RemoveValue(vertices[1]);
+
+            // Assert
+            ImmutableList<AGraphElementModel> result;
+            bool found = index.TryGetValue(out result, "the quick brown fox");
+            Assert.IsTrue(found, "The key should still be present after removing one of its values.");
+            Assert.AreEqual(2, result.Count, "Exactly the removed value should be gone.");
+            Assert.IsTrue(result.Contains(vertices[0]), "The first value must remain.");
+            Assert.IsTrue(result.Contains(vertices[2]), "The third value must remain.");
+            Assert.IsFalse(result.Contains(vertices[1]), "The removed value must be gone.");
         }
 
         #endregion

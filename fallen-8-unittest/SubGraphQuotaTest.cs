@@ -39,7 +39,8 @@ using NoSQL.GraphDB.Core.Transaction;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Tests for the subgraph resource quotas enforced by <see cref="SubGraphFactory"/>.
+    /// Tests for the subgraph resource quotas enforced by <see cref="SubGraphFactory"/>, on both
+    /// halves of their surface: the create path and the recalculation path.
     /// </summary>
     [TestClass]
     public class SubGraphQuotaTest
@@ -190,6 +191,178 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.IsInstanceOfType(controller.CreateSubGraph(spec1).Result, typeof(CreatedResult));
             ProblemAssert.AssertProblem(controller.CreateSubGraph(spec2).Result, StatusCodes.Status409Conflict);
+        }
+
+        // ---- Recalculation is quota-checked too (audit defect B27) ----
+        // Recalculation ignored the subgraph quotas, so a subgraph whose source grew could push
+        // both element ceilings past their limits. A breach now keeps the old contents instead of
+        // swapping in the oversized extraction.
+
+        /// <summary>Grows the source graph by one person vertex.</summary>
+        private static void AddPerson(Fallen8 fallen8, string name)
+        {
+            var tx = new CreateVerticesTransaction();
+            tx.AddVertex(Convert.ToUInt32(DateTimeOffset.UtcNow.ToUnixTimeSeconds()), "person",
+                new Dictionary<string, object>() { { "name", name } });
+            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+        }
+
+        /// <summary>The REST specification equivalent of <see cref="AllPersons"/>.</summary>
+        private static SubGraphSpecification AllPersonsSpecification(string name)
+        {
+            return new SubGraphSpecification
+            {
+                Name = name,
+                Patterns = new List<PatternSpecification>
+                {
+                    new PatternSpecification { Type = "Vertex", PatternName = "p", VertexFilter = "return (v) => v.Label == \"person\";" }
+                }
+            };
+        }
+
+        private static SubGraphResult Registered(Fallen8 fallen8, string name)
+        {
+            Assert.IsTrue(fallen8.SubGraphFactory.TryGetSubGraph(out var result, name),
+                string.Format("subgraph '{0}' should be registered", name));
+            return result;
+        }
+
+        [TestMethod]
+        public void Recalculate_WithinQuota_StillSucceeds()
+        {
+            var fallen8 = CreatePeopleGraph();
+
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph(out var result, "persons", AllPersons("persons")));
+            Assert.AreEqual(3, result.SubGraph.VertexCount);
+
+            AddPerson(fallen8, "Dave");
+
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRecalculateSubGraph("persons", out var reason),
+                "the generous default quota must not get in the way of an ordinary refresh");
+            Assert.AreEqual(TransactionFailureReason.None, reason);
+            Assert.AreEqual(4, Registered(fallen8, "persons").SubGraph.VertexCount);
+        }
+
+        [TestMethod]
+        public void Recalculate_PastThePerSubGraphCeiling_FailsAndKeepsThePreviousContents()
+        {
+            var fallen8 = CreatePeopleGraph();
+
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph(out var result, "persons", AllPersons("persons")));
+            var instanceBefore = result.SubGraph;
+            Assert.AreEqual(3, instanceBefore.VertexCount);
+
+            // The ceiling is exactly what is materialized today, so only the GROWTH breaches it.
+            fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxElementsPerSubGraph = 3 };
+            AddPerson(fallen8, "Dave");
+
+            Assert.IsFalse(fallen8.SubGraphFactory.TryRecalculateSubGraph("persons", out var reason),
+                "a refresh that would exceed the per-subgraph element ceiling must be rejected");
+            Assert.AreEqual(TransactionFailureReason.QuotaExceeded, reason,
+                "the reason must be distinguishable from 'cannot be recalculated at all'");
+
+            var after = Registered(fallen8, "persons");
+            Assert.IsTrue(ReferenceEquals(instanceBefore, after.SubGraph),
+                "the fresh extraction is discarded: the registered subgraph still holds its old engine");
+            Assert.AreEqual(3, after.SubGraph.VertexCount, "the previous, in-quota contents are kept");
+            Assert.AreEqual(BreadthFirstSearchSubgraphAlgorithm.AlgorithmPluginName, after.AlgorithmPluginName);
+            Assert.IsTrue(fallen8.SubGraphFactory.CanRecalculateSubGraph("persons"),
+                "a quota rejection leaves the subgraph recalculable (raise the quota and retry)");
+        }
+
+        [TestMethod]
+        public void Recalculate_PastTheAggregateCeiling_FailsAndKeepsThePreviousContents()
+        {
+            var fallen8 = CreatePeopleGraph();
+
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph(out var result, "persons", AllPersons("persons")));
+            Assert.AreEqual(3, result.SubGraph.VertexCount);
+
+            fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxTotalElements = 3 };
+            AddPerson(fallen8, "Dave");
+
+            Assert.IsFalse(fallen8.SubGraphFactory.TryRecalculateSubGraph("persons", out var reason),
+                "the aggregate ceiling bounds a refresh as well as a create");
+            Assert.AreEqual(TransactionFailureReason.QuotaExceeded, reason);
+            Assert.AreEqual(3, Registered(fallen8, "persons").SubGraph.VertexCount);
+        }
+
+        [TestMethod]
+        public void Recalculate_AtTheAggregateCeiling_DoesNotDoubleCountItsOwnOldContents()
+        {
+            var fallen8 = CreatePeopleGraph();
+
+            Assert.IsTrue(fallen8.SubGraphFactory.TryCreateSubGraph(out var result, "persons", AllPersons("persons")));
+            Assert.AreEqual(3, result.SubGraph.VertexCount);
+
+            // The aggregate is exactly full. The swap REPLACES this subgraph's 3 elements, so the
+            // check must subtract its own current contribution; a naive "total + new" would reject a
+            // refresh that consumes no additional memory at all.
+            fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxTotalElements = 3 };
+
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRecalculateSubGraph("persons", out var reason),
+                "an unchanged refresh at the aggregate ceiling must not fail spuriously");
+            Assert.AreEqual(TransactionFailureReason.None, reason);
+            Assert.AreEqual(3, Registered(fallen8, "persons").SubGraph.VertexCount);
+        }
+
+        [TestMethod]
+        public void Recalculate_QuotaBreachOverRest_Returns409NamingTheQuota()
+        {
+            var fallen8 = CreatePeopleGraph();
+            var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(), fallen8);
+
+            Assert.IsInstanceOfType(controller.CreateSubGraph(AllPersonsSpecification("persons")).Result, typeof(CreatedResult));
+
+            fallen8.SubGraphFactory.Quota = new SubGraphQuota { MaxElementsPerSubGraph = 3 };
+            AddPerson(fallen8, "Dave");
+
+            var problem = ProblemAssert.AssertProblem(controller.RecalculateSubGraph("persons"),
+                StatusCodes.Status409Conflict, "quota");
+            StringAssert.Contains(problem.Detail, "unchanged",
+                "the message must say the previous contents survived");
+            Assert.IsFalse(problem.Detail.Contains("missing source graph"),
+                "the 409 must stop naming the wrong cause");
+
+            var summary = (SubGraphSummary)((OkObjectResult)controller.GetSubGraph("persons")).Value;
+            Assert.AreEqual(3, summary.VertexCount, "the subgraph still reports its previous contents");
+        }
+
+        [TestMethod]
+        public void Recalculate_UnrecalculableSubGraph_KeepsTheExistingMessage()
+        {
+            var fallen8 = CreatePeopleGraph();
+            var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(), fallen8);
+
+            // A manually registered subgraph has no source and no plugin name: the pre-existing 409
+            // path, which the quota split must not change.
+            var manual = new SubGraphResult
+            {
+                SourceFallen8Id = fallen8.Id,
+                Definitions = new SubGraphDefinition { Name = "manual" },
+                AlgorithmPluginName = null,
+                SubGraph = new Fallen8(TestLoggerFactory.Create())
+            };
+            Assert.IsTrue(fallen8.SubGraphFactory.TryRegisterSubGraph(manual));
+
+            ProblemAssert.AssertProblem(controller.RecalculateSubGraph("manual"),
+                StatusCodes.Status409Conflict, "missing source graph or algorithm plugin");
+
+            Assert.IsFalse(fallen8.SubGraphFactory.TryRecalculateSubGraph("manual", out var reason));
+            Assert.AreEqual(TransactionFailureReason.Conflict, reason,
+                "an unrecalculable subgraph is a state conflict, not a quota breach");
+        }
+
+        [TestMethod]
+        public void Recalculate_UnknownSubGraph_ReportsNotFound()
+        {
+            var fallen8 = CreatePeopleGraph();
+
+            Assert.IsFalse(fallen8.SubGraphFactory.TryRecalculateSubGraph("does-not-exist", out var reason));
+            Assert.AreEqual(TransactionFailureReason.NotFound, reason);
+
+            // The parameterless overload keeps its signature and its behaviour.
+            Assert.IsFalse(fallen8.SubGraphFactory.TryRecalculateSubGraph("does-not-exist"));
         }
     }
 }

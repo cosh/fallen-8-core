@@ -30,6 +30,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms;
+using NoSQL.GraphDB.Core.Algorithms.Path;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
 using NoSQL.GraphDB.Core.App.Helper;
 using NoSQL.GraphDB.Core.Model;
@@ -42,9 +43,34 @@ namespace NoSQL.GraphDB.Tests
     /// <see cref="SubGraphDefinition"/>, including the runtime compilation of the filter
     /// code fragments into working delegates.
     /// </summary>
+    /// <remarks>
+    ///   It also owns the fragment and generated-source LENGTH CAPS on this compile path
+    ///   (dynamic-code-resource-limits R2, audit defect <b>B09</b>): the caps must refuse an oversize
+    ///   SUBGRAPH fragment the same way they already refuse an oversize <c>/path</c> fragment, before
+    ///   Roslyn and naming the offending field. Those tests live here because the cap is part of the
+    ///   translation contract this file pins: which specifications become a definition, and which are
+    ///   refused with an actionable message.
+    /// </remarks>
     [TestClass]
     public class SubGraphCodeGenerationTest
     {
+        /// <summary>The cap mirrored from <c>CodeGenerationHelper.MaxFilterFragmentLength</c> (internal
+        /// to the apiApp, which declares no <c>InternalsVisibleTo</c>).</summary>
+        private const int MaxFilterFragmentLength = 100_000;
+
+        /// <summary>The cap mirrored from <c>CodeGenerationHelper.MaxGeneratedSourceLength</c>.</summary>
+        private const int MaxGeneratedSourceLength = 1_000_000;
+
+        /// <summary>A syntactically VALID fragment padded to <paramref name="totalLength"/> with a
+        /// trailing comment. Valid on purpose: if Roslyn ever ran on it, the compile would SUCCEED, so
+        /// an error proves the length guard fired first.</summary>
+        private static String Fragment(String lambda, int totalLength)
+        {
+            var head = lambda + " //";
+            Assert.IsTrue(totalLength >= head.Length, "test setup: the padding target must fit the fragment");
+            return head + new String('x', totalLength - head.Length);
+        }
+
         private static (Fallen8 graph, VertexModel person, VertexModel company, EdgeModel knows) BuildGraph()
         {
             var fallen8 = new Fallen8(TestLoggerFactory.Create());
@@ -375,5 +401,168 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNotNull(error, "Invalid C# must produce a compiler error message");
             Assert.IsNull(definition, "No definition should be produced when compilation fails");
         }
+
+        #region B09 - the subgraph compile path honours the same length caps as /path
+
+        [TestMethod]
+        public void B09_OversizeSubGraphFragment_IsRefused_TheSameWay_AsAnOversizePathFragment()
+        {
+            var oversize = Fragment("return (v) => true;", MaxFilterFragmentLength + 1);
+            var lengthText = oversize.Length.ToString();
+            var capText = MaxFilterFragmentLength.ToString();
+
+            // /path: the reference behaviour.
+            var pathBefore = CodeGenerationHelper.PathCompileCount;
+            var pathError = CodeGenerationHelper.GeneratePathTraverser(out IPathTraverser traverser,
+                new PathSpecification { Filter = new PathFilterSpecification { Vertex = oversize } });
+
+            Assert.IsNotNull(pathError, "precondition: /path already refuses an oversize fragment.");
+            Assert.IsNull(traverser);
+            Assert.AreEqual(0, CodeGenerationHelper.PathCompileCount - pathBefore,
+                "precondition: the /path cap is enforced BEFORE Roslyn.");
+            StringAssert.Contains(pathError, "exceeds the maximum of " + capText);
+            StringAssert.Contains(pathError, lengthText);
+
+            // /subgraph: the same refusal, from the same single home.
+            var subGraphError = CodeGenerationHelper.TryGenerateSubGraphDefinition(
+                new SubGraphSpecification { Name = "oversize-vertex-filter", VertexFilter = oversize },
+                out SubGraphDefinition definition);
+
+            Assert.IsNotNull(subGraphError, "An oversize subgraph fragment must be refused, exactly as /path refuses one.");
+            Assert.IsNull(definition, "A refused specification must not produce a definition.");
+            StringAssert.Contains(subGraphError, "exceeds the maximum of " + capText);
+            StringAssert.Contains(subGraphError, lengthText);
+            StringAssert.Contains(subGraphError, "vertexFilter", "The refusal must name the offending field.");
+
+            // The fragment is valid C#, so Roslyn would have SUCCEEDED: an error at all, with no
+            // diagnostics in it, proves the guard fired before the compiler ran.
+            Assert.IsFalse(subGraphError.Contains("ID: CS"), "The guard must run before Roslyn, so no diagnostics: " + subGraphError);
+        }
+
+        [TestMethod]
+        public void B09_OversizePatternFragments_AreRefused_AndNameTheOffendingSlot()
+        {
+            var oversize = Fragment("return (e) => true;", MaxFilterFragmentLength + 1);
+
+            var spec = new SubGraphSpecification
+            {
+                Name = "oversize-pattern-filter",
+                Patterns = new List<PatternSpecification>
+                {
+                    new PatternSpecification { Type = "Vertex", PatternName = "p" },
+                    new PatternSpecification
+                    {
+                        Type = "Edge",
+                        PatternName = "rel",
+                        Direction = "OutgoingEdge",
+                        EdgeFilter = oversize
+                    }
+                }
+            };
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(spec, out var definition);
+
+            Assert.IsNotNull(error, "An oversize pattern fragment must be refused.");
+            Assert.IsNull(definition);
+            StringAssert.Contains(error, "patterns[1].edgeFilter",
+                "The refusal must name the offending pattern slot so the 400 body is actionable.");
+            StringAssert.Contains(error, "exceeds the maximum of " + MaxFilterFragmentLength.ToString());
+        }
+
+        [TestMethod]
+        public void B09_OversizeVariableLengthEdgePatternFragment_IsRefused()
+        {
+            // The variable-length edge pattern registers its slots through the same helper, so it
+            // must be capped too (and the cap must fire before the pattern is added).
+            var spec = new SubGraphSpecification
+            {
+                Name = "oversize-variable-length-filter",
+                Patterns = new List<PatternSpecification>
+                {
+                    new PatternSpecification
+                    {
+                        Type = "VariableLengthEdge",
+                        PatternName = "hops",
+                        Direction = "OutgoingEdge",
+                        MinLength = 1,
+                        MaxLength = 3,
+                        EdgePropertyFilter = Fragment("return (p) => true;", MaxFilterFragmentLength + 1)
+                    }
+                }
+            };
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(spec, out var definition);
+
+            Assert.IsNotNull(error, "An oversize variable-length-edge fragment must be refused.");
+            Assert.IsNull(definition);
+            StringAssert.Contains(error, "patterns[0].edgePropertyFilter");
+        }
+
+        [TestMethod]
+        public void B09_WhitespaceOnlyOversizeFragment_IsRefused_NotSilentlyDropped()
+        {
+            // A blank fragment normally means "match everything" and registers no slot. An oversize
+            // one is still abuse of the compile surface, so the cap is checked FIRST - exactly how
+            // the /path guard treats a whitespace-only oversize fragment.
+            var oversize = new String(' ', MaxFilterFragmentLength + 1);
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(
+                new SubGraphSpecification { Name = "oversize-blank", EdgeFilter = oversize }, out var definition);
+
+            Assert.IsNotNull(error, "An oversize whitespace-only fragment must be refused, not silently dropped.");
+            Assert.IsNull(definition);
+            StringAssert.Contains(error, "edgeFilter");
+        }
+
+        [TestMethod]
+        public void B09_FragmentExactlyAtTheCap_IsAccepted()
+        {
+            // The boundary: the cap is exclusive (> not >=), so a fragment of exactly
+            // MaxFilterFragmentLength chars must still compile.
+            var atCap = Fragment("return (v) => v.Label != \"b09-at-cap-marker\";", MaxFilterFragmentLength);
+            Assert.AreEqual(MaxFilterFragmentLength, atCap.Length, "test setup");
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(
+                new SubGraphSpecification { Name = "at-cap", VertexFilter = atCap }, out var definition);
+
+            Assert.IsNull(error, "A fragment exactly at the cap must be accepted. Got: " + error);
+            Assert.IsNotNull(definition);
+            Assert.IsNotNull(definition.VertexFilter, "The at-cap fragment must have compiled into a bound delegate.");
+        }
+
+        [TestMethod]
+        public void B09_OversizeGeneratedSubGraphSource_IsRefused_BeforeTheCompileCache()
+        {
+            // Every individual fragment is UNDER the per-fragment cap; together they blow the
+            // generated-source cap. The refusal must happen before the source becomes a cache key
+            // (the generated source IS the subgraph provider cache key).
+            const int perFragment = 90_000;
+            var patterns = new List<PatternSpecification>();
+            for (var i = 0; i < 6; i++)
+            {
+                patterns.Add(new PatternSpecification
+                {
+                    Type = "Edge",
+                    PatternName = "rel" + i.ToString(),
+                    Direction = "OutgoingEdge",
+                    EdgePropertyFilter = Fragment("return (p) => p != \"b09-source-cap-" + i.ToString() + "\";", perFragment),
+                    EdgeFilter = Fragment("return (e) => e.Label != \"b09-source-cap-" + i.ToString() + "\";", perFragment)
+                });
+            }
+
+            Assert.IsTrue(patterns.Count * 2 * perFragment > MaxGeneratedSourceLength,
+                "test setup: the fragments must together exceed the generated-source cap");
+
+            var error = CodeGenerationHelper.TryGenerateSubGraphDefinition(
+                new SubGraphSpecification { Name = "oversize-source", Patterns = patterns }, out var definition);
+
+            Assert.IsNotNull(error, "A generated source over the cap must be refused.");
+            Assert.IsNull(definition);
+            StringAssert.Contains(error, "generated subgraph filter source");
+            StringAssert.Contains(error, "exceeds the maximum of " + MaxGeneratedSourceLength.ToString());
+            Assert.IsFalse(error.Contains("ID: CS"), "The cap must fire before Roslyn: " + error);
+        }
+
+        #endregion
     }
 }

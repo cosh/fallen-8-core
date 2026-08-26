@@ -1636,6 +1636,241 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(result, "A leading variable-length edge pattern must be rejected");
             Assert.IsNull(subgraphResult);
         }
+
+        // ---------------------------------------------------------------------
+        // Leading-edge-pattern coverage (B25).
+        //
+        // Every EdgePattern usage above this point is VERTEX-leading, so the shape
+        // that reaches level-0 seeding WITH an edge pattern had no coverage at all.
+        // The defect these pin is a leading edge pattern dropping its own
+        // edge-property filter during that level-0 seeding, so every edge in the
+        // graph was allowed to start a path.
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Alice -knows-> Bob -knows-> Charlie, Alice -works_at-> TechCorp, Charlie -works_at-> TechCorp.
+        /// The edge LABEL is deliberately different from the edge PROPERTY ID on every edge, so a
+        /// test that filters on the property id cannot pass by accidentally matching the label.
+        /// </summary>
+        private static Fallen8 CreateRelationshipGraph()
+        {
+            var fallen8 = new Fallen8(TestLoggerFactory.Create());
+            var creationDate = Convert.ToUInt32(DateTimeOffset.Now.ToUnixTimeSeconds());
+
+            var verticesTx = new CreateVerticesTransaction();
+            verticesTx.AddVertex(creationDate, "person", new Dictionary<string, object>() { { "name", "Alice" } });
+            verticesTx.AddVertex(creationDate, "person", new Dictionary<string, object>() { { "name", "Bob" } });
+            verticesTx.AddVertex(creationDate, "person", new Dictionary<string, object>() { { "name", "Charlie" } });
+            verticesTx.AddVertex(creationDate, "company", new Dictionary<string, object>() { { "name", "TechCorp" } });
+            fallen8.EnqueueTransaction(verticesTx).WaitUntilFinished();
+
+            var vertices = verticesTx.GetCreatedVertices();
+
+            var edgesTx = new CreateEdgesTransaction();
+            edgesTx.AddEdge(vertices[0].Id, "knows", vertices[1].Id, creationDate, "edge-alice-bob");
+            edgesTx.AddEdge(vertices[1].Id, "knows", vertices[2].Id, creationDate, "edge-bob-charlie");
+            edgesTx.AddEdge(vertices[0].Id, "works_at", vertices[3].Id, creationDate, "edge-alice-techcorp");
+            edgesTx.AddEdge(vertices[2].Id, "works_at", vertices[3].Id, creationDate, "edge-charlie-techcorp");
+            fallen8.EnqueueTransaction(edgesTx).WaitUntilFinished();
+
+            return fallen8;
+        }
+
+        /// <summary>
+        /// A pattern that leads with a single edge hop and closes on a vertex, which is the shape
+        /// that reaches level-0 seeding with an edge pattern.
+        /// </summary>
+        private static SubGraphDefinition LeadingEdge(string name, Direction direction, Delegates.EdgePropertyFilter edgeProperty)
+        {
+            return new SubGraphDefinition
+            {
+                Name = name,
+                Pattern = new List<APattern>
+                {
+                    new EdgePattern { PatternName = "e", Direction = direction, EdgeProperty = edgeProperty },
+                    new VertexPattern { PatternName = "v" }
+                }
+            };
+        }
+
+        private static BreadthFirstSearchSubgraphAlgorithm AlgorithmOn(Fallen8 fallen8)
+        {
+            var algorithm = new BreadthFirstSearchSubgraphAlgorithm();
+            algorithm.Initialize(fallen8, null);
+            return algorithm;
+        }
+
+        [TestMethod]
+        public void LeadingEdgePattern_OutgoingWithEdgePropertyFilter_KeepsOnlyMatchingEdges()
+        {
+            // Arrange
+            var fallen8 = CreateRelationshipGraph();
+            var algorithm = AlgorithmOn(fallen8);
+
+            // Act
+            var created = algorithm.TryCreateSubgraph(out SubGraphResult result,
+                LeadingEdge("knows-only", Direction.OutgoingEdge, p => p == "knows"));
+
+            // Assert
+            Assert.IsTrue(created, "A leading edge pattern followed by a vertex is a valid pattern");
+            Assert.IsNotNull(result?.SubGraph, "SubGraph should not be null");
+            Assert.AreEqual(2, result.SubGraph.EdgeCount, "Only the two 'knows' edges may seed the subgraph");
+            Assert.IsTrue(result.SubGraph.GetAllEdges().All(e => e.EdgePropertyId == "knows"),
+                "Every surviving edge must have the filtered edge property id");
+            Assert.AreEqual(3, result.SubGraph.VertexCount, "Alice, Bob and Charlie: TechCorp has no 'knows' edge");
+            Assert.IsFalse(result.SubGraph.GetAllVertices().Any(v => v.Label == "company"),
+                "The company vertex is only reachable via 'works_at' and must be gone");
+        }
+
+        [TestMethod]
+        public void LeadingEdgePattern_IncomingWithEdgePropertyFilter_KeepsOnlyMatchingEdges()
+        {
+            var fallen8 = CreateRelationshipGraph();
+            var algorithm = AlgorithmOn(fallen8);
+
+            var created = algorithm.TryCreateSubgraph(out SubGraphResult result,
+                LeadingEdge("knows-incoming", Direction.IncomingEdge, p => p == "knows"));
+
+            Assert.IsTrue(created);
+            Assert.AreEqual(2, result.SubGraph.EdgeCount, "Direction does not widen the edge-property filter");
+            Assert.IsTrue(result.SubGraph.GetAllEdges().All(e => e.EdgePropertyId == "knows"));
+            Assert.AreEqual(3, result.SubGraph.VertexCount);
+        }
+
+        [TestMethod]
+        public void LeadingEdgePattern_UndirectedWithEdgePropertyFilter_KeepsOnlyMatchingEdges()
+        {
+            var fallen8 = CreateRelationshipGraph();
+            var algorithm = AlgorithmOn(fallen8);
+
+            var created = algorithm.TryCreateSubgraph(out SubGraphResult result,
+                LeadingEdge("knows-undirected", Direction.UndirectedEdge, p => p == "knows"));
+
+            Assert.IsTrue(created);
+            Assert.AreEqual(2, result.SubGraph.EdgeCount,
+                "An undirected seed yields both orientations of the same edge, not extra edges");
+            Assert.IsTrue(result.SubGraph.GetAllEdges().All(e => e.EdgePropertyId == "knows"));
+            Assert.AreEqual(3, result.SubGraph.VertexCount);
+        }
+
+        [TestMethod]
+        public void LeadingEdgePattern_EdgePropertyFilterOnOtherType_SelectsThatTypeOnly()
+        {
+            var fallen8 = CreateRelationshipGraph();
+            var algorithm = AlgorithmOn(fallen8);
+
+            var created = algorithm.TryCreateSubgraph(out SubGraphResult result,
+                LeadingEdge("works-at-only", Direction.OutgoingEdge, p => p == "works_at"));
+
+            Assert.IsTrue(created);
+            Assert.AreEqual(2, result.SubGraph.EdgeCount, "Only the two 'works_at' edges");
+            Assert.IsTrue(result.SubGraph.GetAllEdges().All(e => e.EdgePropertyId == "works_at"));
+            Assert.AreEqual(3, result.SubGraph.VertexCount, "Alice, Charlie and TechCorp: Bob has no 'works_at' edge");
+        }
+
+        [TestMethod]
+        public void LeadingEdgePattern_EdgePropertyFilterMatchesNothing_YieldsEmptySubgraph()
+        {
+            var fallen8 = CreateRelationshipGraph();
+            var algorithm = AlgorithmOn(fallen8);
+
+            var created = algorithm.TryCreateSubgraph(out SubGraphResult result,
+                LeadingEdge("no-such-edge-type", Direction.OutgoingEdge, p => p == "does_not_exist"));
+
+            Assert.IsTrue(created, "A valid pattern that matches nothing is an empty subgraph, not a failure");
+            Assert.AreEqual(0, result.SubGraph.EdgeCount, "No edge may seed a path");
+            Assert.AreEqual(0, result.SubGraph.VertexCount, "Without a seeding edge no vertex is part of a valid path");
+        }
+
+        [TestMethod]
+        public void LeadingEdgePattern_EdgePropertyFilterSeesEdgePropertyIdNotLabel()
+        {
+            var fallen8 = CreateRelationshipGraph();
+            var algorithm = AlgorithmOn(fallen8);
+            var observed = new HashSet<string>();
+
+            var created = algorithm.TryCreateSubgraph(out SubGraphResult result,
+                LeadingEdge("observe", Direction.OutgoingEdge, p =>
+                {
+                    observed.Add(p);
+                    return true;
+                }));
+
+            Assert.IsTrue(created);
+            CollectionAssert.AreEquivalent(new List<string> { "knows", "works_at" }, observed.ToList(),
+                "The filter must be handed the edge property id, never the edge label");
+            Assert.AreEqual(4, result.SubGraph.EdgeCount, "An always-true filter keeps every edge");
+        }
+
+        [TestMethod]
+        public void LeadingEdgePattern_WithoutEdgePropertyFilter_SeedsFromEveryEdge()
+        {
+            var fallen8 = CreateRelationshipGraph();
+            var algorithm = AlgorithmOn(fallen8);
+
+            var created = algorithm.TryCreateSubgraph(out SubGraphResult result,
+                LeadingEdge("all-edges", Direction.OutgoingEdge, null));
+
+            Assert.IsTrue(created);
+            Assert.AreEqual(4, result.SubGraph.EdgeCount, "A null edge-property filter must not filter anything");
+            Assert.AreEqual(4, result.SubGraph.VertexCount);
+        }
+
+        [TestMethod]
+        public void LeadingEdgePattern_EdgeFilterAndEdgePropertyFilterCombine()
+        {
+            var fallen8 = CreateRelationshipGraph();
+            var algorithm = AlgorithmOn(fallen8);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "knows-and-labelled",
+                Pattern = new List<APattern>
+                {
+                    new EdgePattern
+                    {
+                        PatternName = "e",
+                        Direction = Direction.OutgoingEdge,
+                        EdgeProperty = p => p == "knows",
+                        Edge = e => e.Label == "edge-alice-bob"
+                    },
+                    new VertexPattern { PatternName = "v" }
+                }
+            };
+
+            var created = algorithm.TryCreateSubgraph(out SubGraphResult result, definition);
+
+            Assert.IsTrue(created);
+            Assert.AreEqual(1, result.SubGraph.EdgeCount, "Both edge filters apply, they are not alternatives");
+            Assert.AreEqual("edge-alice-bob", result.SubGraph.GetAllEdges().Single().Label);
+            Assert.AreEqual(2, result.SubGraph.VertexCount, "Only Alice and Bob remain");
+        }
+
+        [TestMethod]
+        public void VertexLeadingPattern_WithEdgePropertyFilter_IsUnchanged()
+        {
+            // Control: the deeper levels always honored the filter. This pins that the seeding fix
+            // did not change the vertex-leading shape.
+            var fallen8 = CreateRelationshipGraph();
+            var algorithm = AlgorithmOn(fallen8);
+
+            var definition = new SubGraphDefinition
+            {
+                Name = "vertex-leading",
+                Pattern = new List<APattern>
+                {
+                    new VertexPattern { PatternName = "p1", Vertex = v => v.Label == "person" },
+                    new EdgePattern { PatternName = "e", Direction = Direction.OutgoingEdge, EdgeProperty = p => p == "knows" },
+                    new VertexPattern { PatternName = "p2", Vertex = v => v.Label == "person" }
+                }
+            };
+
+            var created = algorithm.TryCreateSubgraph(out SubGraphResult result, definition);
+
+            Assert.IsTrue(created);
+            Assert.AreEqual(2, result.SubGraph.EdgeCount);
+            Assert.IsTrue(result.SubGraph.GetAllEdges().All(e => e.EdgePropertyId == "knows"));
+        }
     }
 }
 

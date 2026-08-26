@@ -235,10 +235,18 @@ three other things:
    `WebApplicationFactory<Program>` subclass, mostly the identical volatile-durability
    one-liner; 58 files hand-roll temp-directory create/cleanup. Three small shared
    helpers remove several hundred LOC with zero methods deleted.
-3. **Runtime concentration, not spread.** `AdjacencyConcurrencyTest`'s three methods cost
-   69.3s, ~31% of total execution (the largest single test 57.2s). Tuning or opt-in
-   gating them is a decision (plan D4), because reducing a stress test's iterations is a
-   coverage tradeoff, not a cleanup.
+3. **Runtime concentration, not spread.** `AdjacencyConcurrencyTest`'s three methods were
+   measured at 69.3s, ~31% of total execution (the largest single test 57.2s). Tuning or
+   opt-in gating them is a decision (plan D4), because reducing a stress test's iterations
+   is a coverage tradeoff, not a cleanup.
+   **MEASUREMENT CORRECTED 2026-08-26.** That 69.3s is not reproducible on an idle machine:
+   re-measured from the trx of a quiet run, the three cost **6.2s** of a ~105s suite (about
+   6%), the largest being 2.6s. The original figure was taken while six other review agents
+   were working the same machine, which inflated it roughly twentyfold. The audit did not say
+   so, which is the lesson: a timing number needs the machine state it was taken under. The
+   gating still landed (see plan D4) because the heavy arms are genuine stress runs and the
+   saving grows exactly when the machine is busy, which is CI - but the headline "a third of
+   the suite" was wrong and no decision should rest on it.
 
 The 12 verified pure duplicates are named in
 [test-consolidation-map.md](test-consolidation-map.md) (9 inside the event-named files,
