@@ -128,6 +128,11 @@ cannot be resumed at all, and says so rather than being retried: submit it again
 An entry is deleted on every ending a run has, succeeded, failed and cancelled alike, so a healthy
 runtime's spool is **empty**. It is not a run history.
 
+One exception, because the runtime restarts alongside the graph it writes into and may come up first:
+a resumed run that failed **because the graph did not answer** keeps its entry and is tried again on
+the next start, up to three times. Any other failure is about the job or the source, which re-running
+unchanged will not mend, so the entry goes.
+
 What is remembered in MEMORY is deliberately narrow: **the current and the last run of each
 identity**, lost on a restart of the runtime, and bounded in number. There is no run history, no
 schedule and no list of past runs.

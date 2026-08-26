@@ -38,6 +38,7 @@ using NoSQL.GraphDB.Integrations.Contract;
 using NoSQL.GraphDB.Integrations.Credentials;
 using NoSQL.GraphDB.Integrations.Diagnostics;
 using NoSQL.GraphDB.Integrations.Graph;
+using NoSQL.GraphDB.Integrations.Hosting;
 using NoSQL.GraphDB.Integrations.Identity;
 using NoSQL.GraphDB.Integrations.Run;
 using NoSQL.GraphDB.Integrations.Validation;
@@ -300,6 +301,84 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task AResumedRunTheGraphRefused_KeepsItsEntryForTheNextStart()
+        {
+            // The failure that would otherwise defeat the whole feature. This container restarts alongside
+            // the graph and may come up first, so a resumed run can fail for no reason but "the graph was
+            // not there yet". Deleting the entry on that throws away the hours of work the spool exists to
+            // protect.
+            var graph = new InMemoryGraphTarget();
+            using (var first = new Runtime(_spool, graph, stopAfterChunks: 1))
+            {
+                await Assert.ThrowsExceptionAsync<RunInterruptedException>(() => first.RunAsync());
+            }
+
+            using (var refused = new Runtime(_spool, graph, graphRefuses: true))
+            {
+                var reports = await refused.ResumeAllAsync();
+
+                Assert.AreEqual(1, reports.Count);
+                Assert.AreEqual(JobErrorKinds.Graph, reports[0].ErrorKind, Describe(reports[0]));
+            }
+
+            var pending = new RunSpool(_spool, NullLogger<RunSpool>.Instance).Pending();
+            Assert.AreEqual(1, pending.Count,
+                "the entry was deleted because the GRAPH refused it, which loses the run for a reason that " +
+                "says nothing about the job or the source");
+            Assert.AreEqual(1, pending[0].Attempts, "and the attempt has to be counted, or the bound never bites");
+
+            // And the next start, with a graph that answers, finishes it.
+            using (var healthy = new Runtime(_spool, graph))
+            {
+                var reports = await healthy.ResumeAllAsync();
+                Assert.AreEqual(1, reports.Count);
+                Assert.IsFalse(reports[0].Failed, Describe(reports[0]));
+            }
+
+            Assert.AreEqual(Entities, graph.EmbeddedSummaries.Count,
+                "and the work the first attempt had not done is done now");
+            Assert.AreEqual(0, SpoolFiles().Length);
+        }
+
+        [TestMethod]
+        public async Task ARunTheGraphKeepsRefusing_IsEventuallyGivenUpOn()
+        {
+            // The bound on the retry above. A graph that is gone for good must not leave an entry that is
+            // retried on every start for ever, which would be a runtime that never settles.
+            var graph = new InMemoryGraphTarget();
+            using (var first = new Runtime(_spool, graph, stopAfterChunks: 1))
+            {
+                await Assert.ThrowsExceptionAsync<RunInterruptedException>(() => first.RunAsync());
+            }
+
+            // Every attempt but the last: the entry survives, with the count going up, which is what makes
+            // the bound below a bound rather than an accident.
+            for (var attempt = 1; attempt < RunSpool.MaxAttempts; attempt++)
+            {
+                using var refused = new Runtime(_spool, graph, graphRefuses: true);
+                await refused.ResumeAllAsync();
+
+                var pending = new RunSpool(_spool, NullLogger<RunSpool>.Instance).Pending();
+                Assert.AreEqual(1, pending.Count, "attempt " + attempt + " gave up too early");
+                Assert.AreEqual(attempt, pending[0].Attempts,
+                    "every attempt has to count, including the ones that failed the same way");
+            }
+
+            JobReport last;
+            using (var final = new Runtime(_spool, graph, graphRefuses: true))
+            {
+                last = (await final.ResumeAllAsync()).Single();
+            }
+
+            Assert.AreEqual(JobErrorKinds.Graph, last.ErrorKind,
+                "the last attempt is still reported as the graph failure it was, rather than as some " +
+                "synthetic giving-up: that message names the system to go and look at");
+            Assert.AreEqual(0, SpoolFiles().Length,
+                "and the entry goes with it, or a graph that is gone for good leaves a run retried on every " +
+                "start for ever. Left: " + String.Join(", ", SpoolFiles()));
+        }
+
+        [TestMethod]
         public async Task AFinishedRunLeavesTheSpoolEmpty()
         {
             var graph = new InMemoryGraphTarget();
@@ -548,15 +627,18 @@ namespace NoSQL.GraphDB.Tests
             ///   observe what the run asked the graph to do ACROSS the restart. It outlives the runtime, as a
             ///   test-owned object rather than a per-process one.
             /// </param>
+            /// <param name="graphRefuses">
+            ///   The graph answers nothing, which is what this container sees when it restarts alongside the
+            ///   graph and comes up first.
+            /// </param>
             public Runtime(String spool, InMemoryGraphTarget graph, Int32 stopAfterChunks = -1,
                 Int32 cancelAfterChunks = -1, Boolean stopDuringObserve = false,
-                Boolean failTheSource = false, IGraphTarget target = null)
+                Boolean failTheSource = false, IGraphTarget target = null, Boolean graphRefuses = false)
             {
                 _loggers = LoggerFactory.Create(builder => builder.SetMinimumLevel(LogLevel.None));
                 _metrics = new IntegrationsMetrics();
                 Spool = new RunSpool(spool, NullLogger<RunSpool>.Instance);
                 Tracker = new RunTracker();
-                Cancellation = new CancellationTokenSource();
 
                 _provider = new StoppingProvider
                 {
@@ -570,7 +652,8 @@ namespace NoSQL.GraphDB.Tests
                 // The chunking target is the fixture that makes an interruption possible at all: the
                 // in-memory graph embeds everything in one call, where the real target sends chunks and
                 // looks at the stop signal between them. It mirrors that, and nothing else.
-                var chunking = new ChunkedEmbeddingTarget(target ?? graph, ChunkSize,
+                var chunking = new ChunkedEmbeddingTarget(
+                    graphRefuses ? new RefusingTarget(target ?? graph) : target ?? graph, ChunkSize,
                     chunks =>
                     {
                         if (stopAfterChunks >= 0 && chunks >= stopAfterChunks)
@@ -578,9 +661,11 @@ namespace NoSQL.GraphDB.Tests
                             _shutdown.Cancel();
                         }
 
-                        if (cancelAfterChunks >= 0 && chunks >= cancelAfterChunks)
+                        // Through the TRACKER, exactly as the cancel route does, so what a test cancels is
+                        // the run's own signal rather than a token only the harness knows about.
+                        if (cancelAfterChunks >= 0 && chunks >= cancelAfterChunks && _current != null)
                         {
-                            Cancellation.Cancel();
+                            Tracker.TryCancel(_current, out _);
                         }
                     });
 
@@ -604,8 +689,8 @@ namespace NoSQL.GraphDB.Tests
 
             public RunTracker Tracker { get; }
 
-            /// <summary>The operator's stop, so a test can cancel a run this runtime is executing.</summary>
-            public CancellationTokenSource Cancellation { get; }
+            /// <summary>Which identity this runtime is executing, so a cancel can name it.</summary>
+            private String _current;
 
             /// <param name="generation">
             ///   Which version of the source this run sees. A later generation renames every device, so the
@@ -618,6 +703,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 _provider.ExtraEntity = extraEntity;
                 _provider.Generation = generation;
+                _current = instanceId;
                 var job = new IntegrationJob
                 {
                     ProviderId = Provider,
@@ -625,42 +711,47 @@ namespace NoSQL.GraphDB.Tests
                     EmbedSummaries = true,
                 };
 
+                // The handle's own token, exactly as the job route passes it, so a cancel in these tests
+                // travels the same path a cancel from the route does.
                 using var handle = Tracker.Begin(Guid.NewGuid().ToString("N"), Provider, instanceId, null,
                     embedRequested: true);
                 var report = await _runner
-                    .RunAsync(job, CancellationToken.None, handle, Cancellation.Token)
+                    .RunAsync(job, CancellationToken.None, handle, handle.CancellationToken)
                     .ConfigureAwait(false);
                 Tracker.Finish(instanceId, handle.RunId, report);
                 return report;
             }
 
-            /// <summary>Picks up everything the spool holds, as the resume service does on start.</summary>
+            /// <summary>
+            ///   Runs the REAL resume service to completion, which is what a start does. Driving the actual
+            ///   hosted service rather than a copy of its loop is the point: the attempt counting, the
+            ///   give-up bound and the honest slots for what cannot be resumed all live in it, and a test
+            ///   harness that reimplemented them would be asserting against itself.
+            /// </summary>
             public async Task<List<JobReport>> ResumeAllAsync()
             {
-                var reports = new List<JobReport>();
+                var identities = new List<String>();
                 foreach (var spooled in Spool.Pending())
                 {
-                    if (!spooled.Resumable)
-                    {
-                        // What RunResumeService does with one: account for it, then drop it.
-                        using var unresumable = Tracker.Begin(spooled.RunId, spooled.ProviderId,
-                            spooled.InstanceId, spooled.Namespace, spooled.EmbedSummaries, resumed: true);
-                        unresumable.EnterPhase(RunPhases.Observe);
-                        Tracker.Abort(spooled.InstanceId, unresumable.RunId,
-                            "This run was interrupted while its source was still being read, so it could " +
-                            "not be resumed. Submit the job again.");
-                        Spool.Delete(spooled.InstanceId);
-                        continue;
-                    }
+                    identities.Add(spooled.InstanceId);
+                    _current = spooled.InstanceId;
+                }
 
-                    using var handle = Tracker.Begin(spooled.RunId, spooled.ProviderId, spooled.InstanceId,
-                        spooled.Namespace, spooled.EmbedSummaries, resumed: true,
-                        startedUtc: DateTimeOffset.Parse(spooled.StartedAt, CultureInfo.InvariantCulture,
-                            DateTimeStyles.RoundtripKind));
-                    var report = await _runner.ResumeAsync(spooled, handle, Cancellation.Token)
-                        .ConfigureAwait(false);
-                    Tracker.Finish(spooled.InstanceId, handle.RunId, report);
-                    reports.Add(report);
+                var service = new RunResumeService(Spool, _runner, Tracker,
+                    NullLogger<RunResumeService>.Instance);
+                await service.StartAsync(CancellationToken.None).ConfigureAwait(false);
+                if (service.ExecuteTask != null)
+                {
+                    await service.ExecuteTask.ConfigureAwait(false);
+                }
+
+                var reports = new List<JobReport>();
+                foreach (var identity in identities)
+                {
+                    if (Tracker.TryGet(identity, out var state) && state.Report != null)
+                    {
+                        reports.Add(state.Report);
+                    }
                 }
 
                 return reports;
@@ -669,7 +760,6 @@ namespace NoSQL.GraphDB.Tests
             public void Dispose()
             {
                 _shutdown.Dispose();
-                Cancellation.Dispose();
                 _metrics.Dispose();
                 _loggers.Dispose();
             }
@@ -767,6 +857,24 @@ namespace NoSQL.GraphDB.Tests
 
                 abort.ThrowIfRequested(written);
                 return new EmbeddingWriteOutcome(written, null);
+            }
+        }
+
+        /// <summary>
+        ///   A graph that answers nothing, which is what this container sees when it restarts alongside the
+        ///   graph it writes into and comes up first.
+        /// </summary>
+        private sealed class RefusingTarget : DelegatingGraphTarget
+        {
+            public RefusingTarget(IGraphTarget inner)
+                : base(inner)
+            {
+            }
+
+            public override Task<ClaimLookup> ResolveClaimKeysAsync(IReadOnlyCollection<String> claimKeys,
+                String instanceId, CancellationToken cancellationToken)
+            {
+                throw new GraphTargetException("the graph did not answer the claim lookup");
             }
         }
 

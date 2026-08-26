@@ -71,6 +71,14 @@ namespace NoSQL.GraphDB.Integrations.Run
         public const Int32 Version = 1;
 
         /// <summary>
+        ///   How many times a spooled run may be picked up before it is given up on. Three, because the
+        ///   failure this exists for is a graph that has not finished starting, which one more attempt
+        ///   fixes; a graph that is gone for good would otherwise have this entry retried on every start
+        ///   for ever.
+        /// </summary>
+        public const Int32 MaxAttempts = 3;
+
+        /// <summary>
         ///   The prefix on every file this spool writes. It is not decoration: an integration instance id
         ///   may be any of letters, digits, dot, dash and underscore, so an identity called <c>con</c>,
         ///   <c>nul</c> or <c>aux</c> would otherwise compose a Windows reserved device name and every write
@@ -380,6 +388,19 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// </summary>
         [JsonPropertyName("startedAt")]
         public String StartedAt { get; set; } = String.Empty;
+
+        /// <summary>
+        ///   How many times this entry has been PICKED UP, counted before each attempt.
+        ///
+        ///   <para>It exists for one failure that would otherwise be self-defeating. This container restarts
+        ///   alongside the graph it writes into, and it may well come up first: the resumed run then fails
+        ///   because the graph did not answer, and an entry deleted on that failure loses exactly the hours
+        ///   of work the spool exists to keep. So a resumed run that failed on the GRAPH keeps its entry and
+        ///   is tried again on the next start, bounded by this count - because a graph that is gone for good
+        ///   must not make the entry immortal.</para>
+        /// </summary>
+        [JsonPropertyName("attempts")]
+        public Int32 Attempts { get; set; }
 
         /// <summary>
         ///   The document the provider produced, present once the validator accepted its envelope. Null

@@ -522,8 +522,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // next restart, re-running a job whose answer somebody already has - and the spool would
                     // quietly become the run history this runtime deliberately does not keep.
                     //
-                    // Interruption is the one exception, and the only one: that run has not ended.
-                    if (!interrupted)
+                    // Interruption is one exception; a resumed run the GRAPH refused is the other.
+                    if (!interrupted && !KeepForRetry(report, resume))
                     {
                         _spool.Delete(instanceId);
                     }
@@ -747,6 +747,28 @@ namespace NoSQL.GraphDB.Integrations.Run
         {
             report.Cancelled = true;
             return Complete(report, stopwatch, null, null, providerId);
+        }
+
+        /// <summary>
+        ///   Whether a run that ENDED should nevertheless keep its spooled entry, so the next start tries
+        ///   again.
+        ///
+        ///   <para>Exactly one case, and it would otherwise defeat the whole point of the spool: this
+        ///   container restarts alongside the graph it writes into and may come up first, so a resumed run
+        ///   can fail simply because the graph was not answering yet. Deleting the entry on that would throw
+        ///   away the hours of work it exists to protect, for a reason that says nothing about the job or the
+        ///   source. Bounded by the attempt count, so a graph that is gone for good does not make the entry
+        ///   immortal.</para>
+        ///
+        ///   <para>Only a RESUMED run and only a GRAPH failure. A fresh run still has its file and its
+        ///   credential, so its caller can simply submit it again; any other failure kind is about the job or
+        ///   the source, which re-running unchanged will not mend.</para>
+        /// </summary>
+        private static Boolean KeepForRetry(JobReport report, SpooledRun? resume)
+        {
+            return resume != null
+                   && String.Equals(report.ErrorKind, JobErrorKinds.Graph, StringComparison.Ordinal)
+                   && resume.Attempts < RunSpool.MaxAttempts;
         }
 
         /// <summary>

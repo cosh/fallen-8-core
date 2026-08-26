@@ -111,9 +111,17 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                 return;
             }
 
+            // Counted and PERSISTED before the attempt, not after it: an attempt that dies without answering
+            // is exactly the kind the bound on these exists to stop, so it has to count even when nothing
+            // gets to write afterwards. Whether this is the LAST attempt is the runner's decision, made where
+            // it already decides the entry's fate - one place rather than two that could disagree.
+            spooled.Attempts++;
+            _spool.WriteIntent(spooled);
+
             _logger.LogInformation(
-                "Resuming integration run {RunId} as {InstanceId} ({Provider}), started {StartedAt}: {Journal}.",
-                spooled.RunId, spooled.InstanceId, spooled.ProviderId, spooled.StartedAt,
+                "Resuming integration run {RunId} as {InstanceId} ({Provider}), started {StartedAt}, " +
+                "attempt {Attempt}: {Journal}.",
+                spooled.RunId, spooled.InstanceId, spooled.ProviderId, spooled.StartedAt, spooled.Attempts,
                 spooled.Progress?.Describe() ?? "no embedding journal, so the plan is recomputed");
 
             // Under the run's OWN id and original start time, so a client polling this identity sees the run
