@@ -123,8 +123,8 @@ namespace NoSQL.GraphDB.Tests
             // setting inventory (tier, source, effective value, and the reason a key is refused), and
             // f8_admin get_settings/set_settings bridge it. The deferral had to be DELETED rather than
             // narrowed, because this test asserts the bridged and deferred sets are disjoint.
-            // All four /integrations routes are deferred rather than bridged (feature integrations
-            // spec section 18). Three of them are DECLARATIONS rather than capabilities: the provider
+            // EVERY /integrations route is deferred rather than bridged (feature integrations spec
+            // section 18). The original four: three of them are DECLARATIONS rather than capabilities: the provider
             // catalog and the vocabulary describe what COULD be run, and snapshot validation is an
             // authoring aid - a provider is C# compiled into the fallen-8-integrations deployable, so
             // an agent cannot add one over the API at any tier. The fourth, running a job, has a real
@@ -145,9 +145,15 @@ namespace NoSQL.GraphDB.Tests
             // tokens or it is not added. The two travel together on purpose: whenever the job route is
             // bridged, these are bridged in the same change, because starting something an agent then cannot
             // observe would be strictly worse than not starting it. Revisit exactly then, and not separately.
+            // The CANCEL route (feature integration-run-lifecycle) travels with them for the same reason and
+            // one of its own. An agent that cannot start a run has nothing of its own to stop, so bridging
+            // this would only let it stop a run a PERSON started - and a cancelled run is not undone by
+            // re-running it: what it wrote stands, it deliberately does not reconcile, and converging the
+            // graph then needs a full run somebody has to launch. That is a poor thing to hand to a caller
+            // that cannot launch one. It is bridged in the same change the job route is, never before.
             // Contains, not StartsWith: the predicate matches "METHOD /path".
             new(op => op.Contains("/integrations"),
-                "the integration runtime proxy is deferred: three routes are declarations, a job run is a complete-snapshot write no unverifiable identity may trigger, and the two run-observation routes are withheld with it because an agent that cannot start a run has little use for watching one"),
+                "the integration runtime proxy is deferred: three routes are declarations, a job run is a complete-snapshot write no unverifiable identity may trigger, and the run-observation and cancel routes are withheld with it because an agent that cannot start a run has little use for watching one and no business stopping somebody else's"),
         };
 
         [TestMethod]
