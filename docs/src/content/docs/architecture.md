@@ -187,9 +187,14 @@ description into one namespace over the REST API. Like the MCP server it referen
 engine nor the app, and for a sharper reason: jobs hand it credentials belonging to your
 controllers, so it holds **no host port at all**. The browser reaches it only through the app's
 authenticated proxy at `/integrations/*`. It stores no credential and no file of any kind: both
-arrive with the job that needs them and are dropped when the run ends, so it has **no mount at
-all**, nothing to rotate and nothing to read off disk. The full story is in
-[Integrations](/integrations/).
+arrive with the job that needs them and are dropped when the run ends, so it has **no credential
+mount and no files mount**, nothing to rotate and nothing to read off disk.
+
+It has exactly one optional mount, and only because a restart used to be unrecoverable: a **run
+spool** holding the runs currently IN FLIGHT, so a container restart picks them up instead of
+losing hours of embedding work. An entry is deleted on every ending a run has, so a healthy
+runtime's spool is empty, and neither a credential nor a file's bytes is ever written there. The
+full story is in [Integrations](/integrations/).
 
 ## F8 Studio and the model sidecar
 

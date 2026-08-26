@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Threading;
 using System.Threading.Tasks;
 using NoSQL.GraphDB.Integrations.Contract;
 
@@ -80,20 +81,28 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <param name="namespaceName">The namespace being written into, or null for the default.</param>
         /// <param name="embedRequested">Whether the job asked for summary embedding, which is a fact about
         /// the run and belongs with it rather than in a client's component state.</param>
+        /// <param name="resumed">Whether this is a run PICKED UP after a restart rather than a new one.</param>
+        /// <param name="startedUtc">
+        ///   When the run originally began, for a resumed one. A resumed run keeps its first start, because
+        ///   the elapsed time a reader wants is how long the import has been going - outage included, since
+        ///   that is what actually elapsed. Null means now, which is every fresh run.
+        /// </param>
         public RunHandle Begin(String runId, String providerId, String instanceId, String? namespaceName,
-            Boolean embedRequested = false)
+            Boolean embedRequested = false, Boolean resumed = false, DateTimeOffset? startedUtc = null)
         {
             if (String.IsNullOrWhiteSpace(instanceId))
             {
                 throw new ArgumentException("An integration instance id is required.", nameof(instanceId));
             }
 
-            return new RunHandle(this, runId, providerId, instanceId, namespaceName, embedRequested);
+            return new RunHandle(this, runId, providerId, instanceId, namespaceName, embedRequested, resumed,
+                startedUtc);
         }
 
         /// <summary>Opens the slot, replacing whatever that identity held before. Called on the first phase.</summary>
         private Slot Materialise(String runId, String providerId, String instanceId, String? namespaceName,
-            Boolean embedRequested)
+            Boolean embedRequested, CancellationTokenSource cancellation, Boolean resumed,
+            DateTimeOffset? startedUtc)
         {
             if (!_byInstance.ContainsKey(instanceId))
             {
@@ -107,12 +116,69 @@ namespace NoSQL.GraphDB.Integrations.Run
                 InstanceId = instanceId,
                 Namespace = namespaceName,
                 EmbedRequested = embedRequested,
-                StartedUtc = DateTimeOffset.UtcNow,
+                Resumed = resumed,
+                StartedUtc = startedUtc ?? DateTimeOffset.UtcNow,
                 Sequence = ++_sequence,
                 Phase = null,
+
+                // The stop signal lands on the SLOT because the slot is already the one thing that knows a
+                // run is in flight under this identity. A separate registry keyed by identity would be a
+                // second answer to that question, and the two would disagree the first time one was
+                // updated without the other.
+                Cancellation = cancellation,
             };
             _byInstance[instanceId] = slot;
             return slot;
+        }
+
+        /// <summary>
+        ///   Asks the run in flight under this identity to stop at its next safe point. Returns FALSE when
+        ///   there is nothing in flight to stop, which is what the route answers 404 to: a run that already
+        ///   ended is not cancellable, and its slot already says what it ended as.
+        ///
+        ///   <para>Asking twice is not an error and answers TRUE both times. The signal is a request, not an
+        ///   event: the run reaches a safe point when it reaches one, and for the embedding phase that is
+        ///   after the chunk already in the model. So a second click means "yes, still stopping" rather than
+        ///   "nothing happened", and <see cref="RunStateDto.CancelRequested" /> is what a reader watches in
+        ///   between.</para>
+        /// </summary>
+        /// <param name="instanceId">The identity whose run should stop.</param>
+        /// <param name="state">The run as it is at the moment the stop was recorded, so a caller need not
+        /// wait for its next poll to see <c>cancelRequested</c>.</param>
+        public Boolean TryCancel(String instanceId, out RunStateDto? state)
+        {
+            CancellationTokenSource? cancellation;
+
+            lock (_gate)
+            {
+                if (instanceId == null || !_byInstance.TryGetValue(instanceId, out var slot) ||
+                    slot.FinishedUtc != null)
+                {
+                    state = null;
+                    return false;
+                }
+
+                slot.CancelRequested = true;
+                cancellation = slot.Cancellation;
+                state = slot.ToDto();
+            }
+
+            // OUTSIDE the lock. Cancel() runs every registered callback synchronously on this thread, and
+            // one of them is the linked source the run handed its provider, whose continuation aborts an
+            // HTTP read; running arbitrary continuations while holding the lock that every progress call
+            // and every poll also takes is how a deadlock gets built. The state above was already captured,
+            // so nothing here needs the lock back.
+            try
+            {
+                cancellation?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // The run finished and disposed its source between the two blocks. Nothing to stop, and the
+                // slot the caller was handed already says the run ended.
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -134,12 +200,20 @@ namespace NoSQL.GraphDB.Integrations.Run
                     slot.FinishedUtc = DateTimeOffset.UtcNow;
                     slot.Report = report;
 
+                    // Read off the REPORT rather than off the request: a stop that was asked for after the
+                    // run's last safe point does not cancel anything, the run finishes, and its report says
+                    // so. CancelRequested stays true beside this, which is what lets a reader tell "stopped
+                    // because you asked" from "you asked, and it had already finished".
+                    slot.Cancelled = report != null && report.Cancelled;
+
                     // The phase a run ENDED in has to go somewhere, or every successful import shows its
                     // last phase as never having run. A clean finish completes it; a failed one records
-                    // where it stopped, which is the more useful fact of the two.
+                    // where it stopped, which is the more useful fact of the two. A CANCELLED run is the
+                    // third case and belongs with the second: it carries no errorKind, so keying on that
+                    // alone would complete the very phase it was stopped in the middle of.
                     if (slot.Phase != null)
                     {
-                        if (String.IsNullOrEmpty(report?.ErrorKind))
+                        if (String.IsNullOrEmpty(report?.ErrorKind) && !slot.Cancelled)
                         {
                             if (!slot.Completed.Contains(slot.Phase))
                             {
@@ -273,6 +347,10 @@ namespace NoSQL.GraphDB.Integrations.Run
             public Boolean EmbedRequested;
             public Int32 PhaseDone;
             public Int32 PhaseTotal;
+            public Boolean CancelRequested;
+            public Boolean Cancelled;
+            public Boolean Resumed;
+            public CancellationTokenSource? Cancellation;
             public readonly List<String> Completed = new List<String>();
             public JobReport? Report;
             public String? Error;
@@ -282,6 +360,9 @@ namespace NoSQL.GraphDB.Integrations.Run
             {
                 return new RunStateDto
                 {
+                    CancelRequested = CancelRequested,
+                    Cancelled = Cancelled,
+                    Resumed = Resumed,
                     RunId = RunId,
                     ProviderId = ProviderId,
                     IntegrationInstanceId = InstanceId,
@@ -314,10 +395,18 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   task rather than a flag so the route can await it instead of polling for it - the difference
         ///   between a deterministic answer and a timing-dependent one.
         /// </summary>
-        public sealed class RunHandle : IRunProgress
+        public sealed class RunHandle : IRunProgress, IIdentifiedRun, IDisposable
         {
             private readonly TaskCompletionSource _started =
                 new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            /// <summary>
+            ///   The run's own stop signal, created with the handle rather than with the slot: the slot
+            ///   materialises on the first phase, and the run needs something to carry from the moment it
+            ///   is handed to <c>JobRunner</c>. A cancel arriving before the first phase finds no slot and
+            ///   is answered 404, which is honest - there is nothing tracked to stop yet.
+            /// </summary>
+            private readonly CancellationTokenSource _cancellation = new CancellationTokenSource();
 
             private readonly RunTracker _tracker;
             private readonly String _runId;
@@ -325,10 +414,13 @@ namespace NoSQL.GraphDB.Integrations.Run
             private readonly String _instanceId;
             private readonly String? _namespace;
             private readonly Boolean _embedRequested;
+            private readonly Boolean _resumed;
+            private readonly DateTimeOffset? _startedUtc;
             private Slot? _slot;
 
             public RunHandle(RunTracker tracker, String runId, String providerId, String instanceId,
-                String? namespaceName, Boolean embedRequested)
+                String? namespaceName, Boolean embedRequested, Boolean resumed = false,
+                DateTimeOffset? startedUtc = null)
             {
                 _tracker = tracker;
                 _runId = runId;
@@ -336,6 +428,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                 _instanceId = instanceId;
                 _namespace = namespaceName;
                 _embedRequested = embedRequested;
+                _resumed = resumed;
+                _startedUtc = startedUtc;
             }
 
             public void EnterPhase(String phase)
@@ -346,7 +440,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                     if (_slot == null)
                     {
                         _slot = _tracker.Materialise(_runId, _providerId, _instanceId, _namespace,
-                            _embedRequested);
+                            _embedRequested, _cancellation, _resumed, _startedUtc);
                         _started.TrySetResult();
                     }
 
@@ -390,6 +484,35 @@ namespace NoSQL.GraphDB.Integrations.Run
             public Task Started
             {
                 get { return _started.Task; }
+            }
+
+            /// <summary>
+            ///   The run's stop signal, to be observed at safe points. See <see cref="RunAbort" /> for why
+            ///   it is this type and not the token underneath it.
+            /// </summary>
+            public RunAbort Abort
+            {
+                get { return new RunAbort(_cancellation.Token); }
+            }
+
+            /// <summary>
+            ///   The same signal as a token, for the ONE thing that may be aborted mid-call: the source
+            ///   read. Aborting a read writes nothing, so the provider is handed a real token; everything
+            ///   downstream of the first graph write gets <see cref="Abort" /> instead.
+            /// </summary>
+            public CancellationToken CancellationToken
+            {
+                get { return _cancellation.Token; }
+            }
+
+            /// <summary>
+            ///   Releases the stop signal. Called by whoever ran the job, AFTER the outcome is recorded, so
+            ///   a cancel racing the end of a run either finds a slot that is still in flight or one that
+            ///   already says how it ended.
+            /// </summary>
+            public void Dispose()
+            {
+                _cancellation.Dispose();
             }
         }
     }

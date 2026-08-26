@@ -34,8 +34,8 @@ using System.Xml.Linq;
 namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 {
     /// <summary>
-    ///   Reads an AUTOSAR classic-platform system extract and describes the FlexRay communication matrix it
-    ///   carries. It knows nothing about snapshots, claims or the graph: it produces
+    ///   Reads the AUTOSAR classic-platform system extracts of ONE system and describes the FlexRay
+    ///   communication matrix they carry. It knows nothing about snapshots, claims or the graph: it produces
     ///   <see cref="ArxmlNetwork"/>, which the provider maps. That split is what lets every parsing rule be
     ///   tested without a runtime, and it is why the rules that decide identity live on the other side.
     ///
@@ -45,11 +45,20 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
     ///   short-name stack while streaming, and resolution afterwards is exact string equality on a
     ///   dictionary. Nothing is matched by name, position or similarity.</para>
     ///
+    ///   <para>SEVERAL DOCUMENTS MAKE ONE DESCRIPTION. A vehicle network is handed over as one extract per
+    ///   domain or per bus, and those extracts reference each other by path, so every document
+    ///   <see cref="Add"/>ed streams into ONE table and <see cref="Complete"/> resolves once over their
+    ///   union: that, and nothing else, is what makes a reference from one extract into another resolve
+    ///   exactly like a reference within one file. Order is part of the meaning - where two documents declare
+    ///   one path, the earlier one owns it - so the caller's order is kept rather than sorted.</para>
+    ///
     ///   <para>It streams. A system extract is routinely tens of megabytes of which the communication matrix
     ///   is a small fraction, so only the elements in the interest set are materialised as subtrees and
-    ///   everything else advances the reader without allocating.</para>
+    ///   everything else advances the reader without allocating. One document at a time, too: a caller hands
+    ///   over one text per <see cref="Add"/> and nothing here keeps it, which is what stops a set of
+    ///   tens-of-megabytes extracts from being held decoded all at once.</para>
     /// </summary>
-    public static class ArxmlReader
+    public sealed class ArxmlReader
     {
         /// <summary>The one schema namespace this reader understands. It covers every AUTOSAR 4.x release.</summary>
         public const String Namespace = "http://autosar.org/schema/r4.0";
@@ -83,8 +92,15 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         // Read as whole subtrees. Everything else streams past.
         private static readonly HashSet<String> Interesting = BuildInterestSet();
 
+        /// <summary>Where every document's elements and references land, and the only one there is.</summary>
+        private readonly Collected _collected = new Collected();
+
+        private Boolean _completed;
+
         /// <summary>
-        ///   Reads one system extract.
+        ///   Reads ONE document that has no name to give: the whole read, in one call, for every caller that
+        ///   composes nothing. Expressed in terms of the multi-document path so there is ONE code path and
+        ///   not two that can drift.
         /// </summary>
         /// <param name="xml">The document text.</param>
         /// <exception cref="ArxmlFormatException">The text is not XML this reader will read: a DTD, a root
@@ -93,12 +109,67 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         /// file that could not be read is not a network with nothing in it.</exception>
         public static ArxmlNetwork Read(String xml)
         {
+            var reader = new ArxmlReader();
+            reader.Consume(String.Empty, xml);
+            return reader.Complete();
+        }
+
+        /// <summary>
+        ///   Streams one more document into this read, after every document already added.
+        ///
+        ///   <para>The NAME is not decoration. Every refusal below names the document it is about, and "the
+        ///   extract is not readable AUTOSAR" is not actionable when four of them arrived in one job; the same
+        ///   name is what the re-declaration diagnostic points at.</para>
+        /// </summary>
+        /// <param name="fileName">What the document is called, as a name and never a path.</param>
+        /// <param name="xml">The document text. It is not retained.</param>
+        /// <exception cref="ArxmlFormatException">This document is not readable as an AUTOSAR r4.0 extract,
+        /// which fails the WHOLE read: a set of extracts one of which could not be read is not a network
+        /// missing a domain, and describing it as one would withdraw everything that domain claimed.</exception>
+        public void Add(String fileName, String xml)
+        {
+            if (fileName == null)
+            {
+                throw new ArgumentNullException(nameof(fileName));
+            }
+
+            Consume(fileName, xml);
+        }
+
+        /// <summary>
+        ///   Resolves ONCE over the union of every document added, and describes it.
+        /// </summary>
+        /// <exception cref="ArxmlFormatException">No document was added at all.</exception>
+        public ArxmlNetwork Complete()
+        {
+            if (_collected.Documents == 0)
+            {
+                throw new ArxmlFormatException(
+                    "No document was given to read, so there is nothing to describe. An empty set reaching " +
+                    "here is a miscount by the caller rather than a fact about a source, and reporting it " +
+                    "as an empty network would withdraw everything the identity ever claimed.");
+            }
+
+            _completed = true;
+            return Resolve(_collected);
+        }
+
+        /// <summary>
+        ///   One document, streamed into the shared table under its own root gate.
+        /// </summary>
+        private void Consume(String fileName, String xml)
+        {
             if (xml == null)
             {
                 throw new ArgumentNullException(nameof(xml));
             }
 
-            var collected = new Collected();
+            if (_completed)
+            {
+                throw new InvalidOperationException(
+                    "This read is finished, so a document added now would be described by nothing: " +
+                    "resolution has already run over the union of what was there when it ran.");
+            }
 
             // Hardened deliberately, and more load-bearing since the bytes arrive in a REQUEST BODY rather
             // than off a mount an operator prepared: whoever can reach the API now chooses this document. A
@@ -114,41 +185,59 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 IgnoreProcessingInstructions = true,
             };
 
+            _collected.BeginDocument(fileName);
+
+            Boolean sawRoot;
             try
             {
                 using (var text = new StringReader(xml))
                 using (var reader = XmlReader.Create(text, settings))
                 {
-                    Stream(reader, collected);
+                    sawRoot = Stream(reader, _collected, fileName);
                 }
             }
             catch (XmlException failure)
             {
                 throw new ArxmlFormatException(
-                    "The file is not readable as XML: " + failure.Message +
+                    Subject(fileName) + " is not readable as XML: " + failure.Message +
                     " A DTD is refused outright, so a document carrying one arrives here too.", failure);
             }
 
-            if (!collected.SawRoot)
+            if (!sawRoot)
             {
-                throw new ArxmlFormatException(
-                    "The file carries no elements at all, so it is not an AUTOSAR system extract.");
+                throw new ArxmlFormatException(Subject(fileName) +
+                    " carries no elements at all, so it is not an AUTOSAR system extract.");
             }
 
-            return Resolve(collected);
+            _collected.EndDocument();
         }
 
         /// <summary>
-        ///   The streaming pass. It maintains the short-name stack that IS the path of whatever the reader is
-        ///   inside, and hands each interesting element to <see cref="Collect"/> as a materialised subtree.
+        ///   How a refusal names the document it is about. One phrasing rather than two, with the file named
+        ///   whenever there is a name: the single-document entry point has none to give and says so instead of
+        ///   inventing one.
         /// </summary>
-        private static void Stream(XmlReader reader, Collected collected)
+        private static String Subject(String fileName)
+        {
+            return fileName.Length == 0 ? "The document" : "The file '" + fileName + "'";
+        }
+
+        /// <summary>
+        ///   The streaming pass over one document. It maintains the short-name stack that IS the path of
+        ///   whatever the reader is inside, and hands each interesting element to <see cref="Collect"/> as a
+        ///   materialised subtree. Returns whether the document had a document element at all.
+        /// </summary>
+        private static Boolean Stream(XmlReader reader, Collected collected, String fileName)
         {
             // (element name, short name once seen). An entry whose short name stays null is a structural
             // wrapper such as AR-PACKAGES or ELEMENTS, and contributes nothing to a path, which is exactly
             // the standard's own path semantics.
             var stack = new List<Frame>();
             var advanced = true;
+
+            // PER DOCUMENT, not per read: every extract of a set has to pass the root gate on its own, so a
+            // job that slipped one CAN bus log in among four extracts is refused rather than half-read.
+            var sawRoot = false;
 
             while (true)
             {
@@ -163,10 +252,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 {
                     var name = reader.LocalName;
 
-                    if (!collected.SawRoot)
+                    if (!sawRoot)
                     {
-                        Gate(reader, name);
-                        collected.SawRoot = true;
+                        Gate(reader, name, fileName);
+                        sawRoot = true;
                     }
 
                     // A short name names the element the reader is currently inside, which is the frame on
@@ -203,22 +292,25 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     stack.RemoveAt(stack.Count - 1);
                 }
             }
+
+            return sawRoot;
         }
 
         /// <summary>
-        ///   Refuses a document that is not an AUTOSAR r4.0 extract, naming what was found. A reader that
-        ///   carried on would describe an empty network, and an empty COMPLETE description withdraws
-        ///   everything the identity ever claimed.
+        ///   Refuses a document that is not an AUTOSAR r4.0 extract, naming which document and what was found.
+        ///   A reader that carried on would describe an empty network, and an empty COMPLETE description
+        ///   withdraws everything the identity ever claimed.
         /// </summary>
-        private static void Gate(XmlReader reader, String name)
+        private static void Gate(XmlReader reader, String name, String fileName)
         {
             if (!String.Equals(name, RootElement, StringComparison.Ordinal) ||
                 !String.Equals(reader.NamespaceURI, Namespace, StringComparison.Ordinal))
             {
                 throw new ArxmlFormatException(String.Format(CultureInfo.InvariantCulture,
-                    "The document element is '{0}' in namespace '{1}', and an AUTOSAR system extract is " +
-                    "'{2}' in namespace '{3}'. The file was not read further rather than being read as an " +
-                    "extract with nothing in it.", name, reader.NamespaceURI, RootElement, Namespace));
+                    "{0} has document element '{1}' in namespace '{2}', and an AUTOSAR system extract is " +
+                    "'{3}' in namespace '{4}'. It was not read further rather than being read as an " +
+                    "extract with nothing in it.", Subject(fileName), name, reader.NamespaceURI, RootElement,
+                    Namespace));
             }
         }
 
@@ -611,9 +703,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     display = LastSegment(pair.Value);
                     network.Diagnostics.Add(new ArxmlDiagnostic(
                         ArxmlDiagnosticKind.UnresolvedReference,
-                        "The file names a unit it does not define, so the unit's short name was used as its " +
-                        "label instead of the display name a person would recognise. The usual cause is a " +
-                        "partial export that left the unit package out.",
+                        "What was read names a unit that nothing in it defines, so the unit's short name was " +
+                        "used as its label instead of the display name a person would recognise. The usual " +
+                        "cause is a partial export that left the unit package out, or a job that left out " +
+                        "the extract carrying it.",
                         pair.Value));
                 }
 
@@ -779,8 +872,9 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         {
             return new ArxmlDiagnostic(ArxmlDiagnosticKind.UnresolvedReference, String.Format(
                 CultureInfo.InvariantCulture,
-                "The file names {0} that it does not define, so what pointed at it was dropped. The usual " +
-                "cause is a partial export: an extract that references a package it did not include.", what),
+                "What was read names {0} that nothing in it defines, so what pointed at it was dropped. The " +
+                "usual cause is a partial export - an extract that references a package it did not include - " +
+                "or, where a job carries several extracts, one the job left out.", what),
                 reference);
         }
 
@@ -1007,12 +1101,18 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         }
 
         /// <summary>
-        ///   Everything the streaming pass gathered. Elements are kept per kind AND in one path table, so a
-        ///   repeated path is caught once rather than per kind.
+        ///   Everything the streaming pass gathered, ACROSS EVERY DOCUMENT of one read. Elements are kept per
+        ///   kind AND in one path table, so a repeated path is caught once rather than per kind, and the table
+        ///   is shared by every document because that is what makes a cross-document reference resolve.
         /// </summary>
         private sealed class Collected
         {
-            public Boolean SawRoot { get; set; }
+            /// <summary>How many documents have been begun. Doubles as the current document's own id.</summary>
+            private Int32 _documents;
+
+            private String _documentName = String.Empty;
+
+            private Int32 _redeclared;
 
             public Dictionary<String, ArxmlElement> Networks { get; } = New();
 
@@ -1061,15 +1161,63 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
             public List<ArxmlDiagnostic> Diagnostics { get; } = new List<ArxmlDiagnostic>();
 
+            /// <summary>How many documents this read has taken in.</summary>
+            public Int32 Documents => _documents;
+
             private List<String> Order { get; } = new List<String>();
 
-            private HashSet<String> Paths { get; } = new HashSet<String>(StringComparer.Ordinal);
+            /// <summary>
+            ///   Each path taken, against the document that took it. The OWNER is what separates the two
+            ///   duplicate cases, which are a fault and an expectation respectively and must not be reported
+            ///   as one thing.
+            /// </summary>
+            private Dictionary<String, Int32> PathOwner { get; } =
+                new Dictionary<String, Int32>(StringComparer.Ordinal);
 
             private Dictionary<String, ArxmlElement> All { get; } = New();
 
+            /// <summary>Starts a document. Its name is what its own diagnostics name.</summary>
+            public void BeginDocument(String fileName)
+            {
+                _documents++;
+                _documentName = fileName;
+                _redeclared = 0;
+            }
+
             /// <summary>
-            ///   Records an element unless its path is already taken. A repeat is a diagnostic and the FIRST
-            ///   wins: the alternative is a silent overwrite whose result depends on file order.
+            ///   Closes a document, reporting what it re-declared ONCE rather than per path. Reported here, at
+            ///   the end of the document that did it, so a set's diagnostics come out in document order and two
+            ///   runs over the same ordered set say the same thing in the same sequence.
+            /// </summary>
+            public void EndDocument()
+            {
+                if (_redeclared == 0)
+                {
+                    return;
+                }
+
+                Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.RedeclaredPaths,
+                    String.Format(CultureInfo.InvariantCulture,
+                        "An earlier file in the set already declared {0} of the reference paths this file " +
+                        "declares, so those elements stayed the earlier file's and this file's twins were " +
+                        "dropped along with the references they carried. This is the expected case rather " +
+                        "than a fault - every extract of one system repeats the standard's shared packages - " +
+                        "and it is reported ONCE for the file rather than once per path, because hundreds of " +
+                        "entries would bury the diagnostics that mean something.", _redeclared),
+                    _documentName));
+            }
+
+            /// <summary>
+            ///   Records an element unless its path is already taken. A repeat is the FIRST one winning, in
+            ///   both cases below: the alternative is a silent overwrite whose result depends on the order the
+            ///   files happen to be written in.
+            ///
+            ///   <para>WITHIN one document a repeat is a fault and named per path: one path is one thing in
+            ///   the standard's own terms, so a file declaring one twice contradicts itself. ACROSS documents
+            ///   it is ordinary - the shared packages are in every extract - and is counted for the aggregate
+            ///   <see cref="EndDocument"/> reports. Only what the per-path diagnostic would have counted is
+            ///   counted here, which is why a repeated UNIT (not an element, and silently first-wins within a
+            ///   file too) does not appear in either.</para>
             ///
             ///   <para>Returns FALSE when the element was refused, and every caller must stop there. The
             ///   caller's remaining work records the element's REFERENCES keyed by that same path, so
@@ -1079,24 +1227,33 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             /// </summary>
             public Boolean Add(ArxmlElement element, Dictionary<String, ArxmlElement> byKind)
             {
-                if (!Paths.Add(element.Path))
+                if (PathOwner.TryGetValue(element.Path, out var owner))
                 {
-                    Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.DuplicatePath,
-                        "Two elements compose this same reference path, so only the first was described, " +
-                        "and nothing the later one referenced was recorded either. One path is one thing " +
-                        "in the standard's own terms, and keeping both would make which one wins depend " +
-                        "on the order the file happens to be written in.",
-                        element.Path));
+                    if (owner == _documents)
+                    {
+                        Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.DuplicatePath,
+                            "Two elements compose this same reference path, so only the first was described, " +
+                            "and nothing the later one referenced was recorded either. One path is one thing " +
+                            "in the standard's own terms, and keeping both would make which one wins depend " +
+                            "on the order the file happens to be written in.",
+                            element.Path));
+                    }
+                    else
+                    {
+                        _redeclared++;
+                    }
+
                     return false;
                 }
 
+                PathOwner[element.Path] = _documents;
                 byKind[element.Path] = element;
                 All[element.Path] = element;
                 Order.Add(element.Path);
                 return true;
             }
 
-            /// <summary>The elements in the order the file described them, which keeps a run reproducible.</summary>
+            /// <summary>The elements in the order the files described them, which keeps a run reproducible.</summary>
             public IEnumerable<ArxmlElement> Ordered()
             {
                 foreach (var path in Order)

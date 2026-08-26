@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Integrations.Providers.AutosarArxml;
 
@@ -469,6 +470,58 @@ namespace NoSQL.GraphDB.Tests
         private static ArxmlFormatException Refused(String xml)
         {
             return Assert.ThrowsException<ArxmlFormatException>(() => ArxmlReader.Read(xml));
+        }
+
+        /// <summary>Reads several NAMED documents as ONE source, in the order given.</summary>
+        private static ArxmlNetwork ReadSet(params (String Name, String Xml)[] documents)
+        {
+            var reader = new ArxmlReader();
+            foreach (var document in documents)
+            {
+                reader.Add(document.Name, document.Xml);
+            }
+
+            return reader.Complete();
+        }
+
+        private static ArxmlFormatException RefusedSet(params (String Name, String Xml)[] documents)
+        {
+            return Assert.ThrowsException<ArxmlFormatException>(() => ReadSet(documents));
+        }
+
+        /// <summary>
+        ///   Everything a read produced, as one string: every element with its properties in the order they
+        ///   were written, every relation, every diagnostic. The whole point is that it is ORDER-SENSITIVE,
+        ///   because the conformance suite compares two runs on a serialised snapshot and a merge that leaked
+        ///   dictionary iteration order would pass a count-based comparison and fail that one.
+        /// </summary>
+        private static String Describe(ArxmlNetwork network)
+        {
+            var text = new StringBuilder();
+            foreach (var element in network.Elements)
+            {
+                text.Append(element.Kind).Append(' ').Append(element.Path);
+                foreach (var property in element.Properties)
+                {
+                    text.Append(" |").Append(property.Key).Append('=').Append(property.Value);
+                }
+
+                text.Append('\n');
+            }
+
+            foreach (var relation in network.Relations)
+            {
+                text.Append(relation.Type).Append(' ').Append(relation.FromPath)
+                    .Append(" to ").Append(relation.ToPath).Append('\n');
+            }
+
+            foreach (var diagnostic in network.Diagnostics)
+            {
+                text.Append(diagnostic.Kind).Append(' ').Append(diagnostic.Subject)
+                    .Append(' ').Append(diagnostic.Message).Append('\n');
+            }
+
+            return text.ToString();
         }
 
         #endregion
@@ -1112,6 +1165,396 @@ namespace NoSQL.GraphDB.Tests
                 "the READER reports what it saw and refuses nothing here; deciding that a comm matrix " +
                 "without a bus is a failed observation rather than an empty one is the provider's call, " +
                 "because only the provider knows that an empty complete snapshot withdraws everything");
+        }
+
+        #endregion
+
+        #region several extracts, one system
+
+        /// <summary>
+        ///   The chassis half of an invented two-extract system, and every cross-file case is in it: a PDU
+        ///   that maps a signal only the body extract defines, a container PDU pointing at a PDU TRIGGERING
+        ///   only the body extract's channel declares, and the shared package both extracts repeat.
+        /// </summary>
+        private const String ChassisExtract = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Shared</SHORT-NAME>
+                  <ELEMENTS>
+                    <COMPU-METHOD>
+                      <SHORT-NAME>CM_Shared</SHORT-NAME>
+                      <CATEGORY>LINEAR</CATEGORY>
+                    </COMPU-METHOD>
+                    <SYSTEM-SIGNAL><SHORT-NAME>SYS_Shared</SHORT-NAME></SYSTEM-SIGNAL>
+                    <SYSTEM-SIGNAL><SHORT-NAME>SYS_SharedToo</SHORT-NAME></SYSTEM-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Pdus</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL-I-PDU>
+                      <SHORT-NAME>PDU_Chassis</SHORT-NAME>
+                      <LENGTH>8</LENGTH>
+                      <I-SIGNAL-TO-PDU-MAPPINGS>
+                        <I-SIGNAL-TO-I-PDU-MAPPING>
+                          <SHORT-NAME>MAP_Body</SHORT-NAME>
+                          <I-SIGNAL-REF DEST="I-SIGNAL">/ISignals/SIG_Body</I-SIGNAL-REF>
+                        </I-SIGNAL-TO-I-PDU-MAPPING>
+                      </I-SIGNAL-TO-PDU-MAPPINGS>
+                    </I-SIGNAL-I-PDU>
+                    <CONTAINER-I-PDU>
+                      <SHORT-NAME>PDU_ChassisContainer</SHORT-NAME>
+                      <LENGTH>32</LENGTH>
+                      <CONTAINED-PDU-TRIGGERING-REFS>
+                        <CONTAINED-PDU-TRIGGERING-REF DEST="PDU-TRIGGERING">/Clusters/BODYBUS/BODYBUS_CH_A/PT_Body</CONTAINED-PDU-TRIGGERING-REF>
+                      </CONTAINED-PDU-TRIGGERING-REFS>
+                    </CONTAINER-I-PDU>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Frames</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-FRAME>
+                      <SHORT-NAME>FRM_Chassis</SHORT-NAME>
+                      <FRAME-LENGTH>32</FRAME-LENGTH>
+                      <PDU-TO-FRAME-MAPPINGS>
+                        <PDU-TO-FRAME-MAPPING>
+                          <SHORT-NAME>FMAP_Chassis</SHORT-NAME>
+                          <PDU-REF DEST="CONTAINER-I-PDU">/Pdus/PDU_ChassisContainer</PDU-REF>
+                        </PDU-TO-FRAME-MAPPING>
+                      </PDU-TO-FRAME-MAPPINGS>
+                    </FLEXRAY-FRAME>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>CHASSISBUS</SHORT-NAME>
+                      <PHYSICAL-CHANNELS>
+                        <FLEXRAY-PHYSICAL-CHANNEL>
+                          <SHORT-NAME>CHASSISBUS_CH_A</SHORT-NAME>
+                          <FRAME-TRIGGERINGS>
+                            <FLEXRAY-FRAME-TRIGGERING>
+                              <SHORT-NAME>FT_Chassis</SHORT-NAME>
+                              <FRAME-REF DEST="FLEXRAY-FRAME">/Frames/FRM_Chassis</FRAME-REF>
+                              <ABSOLUTELY-SCHEDULED-TIMINGS>
+                                <FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING>
+                                  <SLOT-ID>5</SLOT-ID>
+                                </FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING>
+                              </ABSOLUTELY-SCHEDULED-TIMINGS>
+                            </FLEXRAY-FRAME-TRIGGERING>
+                          </FRAME-TRIGGERINGS>
+                        </FLEXRAY-PHYSICAL-CHANNEL>
+                      </PHYSICAL-CHANNELS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        /// <summary>
+        ///   The body half. It repeats the shared package with DIFFERENT content, which is what lets a test
+        ///   say which extract won a re-declared path rather than merely that one of them did.
+        /// </summary>
+        private const String BodyExtract = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Shared</SHORT-NAME>
+                  <ELEMENTS>
+                    <COMPU-METHOD>
+                      <SHORT-NAME>CM_Shared</SHORT-NAME>
+                      <CATEGORY>TEXTTABLE</CATEGORY>
+                    </COMPU-METHOD>
+                    <SYSTEM-SIGNAL><SHORT-NAME>SYS_Shared</SHORT-NAME></SYSTEM-SIGNAL>
+                    <SYSTEM-SIGNAL><SHORT-NAME>SYS_SharedToo</SHORT-NAME></SYSTEM-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>ISignals</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL>
+                      <SHORT-NAME>SIG_Body</SHORT-NAME>
+                      <LENGTH>4</LENGTH>
+                      <SYSTEM-SIGNAL-REF DEST="SYSTEM-SIGNAL">/Shared/SYS_Shared</SYSTEM-SIGNAL-REF>
+                    </I-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Pdus</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL-I-PDU>
+                      <SHORT-NAME>PDU_Body</SHORT-NAME>
+                      <LENGTH>4</LENGTH>
+                    </I-SIGNAL-I-PDU>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>BODYBUS</SHORT-NAME>
+                      <PHYSICAL-CHANNELS>
+                        <FLEXRAY-PHYSICAL-CHANNEL>
+                          <SHORT-NAME>BODYBUS_CH_A</SHORT-NAME>
+                          <PDU-TRIGGERINGS>
+                            <PDU-TRIGGERING>
+                              <SHORT-NAME>PT_Body</SHORT-NAME>
+                              <I-PDU-REF DEST="I-SIGNAL-I-PDU">/Pdus/PDU_Body</I-PDU-REF>
+                            </PDU-TRIGGERING>
+                          </PDU-TRIGGERINGS>
+                        </FLEXRAY-PHYSICAL-CHANNEL>
+                      </PHYSICAL-CHANNELS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        /// <summary>A bus and nothing else, for the gate tests that are only about where a cluster is.</summary>
+        private const String BusOnlyExtract = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>CHASSISBUS</SHORT-NAME>
+                      <PHYSICAL-CHANNELS>
+                        <FLEXRAY-PHYSICAL-CHANNEL><SHORT-NAME>CHASSISBUS_CH_A</SHORT-NAME></FLEXRAY-PHYSICAL-CHANNEL>
+                      </PHYSICAL-CHANNELS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        /// <summary>A domain extract with no bus in it at all, which is ordinary rather than broken: not
+        /// every extract of a system carries a cluster.</summary>
+        private const String NoBusExtract = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>BodyISignals</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL><SHORT-NAME>SIG_BodyOnly</SHORT-NAME><LENGTH>2</LENGTH></I-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        [TestMethod]
+        public void AReferenceAcrossTwoExtracts_ResolvesExactlyLikeOneInsideAFile()
+        {
+            var network = ReadSet(("chassis.arxml", ChassisExtract), ("body.arxml", BodyExtract));
+
+            CollectionAssert.AreEqual(new[] { "/ISignals/SIG_Body" },
+                Targets(network, "/Pdus/PDU_Chassis", ArxmlRelations.Contains),
+                "THE headline of multi-file: the chassis extract maps a signal only the body extract " +
+                "defines. The edge exists only if both documents streamed into ONE path table and " +
+                "resolution ran over their union - resolving each file on its own drops it, and the graph " +
+                "silently loses the topology that made the second extract worth importing");
+
+            CollectionAssert.AreEqual(new[] { "/Pdus/PDU_Body" },
+                Targets(network, "/Pdus/PDU_ChassisContainer", ArxmlRelations.Carries),
+                "and the harder half: the container PDU points at a PDU TRIGGERING, and the channel that " +
+                "declares that triggering is in the OTHER file, so the indirection resolves through a " +
+                "table the second document filled");
+
+            Assert.AreEqual(0,
+                network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.UnresolvedReference),
+                "nothing here is a partial export: every path either extract names is defined by one of " +
+                "them, so an unresolved reference would mean the union was never formed: " +
+                String.Join("; ", network.Diagnostics.Select(d => d.Kind + " " + d.Subject)));
+        }
+
+        [TestMethod]
+        public void APathASecondFileRedeclares_StaysTheFirstFiles_AndIsReportedOncePerFile()
+        {
+            var network = ReadSet(("chassis.arxml", ChassisExtract), ("body.arxml", BodyExtract));
+
+            Assert.AreEqual("LINEAR", Element(network, "/Shared/CM_Shared")[ArxmlProperties.Category],
+                "the EARLIER file owns a path both declare. The two shared compu methods differ in their " +
+                "category on purpose, so this says which one survived rather than merely that one did");
+            Assert.AreEqual(1, network.Elements.Count(e => e.Path == "/Shared/CM_Shared"),
+                "and the twin is gone rather than sitting beside it: two elements on one path would give " +
+                "one AUTOSAR path two identities, which is exactly what the claim type forbids");
+
+            var redeclared = network.Diagnostics
+                .Where(d => d.Kind == ArxmlDiagnosticKind.RedeclaredPaths)
+                .ToList();
+
+            Assert.AreEqual(1, redeclared.Count,
+                "ONE aggregate for the one re-declaring file. The body extract re-declares THREE paths, so " +
+                "a per-path diagnostic would show three here; a real four-extract job repeats the whole " +
+                "platform package and would drown the report in hundreds of them: " +
+                String.Join("; ", network.Diagnostics.Select(d => d.Kind + " " + d.Subject)));
+            Assert.AreEqual("body.arxml", redeclared[0].Subject,
+                "the subject is the re-declaring FILE, because that is the only thing a reader can act on");
+            StringAssert.Contains(redeclared[0].Message, "3",
+                "and it says HOW MANY, or an operator cannot tell a repeated shared package from a whole " +
+                "extract imported twice: " + redeclared[0].Message);
+
+            Assert.AreEqual(0, network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.DuplicatePath),
+                "a path in two files is not a file contradicting itself, and reporting it as one would " +
+                "send an operator hunting for a fault in an extract that is exactly as the standard says");
+        }
+
+        [TestMethod]
+        public void ADuplicateInsideOneFileOfASet_KeepsItsOwnPerPathDiagnostic()
+        {
+            // The regression this pairs with the test above: the two duplicate cases share one code path in
+            // the reader, so an aggregate that swallowed the within-file case would hide a file that
+            // genuinely contradicts itself - and there would be no diagnostic naming the path at all.
+            var network = ReadSet(
+                ("chassis.arxml", BusOnlyExtract),
+                ("body.arxml", """
+                    <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+                      <AR-PACKAGES>
+                        <AR-PACKAGE>
+                          <SHORT-NAME>ISignals</SHORT-NAME>
+                          <ELEMENTS>
+                            <I-SIGNAL><SHORT-NAME>SIG_Twice</SHORT-NAME><LENGTH>8</LENGTH></I-SIGNAL>
+                            <I-SIGNAL><SHORT-NAME>SIG_Twice</SHORT-NAME><LENGTH>16</LENGTH></I-SIGNAL>
+                          </ELEMENTS>
+                        </AR-PACKAGE>
+                      </AR-PACKAGES>
+                    </AUTOSAR>
+                    """));
+
+            Assert.AreEqual(1, network.Diagnostics.Count,
+                "one file declaring one path twice is a fault in that file and nothing else happened here: " +
+                String.Join("; ", network.Diagnostics.Select(d => d.Kind + " " + d.Subject)));
+            Assert.AreEqual(ArxmlDiagnosticKind.DuplicatePath, network.Diagnostics[0].Kind);
+            Assert.AreEqual("/ISignals/SIG_Twice", network.Diagnostics[0].Subject,
+                "and it still names the PATH rather than the file, because the path is what the author has " +
+                "to go and look at");
+            Assert.AreEqual("8", Element(network, "/ISignals/SIG_Twice")[ArxmlProperties.LengthBits],
+                "with the first of the twins surviving, exactly as in a single-document read");
+        }
+
+        [TestMethod]
+        public void TheBusGateJudgesTheUnion_NotEachFile()
+        {
+            var withOne = ReadSet(("chassis.arxml", BusOnlyExtract), ("body.arxml", NoBusExtract));
+
+            Assert.AreEqual(1, withOne.Elements.Count(e => e.Kind == ArxmlKinds.Network),
+                "a body-domain extract with no bus in it is ordinary beside a chassis extract that has " +
+                "one, so the SET describes a network and the provider's gate has something to pass");
+            Element(withOne, "/BodyISignals/SIG_BodyOnly");
+            Assert.AreEqual(0, withOne.Diagnostics.Count,
+                "and the bus-less file costs nothing: " +
+                String.Join("; ", withOne.Diagnostics.Select(d => d.Kind + " " + d.Subject)));
+
+            var withNone = ReadSet(("body.arxml", NoBusExtract), ("doors.arxml", """
+                <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+                  <AR-PACKAGES>
+                    <AR-PACKAGE>
+                      <SHORT-NAME>DoorISignals</SHORT-NAME>
+                      <ELEMENTS>
+                        <I-SIGNAL><SHORT-NAME>SIG_DoorOnly</SHORT-NAME><LENGTH>1</LENGTH></I-SIGNAL>
+                      </ELEMENTS>
+                    </AR-PACKAGE>
+                  </AR-PACKAGES>
+                </AUTOSAR>
+                """));
+
+            Assert.AreEqual(0, withNone.Elements.Count(e => e.Kind == ArxmlKinds.Network),
+                "and a set where NO file carries a cluster describes no network at all, which is what the " +
+                "provider turns into a failed run rather than an empty complete snapshot");
+        }
+
+        [TestMethod]
+        public void TheOrderOfTheFilesDecidesWhoOwnsARedeclaredPath_AndEachOrderIsWholeInItself()
+        {
+            var chassisFirst = ReadSet(("chassis.arxml", ChassisExtract), ("body.arxml", BodyExtract));
+            var bodyFirst = ReadSet(("body.arxml", BodyExtract), ("chassis.arxml", ChassisExtract));
+
+            Assert.AreEqual("LINEAR", Element(chassisFirst, "/Shared/CM_Shared")[ArxmlProperties.Category]);
+            Assert.AreEqual("TEXTTABLE", Element(bodyFirst, "/Shared/CM_Shared")[ArxmlProperties.Category],
+                "the same two files in the other order give the re-declared path to the other file. Order " +
+                "is part of the meaning, which is why the job's order is kept rather than sorted");
+
+            Assert.AreEqual("body.arxml",
+                chassisFirst.Diagnostics.Single(d => d.Kind == ArxmlDiagnosticKind.RedeclaredPaths).Subject);
+            Assert.AreEqual("chassis.arxml",
+                bodyFirst.Diagnostics.Single(d => d.Kind == ArxmlDiagnosticKind.RedeclaredPaths).Subject,
+                "and the aggregate follows, naming whichever file arrived second");
+
+            // Neither order may be a half-formed graph. First-wins decides WHICH twin survives; it must
+            // never decide whether an edge exists, because that would make importing the same system in
+            // another order a different network.
+            foreach (var network in new[] { chassisFirst, bodyFirst })
+            {
+                Assert.AreEqual(10, network.Elements.Count);
+                CollectionAssert.AreEqual(new[] { "/ISignals/SIG_Body" },
+                    Targets(network, "/Pdus/PDU_Chassis", ArxmlRelations.Contains));
+                CollectionAssert.AreEqual(new[] { "/Pdus/PDU_Body" },
+                    Targets(network, "/Pdus/PDU_ChassisContainer", ArxmlRelations.Carries));
+                CollectionAssert.AreEqual(new[] { "/Shared/SYS_Shared" },
+                    Targets(network, "/ISignals/SIG_Body", ArxmlRelations.Implements));
+                Assert.AreEqual(0,
+                    network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.UnresolvedReference));
+            }
+        }
+
+        [TestMethod]
+        public void TheSameFilesInTheSameOrder_DescribeTheSystemIdentically()
+        {
+            var first = ReadSet(("chassis.arxml", ChassisExtract), ("body.arxml", BodyExtract));
+            var second = ReadSet(("chassis.arxml", ChassisExtract), ("body.arxml", BodyExtract));
+
+            Assert.AreEqual(Describe(first), Describe(second),
+                "the conformance suite compares two runs over one fixture on the SERIALISED snapshot, so a " +
+                "merge that leaked dictionary iteration order into element, relation or diagnostic order " +
+                "would make every run a write: the change feed would churn and the write-ahead log grow " +
+                "with nothing to show for it");
+        }
+
+        [TestMethod]
+        public void ASecondDocumentThatIsNotAutosar_FailsTheReadNamingThatFile()
+        {
+            var refused = RefusedSet(
+                ("chassis.arxml", BusOnlyExtract),
+                ("body.arxml", "<SOMETHING-ELSE xmlns=\"http://autosar.org/schema/r4.0\" />"));
+
+            StringAssert.Contains(refused.Message, "body.arxml",
+                "the root gate is per DOCUMENT, and the refusal has to say which of the extracts that " +
+                "arrived together is the unreadable one: " + refused.Message);
+            Assert.IsFalse(refused.Message.Contains("chassis.arxml", StringComparison.Ordinal),
+                "and only that one, or naming every file in the job leaves the operator opening four of " +
+                "them: " + refused.Message);
+            StringAssert.Contains(refused.Message, "SOMETHING-ELSE",
+                "while still saying what was found there: " + refused.Message);
+        }
+
+        [TestMethod]
+        public void AReadWithNoDocumentAtAll_IsRefusedRatherThanDescribingAnEmptySystem()
+        {
+            // Unreachable through the provider, which only loops over files the job carried - and that is
+            // the point: an empty set becoming an empty COMPLETE snapshot would withdraw and then delete
+            // everything the identity ever claimed, so it refuses instead of describing nothing.
+            Assert.ThrowsException<ArxmlFormatException>(() => new ArxmlReader().Complete());
+        }
+
+        [TestMethod]
+        public void ADocumentAddedAfterTheReadIsFinished_IsRefused()
+        {
+            var reader = new ArxmlReader();
+            reader.Add("chassis.arxml", BusOnlyExtract);
+            reader.Complete();
+
+            Assert.ThrowsException<InvalidOperationException>(
+                () => reader.Add("body.arxml", NoBusExtract),
+                "resolution has already run, so this document would be in the path table and in no " +
+                "description: silently collecting it is how a reused reader reports a network that " +
+                "matches neither read");
         }
 
         #endregion

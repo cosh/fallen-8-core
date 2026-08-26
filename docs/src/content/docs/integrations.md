@@ -79,8 +79,62 @@ Add `?wait=true` to the job call for the old synchronous shape, which returns th
 is for a small source and a script: the API's proxy holds a connection for a bounded time, so a real
 import will outlast it.
 
-What is remembered is deliberately narrow: **the current and the last run of each identity**, in
-memory, lost on a restart of the runtime, and bounded in number. There is no run history, no
+### Stopping one
+
+```bash
+curl -sS -X POST http://localhost:8080/integrations/run/office-inventory/cancel
+```
+
+That answers `202` when the signal reached a run in flight, and `404` when there is nothing to stop.
+It is a **request**, not an event: the run stops at its next safe point, which during the embedding
+phase is after the chunk already in the model. So `cancelRequested` turns true at once and
+`cancelled` only when the run has really stopped. Cancelling twice is not an error, and a run that
+had already finished is not cancellable.
+
+A cancelled run **keeps what it had already written** and deliberately does not reconcile, so it
+withdraws nothing and deletes nothing. That is the whole reason it is safe to press: reconciliation
+withdraws by set difference over what the run claimed, and a run stopped half way has not claimed
+the entities it never reached, so reconciling would delete healthy elements the source still
+describes. The leftovers carry the integration's own claims, so the next completed run under that
+identity matches them rather than duplicating them, and that run's reconciliation removes whatever
+the source really has stopped describing.
+
+This is also the way out of the `409` a second run under one identity gets: cancel the one in
+flight, and the identity is free.
+
+### Restarts
+
+A run that is in flight when the runtime stops is **picked up on the next start**, under the same run
+id, and continues where it stopped. In the Studio the panel says so; over the API the run reports
+`resumed`.
+
+This exists because of one asymmetry. A run's graph writes are recomputable: re-run it and every
+element it created is matched instead of created again. Its **embedding** is not, because only
+entities whose data changed are embedded, so once the writes have landed a re-run finds everything
+equal and embeds nothing at all. Before this, a restart after twenty of twelve thousand summaries
+lost the remaining twelve thousand permanently, and the only cure was clearing the namespace and
+importing from scratch. Now it costs seconds.
+
+It needs somewhere to write: set `Integrations:SpoolDirectory` and give the container a volume for
+it. The compose environment does both. **Unset is the default and writes nothing**, which is what a
+bare `dotnet run` gets, and then an interrupted run is simply lost as it always was.
+
+What may live there is a short list: the job's envelope, the snapshot the provider produced, and the
+embedding journal. **Never a credential and never a file's bytes** - a credential is needed only to
+read the source, and a file only to produce the snapshot, so past that point neither can affect the
+run and neither is written down. A run interrupted *before* its source had been read therefore
+cannot be resumed at all, and says so rather than being retried: submit it again.
+
+An entry is deleted on every ending a run has, succeeded, failed and cancelled alike, so a healthy
+runtime's spool is **empty**. It is not a run history.
+
+One exception, because the runtime restarts alongside the graph it writes into and may come up first:
+a resumed run that failed **because the graph did not answer** keeps its entry and is tried again on
+the next start, up to three times. Any other failure is about the job or the source, which re-running
+unchanged will not mend, so the entry goes.
+
+What is remembered in MEMORY is deliberately narrow: **the current and the last run of each
+identity**, lost on a restart of the runtime, and bounded in number. There is no run history, no
 schedule and no list of past runs.
 
 Ask `GET /integrations/providers` what each integration's settings are; every one carries a
@@ -95,35 +149,78 @@ that is a dropzone and a file picker on the Integrations screen, the same gestur
 [Knowledge](/unstructured-ingestion/) screen uses for documents; over the API it is the `files`
 map above, one entry per file setting, carrying the file's own name and its **bytes as base64**.
 
+### One setting, several files
+
+A file setting the integration declares `multiple` takes an **ordered array** instead of one object:
+
+```json
+"files": {
+  "file": [
+    { "name": "chassis.arxml", "contentBase64": "..." },
+    { "name": "body.arxml",    "contentBase64": "..." }
+  ]
+}
+```
+
+A single object stays valid everywhere, and a setting that takes one file **refuses** an array
+rather than reading the first entry of it. That refusal is the important half: these integrations
+declare complete snapshots, so files that went unread would be reported as parts of the source that
+no longer exist, and reconciliation would delete everything they describe.
+
+**The set of files is the source.** That is the sharp edge of it, and worth reading twice. A vehicle
+network is handed over as one AUTOSAR extract per domain or per bus, and those extracts reference
+each other by path, so no single file is a complete description of anything. One run over all of
+them resolves references across their union, exactly as it would inside one file. But it also means
+a later run given **fewer** files withdraws whatever only the missing file described, because the
+snapshot is complete over what it was given. Run the whole set every time.
+
+Two more consequences of the union:
+
+- **Order is precedence.** Where two files declare the same thing, the one listed **first** wins.
+  That is not a quirk to work around: every extract carries the standard platform packages, so a
+  four-extract job re-declares hundreds of paths, and the runtime reports one aggregate diagnostic
+  per re-declaring file rather than hundreds of individual ones.
+- Two files with the **same name** are refused. Every diagnostic about a file names it, so two files
+  with one name make each of those messages ambiguous, and the commonest cause is the same file
+  picked twice by mistake.
+
 Bytes rather than text, because the encoding is not yours to guess: an AUTOSAR extract a vendor
 tool wrote as UTF-16 decodes correctly, where a transport carrying "the text" would have handed
 the integration mojibake and written that into your graph without a word on the report.
 
-The runtime **mounts nothing and opens nothing on disk**. There is no directory to prepare, no
+The runtime **mounts no files and opens none on disk**. There is no directory to prepare, no
 staged upload to clean up and no file name that could point somewhere it should not: a file lives
 exactly as long as the run that needed it, which is the same rule
-[credentials](#credentials) follow. Two consequences worth knowing:
+[credentials](#credentials) follow. (The one thing the container may write is the
+[run spool](#restarts), and a file's bytes are deliberately not in it.) Two consequences worth
+knowing:
 
 - A file's **name** is a label. It is what every message about the run calls it, so a diagnostic
   still reads `devices.csv row 7`, and nothing resolves, opens or joins it to a path.
 - An **empty** file is refused rather than read as an empty source, because a complete snapshot
   describing nothing withdraws every element the integration ever claimed.
 
-`Integrations:MaxFileBytes` (default **128 MiB**, measured on the decoded bytes) is the ceiling, and
-it belongs to the **runtime's** configuration rather than the instance you submit through. A file over
-it is refused with both numbers named. That default is sized for the real thing: an AUTOSAR system
-extract for one vehicle platform runs to tens of megabytes, and a 100 MiB device list or extract goes
-through in one run.
+There are **two** ceilings, both measured on the decoded bytes and both belonging to the **runtime's**
+configuration rather than the instance you submit through. A refusal names the size and the ceiling it
+broke.
 
-Above it sits a fixed 192 MiB bound on the request body itself, at the API's proxy, which no legal job
-reaches. It is deliberately not configurable, so about **144 MiB is the effective ceiling**: raising
-`Integrations:MaxFileBytes` past it has no effect, because the proxy is the only way in.
+- `Integrations:MaxFileBytes`, default **128 MiB**, per file. Sized for the real thing: an AUTOSAR
+  system extract for one vehicle platform runs to tens of megabytes.
+- `Integrations:MaxJobFileBytes`, default **512 MiB**, for the job **total** across every file on it.
+  Not a restatement of the first: several extracts can each be legal while their sum is what this
+  process has to hold at once, and one request carries a whole run.
 
-A file that size is not free. It arrives base64, is decoded to bytes, and is decoded again to text for
-the integration - two bytes per character for XML - so a run over a maximal extract peaks in the high
-hundreds of megabytes before anything is parsed, and the elements it produces are written to the graph
-in batches rather than one enormous transaction. Budget memory for the runtime container accordingly;
-the ceiling exists precisely because the caller, not the operator, picks the size.
+Above them sits a fixed 768 MiB bound on the request body itself, at the API's proxy, which no legal
+job reaches. It is deliberately not configurable, so about **576 MiB is the effective total**: raising
+`Integrations:MaxJobFileBytes` past it has no effect, because the proxy is the only way in.
+
+Files that size are not free. They arrive base64, are decoded to bytes, and each is decoded again to
+text for the integration - two bytes per character for XML - so a run over a maximal job peaks well
+over a gigabyte before anything is parsed, and the elements it produces are written to the graph in
+batches rather than one enormous transaction. The runtime reads its files **one at a time** to keep
+only one of them decoded at once, but the bytes of all of them are held for the whole run. Budget
+memory for the runtime container accordingly; the ceilings exist precisely because the caller, not the
+operator, picks the size.
 
 There is deliberately **no schedule, no interval and no list of past runs** anywhere in the runtime.
 Timing belongs to whoever wants the data: run a job from cron, from a CI pipeline, from a
@@ -216,9 +313,13 @@ next run rebuilds it from element state before trusting a lookup.
 
 **A credential arrives with the job that needs it, and nowhere else.** The runtime holds it for
 that run, keeps it out of every log line and every report, and drops it when the run ends. There
-is no mount of any kind - no credential mount and no files mount - no store, no cache and no
-keyring: it has nothing to rotate because it remembers nothing, and whoever submits a job is
-whoever already holds the credential. [Files](#files) arrive the same way, for the same reason.
+is no credential mount and no files mount, no store, no cache and no keyring: it has nothing to
+rotate because it keeps nothing, and whoever submits a job is whoever already holds the credential.
+[Files](#files) arrive the same way, for the same reason.
+
+The one thing the container may write, when an operator configures it, is the
+[run spool](#restarts), and a credential is deliberately not in it: it is needed only while the
+source is being read, so past that point it cannot affect the run. Neither is a file's bytes.
 
 ```bash
 curl -sS -X POST http://localhost:8080/integrations/job \
@@ -281,6 +382,7 @@ The report is the only account of a job, because the runtime keeps none:
   "deletionsDeferred": 0,
   "issuedMutations": true,
   "summariesEmbedded": 0,
+  "cancelled": false,
   "error": null,
   "errorKind": null,
   "credentialFingerprint": null,
@@ -290,7 +392,7 @@ The report is the only account of a job, because the runtime keeps none:
 }
 ```
 
-Three things on it are worth knowing:
+Four things on it are worth knowing:
 
 **`issuedMutations` is false on a re-run over an unchanged source.** Every write is conditional
 on an actual difference, so running a job on a timer costs nothing when nothing changed: no
@@ -302,6 +404,11 @@ because "the job is wrong", "the key is wrong", "the console will not answer" an
 not answer" send you to four different places. A source that answers `401` or `403` is a
 `credential` failure, not a `source` one: the front door answered, and what it said was no. A run that failed **withdrew
 nothing**: the next run starts from the same graph.
+
+**`cancelled` is a third outcome beside succeeded and failed**, and it is not a kind of failure:
+nothing is wrong, the counts are what really landed, and the run [did not
+reconcile](#stopping-one). It carries no `errorKind` for exactly that reason, so anything alerting
+on failures should not fire for a run somebody stopped on purpose.
 
 **`diagnostics` are never dropped**, and each has a stable `code` you can grep for and alert on.
 They cover both what the source could not tell the run (a CSV row with no MAC) and what the
@@ -363,9 +470,17 @@ Two things worth knowing before you run it:
 
 ## Reading a vehicle network
 
-`autosar-arxml` reads an **AUTOSAR system extract**, the XML file the automotive industry uses to
-exchange the communication matrix of a vehicle network, and describes the FlexRay bus it carries.
-One file per run, [uploaded with the job](#files) like the CSV integration's.
+`autosar-arxml` reads **AUTOSAR system extracts**, the XML files the automotive industry uses to
+exchange the communication matrix of a vehicle network, and describes the FlexRay bus they carry.
+They are [uploaded with the job](#files) like the CSV integration's file.
+
+**Give it the whole set in one run.** A vehicle is handed over as one extract per domain or per bus,
+and those extracts reference each other by AUTOSAR path, so one run over all of them resolves a frame
+in `chassis.arxml` against a signal defined in `body.arxml` exactly as it would inside one file. One
+run per extract cannot do that: each would be a complete snapshot of its own, so the second would
+withdraw everything the first described. The rules that come with a set - order is precedence, the set
+is the source, a later run with fewer files withdraws the difference - are in
+[One setting, several files](#one-setting-several-files).
 
 What lands in the graph is the network itself, its ECUs, the frames on the bus, the PDUs inside
 those frames (including the container and secured layers), the signals inside the PDUs, the
@@ -380,10 +495,11 @@ or similarity. Run the next release into the same namespace and what that releas
 withdrawn, which leaves the [change feed](/change-feed/) as the release diff with nothing extra to
 set up.
 
-Two limits worth knowing up front. This version reads **FlexRay** clusters, and a readable
-extract carrying none fails the run rather than reporting an empty network, because an empty
-complete snapshot would delete the network a previous run described. And the software-component
-level (the data mappings between components) is deliberately not read: this is the network view.
+Two limits worth knowing up front. This version reads **FlexRay** clusters, and a readable set
+carrying none at all fails the run rather than reporting an empty network, because an empty complete
+snapshot would delete the network a previous run described. One extract of a set having no cluster is
+perfectly normal and fine: the gate is over the union. And the software-component level (the data
+mappings between components) is deliberately not read: this is the network view.
 
 ### Finding a signal you cannot name
 

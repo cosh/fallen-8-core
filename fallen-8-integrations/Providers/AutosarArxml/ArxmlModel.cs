@@ -29,8 +29,10 @@ using System.Collections.Generic;
 namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 {
     /// <summary>
-    ///   What one system extract described, in the reader's own terms: elements keyed by their AUTOSAR
-    ///   reference path, the relations between them, and what the file could not tell the run.
+    ///   What the system extracts of one read described, in the reader's own terms: elements keyed by their
+    ///   AUTOSAR reference path, the relations between them, and what they could not tell the run. One of
+    ///   these describes the whole set, because the set is one system and a reference crosses between its
+    ///   files as freely as within one of them.
     ///
     ///   <para>Deliberately NOT a snapshot. The reader produces this and the provider maps it, so every
     ///   parsing rule is testable without a runtime, and the decisions that are not the provider's to make
@@ -39,13 +41,13 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
     /// </summary>
     public sealed class ArxmlNetwork
     {
-        /// <summary>Everything the file described, in the order it described it, so a run is reproducible.</summary>
+        /// <summary>Everything the files described, in the order they described it, so a run is reproducible.</summary>
         public List<ArxmlElement> Elements { get; } = new List<ArxmlElement>();
 
         /// <summary>The edges between them, each end named by an element path.</summary>
         public List<ArxmlRelation> Relations { get; } = new List<ArxmlRelation>();
 
-        /// <summary>What the file could not say. Never fatal: each costs one edge or one element.</summary>
+        /// <summary>What the files could not say. Never fatal: each costs one edge or one element.</summary>
         public List<ArxmlDiagnostic> Diagnostics { get; } = new List<ArxmlDiagnostic>();
     }
 
@@ -61,7 +63,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             Kind = kind;
         }
 
-        /// <summary>The AUTOSAR reference path, unique within one file by construction of the standard.</summary>
+        /// <summary>
+        ///   The AUTOSAR reference path, unique within one file by construction of the standard and unique
+        ///   across a set because the first file to declare one keeps it.
+        /// </summary>
         public String Path { get; }
 
         /// <summary>The entity kind, from <see cref="ArxmlKinds"/>.</summary>
@@ -135,7 +140,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         /// <summary>A reference naming a path the file does not define. What pointed at it was dropped.</summary>
         UnresolvedReference = 0,
 
-        /// <summary>Two elements composing one reference path. The first was kept.</summary>
+        /// <summary>Two elements of ONE file composing one reference path. The first was kept.</summary>
         DuplicatePath = 1,
 
         /// <summary>
@@ -145,6 +150,16 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   edge answers a query confidently.
         /// </summary>
         UndecidablePortDirection = 2,
+
+        /// <summary>
+        ///   ONE file of a set re-declared paths an earlier file already declared, counted rather than
+        ///   listed. Its own kind and not <see cref="DuplicatePath"/>, because the two are different facts:
+        ///   a file contradicting itself is a fault worth naming per path, whereas two extracts of one
+        ///   system repeating the standard's shared packages is what every multi-extract job looks like,
+        ///   and hundreds of per-path entries would bury the diagnostics that mean something. The subject
+        ///   is the re-declaring FILE, since that is the only thing a reader can act on.
+        /// </summary>
+        RedeclaredPaths = 3,
     }
 
     /// <summary>

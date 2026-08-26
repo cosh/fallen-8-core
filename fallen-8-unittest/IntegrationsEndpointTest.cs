@@ -46,7 +46,7 @@ namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     /// Pins the HTTP surface of the integrations feature through both hosted pipelines: the
-    /// fallen-8-integrations runtime's own six routes plus its health probe, and the apiApp's
+    /// fallen-8-integrations runtime's own seven routes plus its health probe, and the apiApp's
     /// authenticated proxy over them. Both halves run in process, the runtime under
     /// WebApplicationFactory over its deliberately namespaced entry point.
     /// </summary>
@@ -212,6 +212,120 @@ namespace NoSQL.GraphDB.Tests
                 + text);
         }
 
+        [TestMethod]
+        public async Task AFileSettingStillAcceptsASingleObjectOnTheWire()
+        {
+            // The compatibility half of multi-file, asserted where it actually has to hold: over real JSON.
+            // A hand-built job never touches the converter, so only a posted body can say the object form
+            // still parses. The CSV provider takes one file, so this is also the shape it must keep taking.
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync("/integration/job?wait=true",
+                Json(JobBody(CsvProviderId, "single-shape", null, null,
+                    "{\"file\":" + FileJson("devices.csv", "mac,name\nAA:BB:CC:DD:EE:01,Reception\n") + "}")));
+
+            // A 400 would mean the SHAPE was refused, which is the regression this guards. What the run then
+            // makes of the file is a different question and has its own tests.
+            Assert.AreNotEqual(HttpStatusCode.BadRequest, response.StatusCode,
+                "the single-object file shape stopped parsing, which breaks every caller written before " +
+                "multi-file existed: " + await ReadText(response));
+        }
+
+        [TestMethod]
+        public async Task AListOfFilesForASettingThatTakesOne_IsRefusedOverTheWire()
+        {
+            // The array form has to PARSE (or this test could not tell a rejected shape from an unparsed
+            // one) and then be refused by the descriptor. The refusal is what protects a complete-snapshot
+            // provider from reading one file of several and reporting the rest as deleted.
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync("/integration/job?wait=true",
+                Json(JobBody(CsvProviderId, "list-shape", null, null,
+                    "{\"file\":[" + FileJson("a.csv", "mac,name\n") + "," +
+                    FileJson("b.csv", "mac,name\n") + "]}")));
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode,
+                "a list sent to a single-file setting has to be refused, not silently read as its first " +
+                "entry: " + await ReadText(response));
+            var text = await ReadText(response);
+            StringAssert.Contains(text, "ONE file",
+                "and the refusal says what the setting takes, which is the only thing the caller can act " +
+                "on: " + text);
+        }
+
+        [TestMethod]
+        public async Task AListOfFilesForAMultipleSetting_IsAccepted_AndReachesTheProvider()
+        {
+            // The ARXML setting is the one shipped setting that takes several. These two files are not
+            // AUTOSAR, so the RUN fails at its source - which is the proof that matters: a source failure
+            // means the job's shape was accepted and the provider was reached with it, where a 400 would
+            // mean the array never got past the front door.
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync("/integration/job?wait=true",
+                Json(JobBody(ArxmlProviderId, "many-shape", null, null,
+                    "{\"file\":[" + FileJson("chassis.arxml", "<not-autosar/>") + "," +
+                    FileJson("body.arxml", "<not-autosar/>") + "]}")));
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "the array shape was refused for a setting the descriptor declares multiple: " +
+                await ReadText(response));
+            var report = await ReadJson(response);
+            Assert.AreEqual("source", report.GetProperty("errorKind").GetString(),
+                "the run must have reached the provider and failed on the CONTENT, which is what says the " +
+                "files arrived: " + await ReadText(response));
+        }
+
+        [TestMethod]
+        public async Task CancellingAnIdentityWithNoRun_Is404_SayingThereIsNothingToStop()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var cancelled = await client.PostAsync("/integration/run/never-ran/cancel", null);
+
+            Assert.AreEqual(HttpStatusCode.NotFound, cancelled.StatusCode,
+                "cancelling nothing must not answer 202: a client would believe it had stopped a run");
+            var text = await ReadText(cancelled);
+            StringAssert.Contains(text, "nothing to cancel",
+                "and the 404 says why rather than leaving a reader to guess whether the route exists: " + text);
+        }
+
+        [TestMethod]
+        public async Task CancellingARunThatAlreadyEnded_Is404()
+        {
+            // A closed port makes this deterministic: the run starts, fails at its source in milliseconds, and
+            // the slot that survives it is a FINISHED one - which is exactly the state that must not be
+            // cancellable, because nothing about it can still be prevented.
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using (var accepted = await client.PostAsync("/integration/job?wait=true",
+                Json(JobBody(FroniusProviderId, "already-done", "{\"baseUrl\":\"http://127.0.0.1:1\"}"))))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, accepted.StatusCode,
+                    "the waited run has to have ENDED before this test asserts anything: " +
+                    await ReadText(accepted));
+            }
+
+            using var cancelled = await client.PostAsync("/integration/run/already-done/cancel", null);
+
+            Assert.AreEqual(HttpStatusCode.NotFound, cancelled.StatusCode,
+                "a finished run answered as though it were still stoppable: " + await ReadText(cancelled));
+
+            using var polled = await client.GetAsync("/integration/run/already-done");
+            Assert.AreEqual(HttpStatusCode.OK, polled.StatusCode,
+                "and the refusal must not have disturbed the slot, which is the only account of that run");
+            var state = await ReadJson(polled);
+            Assert.IsFalse(state.GetProperty("cancelRequested").GetBoolean(),
+                "a refused cancel recorded a request against a run it did not touch");
+            Assert.IsFalse(state.GetProperty("cancelled").GetBoolean(),
+                "and it must not relabel a run that failed at its source as one somebody stopped");
+        }
+
         #endregion
 
         #region routes and shipped ids
@@ -232,6 +346,7 @@ namespace NoSQL.GraphDB.Tests
         private const String ProxyJobRoute = "/integrations/job";
         private const String ProxyRunsRoute = "/integrations/run";
         private const String ProxyRunRoute = "/integrations/run/garage";
+        private const String ProxyCancelRoute = "/integrations/run/garage/cancel";
 
         private const String CsvProviderId = "csv-device-list";
         private const String UnifiProviderId = "unifi-network";
@@ -340,12 +455,20 @@ namespace NoSQL.GraphDB.Tests
         }
 
         private static String JobBody(String providerId, String instanceId, String settings,
-            String credentialValues = null)
+            String credentialValues = null, String files = null)
         {
             return "{\"providerId\":\"" + providerId + "\",\"integrationInstanceId\":\"" + instanceId +
                    "\",\"settings\":" + (settings ?? "{}") +
                    (credentialValues == null ? String.Empty : ",\"credentialValues\":" + credentialValues) +
+                   (files == null ? String.Empty : ",\"files\":" + files) +
                    "}";
+        }
+
+        /// <summary>One file as the wire spells it, base64 of the text.</summary>
+        private static String FileJson(String name, String text)
+        {
+            return "{\"name\":\"" + name + "\",\"contentBase64\":\"" +
+                   Convert.ToBase64String(Encoding.UTF8.GetBytes(text)) + "\"}";
         }
 
         /// <summary>
@@ -1185,6 +1308,7 @@ namespace NoSQL.GraphDB.Tests
                 await client.PostAsync(ProxyJobRoute, Json(JobBody(CsvProviderId, "garage", null))),
                 await client.GetAsync(ProxyRunsRoute),
                 await client.GetAsync(ProxyRunRoute),
+                await client.PostAsync(ProxyCancelRoute, null),
             };
 
             return answers;
@@ -1193,7 +1317,7 @@ namespace NoSQL.GraphDB.Tests
         private static readonly String[] ProxyRoutes =
         {
             ProxyProvidersRoute, ProxyVocabularyRoute, ProxyValidateRoute, ProxyJobRoute,
-            ProxyRunsRoute, ProxyRunRoute,
+            ProxyRunsRoute, ProxyRunRoute, ProxyCancelRoute,
         };
 
         /// <summary>
@@ -1382,6 +1506,7 @@ namespace NoSQL.GraphDB.Tests
                 await client.PostAsync("/ns/default" + ProxyJobRoute, Json(JobBody(CsvProviderId, "garage", null))),
                 await client.GetAsync("/ns/default" + ProxyRunsRoute),
                 await client.GetAsync("/ns/default" + ProxyRunRoute),
+                await client.PostAsync("/ns/default" + ProxyCancelRoute, null),
             };
 
             for (var i = 0; i < twins.Count; i++)

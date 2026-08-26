@@ -956,6 +956,258 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region stopping a run on purpose (feature integration-run-lifecycle)
+
+        [TestMethod]
+        public async Task AStopAskedForBeforeTheWrites_LeavesTheGraphUntouched()
+        {
+            var graph = new InMemoryGraphTarget();
+            using var stop = new CancellationTokenSource();
+            stop.Cancel();
+
+            var report = new JobReport { ProviderId = Provider, IntegrationInstanceId = Instance };
+            await Assert.ThrowsExceptionAsync<RunCancelledException>(
+                () => ApplyAsync(graph, Document(Device("44:D2:44:AA:BB:CC")),
+                    abort: new RunAbort(stop.Token), into: report),
+                "a stop asked for before anything was written must end the apply rather than run it");
+
+            Assert.AreEqual(0, report.ElementsCreated, Describe(report));
+            Assert.AreEqual(0, graph.AllElements().Count(),
+                "the cheapest cancellation there is, and the graph has to show it: nothing was created");
+        }
+
+        [TestMethod]
+        public async Task AStopDuringTheWrites_NeverReconciles_SoNothingIsWithdrawnOrDeleted()
+        {
+            // THE test this whole feature turns on. Reconciliation withdraws by SET DIFFERENCE over what the
+            // run claimed, so a run stopped part way has not claimed the entities it never reached. Reconciling
+            // anyway would withdraw this instance's claim from healthy elements the source still describes and
+            // then delete the ones nothing else claims - so pressing stop would DESTROY the part of the import
+            // that had already succeeded, which is the exact opposite of what stop means.
+            var graph = new InMemoryGraphTarget();
+            await ApplyAsync(graph, Document(Device("44:D2:44:AA:BB:CC")));
+            var claimedBefore = await graph.ElementsClaimedByAsync(Instance, CancellationToken.None);
+            Assert.AreEqual(1, claimedBefore.Count, "the fixture's first run has to leave one claimed element");
+
+            // A second run describing a DIFFERENT device: its reconciliation would withdraw and delete the
+            // first one. The stop trips while it is writing, which is before the last safe point.
+            using var stop = new CancellationTokenSource();
+            using var tripping = new TrippingTarget(graph, stop, TrippingTarget.OnIndexClaims);
+
+            var report = new JobReport { ProviderId = Provider, IntegrationInstanceId = Instance };
+            await Assert.ThrowsExceptionAsync<RunCancelledException>(
+                () => ApplyAsync(tripping, Document(Device("44:D2:44:AA:BB:DD")),
+                    abort: new RunAbort(stop.Token), into: report));
+
+            Assert.AreEqual(0, report.ClaimsWithdrawn,
+                "a cancelled run withdrew a claim, which is the data-loss bug this test exists for: " +
+                Describe(report));
+            Assert.AreEqual(0, report.ElementsDeleted,
+                "and it deleted an element the source still describes: " + Describe(report));
+            var claimedAfter = await graph.ElementsClaimedByAsync(Instance, CancellationToken.None);
+            Assert.IsTrue(claimedAfter.Contains(claimedBefore[0]),
+                "the element the first run claimed stopped being claimed, so the next run will not find it");
+            Assert.IsTrue(graph.TryReadElement(claimedBefore[0], out var survivor) &&
+                          survivor.IsClaimedBy(Instance),
+                "and it must still carry the claim property, not merely sit in the index");
+        }
+
+        [TestMethod]
+        public async Task AStopArrivingDuringTheFinalEmbeddingChunk_StillDoesNotReconcile()
+        {
+            // The window the PRE-RECONCILE safe point exists for, and the only one that reaches it. The embed
+            // loop looks at the stop between chunks, so a stop arriving while the last chunk is still in the
+            // model finds no further iteration to stop at and the phase completes normally. Without a check
+            // after that phase, this run would carry straight on into reconciliation - and reconciliation is
+            // the one phase a stopped run must never reach.
+            //
+            // Found by mutation-checking the sibling test above, which passes with or without that check
+            // because an earlier safe point catches its stop first.
+            var summary = new SummaryRequest("{kind} {csv.name}", "default");
+            var graph = new InMemoryGraphTarget();
+            await ApplyAsync(graph, Document(Device("44:D2:44:AA:BB:CC", ("csv.name", "printer"))), summary);
+            var claimedBefore = await graph.ElementsClaimedByAsync(Instance, CancellationToken.None);
+            Assert.AreEqual(1, claimedBefore.Count);
+
+            using var stop = new CancellationTokenSource();
+            using var tripping = new TrippingTarget(graph, stop, TrippingTarget.OnEmbedSummariesDone);
+
+            var report = new JobReport { ProviderId = Provider, IntegrationInstanceId = Instance };
+            await Assert.ThrowsExceptionAsync<RunCancelledException>(
+                () => ApplyAsync(tripping, Document(Device("44:D2:44:AA:BB:DD", ("csv.name", "plotter"))),
+                    summary: summary, abort: new RunAbort(stop.Token), into: report),
+                "the stop was observed nowhere after the embedding phase, so the run went on to reconcile");
+
+            Assert.AreEqual(1, report.SummariesEmbedded,
+                "the chunk that landed still counts: it put a real vector on a real element");
+            Assert.AreEqual(0, report.ClaimsWithdrawn,
+                "and the element the earlier run claimed was withdrawn by a run that had been stopped: " +
+                Describe(report));
+            Assert.AreEqual(0, report.ElementsDeleted, Describe(report));
+            var claimedAfter = await graph.ElementsClaimedByAsync(Instance, CancellationToken.None);
+            Assert.IsTrue(claimedAfter.Contains(claimedBefore[0]));
+        }
+
+        [TestMethod]
+        public async Task AStopArrivingOnceReconciliationHasBegun_DoesNotStopIt()
+        {
+            // The deliberate limit of cancellation, pinned so nobody "improves" it into a check inside
+            // reconciliation. Reconciliation is fast and its half-done state is the messiest one there is - a
+            // stop between the withdrawal and the deletion leaves orphans - so once it starts it finishes. A
+            // stop that arrives now simply loses the race, and the run reports success.
+            var graph = new InMemoryGraphTarget();
+            await ApplyAsync(graph, Document(Device("44:D2:44:AA:BB:CC")));
+
+            using var stop = new CancellationTokenSource();
+            using var tripping = new TrippingTarget(graph, stop, TrippingTarget.OnElementsClaimedBy);
+
+            var report = await ApplyAsync(tripping, Document(), abort: new RunAbort(stop.Token));
+
+            Assert.AreEqual(1, report.ClaimsWithdrawn,
+                "reconciliation has no safe point inside it on purpose, so a stop arriving during it does not " +
+                "leave the withdrawal half done: " + Describe(report));
+            Assert.AreEqual(1, report.ElementsDeleted, Describe(report));
+        }
+
+        [TestMethod]
+        public async Task AStopBetweenEmbeddingChunks_KeepsTheCountThatLanded_AndStopsAsking()
+        {
+            // The safe point the feature exists for: this loop is the hours. A stop honoured only after it
+            // would be no stop at all, and one honoured DURING a chunk would leave a vector that landed
+            // uncounted.
+            using var stop = new CancellationTokenSource();
+            var handler = new EmbedBatchRecordingHandler(afterChunk: chunks =>
+            {
+                if (chunks == 2)
+                {
+                    stop.Cancel();
+                }
+            });
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var stopped = await Assert.ThrowsExceptionAsync<RunCancelledException>(
+                () => target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None, null,
+                    new RunAbort(stop.Token)));
+
+            Assert.AreEqual(32, stopped.SummariesWritten,
+                "the two chunks that landed put real vectors on real elements, and a count of zero would send " +
+                "the operator to a tabula rasa they do not need");
+            Assert.AreEqual(2, handler.BatchSizes.Count,
+                "the loop asked for another chunk after the stop, so the stop is not being observed between " +
+                "chunks at all");
+        }
+
+        [TestMethod]
+        public async Task ARunStoppedOnRequest_ReportsCancelled_AndIsNotAFailure()
+        {
+            var graph = new InMemoryGraphTarget();
+            using var harness = Harness(graph);
+            using var stop = new CancellationTokenSource();
+            harness.Provider.WhileObserving = (context, token) => stop.Cancel();
+
+            var report = await harness.Runner.RunAsync(RunnerJob("stopped"), CancellationToken.None, null,
+                stop.Token);
+
+            Assert.IsTrue(report.Cancelled, "a run stopped on request has to say so: " + Describe(report));
+            Assert.IsFalse(report.Failed,
+                "and it is NOT a failure: nothing is wrong, so reporting an errorKind would send a reader to " +
+                "look for a broken system. " + Describe(report));
+            Assert.IsNull(report.ErrorKind, Describe(report));
+            Assert.AreEqual(0, report.ElementsCreated,
+                "this stop landed before the apply phase, so nothing was written: " + Describe(report));
+            Assert.IsTrue(harness.Log.Lines.Any(line => line.Contains("CANCELLED", StringComparison.Ordinal)),
+                "a cancelled run leaves its own line. Lines: " + String.Join(" | ", harness.Log.Lines));
+            Assert.IsFalse(harness.Log.Lines.Any(line => line.Contains("finished in", StringComparison.Ordinal)),
+                "and never the success-shaped one, which would claim an import that ran to the end. Lines: " +
+                String.Join(" | ", harness.Log.Lines));
+        }
+
+        [TestMethod]
+        public async Task WhenTheCallerWalksAwayAndTheOperatorAsksToStop_TheDeliberateStopWins()
+        {
+            // The clause ORDER in the runner, which is the subtle half of the three-token story: a run that is
+            // both abandoned and cancelled is reported as cancelled, because whoever asked for it is owed an
+            // account of what landed while a dropped connection is owed nothing.
+            var graph = new InMemoryGraphTarget();
+            using var harness = Harness(new CancellationHonouringTarget(graph));
+            using var walkedAway = new CancellationTokenSource();
+            using var stop = new CancellationTokenSource();
+            harness.Provider.WhileObserving = (context, token) =>
+            {
+                walkedAway.Cancel();
+                stop.Cancel();
+                token.ThrowIfCancellationRequested();
+            };
+
+            var report = await harness.Runner.RunAsync(RunnerJob("both"), walkedAway.Token, null, stop.Token);
+
+            Assert.IsTrue(report.Cancelled,
+                "the run threw OperationCanceledException with BOTH tokens tripped, and the abandonment clause " +
+                "caught it first: the caller gets no report and the operator who asked learns nothing");
+        }
+
+        [TestMethod]
+        public async Task ACallerWhoMerelyWalksAway_IsStillNotACancelledRun()
+        {
+            // The other side of the same order, so the new clause cannot swallow the old behaviour: with only
+            // the caller's token tripped, the run is still ABANDONED - it produces no report at all.
+            var graph = new InMemoryGraphTarget();
+            using var harness = Harness(new CancellationHonouringTarget(graph));
+            using var walkedAway = new CancellationTokenSource();
+            harness.Provider.WhileObserving = (context, token) =>
+            {
+                walkedAway.Cancel();
+                token.ThrowIfCancellationRequested();
+            };
+
+            await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+                () => harness.Runner.RunAsync(RunnerJob("walked"), walkedAway.Token),
+                "a caller walking away must not be turned into a reported cancellation: nobody asked for the " +
+                "run to stop, and the run is deliberately built to outlive its caller");
+        }
+
+        [TestMethod]
+        public async Task AStopReleasesTheRunGate_SoTheIdentityCanRunAgain()
+        {
+            // What the 409 promises. Before cancellation existed, an identity whose run had hours of embedding
+            // left could not be run again at all except by restarting the container.
+            var graph = new InMemoryGraphTarget();
+            using var harness = Harness(graph);
+            using var stop = new CancellationTokenSource();
+            harness.Provider.WhileObserving = (context, token) => stop.Cancel();
+
+            var cancelled = await harness.Runner.RunAsync(RunnerJob("again"), CancellationToken.None, null,
+                stop.Token);
+            Assert.IsTrue(cancelled.Cancelled);
+
+            harness.Provider.WhileObserving = null;
+            var second = await harness.Runner.RunAsync(RunnerJob("again"), CancellationToken.None);
+
+            Assert.IsFalse(second.Failed,
+                "the gate was still held by the cancelled run, so the identity is unusable until the process " +
+                "restarts: " + Describe(second));
+            Assert.AreEqual(1, second.ElementsCreated,
+                "and the follow-up run is what converges the graph: " + Describe(second));
+        }
+
+        [TestMethod]
+        public async Task TheConflictMessage_NamesTheWayOut()
+        {
+            // A refusal that names no remedy is how somebody ends up restarting a container.
+            var gate = new RunGate();
+            using (gate.Enter("busy"))
+            {
+                var refused = Assert.ThrowsException<JobRejectedException>(() => gate.Enter("busy"));
+
+                Assert.AreEqual(JobErrorKinds.Conflict, refused.Kind);
+                Assert.IsTrue(refused.Message.Contains("cancel", StringComparison.OrdinalIgnoreCase),
+                    "the 409 has to point at the route that unblocks the identity: " + refused.Message);
+            }
+        }
+
+        #endregion
+
         #region the phases a watcher sees
 
         [TestMethod]
@@ -1061,15 +1313,18 @@ namespace NoSQL.GraphDB.Tests
 
         #region helpers
 
+        /// <param name="into">A report the CALLER owns, for the tests whose apply is expected to throw: the
+        /// counts on it are the whole question there, and a report created in here would be unreachable.</param>
         private static async Task<JobReport> ApplyAsync(IGraphTarget target, SnapshotDocument document,
-            SummaryRequest summary = null, IRunProgress progress = null)
+            SummaryRequest summary = null, IRunProgress progress = null, RunAbort abort = default,
+            JobReport into = null)
         {
             var validator = new SnapshotValidator(IdentifierVocabulary.Shipped);
             var validated = validator.Validate(document);
             Assert.IsTrue(validated.EnvelopeAccepted,
                 "the fixture document must be valid: " + String.Join(", ", validated.Diagnostics.Select(d => d.Code)));
 
-            var report = new JobReport { ProviderId = Provider, IntegrationInstanceId = Instance };
+            var report = into ?? new JobReport { ProviderId = Provider, IntegrationInstanceId = Instance };
             foreach (var diagnostic in validated.Diagnostics)
             {
                 report.Diagnostics.Add(diagnostic);
@@ -1077,7 +1332,7 @@ namespace NoSQL.GraphDB.Tests
 
             var applier = new SnapshotApplier(new IdentityResolver());
             await applier.ApplyAsync(validated, Instance, target, report, summary, CancellationToken.None,
-                progress);
+                progress, abort);
             return report;
         }
 
@@ -1527,7 +1782,9 @@ namespace NoSQL.GraphDB.Tests
         {
             public Int64 MaxFileBytes => 0;
 
-            public JobFiles Create(IReadOnlyDictionary<String, JobFilePayload> filesBySettingKey)
+            public Int64 MaxJobFileBytes => 0;
+
+            public JobFiles Create(IReadOnlyDictionary<String, JobFileSet> filesBySettingKey)
             {
                 return new JobFiles(filesBySettingKey);
             }
@@ -1541,7 +1798,9 @@ namespace NoSQL.GraphDB.Tests
         {
             public Int64 MaxFileBytes => 0;
 
-            public JobFiles Create(IReadOnlyDictionary<String, JobFilePayload> filesBySettingKey)
+            public Int64 MaxJobFileBytes => 0;
+
+            public JobFiles Create(IReadOnlyDictionary<String, JobFileSet> filesBySettingKey)
             {
                 throw new InvalidOperationException("no run may have its files");
             }
@@ -1667,7 +1926,8 @@ namespace NoSQL.GraphDB.Tests
 
             public override Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
                 IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
-                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null)
+                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null,
+                NoSQL.GraphDB.Integrations.Run.RunAbort abort = default)
             {
                 _caller.Cancel();
                 throw new TaskCanceledException("the embedding sidecar did not answer in time");
@@ -1699,17 +1959,23 @@ namespace NoSQL.GraphDB.Tests
             private readonly Int32 _failOnCall;
             private readonly HttpStatusCode _status;
             private readonly Exception _throwInstead;
+            private readonly Action<Int32> _afterChunk;
 
             /// <param name="failOnCall">Which chunk fails, 1-based; 0 for a handler that answers everything.</param>
             /// <param name="status">The status that chunk answers with.</param>
             /// <param name="throwInstead">Fails that chunk from the SEND rather than with a status, which is
             /// how a dead connection and a client-side deadline arrive: no status code exists to carry them.</param>
+            /// <param name="afterChunk">Runs once a chunk has been answered, with the number answered so far.
+            /// The seam a stop needs: it lets a test trip the run's abort BETWEEN two chunks, which is the only
+            /// place the loop looks at it.</param>
             public EmbedBatchRecordingHandler(Int32 failOnCall = 0,
-                HttpStatusCode status = HttpStatusCode.ServiceUnavailable, Exception throwInstead = null)
+                HttpStatusCode status = HttpStatusCode.ServiceUnavailable, Exception throwInstead = null,
+                Action<Int32> afterChunk = null)
             {
                 _failOnCall = failOnCall;
                 _status = status;
                 _throwInstead = throwInstead;
+                _afterChunk = afterChunk;
             }
 
             public List<Int32> BatchSizes { get; } = new List<Int32>();
@@ -1731,7 +1997,74 @@ namespace NoSQL.GraphDB.Tests
                     return new HttpResponseMessage(_status) { Content = new StringContent("refused") };
                 }
 
+                _afterChunk?.Invoke(BatchSizes.Count);
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("true") };
+            }
+        }
+
+        /// <summary>
+        ///   Trips a run's stop signal when a chosen call reaches the graph, which is the only way to ask
+        ///   "what does a cancel arriving HERE do" of a run whose phases are otherwise instantaneous.
+        /// </summary>
+        private sealed class TrippingTarget : DelegatingGraphTarget
+        {
+            /// <summary>During the writes, so before the last safe point.</summary>
+            public const String OnIndexClaims = "indexClaims";
+
+            /// <summary>The first call reconciliation makes, so AFTER the last safe point.</summary>
+            public const String OnElementsClaimedBy = "elementsClaimedBy";
+
+            /// <summary>
+            ///   Once the embedding write has ANSWERED, which models the stop arriving while the last chunk
+            ///   was still in the model: the loop's own check is between chunks, so there is no further
+            ///   iteration for it to stop at. The only window the pre-reconcile safe point is reachable in.
+            /// </summary>
+            public const String OnEmbedSummariesDone = "embedSummariesDone";
+
+            private readonly CancellationTokenSource _stop;
+            private readonly String _on;
+
+            public TrippingTarget(IGraphTarget inner, CancellationTokenSource stop, String on)
+                : base(inner)
+            {
+                _stop = stop;
+                _on = on;
+            }
+
+            public override Task<IndexWriteOutcome> IndexClaimsAsync(IReadOnlyList<IndexEntry> entries,
+                CancellationToken cancellationToken)
+            {
+                Trip(OnIndexClaims);
+                return base.IndexClaimsAsync(entries, cancellationToken);
+            }
+
+            public override Task<IReadOnlyList<Int32>> ElementsClaimedByAsync(String instanceId,
+                CancellationToken cancellationToken)
+            {
+                Trip(OnElementsClaimedBy);
+                return base.ElementsClaimedByAsync(instanceId, cancellationToken);
+            }
+
+            public override async Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
+                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
+                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null,
+                NoSQL.GraphDB.Integrations.Run.RunAbort abort = default)
+            {
+                // AFTER the inner write, on purpose: tripping before it would be caught by the embed loop's
+                // own check, which is a different safe point and already has its own test.
+                var outcome = await base
+                    .EmbedSummariesAsync(embeddingName, summaries, cancellationToken, progress, abort)
+                    .ConfigureAwait(false);
+                Trip(OnEmbedSummariesDone);
+                return outcome;
+            }
+
+            private void Trip(String call)
+            {
+                if (String.Equals(call, _on, StringComparison.Ordinal))
+                {
+                    _stop.Cancel();
+                }
             }
         }
 
@@ -1824,7 +2157,8 @@ namespace NoSQL.GraphDB.Tests
 
             public override Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
                 IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
-                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null)
+                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null,
+                NoSQL.GraphDB.Integrations.Run.RunAbort abort = default)
             {
                 var written = Math.Min(_embedsAtMost, summaries.Count);
 
@@ -1845,101 +2179,6 @@ namespace NoSQL.GraphDB.Tests
             }
 
             return summaries;
-        }
-
-        /// <summary>
-        ///   Pass-through, so a fixture overrides ONE seam method and nothing else. Written once rather than per
-        ///   fixture, because a hand-rolled second copy is where a fixture quietly stops behaving like the graph.
-        /// </summary>
-        private abstract class DelegatingGraphTarget : IGraphTarget
-        {
-            private readonly IGraphTarget _inner;
-
-            protected DelegatingGraphTarget(IGraphTarget inner)
-            {
-                _inner = inner;
-            }
-
-            public Int32 IssuedMutationCount => _inner.IssuedMutationCount;
-
-            public virtual Task<Boolean> EnsureIndicesAsync(CancellationToken cancellationToken)
-            {
-                return _inner.EnsureIndicesAsync(cancellationToken);
-            }
-
-            public virtual Task<IndexRepairOutcome> RepairIndicesAsync(CancellationToken cancellationToken)
-            {
-                return _inner.RepairIndicesAsync(cancellationToken);
-            }
-
-            public virtual Task<ClaimLookup> ResolveClaimKeysAsync(IReadOnlyCollection<String> claimKeys,
-                String instanceId, CancellationToken cancellationToken)
-            {
-                return _inner.ResolveClaimKeysAsync(claimKeys, instanceId, cancellationToken);
-            }
-
-            public virtual Task<IReadOnlyList<Int32>> ElementsClaimedByAsync(String instanceId,
-                CancellationToken cancellationToken)
-            {
-                return _inner.ElementsClaimedByAsync(instanceId, cancellationToken);
-            }
-
-            public virtual Task<IReadOnlyDictionary<Int32, ElementState>> ReadElementsAsync(
-                IReadOnlyCollection<Int32> ids, CancellationToken cancellationToken)
-            {
-                return _inner.ReadElementsAsync(ids, cancellationToken);
-            }
-
-            public virtual Task<IReadOnlyList<Int32>> CreateVerticesAsync(IReadOnlyList<VertexWrite> vertices,
-                CancellationToken cancellationToken)
-            {
-                return _inner.CreateVerticesAsync(vertices, cancellationToken);
-            }
-
-            public virtual Task<IReadOnlyList<Int32>> CreateEdgesAsync(IReadOnlyList<EdgeWrite> edges,
-                CancellationToken cancellationToken)
-            {
-                return _inner.CreateEdgesAsync(edges, cancellationToken);
-            }
-
-            public virtual Task ApplyPropertyWritesAsync(IReadOnlyList<PropertyWrite> writes,
-                CancellationToken cancellationToken)
-            {
-                return _inner.ApplyPropertyWritesAsync(writes, cancellationToken);
-            }
-
-            public virtual Task RemoveElementsAsync(IReadOnlyCollection<Int32> ids,
-                CancellationToken cancellationToken)
-            {
-                return _inner.RemoveElementsAsync(ids, cancellationToken);
-            }
-
-            public virtual Task<IndexWriteOutcome> IndexClaimsAsync(IReadOnlyList<IndexEntry> entries,
-                CancellationToken cancellationToken)
-            {
-                return _inner.IndexClaimsAsync(entries, cancellationToken);
-            }
-
-            public virtual Task<TargetDurability> ReadDurabilityAsync(CancellationToken cancellationToken)
-            {
-                return _inner.ReadDurabilityAsync(cancellationToken);
-            }
-
-            public virtual Task<TargetEmbedding> ReadEmbeddingStateAsync(CancellationToken cancellationToken)
-            {
-                return _inner.ReadEmbeddingStateAsync(cancellationToken);
-            }
-
-            public virtual Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
-                IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
-                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null)
-            {
-                return _inner.EmbedSummariesAsync(embeddingName, summaries, cancellationToken, progress);
-            }
-
-            public void Dispose()
-            {
-            }
         }
 
         #endregion

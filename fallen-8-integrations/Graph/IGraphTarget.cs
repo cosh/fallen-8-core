@@ -180,10 +180,18 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///   chunk is one call to the target. It matters here more than anywhere else on this interface,
         ///   because this is the only method whose duration is model inference - hours for a real extract -
         ///   and a phase counter that never moves is indistinguishable from a hang.
+        ///
+        ///   <para><paramref name="abort" /> is observed BETWEEN chunks, and this is the only method on this
+        ///   interface that takes one - for the same reason it is the only one that takes a progress sink:
+        ///   every other call here is one round trip, so the caller's own safe point before it is enough,
+        ///   while this one loops for hours and a stop nobody could observe until the end would be no stop
+        ///   at all. Implementations must raise <c>RunCancelledException</c> carrying the count they had
+        ///   written, never abandon a chunk mid-call.</para>
         /// </remarks>
         Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
             IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
-            NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null);
+            NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null,
+            NoSQL.GraphDB.Integrations.Run.RunAbort abort = default);
     }
 
     /// <summary>

@@ -36,8 +36,13 @@ import { useState, type DragEvent, type ReactNode } from "react";
  * what that screen needs it to mean.
  */
 export function FileDropzone(props: {
-  /** Called with the dropped file. */
-  onFile: (file: File) => void;
+  /** Called with the dropped files, in the order the browser reported them, and never with none. */
+  onFiles: (files: File[]) => void;
+  /**
+   * Takes every file of one drop rather than the first. A source handed over as a SET of files
+   * needs it: without it the rest of the drop is silently ignored, which reads as a lost file.
+   */
+  multiple?: boolean;
   /** Greys the target out and refuses drops, for a screen that is not ready to take one. */
   disabled?: boolean;
   /** What the target says when nothing is being dragged over it. */
@@ -47,7 +52,14 @@ export function FileDropzone(props: {
   /** Extra classes, for a screen whose layout needs its own margins. */
   className?: string;
 }) {
-  const { onFile, disabled = false, children, testId = "dropzone", className = "" } = props;
+  const {
+    onFiles,
+    multiple = false,
+    disabled = false,
+    children,
+    testId = "dropzone",
+    className = "",
+  } = props;
   const [dragging, setDragging] = useState(false);
 
   return (
@@ -64,8 +76,9 @@ export function FileDropzone(props: {
         e.preventDefault();
         setDragging(false);
         if (disabled) return;
-        const file = e.dataTransfer.files?.[0];
-        if (file) onFile(file);
+        const dropped = e.dataTransfer.files ? Array.from(e.dataTransfer.files) : [];
+        const taken = multiple ? dropped : dropped.slice(0, 1);
+        if (taken.length > 0) onFiles(taken);
       }}
       data-testid={testId}
     >

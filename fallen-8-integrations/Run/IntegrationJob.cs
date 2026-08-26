@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using NoSQL.GraphDB.Integrations.Graph;
 
@@ -91,9 +92,14 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   document. What DOES land in <c>settings</c> is the file's name, put there by the runtime, so
         ///   a provider reads it for its messages exactly as it always has.</para>
         /// </summary>
+        /// <remarks>
+        ///   One entry per file SETTING, and each entry carries either one file or an ordered list of them:
+        ///   a setting the descriptor declares <c>multiple</c> may be given several. See
+        ///   <see cref="JobFileGroup" /> for why both shapes are accepted on the wire.
+        /// </remarks>
         [JsonPropertyName("files")]
-        public IDictionary<String, JobFile> Files { get; set; }
-            = new Dictionary<String, JobFile>(StringComparer.Ordinal);
+        public IDictionary<String, JobFileGroup> Files { get; set; }
+            = new Dictionary<String, JobFileGroup>(StringComparer.Ordinal);
 
         /// <summary>
         ///   The INSTANCE half of the embedding opt-in, default off. A provider declaring an entity summary
@@ -130,8 +136,10 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <param name="maxFileBytes">The per-file ceiling on DECODED bytes
         /// (<c>Integrations:MaxFileBytes</c>). Zero or less means no ceiling, which is what a caller
         /// constructing a job by hand in a test gets.</param>
+        /// <param name="maxJobFileBytes">The ceiling on the DECODED TOTAL across every file of the job
+        /// (<c>Integrations:MaxJobFileBytes</c>). Zero or less means no ceiling.</param>
         public Boolean TryNormalize(out NormalizedJob? normalized, out String? failure,
-            Int64 maxFileBytes = 0)
+            Int64 maxFileBytes = 0, Int64 maxJobFileBytes = 0)
         {
             normalized = null;
 
@@ -195,8 +203,15 @@ namespace NoSQL.GraphDB.Integrations.Run
                 credentials[pair.Key] = pair.Value ?? String.Empty;
             }
 
-            var files = new Dictionary<String, JobFilePayload>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in Files ?? new Dictionary<String, JobFile>(StringComparer.Ordinal))
+            var files = new Dictionary<String, JobFileSet>(StringComparer.OrdinalIgnoreCase);
+
+            // The DECODED total across every file of the job, which is a second ceiling and not a restatement
+            // of the per-file one: a job may carry a whole vehicle's worth of extracts, and what this process
+            // has to hold at once is their sum. Enforced here, among the refusals a caller can act on, rather
+            // than discovered as an allocation failure in the middle of a run.
+            var totalBytes = 0L;
+
+            foreach (var pair in Files ?? new Dictionary<String, JobFileGroup>(StringComparer.Ordinal))
             {
                 if (String.IsNullOrWhiteSpace(pair.Key))
                 {
@@ -211,7 +226,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                     return false;
                 }
 
-                if (pair.Value == null)
+                if (pair.Value == null || pair.Value.Files.Count == 0)
                 {
                     failure = String.Format(
                         "The file supplied for setting '{0}' is null. A file setting the job does not need " +
@@ -219,20 +234,68 @@ namespace NoSQL.GraphDB.Integrations.Run
                     return false;
                 }
 
-                if (!JobFiles.TryValidateName(pair.Value.Name, pair.Key, out var nameFailure))
+                var payloads = new List<JobFilePayload>(pair.Value.Files.Count);
+
+                // Names are compared case-INSENSITIVELY because the point of the check is what a READER
+                // sees: every diagnostic about a file names it, so two files with one name make each of
+                // those messages ambiguous, and 'Body.arxml' beside 'body.arxml' reads as one file
+                // mentioned twice. The commonest cause is the same file picked twice by mistake.
+                var names = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var file in pair.Value.Files)
                 {
-                    failure = nameFailure;
-                    return false;
+                    if (file == null)
+                    {
+                        failure = String.Format(
+                            "One of the files supplied for setting '{0}' is null. A gap in the list would be " +
+                            "a file this run silently did not read.", pair.Key);
+                        return false;
+                    }
+
+                    if (!JobFiles.TryValidateName(file.Name, pair.Key, out var nameFailure))
+                    {
+                        failure = nameFailure;
+                        return false;
+                    }
+
+                    var name = file.Name!.Trim();
+                    if (names.TryGetValue(name, out var already))
+                    {
+                        // BOTH spellings, because they may differ only in case and naming one of them would
+                        // read as a complaint about a file the caller cannot find in what they sent.
+                        failure = String.Equals(already, name, StringComparison.Ordinal)
+                            ? String.Format(
+                                "Setting '{0}' was given two files called '{1}'.", pair.Key, name)
+                            : String.Format(
+                                "Setting '{0}' was given both '{1}' and '{2}', which are one name once case " +
+                                "is set aside.", pair.Key, already, name);
+                        return false;
+                    }
+
+                    names[name] = name;
+
+                    if (!TryDecodeContent(file.ContentBase64, pair.Key, maxFileBytes, out var content,
+                            out var contentFailure))
+                    {
+                        failure = contentFailure;
+                        return false;
+                    }
+
+                    totalBytes += content!.Length;
+                    if (maxJobFileBytes > 0 && totalBytes > maxJobFileBytes)
+                    {
+                        failure = String.Format(
+                            "The files this job carries come to more than the {0}-byte total ceiling " +
+                            "(Integrations:MaxJobFileBytes). One request carries a whole run, so every file " +
+                            "on it is held at once; the ceiling belongs to this runtime's own configuration " +
+                            "and not to the instance you submitted through.", maxJobFileBytes);
+                        return false;
+                    }
+
+                    payloads.Add(new JobFilePayload(name, content!));
                 }
 
-                if (!TryDecodeContent(pair.Value.ContentBase64, pair.Key, maxFileBytes, out var content,
-                        out var contentFailure))
-                {
-                    failure = contentFailure;
-                    return false;
-                }
-
-                files[pair.Key] = new JobFilePayload(pair.Value.Name!.Trim(), content!);
+                files[pair.Key] = new JobFileSet(payloads, pair.Value.AsList);
             }
 
             // The instance id is FOLDED TO LOWERCASE, and this is the one normalisation that protects data
@@ -344,6 +407,159 @@ namespace NoSQL.GraphDB.Integrations.Run
     }
 
     /// <summary>
+    ///   The files one file SETTING was given: one, or an ordered several.
+    ///
+    ///   <para>Both shapes are read off the wire - a bare object and an array of them - and that is a
+    ///   compatibility decision rather than laxity. Every job written before multi-file existed sends the
+    ///   object form, every client that only ever needs one file still may, and an array is simply the
+    ///   general case: one file is a group of one. Refusing the object form would have broken every
+    ///   existing caller to express something the array form does not say any better.</para>
+    ///
+    ///   <para>ORDER IS PART OF THE MEANING for a provider that composes its files, so this keeps the
+    ///   order the job listed rather than a set: the AUTOSAR reader resolves references across an ordered
+    ///   union, and which file wins a re-declared path is decided by that order.</para>
+    /// </summary>
+    [JsonConverter(typeof(JobFileGroupConverter))]
+    public sealed class JobFileGroup
+    {
+        private static readonly JobFile[] None = Array.Empty<JobFile>();
+
+        /// <summary>
+        ///   The LIST form, whatever its length. Writing this constructor is itself the request for the
+        ///   multiple shape, which is why a group of one built here is still a list: a caller sending
+        ///   <c>[one file]</c> to a setting that takes exactly one would otherwise work by accident and
+        ///   break the day it sent two. The single-object form is the implicit conversion below.
+        /// </summary>
+        public JobFileGroup(params JobFile[]? files)
+        {
+            Files = files ?? None;
+            AsList = true;
+        }
+
+        private JobFileGroup(IReadOnlyList<JobFile> files, Boolean asList)
+        {
+            Files = files;
+            AsList = asList;
+        }
+
+        /// <summary>The files, in the order the job listed them.</summary>
+        public IReadOnlyList<JobFile> Files { get; }
+
+        /// <summary>Whether the wire form was an ARRAY rather than a single object.</summary>
+        public Boolean AsList { get; }
+
+        /// <summary>
+        ///   One file is a group of one, so that every caller written against the single-file shape - and
+        ///   every test that builds a job by hand - keeps saying exactly what it said before.
+        /// </summary>
+        public static implicit operator JobFileGroup(JobFile file)
+        {
+            return new JobFileGroup(new[] { file }, asList: false);
+        }
+
+        /// <summary>The array form, kept distinguishable from a single object of the same content.</summary>
+        internal static JobFileGroup FromList(IReadOnlyList<JobFile> files)
+        {
+            return new JobFileGroup(files, asList: true);
+        }
+    }
+
+    /// <summary>
+    ///   Reads a file setting's value as either one object or an array of them, and remembers which it was.
+    /// </summary>
+    public sealed class JobFileGroupConverter : JsonConverter<JobFileGroup>
+    {
+        /// <inheritdoc />
+        public override JobFileGroup? Read(ref Utf8JsonReader reader, Type typeToConvert,
+            JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.Null)
+            {
+                // Kept as an empty group rather than rejected here: normalisation already has the message
+                // for a file setting sent empty, and it names the setting, which this cannot.
+                return new JobFileGroup(Array.Empty<JobFile>());
+            }
+
+            if (reader.TokenType == JsonTokenType.StartArray)
+            {
+                var files = new List<JobFile>();
+                while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+                {
+                    var file = JsonSerializer.Deserialize<JobFile>(ref reader, options);
+                    if (file != null)
+                    {
+                        files.Add(file);
+                    }
+                }
+
+                return JobFileGroup.FromList(files);
+            }
+
+            var single = JsonSerializer.Deserialize<JobFile>(ref reader, options);
+            return single == null ? new JobFileGroup(Array.Empty<JobFile>()) : (JobFileGroup)single;
+        }
+
+        /// <summary>
+        ///   Written back in the shape it arrived in. Nothing in this runtime serialises a job - no route
+        ///   reads one back, by design - so this exists for tests and for anything that round-trips a job it
+        ///   built, and for those the useful property is that the shape survives.
+        /// </summary>
+        public override void Write(Utf8JsonWriter writer, JobFileGroup value, JsonSerializerOptions options)
+        {
+            if (value == null)
+            {
+                writer.WriteNullValue();
+                return;
+            }
+
+            if (!value.AsList && value.Files.Count == 1)
+            {
+                JsonSerializer.Serialize(writer, value.Files[0], options);
+                return;
+            }
+
+            writer.WriteStartArray();
+            foreach (var file in value.Files)
+            {
+                JsonSerializer.Serialize(writer, file, options);
+            }
+
+            writer.WriteEndArray();
+        }
+    }
+
+    /// <summary>
+    ///   The DECODED files one setting was given, in job order, and whether the caller asked for the
+    ///   multiple shape.
+    ///
+    ///   <para>Ordered, because for a provider that composes several files the order decides the outcome:
+    ///   the AUTOSAR reader resolves references across the union of its files and gives a re-declared path
+    ///   to the first file that declared it, so a different order is a different graph.</para>
+    /// </summary>
+    public sealed class JobFileSet
+    {
+        internal JobFileSet(IReadOnlyList<JobFilePayload> files, Boolean asList)
+        {
+            Files = files;
+            AsList = asList;
+        }
+
+        /// <summary>The files, in the order the job listed them. Never empty.</summary>
+        public IReadOnlyList<JobFilePayload> Files { get; }
+
+        /// <summary>
+        ///   Whether the caller used the ARRAY form. Kept past normalisation because the descriptor is what
+        ///   decides whether that was allowed, and the descriptor is not known here: a setting that is not
+        ///   declared <c>multiple</c> refuses the array shape in <c>JobRunner</c>, which is the first place
+        ///   that has both facts.
+        /// </summary>
+        public Boolean AsList { get; }
+
+        /// <summary>The first file, which is the only one for every single-file setting.</summary>
+        public JobFilePayload First => Files[0];
+    }
+
+    /// <summary>
     ///   A job whose three maps have been folded, so every later lookup is case-insensitive by construction
     ///   rather than by hope, and whose files are decoded bytes rather than text a caller may have
     ///   mis-encoded.
@@ -352,7 +568,7 @@ namespace NoSQL.GraphDB.Integrations.Run
     {
         internal NormalizedJob(String? providerId, String? instanceId, String? namespaceName,
             IReadOnlyDictionary<String, String> settings, IReadOnlyDictionary<String, String> credentials,
-            IReadOnlyDictionary<String, JobFilePayload> files,
+            IReadOnlyDictionary<String, JobFileSet> files,
             Boolean embedSummaries, String embeddingName)
         {
             Files = files;
@@ -381,7 +597,7 @@ namespace NoSQL.GraphDB.Integrations.Run
         public IReadOnlyDictionary<String, String> Credentials { get; }
 
         /// <summary>The decoded files, keyed by the file setting each was supplied for.</summary>
-        public IReadOnlyDictionary<String, JobFilePayload> Files { get; }
+        public IReadOnlyDictionary<String, JobFileSet> Files { get; }
 
         /// <summary>Whether this instance opted into embedding its entity summaries.</summary>
         public Boolean EmbedSummaries { get; }

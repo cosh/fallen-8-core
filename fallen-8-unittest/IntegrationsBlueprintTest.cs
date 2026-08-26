@@ -1614,6 +1614,269 @@ namespace NoSQL.GraphDB.Tests
                 "an unreadable file must fail the run rather than describe an empty network");
         }
 
+        // --- autosar-arxml: several extracts of ONE system, through the same verifier ----------------
+
+        /// <summary>
+        ///   The chassis half of an invented two-extract system: the bus, the ECU that sends on it, and a
+        ///   frame whose PDU only the OTHER extract defines. It also holds the UNIT that the other extract's
+        ///   compu method points at, so the unit denormalisation has to cross the file boundary in the
+        ///   opposite direction from the containment.
+        /// </summary>
+        private const String MultiFileChassis = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Units</SHORT-NAME>
+                  <ELEMENTS>
+                    <UNIT><SHORT-NAME>UNIT_KM</SHORT-NAME><DISPLAY-NAME>km</DISPLAY-NAME></UNIT>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Platform</SHORT-NAME>
+                  <ELEMENTS>
+                    <SYSTEM-SIGNAL><SHORT-NAME>SYS_Shared</SHORT-NAME></SYSTEM-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Frames</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-FRAME>
+                      <SHORT-NAME>FRM_Main</SHORT-NAME>
+                      <FRAME-LENGTH>32</FRAME-LENGTH>
+                      <PDU-TO-FRAME-MAPPINGS>
+                        <PDU-TO-FRAME-MAPPING>
+                          <SHORT-NAME>FMAP_Main</SHORT-NAME>
+                          <PDU-REF DEST="I-SIGNAL-I-PDU">/Pdus/PDU_DistanceReport</PDU-REF>
+                        </PDU-TO-FRAME-MAPPING>
+                      </PDU-TO-FRAME-MAPPINGS>
+                    </FLEXRAY-FRAME>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>EcuInstances</SHORT-NAME>
+                  <ELEMENTS>
+                    <ECU-INSTANCE>
+                      <SHORT-NAME>ALPHA_CTRL</SHORT-NAME>
+                      <CONNECTORS>
+                        <FLEXRAY-COMMUNICATION-CONNECTOR>
+                          <SHORT-NAME>ALPHA_CONN</SHORT-NAME>
+                          <ECU-COMM-PORT-INSTANCES>
+                            <FRAME-PORT>
+                              <SHORT-NAME>FP_Main_Out</SHORT-NAME>
+                              <COMMUNICATION-DIRECTION>OUT</COMMUNICATION-DIRECTION>
+                            </FRAME-PORT>
+                          </ECU-COMM-PORT-INSTANCES>
+                        </FLEXRAY-COMMUNICATION-CONNECTOR>
+                      </CONNECTORS>
+                    </ECU-INSTANCE>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>DEMOBUS</SHORT-NAME>
+                      <PHYSICAL-CHANNELS>
+                        <FLEXRAY-PHYSICAL-CHANNEL>
+                          <SHORT-NAME>DEMOBUS_CH_A</SHORT-NAME>
+                          <COMM-CONNECTORS>
+                            <COMMUNICATION-CONNECTOR-REF-CONDITIONAL>
+                              <COMMUNICATION-CONNECTOR-REF DEST="FLEXRAY-COMMUNICATION-CONNECTOR">/EcuInstances/ALPHA_CTRL/ALPHA_CONN</COMMUNICATION-CONNECTOR-REF>
+                            </COMMUNICATION-CONNECTOR-REF-CONDITIONAL>
+                          </COMM-CONNECTORS>
+                          <FRAME-TRIGGERINGS>
+                            <FLEXRAY-FRAME-TRIGGERING>
+                              <SHORT-NAME>FT_Main</SHORT-NAME>
+                              <FRAME-PORT-REFS>
+                                <FRAME-PORT-REF DEST="FRAME-PORT">/EcuInstances/ALPHA_CTRL/ALPHA_CONN/FP_Main_Out</FRAME-PORT-REF>
+                              </FRAME-PORT-REFS>
+                              <FRAME-REF DEST="FLEXRAY-FRAME">/Frames/FRM_Main</FRAME-REF>
+                              <ABSOLUTELY-SCHEDULED-TIMINGS>
+                                <FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING><SLOT-ID>3</SLOT-ID></FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING>
+                              </ABSOLUTELY-SCHEDULED-TIMINGS>
+                            </FLEXRAY-FRAME-TRIGGERING>
+                          </FRAME-TRIGGERINGS>
+                        </FLEXRAY-PHYSICAL-CHANNEL>
+                      </PHYSICAL-CHANNELS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        /// <summary>
+        ///   The body half: the signal chain and the PDU the chassis frame carries, and NO bus at all, which
+        ///   is ordinary for a domain extract and is what the union gate has to accept. It repeats the shared
+        ///   platform package, which is what every extract of a system does.
+        /// </summary>
+        private const String MultiFileBody = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Platform</SHORT-NAME>
+                  <ELEMENTS>
+                    <SYSTEM-SIGNAL><SHORT-NAME>SYS_Shared</SHORT-NAME></SYSTEM-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>CompuMethods</SHORT-NAME>
+                  <ELEMENTS>
+                    <COMPU-METHOD>
+                      <SHORT-NAME>CM_TotalDistance</SHORT-NAME>
+                      <CATEGORY>LINEAR</CATEGORY>
+                      <UNIT-REF DEST="UNIT">/Units/UNIT_KM</UNIT-REF>
+                    </COMPU-METHOD>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>SystemSignals</SHORT-NAME>
+                  <ELEMENTS>
+                    <SYSTEM-SIGNAL>
+                      <SHORT-NAME>SYS_OdoTotalDist</SHORT-NAME>
+                      <PHYSICAL-PROPS>
+                        <SW-DATA-DEF-PROPS-VARIANTS>
+                          <SW-DATA-DEF-PROPS-CONDITIONAL>
+                            <COMPU-METHOD-REF DEST="COMPU-METHOD">/CompuMethods/CM_TotalDistance</COMPU-METHOD-REF>
+                          </SW-DATA-DEF-PROPS-CONDITIONAL>
+                        </SW-DATA-DEF-PROPS-VARIANTS>
+                      </PHYSICAL-PROPS>
+                    </SYSTEM-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>ISignals</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL>
+                      <SHORT-NAME>SIG_OdoTotalDist</SHORT-NAME>
+                      <DESC>
+                        <L-2 L="DE">Gesamtstrecke seit Auslieferung</L-2>
+                        <L-2 L="EN">Accumulated distance travelled since delivery</L-2>
+                      </DESC>
+                      <LENGTH>32</LENGTH>
+                      <SYSTEM-SIGNAL-REF DEST="SYSTEM-SIGNAL">/SystemSignals/SYS_OdoTotalDist</SYSTEM-SIGNAL-REF>
+                    </I-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Pdus</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL-I-PDU>
+                      <SHORT-NAME>PDU_DistanceReport</SHORT-NAME>
+                      <LENGTH>8</LENGTH>
+                      <I-SIGNAL-TO-PDU-MAPPINGS>
+                        <I-SIGNAL-TO-I-PDU-MAPPING>
+                          <SHORT-NAME>MAP_Odo</SHORT-NAME>
+                          <I-SIGNAL-REF DEST="I-SIGNAL">/ISignals/SIG_OdoTotalDist</I-SIGNAL-REF>
+                        </I-SIGNAL-TO-I-PDU-MAPPING>
+                      </I-SIGNAL-TO-PDU-MAPPINGS>
+                    </I-SIGNAL-I-PDU>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        /// <summary>A domain extract with no bus and nothing shared, for the set that carries no cluster.</summary>
+        private const String MultiFileNoBus = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>DoorISignals</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL><SHORT-NAME>SIG_DoorOnly</SHORT-NAME><LENGTH>1</LENGTH></I-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        [TestMethod]
+        public async Task TwoExtractsOfOneSystem_AreOneConformingRun()
+        {
+            var provider = new AutosarArxmlProvider();
+
+            var report = await ConformanceVerifier.VerifyAsync(provider,
+                MultiFileArxmlJob(JobFileOf("chassis.arxml", MultiFileChassis),
+                    JobFileOf("body.arxml", MultiFileBody)),
+                cancellationToken: CancellationToken.None);
+
+            Assert.IsTrue(report.Conforms,
+                "a multi-file job has to pass EVERY check the single-file one does, and two of them are " +
+                "the point: Deterministic, because a merge that leaked dictionary order would make every " +
+                "run a write, and Idempotent, because re-submitting the same set must issue nothing: " +
+                Failures(report));
+
+            var snapshot = SnapshotOf(provider);
+            Assert.AreEqual(SnapshotCompleteness.Complete, snapshot.Declares,
+                "and it stays COMPLETE, which is the sharp edge of the feature: the source it is complete " +
+                "over is the UNION of the files it was given, so a later run with fewer of them withdraws " +
+                "what only the missing file described. The setting's help text is where an operator is told");
+
+            var edges = new List<String>();
+            foreach (var entity in snapshot.Entities)
+            {
+                foreach (var relation in entity.Relations)
+                {
+                    edges.Add(relation.Type + " " + entity.Claims[0].Value + " -> " + relation.Target.Value);
+                }
+            }
+
+            CollectionAssert.Contains(edges, "contains /Frames/FRM_Main -> /Pdus/PDU_DistanceReport",
+                "the frame is in the chassis extract and the PDU it carries is in the body extract, so " +
+                "this edge exists only because the run read both as one source");
+            CollectionAssert.Contains(edges, "attachedTo /EcuInstances/ALPHA_CTRL -> /Clusters/DEMOBUS",
+                "and the within-file topology is untouched by composing");
+
+            Assert.AreEqual("km", ByClaim(snapshot, AutosarArxmlProvider.PathClaimType,
+                    "/ISignals/SIG_OdoTotalDist").Properties["arxml.unit"],
+                "the unit crosses the boundary the OTHER way: the compu method is in the body extract and " +
+                "the UNIT it names is in the chassis one, and the display name still lands two hops down " +
+                "on the signal. Without the union the odometer carries no unit, and the one thing that " +
+                "connects it to somebody searching for kilometers is gone");
+
+            // The bus gate is judged over the SET: the body extract carries no cluster at all, which is
+            // ordinary for a domain extract and used to be a failed run.
+            Assert.AreEqual(1, CountByKind(snapshot, "network"));
+
+            var redeclared = snapshot.Diagnostics
+                .Where(d => d.Code == DiagnosticCodes.ArxmlRedeclaredPaths)
+                .ToList();
+            Assert.AreEqual(1, redeclared.Count,
+                "the shared platform package both extracts carry is reported once, for the file that " +
+                "repeated it, and the reader's new diagnostic kind has to reach the wire as its own code " +
+                "or the whole run would have thrown on an unmapped kind: " +
+                String.Join("; ", snapshot.Diagnostics.Select(d => d.Code + " " + d.Subject)));
+            Assert.AreEqual("body.arxml", redeclared[0].Subject);
+        }
+
+        [TestMethod]
+        public async Task ASetOfExtractsWithNoBusInAnyOfThem_FailsTheRun_AndWithdrawsNothing()
+        {
+            var provider = new AutosarArxmlProvider();
+
+            var report = await ConformanceVerifier.VerifyAsync(provider,
+                MultiFileArxmlJob(JobFileOf("body.arxml", MultiFileNoBus),
+                    JobFileOf("doors.arxml", MultiFileNoBus)),
+                cancellationToken: CancellationToken.None);
+
+            Assert.IsNull(provider.LastSnapshot,
+                "no file in the set carries a cluster, so the run must fail rather than describe an empty " +
+                "network: an empty COMPLETE snapshot withdraws every element this identity claimed and " +
+                "then deletes them");
+            AssertWithdrewNothing(report,
+                "a set of readable extracts with no bus between them has not been observed, it has failed " +
+                "to be observed");
+
+            var refusal = Refusal(report);
+            StringAssert.Contains(refusal, "body.arxml, doors.arxml",
+                "the refusal names the whole SET, because what was judged is the set: naming the first " +
+                "file would read as a complaint about one extract when the other was read too: " + refusal);
+            Assert.IsTrue(refusal.Contains("FlexRay", StringComparison.OrdinalIgnoreCase),
+                "and says which shape of file it wanted, since every file in the set is valid AUTOSAR: " +
+                refusal);
+        }
+
         /// <summary>
         ///   A job carrying its extract, which is the ONLY way a file reaches a provider: nothing is
         ///   mounted and nothing is opened by name, so the suite exercises the real path by construction
@@ -1628,6 +1891,23 @@ namespace NoSQL.GraphDB.Tests
             };
 
             job.Files[AutosarArxmlProvider.FileSetting] = JobFileOf(ArxmlFileName, content);
+            return job;
+        }
+
+        /// <summary>
+        ///   A job carrying SEVERAL extracts of one system, in the wire's array form. It goes through the
+        ///   same real runner, so the descriptor's <c>multiple</c> declaration, the array shape and the
+        ///   provider's own loop are exercised together rather than asserted apart from each other.
+        /// </summary>
+        private static IntegrationJob MultiFileArxmlJob(params JobFile[] files)
+        {
+            var job = new IntegrationJob
+            {
+                ProviderId = AutosarArxmlProvider.ProviderId,
+                IntegrationInstanceId = Instance,
+            };
+
+            job.Files[AutosarArxmlProvider.FileSetting] = new JobFileGroup(files);
             return job;
         }
 

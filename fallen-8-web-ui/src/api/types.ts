@@ -1170,6 +1170,13 @@ export interface IntegrationSetting {
    * A hint, not a rule - a browser ignores it for a dropped file and the runtime never checks it.
    */
   accept?: string | null;
+  /**
+   * `File` settings only: whether the setting takes SEVERAL files rather than one. A statement
+   * about the source and not a convenience - a vehicle network arrives as one extract per domain,
+   * and the files reference each other, so only the whole set describes it. The runtime refuses the
+   * flag on any other kind at startup, so a form can trust it wherever it appears.
+   */
+  multiple?: boolean;
 }
 
 /**
@@ -1229,6 +1236,13 @@ export interface IntegrationRunState {
   finishedAt?: string | null;
   running: boolean;
   elapsedMilliseconds: number;
+  /**
+   * Whether this run was PICKED UP after a restart of the runtime rather than started in this
+   * process. It changes what the fields around it mean: `runId` and `startedAt` are the original
+   * ones, so the elapsed figure spans the outage, `completedPhases` already holds what the earlier
+   * attempt got through, and a report's counts cover only the part after the pickup.
+   */
+  resumed?: boolean;
   /** The phase now, or null once the run has ended. */
   phase?: string | null;
   /** How far through the current phase, where it counts. Zero when it does not. */
@@ -1239,6 +1253,17 @@ export interface IntegrationRunState {
   stoppedInPhase?: string | null;
   /** Whether the JOB asked for summary embedding. A fact about the run, not about this component. */
   embedRequested?: boolean;
+  /**
+   * Whether a stop has been ASKED FOR. It stays true after the run ends, which is what separates the
+   * two outcomes a request can have: with `cancelled` the run stopped because of it, without it the
+   * run had already passed its last safe point and finished normally.
+   */
+  cancelRequested?: boolean;
+  /**
+   * Whether the run ENDED because it was cancelled. A third terminal state beside succeeded and
+   * failed, not a kind of failure.
+   */
+  cancelled?: boolean;
   /** Present once there is one, for a failed run as well as a successful one. */
   report?: IntegrationJobReport | null;
   /** Set only when the run produced no report at all because it threw. */
@@ -1275,8 +1300,13 @@ export interface IntegrationJobRequest {
   /**
    * Files, by the file setting each was supplied for. Held for the run and dropped: the runtime
    * mounts no directory, so this is the only way a file reaches a provider.
+   *
+   * A setting the descriptor declares `multiple` takes an ORDERED list, and the order is part of
+   * the meaning: a provider that composes its files resolves references across the union and gives
+   * a re-declared path to the file listed first. Any other setting takes the bare object, which is
+   * what the runtime requires there - it refuses a list of one for a setting that takes one file.
    */
-  files?: Record<string, IntegrationJobFile>;
+  files?: Record<string, IntegrationJobFile | IntegrationJobFile[]>;
   /**
    * Whether the run should embed one summary per entity, rendered from the provider's
    * `entitySummaryTemplate`. Default off in the runtime: embedding every element of every run is
@@ -1307,6 +1337,12 @@ export interface IntegrationJobReport {
   deletionsDeferred: number;
   issuedMutations: boolean;
   summariesEmbedded?: number;
+  /**
+   * Whether the run was stopped on request at a safe point. A flag of its own rather than an
+   * `errorKind`, because nothing is wrong: the counts above are what really landed, and a cancelled
+   * report never carries an errorKind.
+   */
+  cancelled?: boolean;
   error?: string | null;
   errorKind?: string | null;
   credentialFingerprint?: string | null;

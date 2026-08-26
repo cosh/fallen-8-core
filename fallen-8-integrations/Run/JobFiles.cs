@@ -72,12 +72,31 @@ namespace NoSQL.GraphDB.Integrations.Run
     /// </summary>
     public interface IJobFiles
     {
-        /// <summary>Reads the file supplied for that setting, as text.</summary>
+        /// <summary>
+        ///   Reads the file supplied for that setting, as text. For a setting given SEVERAL files this is
+        ///   the first of them, which is what every single-file provider means and has always meant.
+        /// </summary>
         Task<String> ReadAsync(String settingKey, CancellationToken cancellationToken);
 
         /// <summary>Whether a file was supplied for that setting at all, without reading it: null when one
         /// was, otherwise why not.</summary>
         Boolean TryResolve(String settingKey, out String? failure);
+
+        /// <summary>
+        ///   The names of every file supplied for that setting, in the order the job listed them; empty when
+        ///   none was. Names rather than content, so a provider can loop over them and read one at a time.
+        /// </summary>
+        IReadOnlyList<String> NamesOf(String settingKey);
+
+        /// <summary>
+        ///   Reads the file at that position, as text.
+        ///
+        ///   <para>Positional rather than "give me all the texts", and the reason is size. This exists for
+        ///   extracts of tens of megabytes each, and a call returning every text at once would hold all of
+        ///   them decoded - UTF-16 in memory, on top of the bytes the job already holds - for the whole
+        ///   parse. One at a time keeps the peak at the bytes plus ONE decoded file.</para>
+        /// </summary>
+        Task<String> ReadAtAsync(String settingKey, Int32 index, CancellationToken cancellationToken);
     }
 
     /// <summary>
@@ -95,14 +114,16 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <summary>The longest a file's own name may be. It is display text on a report, not a path.</summary>
         internal const Int32 MaxNameLength = 260;
 
-        private readonly Dictionary<String, JobFilePayload> _files;
+        private static readonly String[] NoNames = Array.Empty<String>();
+
+        private readonly Dictionary<String, JobFileSet> _files;
         private readonly List<String> _requested = new List<String>();
         private Int32 _reads;
         private Boolean _ended;
 
-        public JobFiles(IReadOnlyDictionary<String, JobFilePayload>? filesBySettingKey)
+        public JobFiles(IReadOnlyDictionary<String, JobFileSet>? filesBySettingKey)
         {
-            _files = new Dictionary<String, JobFilePayload>(StringComparer.OrdinalIgnoreCase);
+            _files = new Dictionary<String, JobFileSet>(StringComparer.OrdinalIgnoreCase);
             if (filesBySettingKey != null)
             {
                 foreach (var pair in filesBySettingKey)
@@ -148,6 +169,32 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <inheritdoc />
         public Task<String> ReadAsync(String settingKey, CancellationToken cancellationToken)
         {
+            return ReadAtAsync(settingKey, 0, cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public IReadOnlyList<String> NamesOf(String settingKey)
+        {
+            ThrowIfEnded();
+            _requested.Add(settingKey ?? String.Empty);
+
+            if (settingKey == null || !_files.TryGetValue(settingKey, out var set))
+            {
+                return NoNames;
+            }
+
+            var names = new String[set.Files.Count];
+            for (var i = 0; i < names.Length; i++)
+            {
+                names[i] = set.Files[i].Name;
+            }
+
+            return names;
+        }
+
+        /// <inheritdoc />
+        public Task<String> ReadAtAsync(String settingKey, Int32 index, CancellationToken cancellationToken)
+        {
             if (!TryResolve(settingKey, out var failure))
             {
                 // CONFIGURATION and not source: the job is what is wrong, and both shipped providers
@@ -157,9 +204,20 @@ namespace NoSQL.GraphDB.Integrations.Run
                 throw new ProviderConfigurationException(failure!);
             }
 
+            var set = _files[settingKey];
+            if (index < 0 || index >= set.Files.Count)
+            {
+                // A provider defect rather than a caller's, so it is not a job failure: reading past the
+                // list means the provider counted its files wrongly, and answering with the first file
+                // instead would silently parse one extract twice.
+                throw new ArgumentOutOfRangeException(nameof(index), index, String.Format(
+                    "Setting '{0}' was given {1} file(s), so there is none at that position.", settingKey,
+                    set.Files.Count));
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             _reads++;
-            return Task.FromResult(Decode(_files[settingKey].Content));
+            return Task.FromResult(Decode(set.Files[index].Content));
         }
 
         /// <summary>Drops what this run held: the bytes stop being readable.</summary>
@@ -252,8 +310,15 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// </summary>
         Int64 MaxFileBytes { get; }
 
+        /// <summary>
+        ///   The ceiling on the DECODED TOTAL across every file of one job. A second bound and not a
+        ///   restatement of the per-file one: a job carrying a whole vehicle's extracts is many legal files
+        ///   whose sum this process still has to hold at once. Zero or less means no ceiling.
+        /// </summary>
+        Int64 MaxJobFileBytes { get; }
+
         /// <summary>The files for one run.</summary>
-        JobFiles Create(IReadOnlyDictionary<String, JobFilePayload>? filesBySettingKey);
+        JobFiles Create(IReadOnlyDictionary<String, JobFileSet>? filesBySettingKey);
     }
 
     /// <summary>The real one: the run's files are the job's files, and there is nowhere else to get one.</summary>
@@ -270,7 +335,10 @@ namespace NoSQL.GraphDB.Integrations.Run
         public Int64 MaxFileBytes => _options.Value.MaxFileBytes;
 
         /// <inheritdoc />
-        public JobFiles Create(IReadOnlyDictionary<String, JobFilePayload>? filesBySettingKey)
+        public Int64 MaxJobFileBytes => _options.Value.MaxJobFileBytes;
+
+        /// <inheritdoc />
+        public JobFiles Create(IReadOnlyDictionary<String, JobFileSet>? filesBySettingKey)
         {
             return new JobFiles(filesBySettingKey);
         }

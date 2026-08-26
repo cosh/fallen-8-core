@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.Integrations.Configuration;
@@ -88,6 +89,26 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             // Singleton because it IS the process's memory of what is running. One slot per identity, dropped
             // on restart - not a run log (see RunTracker).
             services.AddSingleton<RunTracker>();
+
+            // The ONE thing that outlives the process, and only while a run is in flight. Off unless an
+            // operator mounts somewhere for it; RunSpool states exactly what may be written there and what
+            // may not.
+            services.AddSingleton(provider => new RunSpool(
+                provider.GetRequiredService<IOptions<IntegrationsOptions>>().Value.SpoolDirectory,
+                provider.GetRequiredService<ILogger<RunSpool>>()));
+
+            // "This process is going away", as one injectable fact rather than a hosting dependency inside
+            // the run machinery. Tolerant of there being no host at all, which is what a service-collection
+            // test gets.
+            services.AddSingleton(provider =>
+            {
+                var lifetime = provider.GetService<IHostApplicationLifetime>();
+                return lifetime == null ? RunShutdown.Never : new RunShutdown(lifetime.ApplicationStopping);
+            });
+
+            // Picks up what a stopped process left in flight. It is not a scheduler: it reads the entries
+            // that exist, resumes each once, and never runs anything again.
+            services.AddHostedService<RunResumeService>();
 
             // Pure, and therefore reviewable and testable with nothing in the way.
             services.AddSingleton<IdentityResolver>();
@@ -171,6 +192,23 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                     "spends is then whoever submits it to decide.", options.MaxFileBytes);
             }
 
+            // The second ceiling, said separately for the same reason: a setting a provider declares
+            // multiple takes a whole vehicle's extracts at once, so the number that decides whether this
+            // container survives a job is their SUM rather than any one file's size.
+            if (options.MaxJobFileBytes > 0)
+            {
+                logger.LogInformation(
+                    "The files on one job may come to {MaxJobFileBytes} bytes in total, decoded " +
+                    "(Integrations:MaxJobFileBytes).", options.MaxJobFileBytes);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Integrations:MaxJobFileBytes is {MaxJobFileBytes}, which switches the job-total ceiling " +
+                    "OFF: a job may carry as many legal files as the request body bound admits, and this " +
+                    "process holds all of them at once.", options.MaxJobFileBytes);
+            }
+
             var allowedHosts = options.Credentials.AllowedHostSet();
             if (allowedHosts.Count == 0)
             {
@@ -194,6 +232,22 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                     "reduces trust, and not pinning - a named host is trusted for whatever certificate it " +
                     "presents.",
                     String.Join(", ", selfSigned));
+            }
+
+            if (String.IsNullOrWhiteSpace(options.SpoolDirectory))
+            {
+                logger.LogInformation(
+                    "Nothing is written to disk: no Integrations:SpoolDirectory is configured, so a run in " +
+                    "flight when this process stops is LOST rather than resumed, and a long embedding phase " +
+                    "starts again from nothing.");
+            }
+            else
+            {
+                logger.LogInformation(
+                    "Runs IN FLIGHT are spooled to {SpoolDirectory} so a restart continues them: the job's " +
+                    "envelope, the snapshot and the embedding journal, never a credential and never a " +
+                    "file's bytes. An entry is deleted on every ending a run has, so this is not a run " +
+                    "history.", options.SpoolDirectory);
             }
 
             logger.LogInformation(

@@ -88,6 +88,19 @@ namespace NoSQL.GraphDB.Integrations.Run
         [JsonPropertyName("summariesEmbedded")]
         public Int32 SummariesEmbedded { get; set; }
 
+        /// <summary>
+        ///   Whether the run was STOPPED ON REQUEST at a safe point, rather than finishing or failing.
+        ///
+        ///   <para>Not a kind of failure, which is why it is a flag of its own and not an
+        ///   <see cref="ErrorKind" />: nothing is wrong, and the counts above are what really landed. What
+        ///   a reader has to know is the one thing a cancelled run deliberately did not do - it did not
+        ///   RECONCILE - because reconciliation withdraws by set difference over what the run claimed, and
+        ///   a run that stopped early never claimed the entities it never reached. The next completed run
+        ///   of this identity converges the graph, and nothing was withdrawn or deleted in the meantime.</para>
+        /// </summary>
+        [JsonPropertyName("cancelled")]
+        public Boolean Cancelled { get; set; }
+
         /// <summary>What failed, when something did. A run that failed withdrew nothing.</summary>
         [JsonPropertyName("error")]
         public String? Error { get; set; }

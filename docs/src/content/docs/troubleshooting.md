@@ -160,9 +160,21 @@ same thing as a run panel on the Integrations screen, and it re-attaches after a
 enough other identities have displaced it - the runtime keeps only the current and most recent run
 per identity, in memory.
 
+If the runtime itself was restarted mid-run, the run is **picked up on the next start** and reports
+`resumed`, provided `Integrations:SpoolDirectory` is configured (the compose environment does it). A
+run interrupted before its source had been read cannot be resumed and says so: submit it again. See
+[Restarts](/integrations/#restarts).
+
 If a run really is taking hours, check whether it is in `embed-summaries`. That phase is model
 inference, not graph work, and on a CPU-backed model it costs seconds per element
-([Integrations](/integrations/)).
+([Integrations](/integrations/)). If you want it to stop, it can be stopped:
+
+```bash
+curl -sS -X POST http://localhost:8080/integrations/run/<your-integration-identity>/cancel
+```
+
+A cancelled run keeps what it wrote, withdraws nothing and deletes nothing; the next completed run
+under that identity converges the graph ([Stopping one](/integrations/#stopping-one)).
 
 ## Semantic search succeeds but finds nothing
 

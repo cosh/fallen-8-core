@@ -51,12 +51,18 @@ namespace NoSQL.GraphDB.Integrations.Contract
         private readonly CredentialLease _credentials;
         private readonly Func<String, CancellationToken, Task<String>> _readFile;
         private readonly Func<String, String?> _resolveFileFailure;
+        private readonly Func<String, IReadOnlyList<String>> _fileNames;
+        private readonly Func<String, Int32, CancellationToken, Task<String>> _readFileAt;
 
         internal ProviderContext(String providerId, String instanceId,
             IReadOnlyDictionary<String, String> settings, CredentialLease credentials, HttpClient http,
             ILogger logger, IList<DiagnosticDto> diagnostics,
-            Func<String, CancellationToken, Task<String>> readFile, Func<String, String?> resolveFileFailure)
+            Func<String, CancellationToken, Task<String>> readFile, Func<String, String?> resolveFileFailure,
+            Func<String, IReadOnlyList<String>> fileNames,
+            Func<String, Int32, CancellationToken, Task<String>> readFileAt)
         {
+            _fileNames = fileNames;
+            _readFileAt = readFileAt;
             ProviderId = providerId;
             InstanceId = instanceId;
             _settings = settings;
@@ -224,6 +230,56 @@ namespace NoSQL.GraphDB.Integrations.Contract
         {
             failure = _resolveFileFailure(settingKey);
             return failure == null;
+        }
+
+        /// <summary>
+        ///   The names of every file the job carried for that setting, in the order it listed them; empty
+        ///   when it carried none.
+        ///
+        ///   <para>ORDER IS MEANING for a provider that composes its files, so it is preserved rather than
+        ///   sorted: the AUTOSAR reader resolves references across the union of its extracts and gives a
+        ///   re-declared path to the first extract that declared it.</para>
+        ///
+        ///   <para>The pair to <see cref="RequireFileTextAtAsync" />: a provider loops over these and reads
+        ///   one file at a time, which is what keeps a set of tens-of-megabytes extracts from being held
+        ///   decoded all at once.</para>
+        /// </summary>
+        public IReadOnlyList<String> FileNames(String settingKey)
+        {
+            return _fileNames(settingKey);
+        }
+
+        /// <summary>
+        ///   The text of the file at that position in a REQUIRED setting's list, with anything that went
+        ///   wrong turned into a source failure naming the FILE rather than the setting - which is the whole
+        ///   point once a setting carries several: "the extract could not be read" is not actionable when
+        ///   four of them arrived together.
+        /// </summary>
+        /// <exception cref="ProviderConfigurationException">The setting was not supplied.</exception>
+        /// <exception cref="ProviderSourceException">That file could not be read.</exception>
+        public async Task<String> RequireFileTextAtAsync(String settingKey, Int32 index,
+            CancellationToken cancellationToken)
+        {
+            Required(settingKey);
+            var names = _fileNames(settingKey);
+            var fileName = index >= 0 && index < names.Count
+                ? names[index]
+                : settingKey;
+
+            try
+            {
+                return await _readFileAt(settingKey, index, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException
+                                            && failure is not ProviderConfigurationException
+                                            && failure is not ProviderSourceException)
+            {
+                throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
+                    "The file '{0}', one of {1} supplied for setting '{2}', could not be read: {3}. The run " +
+                    "fails and withdraws nothing: reporting an empty source would withdraw every element " +
+                    "this identity claimed, because \"I could not look\" must never become \"there is " +
+                    "nothing there\".", fileName, names.Count, settingKey, failure.Message), failure);
+            }
         }
     }
 

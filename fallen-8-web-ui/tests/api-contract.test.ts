@@ -270,6 +270,7 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
   listEntities: () => endpoints.listEntities(instance),
   listIntegrationProviders: () => endpoints.listIntegrationProviders(instance),
   getIntegrationRun: () => endpoints.getIntegrationRun(instance, "office-inventory"),
+  cancelIntegrationRun: () => endpoints.cancelIntegrationRun(instance, "office-inventory"),
   submitIntegrationJob: () =>
     endpoints.submitIntegrationJob(instance, {
       providerId: "csv-device-list",
@@ -439,6 +440,16 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     expect(recorded[0].path).toBe("/ns/analytics/activate");
     expect(recorded[0].rawBody).toBeUndefined();
     expect(recorded[0].query.has("loadOnStartup")).toBe(false);
+  });
+
+  it("the integration cancel is a bodiless POST on the run's own sub-route", async () => {
+    await endpoints.cancelIntegrationRun(instance, "office inventory/1");
+
+    expect(recorded[0].method).toBe("POST");
+    // Encoded, because the identity is a caller-owned string and a raw slash in it would address a
+    // different route entirely (or, worse, an existing one) instead of 404ing.
+    expect(recorded[0].path).toBe("/integrations/run/office%20inventory%2F1/cancel");
+    expect(recorded[0].rawBody).toBeUndefined();
   });
 
   it("subgraph nesting: fromSubGraph travels as a query param, never in the body", async () => {

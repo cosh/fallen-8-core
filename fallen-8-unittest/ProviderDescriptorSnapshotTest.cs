@@ -72,10 +72,18 @@ namespace NoSQL.GraphDB.Tests
             "canObserveCompleteState", "readOnly", "entitySummaryTemplate",
         };
 
-        /// <summary>The fields the Studio's <c>IntegrationSetting</c> type models, per setting.</summary>
+        /// <summary>
+        ///   The fields the Studio's <c>IntegrationSetting</c> type models, per setting.
+        ///
+        ///   <para><c>multiple</c> was added with feature integration-run-lifecycle, deliberately rather
+        ///   than by widening this list to whatever the runtime happens to serve: a field the Studio does
+        ///   not model is a field a form silently ignores, and for this one that would mean rendering a
+        ///   single-file control for a setting whose whole point is that the SET of files is the source.
+        ///   The Studio does model it.</para>
+        /// </summary>
         private static readonly HashSet<String> SettingFields = new HashSet<String>(StringComparer.Ordinal)
         {
-            "key", "label", "kind", "required", "help", "defaultValue", "accept",
+            "key", "label", "kind", "required", "help", "defaultValue", "accept", "multiple",
         };
 
         /// <summary>The Studio's <c>SettingKind</c> union. A form has a control for these and nothing else.</summary>

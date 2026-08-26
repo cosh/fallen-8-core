@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -55,14 +56,22 @@ namespace NoSQL.GraphDB.Integrations.Run
         private readonly ActiveCredentials _active;
         private readonly RunGate _gate;
         private readonly IntegrationsMetrics _metrics;
+        private readonly RunSpool _spool;
+        private readonly RunShutdown _shutdown;
         private readonly ILoggerFactory _loggers;
         private readonly ILogger<JobRunner> _logger;
 
         public JobRunner(ProviderCatalog catalog, SnapshotValidator validator, SnapshotApplier applier,
             CredentialResolver credentials, IGraphTargetFactory targets, IProviderHttpFactory http,
             IJobFilesFactory files, ActiveCredentials active, RunGate gate, IntegrationsMetrics metrics,
-            ILoggerFactory loggers)
+            ILoggerFactory loggers, RunSpool? spool = null, RunShutdown? shutdown = null)
         {
+            // Both default to "nothing survives a restart and this process is not going anywhere", which is
+            // exactly what every caller meant before resumability existed: the conformance suite, the
+            // write-path harnesses and anything scripted.
+            _spool = spool ?? new RunSpool(null, loggers?.CreateLogger<RunSpool>()
+                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<RunSpool>.Instance);
+            _shutdown = shutdown ?? RunShutdown.Never;
             _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
             _validator = validator ?? throw new ArgumentNullException(nameof(validator));
             _applier = applier ?? throw new ArgumentNullException(nameof(applier));
@@ -85,14 +94,29 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   <see cref="JobRejectedException"/>.</para>
         /// </summary>
         /// <param name="job">The whole configuration of one run.</param>
-        /// <param name="cancellationToken">Honoured up to the point of no return, and not after it.</param>
+        /// <param name="cancellationToken">
+        ///   THE CALLER'S token: "nobody is listening any more". Honoured up to the point of no return, and
+        ///   not after it. A run abandoned this way produces no report at all.
+        /// </param>
         /// <param name="progress">
         ///   Where the run says what it is doing while it does it. Optional and defaulted to a no-op, so
         ///   every caller that drives a run without watching it - the conformance suite, the write-path
         ///   tests, anything scripted - keeps meaning exactly what it meant before.
         /// </param>
+        /// <param name="stopToken">
+        ///   THE RUN'S OWN token: "the operator asked for this to stop", which only the cancel route
+        ///   signals. Honoured everywhere, INCLUDING past the point of no return, but only at safe points -
+        ///   <see cref="RunAbort" /> says why that distinction is the whole design. Default is a token that
+        ///   never fires, so every existing caller keeps meaning exactly what it meant before.
+        /// </param>
+        /// <param name="resume">
+        ///   The spooled entry of a run this process is PICKING UP rather than starting. Its snapshot stands
+        ///   in for the source read: a resumed run does not re-observe, because the file and the credential
+        ///   that produced the snapshot are gone by design, and re-reading a source would in any case
+        ///   describe a different moment than the one the run is half-way through applying.
+        /// </param>
         public async Task<JobReport> RunAsync(IntegrationJob job, CancellationToken cancellationToken,
-            IRunProgress? progress = null)
+            IRunProgress? progress = null, CancellationToken stopToken = default, SpooledRun? resume = null)
         {
             progress ??= NoRunProgress.Instance;
 
@@ -101,7 +125,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                 throw new JobRejectedException(JobErrorKinds.Configuration, "A job definition is required.");
             }
 
-            if (!job.TryNormalize(out var normalized, out var normalizeFailure, _files.MaxFileBytes))
+            if (!job.TryNormalize(out var normalized, out var normalizeFailure, _files.MaxFileBytes,
+                    _files.MaxJobFileBytes))
             {
                 throw new JobRejectedException(JobErrorKinds.Configuration, normalizeFailure!);
             }
@@ -129,6 +154,20 @@ namespace NoSQL.GraphDB.Integrations.Run
             var instanceId = normalized.InstanceId!;
 
             using var admission = _gate.Enter(instanceId);
+
+            var runId = (progress as IIdentifiedRun)?.RunId ?? Guid.NewGuid().ToString("N");
+
+            // The journal wraps the progress sink from here on, so the embedding cursor advances on the
+            // per-chunk counter that already exists rather than on a second seam threaded through the graph
+            // target. With no spool configured there is no wrapper and no behaviour change at all.
+            IRunJournal? journal = null;
+            if (_spool.Enabled)
+            {
+                var spooling = new SpooledRunJournal(progress, _spool, instanceId, resume?.Progress,
+                    isResume: resume != null);
+                journal = spooling;
+                progress = spooling;
+            }
 
             var report = new JobReport
             {
@@ -162,12 +201,42 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             var cancelled = false;
 
+            // Whether this process is going away mid-run, which is the one outcome that must LEAVE the
+            // spooled entry behind: the run is unfinished rather than over, and the next start picks it up.
+            var interrupted = false;
+
+            // The entry is written at ACCEPT time, before the provider is invoked, so that a restart during a
+            // long source read leaves something to say what happened. It cannot be resumed - the file and the
+            // credential are gone - but a caller polling an identity this process has never heard of is the
+            // "the run vanished" report that started all of this.
+            var spooled = resume ?? new SpooledRun
+            {
+                // Read off the sink BEFORE it was wrapped, which is the only place the id exists: a resumed
+                // run must report under the id a client is already polling by.
+                RunId = runId,
+                ProviderId = descriptor.Id,
+                InstanceId = instanceId,
+                Namespace = normalized.Namespace,
+                EmbedSummaries = normalized.EmbedSummaries,
+                EmbeddingName = normalized.EmbeddingName,
+                StartedAt = report.StartedUtc.ToString("O", CultureInfo.InvariantCulture),
+            };
+
+            if (resume == null)
+            {
+                _spool.WriteIntent(spooled);
+            }
+
             // Whether control ever entered the apply phase, which is the only thing that decides what may be said
             // about what landed: the apply call is handed CancellationToken.None, so an OperationCanceledException
             // surfacing from inside it is NOT the caller's cancellation but some other one - a client-side timeout
             // on a graph write, say - that merely coincides with the caller's token being cancelled. Only this
             // frame knows which side of the call it stands on.
             var applyStarted = false;
+
+            // The run's own stop signal, wrapped once, and beside it the process's. Neither is the token the
+            // graph calls take, and RunAbort states why that cannot change.
+            var abort = new RunAbort(stopToken, _shutdown.Token);
 
             // The files are created INSIDE the lease's scope, so a factory that throws cannot leave the
             // credential held: with no run in flight the active-credential set is empty, and that is what
@@ -179,18 +248,40 @@ namespace NoSQL.GraphDB.Integrations.Run
             {
                 try
                 {
+                    // The one place a stop signal is a real token handed downward. A source READ is safe to
+                    // abort mid-call because it writes nothing, so the provider gets EVERY reason to stop at
+                    // once - the caller walking away, the operator asking, and this process going away.
+                    // Everything past the first graph write gets RunAbort instead, which cannot be handed to
+                    // a call.
+                    //
+                    // The shutdown token belongs here as much as the other two: an a large size extract parses for
+                    // minutes, and a container told to stop should not spend its whole grace period finishing
+                    // a parse whose result it is about to throw away.
+                    using var reading = CancellationTokenSource
+                        .CreateLinkedTokenSource(cancellationToken, stopToken, _shutdown.Token);
+
                     using var http = _http.Create(!lease.IsEmpty);
                     var diagnostics = new List<DiagnosticDto>();
                     var context = new ProviderContext(descriptor.Id, instanceId, settings, lease, http,
                         _loggers.CreateLogger("NoSQL.GraphDB.Integrations.Providers." + descriptor.Id),
                         diagnostics, runFiles.ReadAsync,
-                        key => runFiles.TryResolve(key, out var failure) ? null : failure);
+                        key => runFiles.TryResolve(key, out var failure) ? null : failure,
+                        runFiles.NamesOf, runFiles.ReadAtAsync);
 
                     // Named before the call, because this is the phase that looks like a hang: an a large size
                     // extract parses for minutes and writes nothing, so "observe" is the only thing that
                     // distinguishes working from stuck.
                     progress.EnterPhase(RunPhases.Observe);
-                    var snapshot = await provider.ObserveAsync(context, cancellationToken).ConfigureAwait(false);
+
+                    // A RESUMED run does not read its source again, and the reason is not thrift. The file
+                    // and the credential that produced the snapshot are gone by design; and even with them,
+                    // re-reading would describe a DIFFERENT moment than the one this run is half-way through
+                    // applying, so the entities it had already written would be judged against a source it
+                    // never saw. The phase is still entered, because the earlier attempt of this same run
+                    // really did complete it.
+                    var snapshot = resume != null
+                        ? resume.Snapshot
+                        : await provider.ObserveAsync(context, reading.Token).ConfigureAwait(false);
 
                     foreach (var diagnostic in diagnostics)
                     {
@@ -213,6 +304,20 @@ namespace NoSQL.GraphDB.Integrations.Run
                         {
                             report.Diagnostics.Add(diagnostic);
                         }
+                    }
+
+                    // FROM HERE THE RUN IS RESUMABLE, so this is where the snapshot joins its entry: what
+                    // remains to be done is now a function of this document and the graph alone, which is
+                    // exactly the condition under which another process can pick the work up.
+                    //
+                    // BEFORE the validation, and the run then continues with the document it read BACK, for
+                    // the reason WriteSnapshot states: a value is a CLR object in process and a JsonElement
+                    // after a round trip, and the two do not render identically. Validating the same bytes a
+                    // resumed run will validate is the other half of that - a document the round trip made
+                    // unacceptable should fail HERE rather than only after a restart.
+                    if (resume == null)
+                    {
+                        snapshot = _spool.WriteSnapshot(spooled, snapshot) ?? snapshot;
                     }
 
                     // Named BEFORE the validation, not after it: entered afterwards the phase claimed work
@@ -255,7 +360,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                     using var target = _targets.Create(normalized.Namespace);
 
                     // THE POINT OF NO RETURN, and the one place this runtime deliberately stops honouring the
-                    // caller's cancellation. Everything above - the source read, which is the slow part, and the
+                    // CALLER'S cancellation. Everything above - the source read, which is the slow part, and the
                     // validation - is cancellable, and a caller that walks away during it loses nothing. The apply
                     // phase is different: interrupting it midway leaves a half-applied snapshot.
                     //
@@ -273,17 +378,66 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // does not kill a run between writes - and this closes the same hole at the front door.
                     // A run that hangs here is bounded by the target's own per-call HTTP timeouts.
                     //
+                    // WHAT DOES CROSS THIS LINE is the run's own stop signal, and only it. An operator asking
+                    // for a run to stop is a decision about the import; a dropped connection is an accident of
+                    // who happened to be watching. It travels as a RunAbort rather than as the token the graph
+                    // calls take, which is what keeps "stoppable" from meaning "interruptible mid-write".
+                    //
+                    // Honoured HERE first, before the flag below makes "a write may have happened" true: a stop
+                    // that arrived during the read or the validation has written nothing, and the log line for
+                    // it must be able to say so.
+                    abort.ThrowIfRequested();
+
                     // Set BEFORE the call, not after it: the flag answers "could a write have happened", and the
                     // answer becomes yes the moment control enters the applier.
                     applyStarted = true;
                     await _applier.ApplyAsync(validated, instanceId, target, report, summary,
-                            CancellationToken.None, progress)
+                            CancellationToken.None, progress, abort, journal)
                         .ConfigureAwait(false);
 
                     return Complete(report, stopwatch, null, null, descriptor.Id);
                 }
+                catch (RunCancelledException)
+                {
+                    // STOPPED AT A SAFE POINT, on request. A reported outcome rather than an abandonment:
+                    // somebody asked for this, so somebody is waiting to be told what landed. The applier has
+                    // already counted onto the report everything that really happened, embedded summaries
+                    // included.
+                    return CompleteCancelled(report, stopwatch, descriptor.Id);
+                }
+                catch (RunInterruptedException)
+                {
+                    // THE PROCESS IS GOING AWAY. Not an outcome at all: the run is unfinished, its entry is
+                    // kept, and the next start picks it up from the embedding cursor. Rethrown rather than
+                    // reported, because a report is a statement that the run ENDED, and this one has not.
+                    interrupted = true;
+                    LogInterrupted(report, stopwatch);
+                    throw;
+                }
+                catch (OperationCanceledException) when (stopToken.IsCancellationRequested)
+                {
+                    // Stopped while the PROVIDER was reading, which is the one call this runtime aborts
+                    // mid-flight because aborting it writes nothing. The cheapest cancellation there is.
+                    return CompleteCancelled(report, stopwatch, descriptor.Id);
+                }
+                catch (OperationCanceledException) when (_shutdown.Token.IsCancellationRequested)
+                {
+                    // Interrupted while the provider was READING, so there is no snapshot and this run
+                    // cannot be picked up. Its entry is still kept, deliberately: the next start turns it
+                    // into an honest "interrupted before its source was read, submit it again" rather than
+                    // leaving whoever was watching to poll an identity nothing has heard of.
+                    //
+                    // Reported as an interruption rather than falling through to the catch-all, which would
+                    // call this a SOURCE failure and send an operator to look at a system that answered fine.
+                    interrupted = true;
+                    LogInterrupted(report, stopwatch);
+                    throw new RunInterruptedException();
+                }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
+                    // BELOW the two clauses above, and the order is the decision: when a run is both
+                    // cancelled and abandoned, the deliberate stop wins, because an operator who asked for it
+                    // is owed a report while a dropped connection is owed nothing.
                     cancelled = true;
                     throw;
                 }
@@ -357,12 +511,67 @@ namespace NoSQL.GraphDB.Integrations.Run
                                 report.CredentialFingerprint ?? "none");
                         }
                     }
-                    else
+                    else if (!interrupted)
                     {
+                        // Interruption has already logged its own line, and LogOutcome would follow it with
+                        // the success-shaped one: a run that is about to be resumed would read as finished.
                         LogOutcome(report);
+                    }
+
+                    // THE ENTRY GOES WHEN THE RUN DOES, on every ending there is: succeeded, failed,
+                    // cancelled and abandoned alike. An entry that outlived its run would be resumed by the
+                    // next restart, re-running a job whose answer somebody already has - and the spool would
+                    // quietly become the run history this runtime deliberately does not keep.
+                    //
+                    // Interruption is one exception; a resumed run the GRAPH refused is the other.
+                    if (!interrupted && !KeepForRetry(report, resume))
+                    {
+                        _spool.Delete(instanceId);
                     }
                 }
             }
+        }
+
+        /// <summary>
+        ///   Picks up a run this process did not start, from the entry a stopped process left behind.
+        ///
+        ///   <para>A thin wrapper over <see cref="RunAsync" /> on purpose. A resumed run differs from a
+        ///   fresh one in exactly one respect - where its snapshot comes from - so giving it its own flow
+        ///   would mean two copies of the credential scrubbing, the failure mapping and the outcome logging,
+        ///   which would then drift. What it does NOT have is a credential or a file, and it does not need
+        ///   either: the snapshot is already made.</para>
+        /// </summary>
+        /// <param name="spooled">The entry to pick up. It must carry a snapshot.</param>
+        /// <param name="progress">Where to report, normally the tracker handle opened under the run's own id.</param>
+        /// <param name="stopToken">The run's own stop signal, so a resumed run is cancellable like any other.</param>
+        public Task<JobReport> ResumeAsync(SpooledRun spooled, IRunProgress? progress = null,
+            CancellationToken stopToken = default)
+        {
+            if (spooled == null)
+            {
+                throw new ArgumentNullException(nameof(spooled));
+            }
+
+            if (!spooled.Resumable)
+            {
+                throw new JobRejectedException(JobErrorKinds.Configuration,
+                    "This spooled run carries no snapshot, so there is nothing to resume: the file and the " +
+                    "credential that would produce one are dropped when a run ends, by design.");
+            }
+
+            // The job is SYNTHESISED from the entry rather than stored on it, which is what keeps a
+            // credential and a file's bytes out of the spool: everything below is envelope, and the envelope
+            // is all a resumed run needs.
+            var job = new IntegrationJob
+            {
+                ProviderId = spooled.ProviderId,
+                IntegrationInstanceId = spooled.InstanceId,
+                Namespace = spooled.Namespace,
+                EmbedSummaries = spooled.EmbedSummaries,
+                EmbeddingName = spooled.EmbeddingName,
+            };
+
+            return RunAsync(job, CancellationToken.None, progress, stopToken, spooled);
         }
 
         /// <summary>
@@ -427,6 +636,20 @@ namespace NoSQL.GraphDB.Integrations.Run
                         "Provider '{0}' declares no file setting '{1}', so the file supplied for it would " +
                         "never be read.", descriptor.Id, file.Key));
                 }
+
+                // Refused HERE, where the descriptor is finally known, rather than at normalisation: the
+                // caller ASKED for the multiple shape, and a provider not built to compose files would read
+                // only the first of them. Silently reading one of several is the worst available outcome,
+                // because this provider class declares COMPLETE snapshots - so the files that went unread
+                // would be reported as parts of the source that no longer exist, and reconciliation would
+                // delete everything they describe.
+                if (!setting.Multiple && (file.Value.AsList || file.Value.Files.Count > 1))
+                {
+                    throw new JobRejectedException(JobErrorKinds.Configuration, String.Format(
+                        "Setting '{1}' of provider '{0}' takes ONE file, but the job supplied a list of {2}. " +
+                        "Send the file as a single object rather than an array.",
+                        descriptor.Id, file.Key, file.Value.Files.Count));
+                }
             }
 
             var effective = new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
@@ -453,7 +676,15 @@ namespace NoSQL.GraphDB.Integrations.Run
                         // when the name pointed at a mount. That is what makes "the provider does not change"
                         // true rather than aspirational: the transport a file arrived by was never its
                         // business.
-                        effective[setting.Key] = file.Name;
+                        //
+                        // For a setting given SEVERAL files it is every name, joined. A provider that
+                        // composes files names the one it is talking about from the file list itself; this
+                        // value is what a message about the setting AS A WHOLE says, and for a set of
+                        // extracts "chassis.arxml, body.arxml" is that answer. The first name alone would
+                        // be a message quietly about one file of many.
+                        effective[setting.Key] = file.Files.Count == 1
+                            ? file.First.Name
+                            : String.Join(", ", Names(file));
                     }
                     else if (setting.Required)
                     {
@@ -487,6 +718,15 @@ namespace NoSQL.GraphDB.Integrations.Run
             return effective;
         }
 
+        /// <summary>The names of one setting's files, in job order.</summary>
+        private static IEnumerable<String> Names(JobFileSet set)
+        {
+            foreach (var file in set.Files)
+            {
+                yield return file.Name;
+            }
+        }
+
         private JobReport Complete(JobReport report, Stopwatch stopwatch, String? errorKind, String? error,
             String providerId)
         {
@@ -496,6 +736,58 @@ namespace NoSQL.GraphDB.Integrations.Run
             report.Error = error;
             _metrics.Record(report, providerId);
             return report;
+        }
+
+        /// <summary>
+        ///   Ends a run that was STOPPED ON REQUEST. Deliberately no <c>errorKind</c>: nothing is wrong, and
+        ///   the counts already on the report are what really landed. The one thing a reader has to know -
+        ///   that it did not reconcile, and why that is the safe half of the bargain - is stated once, on
+        ///   <see cref="JobReport.Cancelled" />.
+        /// </summary>
+        private JobReport CompleteCancelled(JobReport report, Stopwatch stopwatch, String providerId)
+        {
+            report.Cancelled = true;
+            return Complete(report, stopwatch, null, null, providerId);
+        }
+
+        /// <summary>
+        ///   Whether a run that ENDED should nevertheless keep its spooled entry, so the next start tries
+        ///   again.
+        ///
+        ///   <para>Exactly one case, and it would otherwise defeat the whole point of the spool: this
+        ///   container restarts alongside the graph it writes into and may come up first, so a resumed run
+        ///   can fail simply because the graph was not answering yet. Deleting the entry on that would throw
+        ///   away the hours of work it exists to protect, for a reason that says nothing about the job or the
+        ///   source. Bounded by the attempt count, so a graph that is gone for good does not make the entry
+        ///   immortal.</para>
+        ///
+        ///   <para>Only a RESUMED run and only a GRAPH failure. A fresh run still has its file and its
+        ///   credential, so its caller can simply submit it again; any other failure kind is about the job or
+        ///   the source, which re-running unchanged will not mend.</para>
+        /// </summary>
+        private static Boolean KeepForRetry(JobReport report, SpooledRun? resume)
+        {
+            return resume != null
+                   && String.Equals(report.ErrorKind, JobErrorKinds.Graph, StringComparison.Ordinal)
+                   && resume.Attempts < RunSpool.MaxAttempts;
+        }
+
+        /// <summary>
+        ///   The one line an INTERRUPTED run leaves. It is neither of the other two on purpose: a success
+        ///   line would claim an import that finished, and a failure line would raise an alert for a
+        ///   container doing what it was told. What a reader needs is that nothing was withdrawn and that
+        ///   the work continues.
+        /// </summary>
+        private void LogInterrupted(JobReport report, Stopwatch stopwatch)
+        {
+            stopwatch.Stop();
+            _logger.LogWarning(
+                "Integration run {ProviderId} as {InstanceId} was INTERRUPTED after {Duration} ms by this " +
+                "process shutting down: {Created} created, {Matched} matched, {Summaries} summaries " +
+                "embedded so far. It did not reconcile and nothing was withdrawn; the next start picks it " +
+                "up from the embedding cursor.",
+                report.ProviderId, report.IntegrationInstanceId, stopwatch.ElapsedMilliseconds,
+                report.ElementsCreated, report.ElementsMatched, report.SummariesEmbedded);
         }
 
         /// <summary>
@@ -521,6 +813,25 @@ namespace NoSQL.GraphDB.Integrations.Run
 
         private void LogOutcome(JobReport report)
         {
+            if (report.Cancelled)
+            {
+                // Its own line, above the failure branch and the success one, because it is neither: a
+                // cancelled run has no errorKind, so the success line would claim an import that finished,
+                // and a failure line would report an operator's own decision as a fault. The counts are the
+                // point - they say what stands - and so is the sentence about withdrawal, because "did it
+                // delete anything on the way out" is the first question a stopped import raises.
+                _logger.LogWarning(
+                    "Integration run {ProviderId} as {InstanceId} was CANCELLED after {Duration} ms, and what " +
+                    "it had written stands: {Created} created, {Matched} matched, {Edges} edges, {Summaries} " +
+                    "summaries embedded. It did not reconcile, so nothing was withdrawn and nothing was " +
+                    "deleted; the next completed run of this identity converges the graph. Credential " +
+                    "fingerprint {Fingerprint}.",
+                    report.ProviderId, report.IntegrationInstanceId, report.DurationMilliseconds,
+                    report.ElementsCreated, report.ElementsMatched, report.EdgesCreated,
+                    report.SummariesEmbedded, report.CredentialFingerprint ?? "none");
+                return;
+            }
+
             if (report.Failed)
             {
                 _logger.LogWarning(

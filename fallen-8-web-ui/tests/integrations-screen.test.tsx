@@ -24,17 +24,19 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "../src/api/client";
 import type { InstanceConfig } from "../src/instances/types";
 import type {
+  IntegrationJobFile,
   IntegrationJobReport,
   IntegrationJobRequest,
   IntegrationProvider,
   IntegrationRunAccepted,
   IntegrationRunState,
+  IntegrationSetting,
   StatusREST,
 } from "../src/api/types";
 import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/instanceStore";
@@ -60,6 +62,10 @@ const submitJobMock =
   vi.fn<(i: InstanceConfig, job: IntegrationJobRequest) => Promise<IntegrationRunAccepted | null>>();
 const getRunMock =
   vi.fn<(i: InstanceConfig, instanceId: string) => Promise<IntegrationRunState | null>>();
+// The cancel answers the run as it was when the stop was RECORDED, so the panel can show the stop as
+// pending without waiting out a poll interval.
+const cancelRunMock =
+  vi.fn<(i: InstanceConfig, instanceId: string) => Promise<IntegrationRunState | null>>();
 const getStatusMock =
   vi.fn<(i: InstanceConfig, signal?: AbortSignal) => Promise<StatusREST | null>>();
 
@@ -70,6 +76,7 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
     listIntegrationProviders: (i: InstanceConfig) => listProvidersMock(i),
     submitIntegrationJob: (i: InstanceConfig, job: IntegrationJobRequest) => submitJobMock(i, job),
     getIntegrationRun: (i: InstanceConfig, instanceId: string) => getRunMock(i, instanceId),
+    cancelIntegrationRun: (i: InstanceConfig, instanceId: string) => cancelRunMock(i, instanceId),
     getStatus: (i: InstanceConfig, s?: AbortSignal) => getStatusMock(i, s),
   };
 });
@@ -99,6 +106,38 @@ function fourthIntegration(): IntegrationProvider {
     canObserveCompleteState: true,
     readOnly: true,
   };
+}
+
+/**
+ * The same integration with its file setting declared `multiple`, which is a statement about the
+ * SOURCE: a vehicle network is handed over as one AUTOSAR extract per domain or per bus, and those
+ * extracts reference each other, so no single file is a complete description of it.
+ */
+function multiFileIntegration(overrides: Partial<IntegrationSetting> = {}): IntegrationProvider {
+  const provider = fourthIntegration();
+  provider.settings = provider.settings.map((setting) =>
+    setting.key === "extract"
+      ? { ...setting, multiple: true, accept: ".arxml", ...overrides }
+      : setting,
+  );
+  return provider;
+}
+
+/**
+ * The one file a setting that takes ONE was given, asserting the SHAPE on the way: the runtime
+ * refuses a list of one there, so a job that sent an array would be refused with nothing run.
+ */
+function oneFile(job: IntegrationJobRequest, key: string): IntegrationJobFile {
+  const sent = job.files?.[key];
+  expect(Array.isArray(sent)).toBe(false);
+  return sent as IntegrationJobFile;
+}
+
+/** The ordered list a `multiple` setting was given, asserting that it IS a list. */
+function fileList(job: IntegrationJobRequest, key: string): IntegrationJobFile[] {
+  const sent = job.files?.[key];
+  expect(Array.isArray(sent)).toBe(true);
+  return sent as IntegrationJobFile[];
 }
 
 function report(overrides: Partial<IntegrationJobReport> = {}): IntegrationJobReport {
@@ -194,6 +233,46 @@ function runningRun(phase: string, done: number, total: number): IntegrationRunS
   };
 }
 
+/** A run a stop has been ASKED for, still going because it has not reached a safe point yet. */
+function stoppingRun(): IntegrationRunState {
+  return { ...runningRun("embed-summaries", 4320, 9478), cancelRequested: true };
+}
+
+/**
+ * A run that ENDED because it was cancelled: a third terminal state beside succeeded and failed. It
+ * carries counts and no errorKind, which is exactly why it needs its own rendering - without one it
+ * is indistinguishable from a clean import.
+ */
+function cancelledRun(): IntegrationRunState {
+  return {
+    ...finishedRun(
+      report({
+        cancelled: true,
+        elementsCreated: 6,
+        elementsMatched: 11,
+        claimsWithdrawn: 0,
+        elementsDeleted: 0,
+        error: null,
+        errorKind: null,
+        diagnostics: [],
+      }),
+    ),
+    cancelRequested: true,
+    cancelled: true,
+    stoppedInPhase: "embed-summaries",
+  };
+}
+
+/**
+ * A run that was PICKED UP after the runtime restarted. Deliberately built from the in-flight run
+ * unchanged apart from the flag: the pickup keeps the run id, the original start time and the phases
+ * the first attempt got through, so anything the panel needs to special-case has to come from
+ * `resumed` alone.
+ */
+function resumedRun(overrides: Partial<IntegrationRunState> = {}): IntegrationRunState {
+  return { ...runningRun("write-edges", 8, 31), resumed: true, ...overrides };
+}
+
 function renderScreen() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -209,6 +288,7 @@ beforeEach(() => {
   listProvidersMock.mockReset().mockResolvedValue([fourthIntegration()]);
   submitJobMock.mockReset().mockResolvedValue(accepted());
   getRunMock.mockReset().mockResolvedValue(finishedRun(report()));
+  cancelRunMock.mockReset().mockResolvedValue(stoppingRun());
   getStatusMock.mockReset().mockResolvedValue(status(true));
 });
 
@@ -306,8 +386,9 @@ describe("a file setting takes the file itself", () => {
 
     await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
     const job = submitJobMock.mock.calls[0][1];
-    expect(job.files?.extract.name).toBe("devices.csv");
-    expect(atob(job.files!.extract.contentBase64)).toBe("mac,name\nAA:BB:CC:DD:EE:01,Reception\n");
+    const sent = oneFile(job, "extract");
+    expect(sent.name).toBe("devices.csv");
+    expect(atob(sent.contentBase64)).toBe("mac,name\nAA:BB:CC:DD:EE:01,Reception\n");
     // The name in `settings` is what the runtime refuses, and putting it there would be the one
     // mistake that looks like it works right up to the 400.
     expect(job.settings).not.toHaveProperty("extract");
@@ -371,6 +452,238 @@ describe("a file setting takes the file itself", () => {
     // Two integrations can declare the same setting key, so a file that rode along would send one
     // integration's extract to another - and nothing afterwards could tell that had happened.
     expect(screen.queryByTestId("integration-setting-extract-staged")).toBeNull();
+  });
+});
+
+describe("a file setting can take a SET of files (feature integration-run-lifecycle)", () => {
+  /** Selects the given provider and fills everything a run needs except the files. */
+  async function selectAndFill(provider: IntegrationProvider) {
+    listProvidersMock.mockResolvedValue([provider]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "vehicle-network");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+  }
+
+  function extract(name: string, body = `<AUTOSAR>${name}</AUTOSAR>`): File {
+    return new File([body], name, { type: "application/xml" });
+  }
+
+  const rows = () => screen.getAllByTestId("integration-setting-extract-staged-file");
+
+  it("renders a multi-capable picker for a setting the descriptor declares multiple", async () => {
+    await selectAndFill(multiFileIntegration());
+
+    // Without the attribute the picker takes one file per visit to the dialog, which for a handover
+    // of eight domain extracts is eight visits and eight chances to miss one.
+    const picker = screen.getByTestId("integration-setting-extract");
+    expect(picker).toHaveAttribute("multiple");
+    // The accept hint is still the descriptor's, since taking several files says nothing about what
+    // kind they are.
+    expect(picker).toHaveAttribute("accept", ".arxml");
+  });
+
+  it("leaves a single-file setting exactly as it was, with no multi-capable control", async () => {
+    await selectAndFill(fourthIntegration());
+
+    expect(screen.getByTestId("integration-setting-extract")).not.toHaveAttribute("multiple");
+    expect(screen.queryByTestId("integration-setting-extract-staged-list")).toBeNull();
+  });
+
+  it("stages several files and sends them as ONE ordered array", async () => {
+    await selectAndFill(multiFileIntegration());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml"),
+      extract("chassis.arxml"),
+      extract("powertrain.arxml"),
+    ]);
+    await waitFor(() => expect(rows()).toHaveLength(3));
+
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    // ORDER IS MEANING, not presentation: the reader resolves references across the union of the
+    // files and gives a re-declared path to the one listed first, so the order the operator sees
+    // has to be the order the job carries.
+    const sent = fileList(submitJobMock.mock.calls[0][1], "extract");
+    expect(sent.map((file) => file.name)).toEqual([
+      "body.arxml",
+      "chassis.arxml",
+      "powertrain.arxml",
+    ]);
+    expect(atob(sent[2].contentBase64)).toBe("<AUTOSAR>powertrain.arxml</AUTOSAR>");
+  });
+
+  it("ADDS a second drop to the set rather than replacing it", async () => {
+    await selectAndFill(multiFileIntegration());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml"),
+    ]);
+    await waitFor(() => expect(rows()).toHaveLength(1));
+
+    fireEvent.drop(screen.getByTestId("integration-setting-extract-dropzone"), {
+      dataTransfer: { files: [extract("chassis.arxml")] },
+    });
+
+    // Replacing would silently discard the extract already picked, which is the one failure a
+    // domain-at-a-time handover cannot notice: the run would then declare a complete source that
+    // never mentioned the body bus, and reconciliation would delete everything it had described.
+    await waitFor(() => expect(rows()).toHaveLength(2));
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+    expect(fileList(submitJobMock.mock.calls[0][1], "extract").map((file) => file.name)).toEqual([
+      "body.arxml",
+      "chassis.arxml",
+    ]);
+  });
+
+  it("takes every file of ONE multi-file drop, not just the first", async () => {
+    await selectAndFill(multiFileIntegration());
+
+    fireEvent.drop(screen.getByTestId("integration-setting-extract-dropzone"), {
+      dataTransfer: { files: [extract("body.arxml"), extract("chassis.arxml")] },
+    });
+
+    // Dragging the whole handover onto the target at once is the point of the field; taking [0]
+    // ignored the rest without a word about it.
+    await waitFor(() => expect(rows()).toHaveLength(2));
+  });
+
+  it("removes one file at a time, and clears the field when the last one goes", async () => {
+    await selectAndFill(multiFileIntegration());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml"),
+      extract("chassis.arxml"),
+    ]);
+    await waitFor(() => expect(rows()).toHaveLength(2));
+
+    // The wrong file in the set is the common correction, and re-picking the other seven to fix one
+    // is what a per-file remove exists to avoid.
+    await userEvent.click(screen.getByTestId("integration-setting-extract-remove-0"));
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    expect(rows()[0]).toHaveTextContent("chassis.arxml");
+
+    await userEvent.click(screen.getByTestId("integration-setting-extract-remove-0"));
+    expect(screen.queryByTestId("integration-setting-extract-staged")).toBeNull();
+    expect(screen.queryByTestId("integration-setting-extract-staged-list")).toBeNull();
+  });
+
+  it("refuses a duplicate name in the form, with case set aside as the runtime sets it aside", async () => {
+    await selectAndFill(multiFileIntegration());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml"),
+    ]);
+    await waitFor(() => expect(rows()).toHaveLength(1));
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("Body.arxml"),
+    ]);
+
+    // The runtime refuses the WHOLE job for this, because every diagnostic about a file names it and
+    // two files with one name make each of those messages ambiguous. Caught here, the fix costs one
+    // pick rather than a rejected run.
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-problem")).toHaveTextContent(
+        /already staged/,
+      ),
+    );
+    expect(rows()).toHaveLength(1);
+  });
+
+  it("shows the total of the set, because the total is a refusal of its own", async () => {
+    await selectAndFill(multiFileIntegration());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml", "a".repeat(1024)),
+      extract("chassis.arxml", "b".repeat(1024)),
+    ]);
+
+    // Per-file size answers the per-file ceiling; only the total answers the per-JOB one, and a set
+    // of extracts is exactly where the second bites first.
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-total")).toHaveTextContent(
+        "2 files, 2.0 KiB in total",
+      ),
+    );
+    expect(rows()[0]).toHaveTextContent("1.0 KiB");
+  });
+
+  it("will not submit until a required set has at least one file in it", async () => {
+    await selectAndFill(multiFileIntegration({ required: true }));
+
+    expect(screen.getByTestId("integration-run")).toBeDisabled();
+    expect(screen.getByTestId("integration-missing")).toHaveTextContent("Extract");
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml"),
+    ]);
+
+    // One file is enough for the FORM: whether the set is complete is a judgement only the operator
+    // can make, and the runtime never guesses at it either.
+    await waitFor(() => expect(screen.getByTestId("integration-run")).toBeEnabled());
+  });
+
+  it("says the set of files is the source, which is the sharp edge of running with fewer", async () => {
+    await selectAndFill(multiFileIntegration());
+
+    // The failure this copy exists to prevent: each snapshot honestly declares itself complete, so a
+    // re-run missing one extract withdraws and deletes everything only that extract described.
+    expect(screen.getByText(/set of files is the source/)).toBeInTheDocument();
+    expect(screen.getByText(/withdraws whatever only the missing file described/)).toBeInTheDocument();
+  });
+
+  it("still sends the bare object for a single-file setting, which is all the runtime accepts there", async () => {
+    await selectAndFill(fourthIntegration());
+
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      extract("devices.csv", "mac\n"),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-staged")).toHaveTextContent(
+        "devices.csv",
+      ),
+    );
+
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    // A list of one here is refused by the runtime with a message about a setting that takes ONE
+    // file, so the shape has to follow the descriptor and not the count.
+    expect(oneFile(submitJobMock.mock.calls[0][1], "extract").name).toBe("devices.csv");
+  });
+
+  it("still replaces rather than appends for a single-file setting", async () => {
+    await selectAndFill(fourthIntegration());
+
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      extract("devices.csv", "mac\n"),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-staged")).toHaveTextContent(
+        "devices.csv",
+      ),
+    );
+
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      extract("printers.csv", "mac\n"),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-staged")).toHaveTextContent(
+        "printers.csv",
+      ),
+    );
+    expect(screen.getByTestId("integration-setting-extract-staged")).not.toHaveTextContent(
+      "devices.csv",
+    );
   });
 });
 
@@ -874,5 +1187,220 @@ describe("a second run under one identity is not served from the first run's cac
 
     await waitFor(() => expect(getRunMock.mock.calls.length).toBeGreaterThan(pollsAfterFirst));
     await waitFor(() => expect(screen.getByTestId("report-created")).toHaveTextContent("42"));
+  });
+});
+
+describe("a run in flight can be stopped (feature integration-run-lifecycle)", () => {
+  /**
+   * Re-attach rather than submit, because it is the shorter path to a watched run AND the stronger
+   * assertion: the form's identity field is empty here, so a cancel that reached the right identity
+   * can only have read it off the run.
+   */
+  function watchARun() {
+    store().getState().setIntegrationWatch("office-inventory");
+    renderScreen();
+  }
+
+  it("offers the control while the run is in flight", async () => {
+    getRunMock.mockResolvedValue(runningRun("embed-summaries", 4320, 9478));
+    watchARun();
+
+    expect(await screen.findByTestId("integration-run-cancel")).toBeEnabled();
+  });
+
+  it("offers nothing to stop once the run has ended, because a finished run is not cancellable", async () => {
+    getRunMock.mockResolvedValue(finishedRun(report()));
+    watchARun();
+
+    await screen.findByTestId("run-panel");
+    // The runtime answers 404 for it, so offering the control would offer a button that only ever
+    // reports its own uselessness.
+    expect(screen.queryByTestId("integration-run-cancel")).toBeNull();
+  });
+
+  it("asks nothing on the first step, and cancels under the run's own identity on the second", async () => {
+    getRunMock.mockResolvedValue(runningRun("write-elements", 12, 40));
+    watchARun();
+
+    await userEvent.click(await screen.findByTestId("integration-run-cancel"));
+    // Two-step in place: a run costs hours and there is no resuming one that was stopped, so the
+    // first click may not be the request.
+    expect(cancelRunMock).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByTestId("integration-run-cancel-confirm"));
+
+    await waitFor(() => expect(cancelRunMock).toHaveBeenCalledTimes(1));
+    // The identity, not the form: cancelling under the wrong one would leave the real run going.
+    expect(cancelRunMock.mock.calls[0][1]).toBe("office-inventory");
+  });
+
+  it("takes the request back when the second step is declined", async () => {
+    getRunMock.mockResolvedValue(runningRun("write-elements", 12, 40));
+    watchARun();
+
+    await userEvent.click(await screen.findByTestId("integration-run-cancel"));
+    await userEvent.click(screen.getByTestId("integration-run-cancel-keep"));
+
+    expect(cancelRunMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId("integration-run-cancel")).toBeEnabled();
+    expect(screen.queryByTestId("integration-run-cancel-confirm")).toBeNull();
+  });
+
+  it("shows the stop as PENDING while the run has not reached a safe point yet", async () => {
+    getRunMock.mockResolvedValue(stoppingRun());
+    watchARun();
+
+    // The whole reason cancelRequested is surfaced: a stop during embedding waits for the chunk
+    // already in the model, and on CPU inference that is long enough to read as "nothing happened".
+    expect(await screen.findByTestId("run-cancelling")).toHaveTextContent(/safe point/);
+    const control = screen.getByTestId("integration-run-cancel");
+    expect(control).toBeDisabled();
+    expect(control).toHaveTextContent("cancelling...");
+  });
+
+  it("reflects the pending stop as soon as the request is answered", async () => {
+    getRunMock.mockResolvedValue(runningRun("embed-summaries", 4320, 9478));
+    // What the runtime really does, and the reason the mock changes both answers at once: the flag
+    // is recorded BEFORE the 202 is answered, so the answer and every poll after it agree. A mock
+    // where only the answer knows about the stop would be testing a server contradicting itself.
+    cancelRunMock.mockImplementation(async () => {
+      getRunMock.mockResolvedValue(stoppingRun());
+      return stoppingRun();
+    });
+    watchARun();
+
+    await userEvent.click(await screen.findByTestId("integration-run-cancel"));
+    await userEvent.click(screen.getByTestId("integration-run-cancel-confirm"));
+
+    expect(await screen.findByTestId("run-cancelling")).toBeInTheDocument();
+  });
+
+  it("renders a cancelled run as its own terminal state, with its counts and the convergence note", async () => {
+    getRunMock.mockResolvedValue(cancelledRun());
+    watchARun();
+
+    const note = await screen.findByTestId("run-cancelled");
+    expect(note).toHaveTextContent("embed-summaries");
+    // The load-bearing sentence: a cancelled run never reconciles, so it withdrew nothing, and the
+    // graph is left convergent-on-next-run rather than damaged.
+    expect(note).toHaveTextContent(/[Nn]othing was withdrawn or deleted/);
+    expect(note).toHaveTextContent(/next completed run/);
+    expect(screen.getByTestId("run-panel")).toHaveTextContent("run - cancelled");
+
+    // The partial report is still the account of what happened, and it must not read as a failure:
+    // a cancelled report deliberately carries no errorKind.
+    expect(screen.getByTestId("report-created")).toHaveTextContent("6");
+    expect(screen.getByTestId("report-matched")).toHaveTextContent("11");
+    expect(screen.getByTestId("integration-report-cancelled")).toHaveTextContent(/not a failure/);
+    expect(screen.queryByTestId("integration-report-error")).toBeNull();
+  });
+
+  it("renders the too-late stop as the completed run it is, not as a cancellation", async () => {
+    // Reachable and not hypothetical: the stop arrived after the run's last safe point, so
+    // cancelRequested stays true on a run that finished normally AND reconciled.
+    getRunMock.mockResolvedValue({ ...finishedRun(report()), cancelRequested: true });
+    watchARun();
+
+    expect(await screen.findByTestId("run-cancel-too-late")).toHaveTextContent(/completed/);
+    expect(screen.queryByTestId("run-cancelled")).toBeNull();
+    expect(screen.queryByTestId("integration-report-cancelled")).toBeNull();
+    expect(screen.getByTestId("run-panel")).toHaveTextContent("run - finished");
+  });
+
+  it("treats a 404 on the stop as information rather than as a broken panel", async () => {
+    getRunMock.mockResolvedValue(runningRun("reconcile", 0, 0));
+    cancelRunMock.mockRejectedValue(
+      new ApiError(404, "/integrations/run/office-inventory/cancel", "no run in flight"),
+    );
+    watchARun();
+
+    await userEvent.click(await screen.findByTestId("integration-run-cancel"));
+    await userEvent.click(screen.getByTestId("integration-run-cancel-confirm"));
+
+    // The run ended between the last poll and the click. Nothing is wrong, so an error box would
+    // send the operator looking for a fault that does not exist.
+    expect(await screen.findByTestId("run-cancel-already-ended")).toHaveTextContent(
+      /already ended/,
+    );
+    expect(screen.queryByTestId("run-cancel-error")).toBeNull();
+    expect(screen.getByTestId("run-panel")).toBeInTheDocument();
+  });
+
+  it("shows a real error box for a stop that failed for any other reason", async () => {
+    getRunMock.mockResolvedValue(runningRun("reconcile", 0, 0));
+    cancelRunMock.mockRejectedValue(
+      new ApiError(503, "/integrations/run/office-inventory/cancel", "sidecar down"),
+    );
+    watchARun();
+
+    await userEvent.click(await screen.findByTestId("integration-run-cancel"));
+    await userEvent.click(screen.getByTestId("integration-run-cancel-confirm"));
+
+    // A 503 says nothing about whether the run exists, so claiming it had ended would assert a
+    // cause the answer never gave - and the run is in fact still going.
+    expect(await screen.findByTestId("run-cancel-error")).toBeInTheDocument();
+    expect(screen.queryByTestId("run-cancel-already-ended")).toBeNull();
+  });
+});
+
+describe("a run picked up after a restart says so (feature integration-run-lifecycle)", () => {
+  function watchARun() {
+    store().getState().setIntegrationWatch("office-inventory");
+    renderScreen();
+  }
+
+  it("says the run was picked up after a restart while it is still going", async () => {
+    getRunMock.mockResolvedValue(resumedRun());
+    watchARun();
+
+    const note = await screen.findByTestId("run-resumed");
+    // The elapsed figure spans the outage on purpose, so a panel that did not say so would look
+    // like a run stuck for however long the runtime was down.
+    expect(note).toHaveTextContent(/includes the outage/);
+    expect(screen.getByTestId("run-panel")).toHaveTextContent("run - in flight");
+  });
+
+  it("keeps saying it once the run has finished, because that is where the counts mislead", async () => {
+    getRunMock.mockResolvedValue({
+      ...finishedRun(report({ elementsCreated: 0, elementsMatched: 39 })),
+      resumed: true,
+    });
+    watchARun();
+
+    // A resumed run reports only what happened after the pickup, so nothing created is a normal
+    // outcome for it - and reads as a run that did nothing without this note.
+    expect(await screen.findByTestId("run-resumed")).toBeInTheDocument();
+    expect(screen.getByTestId("report-created")).toHaveTextContent("0");
+    expect(screen.getByTestId("report-matched")).toHaveTextContent("39");
+  });
+
+  it("says nothing of the kind for an ordinary run", async () => {
+    getRunMock.mockResolvedValue(runningRun("embed-summaries", 4320, 9478));
+    watchARun();
+
+    await screen.findByTestId("run-panel");
+    expect(screen.queryByTestId("run-resumed")).toBeNull();
+  });
+
+  it("renders a run that could NOT be resumed as the finished, failed run it is", async () => {
+    // The one interruption a pickup cannot recover from: the source had not been read yet, so there
+    // is nothing to continue from. The runtime still reports it under the same identity with the
+    // flag set, which is why the flag must not by itself imply a run in flight.
+    getRunMock.mockResolvedValue({
+      ...finishedRun(report()),
+      resumed: true,
+      report: null,
+      error:
+        "This run stopped before its source had been read, so there is nothing to continue from. Submit the job again.",
+    });
+    watchARun();
+
+    expect(await screen.findByTestId("run-error")).toHaveTextContent(/Submit the job again\.$/);
+    expect(screen.getByTestId("run-resumed")).toBeInTheDocument();
+    expect(screen.getByTestId("run-panel")).toHaveTextContent("run - finished");
+    // Neither of the two things it is not: still going, or stopped on request.
+    expect(screen.queryByTestId("integration-run-cancel")).toBeNull();
+    expect(screen.queryByTestId("run-cancelled")).toBeNull();
+    expect(screen.queryByTestId("run-cancel-too-late")).toBeNull();
   });
 });

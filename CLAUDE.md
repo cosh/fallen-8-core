@@ -110,9 +110,17 @@ dotnet run --project fallen-8-core-apiApp
   `fallen-8-integrations` runs ONE job per request: it reads a system on the operator's own network
   (a CSV inventory, a UniFi console, a Fronius inverter, an AUTOSAR system extract), describes what
   it saw as a snapshot, and
-  writes that into one namespace over the REST API. It keeps no schedule, no run history and no
+  writes that into one namespace over the REST API. A file setting the provider declares
+  `multiple` takes an ordered SET of files that is read as one source (the AUTOSAR one does, because
+  a vehicle arrives as one extract per bus and the set is the source, so a later run with fewer
+  files withdraws the difference). It keeps no schedule, no run history and no
   credential: **a credential arrives with the job that needs it and is dropped when the run ends**,
-  so the container has no credential mount and nothing to rotate. Its container port is never
+  so the container has no credential mount and nothing to rotate. A run can be **cancelled** at a
+  safe point, which keeps what it wrote and deliberately does not reconcile (a partial claimed set
+  would withdraw healthy elements); and a run IN FLIGHT is spooled to the one optional mount there
+  is, so a restart **picks it up** instead of losing an embedding phase that runs for hours. The
+  spool never holds a credential or a file's bytes and is empty whenever nothing is running.
+  Its container port is never
   published; the browser reaches it through the apiApp's authenticated proxy at `/integrations/*`.
   Identity is exact-match on canonical claim keys and **nothing ever merges two elements**; only a
   snapshot declaring it saw the WHOLE source may withdraw a claim. A new integration is a data

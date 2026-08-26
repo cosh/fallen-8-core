@@ -77,6 +77,49 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         /// </summary>
         public Int64 MaxFileBytes { get; set; } = 134_217_728;
 
+        /// <summary>
+        ///   The biggest a job's files may come to IN TOTAL, decoded, across every file setting on it.
+        ///
+        ///   <para>A second ceiling rather than a restatement of the per-file one, because a setting a
+        ///   provider declares <c>multiple</c> turns "how big may a file be" into two questions. A vehicle
+        ///   network arrives as one system extract per domain or per bus, each legal on its own, and it is
+        ///   their SUM this process holds at once: one request carries a whole run, which is the design and
+        ///   is not changing, so the sum is the number that decides whether this container survives the job.</para>
+        ///
+        ///   <para>512 MiB, which is four maximal extracts or a great many ordinary ones. It is deliberately
+        ///   not a multiple of the per-file ceiling: the point is to bound what one caller can make this
+        ///   process spend, not to license a fixed number of files. The cost is stated plainly on
+        ///   <see cref="MaxFileBytes" /> and is worse here in the same proportion - base64 in, bytes held,
+        ///   one file decoded to text at a time - so a maximal job peaks well over a gigabyte.</para>
+        ///
+        ///   <para>Zero or less switches it OFF. Raising it past what the apiApp's proxy accepts has no
+        ///   effect in the shipped deployment, exactly as with the per-file ceiling.</para>
+        /// </summary>
+        public Int64 MaxJobFileBytes { get; set; } = 536_870_912;
+
+        /// <summary>
+        ///   Where a run IN FLIGHT is written down, so a restart continues it instead of losing it. Empty is
+        ///   the default and writes nothing at all.
+        ///
+        ///   <para>It exists because of one asymmetry: a run's graph writes are recomputable - re-resolving
+        ///   the same snapshot matches everything it created - while its EMBEDDING set is not, because only
+        ///   entities whose data changed are embedded, and once the writes have landed nothing changed. So a
+        ///   run interrupted after twenty of twelve thousand summaries, simply re-run, embeds NOTHING, and
+        ///   the only cure was clearing the namespace and importing again. Hours, lost to any restart.</para>
+        ///
+        ///   <para>WHAT IS WRITTEN THERE, exhaustively: the job's envelope, the snapshot the provider
+        ///   produced, and the embedding journal. Never a credential and never a file's bytes - a credential
+        ///   is needed only to read the source, and a file only to produce the snapshot, so past that point
+        ///   neither can affect the run and neither is written down. An entry is deleted on every ending a
+        ///   run has, so a healthy runtime's spool is EMPTY: it is not a run history, and this runtime still
+        ///   keeps none.</para>
+        ///
+        ///   <para>Off by default because it is the only thing in this container that touches disk, and a
+        ///   bare <c>dotnet run</c> should behave as it always has. The compose environment points it at a
+        ///   volume; the container stays read-only apart from it.</para>
+        /// </summary>
+        public String SpoolDirectory { get; set; } = String.Empty;
+
         /// <summary>Where a run holding a credential may send it.</summary>
         public CredentialsOptions Credentials { get; set; } = new CredentialsOptions();
 

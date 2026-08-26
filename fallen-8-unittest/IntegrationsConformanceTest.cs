@@ -633,9 +633,10 @@ namespace NoSQL.GraphDB.Tests
 
             public Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
                 IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
-                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null)
+                NoSQL.GraphDB.Integrations.Run.IRunProgress progress = null,
+                NoSQL.GraphDB.Integrations.Run.RunAbort abort = default)
             {
-                return _inner.EmbedSummariesAsync(embeddingName, summaries, cancellationToken, progress);
+                return _inner.EmbedSummariesAsync(embeddingName, summaries, cancellationToken, progress, abort);
             }
 
             public void Dispose()
