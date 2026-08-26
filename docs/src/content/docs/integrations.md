@@ -188,10 +188,12 @@ Bytes rather than text, because the encoding is not yours to guess: an AUTOSAR e
 tool wrote as UTF-16 decodes correctly, where a transport carrying "the text" would have handed
 the integration mojibake and written that into your graph without a word on the report.
 
-The runtime **mounts nothing and opens nothing on disk**. There is no directory to prepare, no
+The runtime **mounts no files and opens none on disk**. There is no directory to prepare, no
 staged upload to clean up and no file name that could point somewhere it should not: a file lives
 exactly as long as the run that needed it, which is the same rule
-[credentials](#credentials) follow. Two consequences worth knowing:
+[credentials](#credentials) follow. (The one thing the container may write is the
+[run spool](#restarts), and a file's bytes are deliberately not in it.) Two consequences worth
+knowing:
 
 - A file's **name** is a label. It is what every message about the run calls it, so a diagnostic
   still reads `devices.csv row 7`, and nothing resolves, opens or joins it to a path.
