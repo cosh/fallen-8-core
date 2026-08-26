@@ -1,8 +1,27 @@
 # Code health improvement plan, 2026-08
 
-Status: Open - awaiting the decisions in phase 0; nothing implemented.
+Status: Implemented in full on `feature/code-health-2026-08` (six commits), NOT yet merged.
+Every phase below is ticked and carries its as-built note, including the places the plan or
+the report turned out to be wrong. This directory moves to `features/done/` when the branch
+merges, per the repo's feature workflow.
 Findings and evidence: [report.md](report.md). Finding ids (M1..M5, S1, C1..C5, D1,
 H1..H6) refer to that report.
+
+## Final gate, run on the finished branch
+
+- `dotnet build fallen-8-core.sln --no-incremental`: 0 errors, 27 warnings, all of them the
+  pre-existing IL2026 in fallen-8-core-apiApp where `WarningsNotAsErrors` puts them.
+- `dotnet test fallen-8-core.sln`: **2148 passed, 0 failed, 32 skipped** (baseline before any
+  of this work: 2117 / 0 / 30). Every test name that left the run was accounted for by name
+  against the previous run's trx.
+- Browser probe (`dotnet publish tools/browser-probe -c Release`, then node): **9 of 9**,
+  including the two arms it did not previously execute.
+- Studio: `tsc -b` clean, **1162 tests in 95 files**, production and library builds clean.
+- Docs site: **40 pages, every internal link valid**.
+- OpenAPI snapshot and provider-descriptor snapshot: regenerated where their inputs changed,
+  each diff reviewed and exactly as small as intended.
+- Hygiene over all 9,467 lines this branch adds: zero em dashes, zero en dashes, zero
+  forbidden words.
 
 Ground rules for the whole plan: every fix lands with the test that would have caught it;
 no finding is "fixed" by weakening an assertion; the SUSPECTED items are verified at
@@ -191,12 +210,21 @@ Zero coverage loss is the constraint; the wins are files, LOC, and honesty of st
   other agents were loading the same machine. The change is still worth keeping (a stress
   test's cost is worst exactly when the machine is busy, which is CI), but it is a small
   saving and the report's "roughly a third of the suite" claim was wrong.
-- [ ] Deliberately NOT done: DataRow-ing the vocabulary FailsToLoad cluster (its prose
-  is the value), touching the 141 endpoint tests with genuine HTTP-layer assertions, or
-  any benchmark change (all 26 are correctly `[Ignore]`d and cost nothing).
+- Deliberately NOT done, and confirmed not done: DataRow-ing the vocabulary FailsToLoad
+  cluster (its prose is the value), touching the 141 endpoint tests with genuine HTTP-layer
+  assertions, or any benchmark change beyond the one merge (all remain correctly `[Ignore]`d
+  and cost nothing).
 
 Expected shape after: ~180 files instead of 206, ~2,100 methods (net of removals and
 phase-2 additions), several hundred LOC of infrastructure gone, suite runtime per D4.
+
+ACTUAL shape after, measured: **208 files** in fallen-8-unittest, not ~180. The estimate was
+wrong in a way worth recording: 26 event-named files went away, but 18 subject-named files
+replaced them (the audit found their content unique, so it could not be folded into an
+existing file), and phases 1, 2 and 4 ADDED files of their own (RestSeamTest, the three
+shared helpers, ThrowingIndexFixtures). The honest win is not the file count, it is that no
+file is named after a review event any more and 575 lines of duplicated setup are gone.
+Suite: 2148 passed, 0 failed, 32 skipped, ~1m50s.
 
 ## Phase 4 - duplication, one home, docs
 
