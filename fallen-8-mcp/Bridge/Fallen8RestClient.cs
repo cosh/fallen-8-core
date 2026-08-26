@@ -24,13 +24,12 @@
 // SOFTWARE.
 
 using System;
-using System.Net;
 using System.Net.Http;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using NoSQL.GraphDB.Mcp.Bridge.Dto;
+using NoSQL.GraphDB.Rest;
 
 namespace NoSQL.GraphDB.Mcp.Bridge
 {
@@ -43,14 +42,14 @@ namespace NoSQL.GraphDB.Mcp.Bridge
     ///   error mapping (problem+json → title/detail; other 4xx/5xx string body → detail;
     ///   204/200-null → soft-not-found) into <see cref="BridgeError"/> (spec §3.2). Obtains its
     ///   <see cref="HttpClient"/> from the factory so the primary handler is overridable in tests.
+    ///   Sending, the absent-body convention and the timeout-versus-cancellation classification come
+    ///   from <see cref="RestSeam"/>, shared with the other REST-only deployable.
     /// </summary>
     public sealed class Fallen8RestClient
     {
         /// <summary>The named <see cref="HttpClient"/> the host configures (base URL + api-key
         /// header) and tests re-point.</summary>
         public const String HttpClientName = "fallen8";
-
-        private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
         private readonly IHttpClientFactory _factory;
 
@@ -152,65 +151,43 @@ namespace NoSQL.GraphDB.Mcp.Bridge
         private async Task<T?> SendJsonAsync<T>(HttpMethod method, String relativePath, Object? body, CancellationToken cancellationToken)
         {
             var text = await SendAsync(method, relativePath, body, cancellationToken).ConfigureAwait(false);
-            return text is null ? default : JsonSerializer.Deserialize<T>(text, JsonOptions);
+            return text is null ? default : JsonSerializer.Deserialize<T>(text, RestSeam.JsonOptions);
         }
 
         private async Task<JsonElement?> SendRawAsync(HttpMethod method, String relativePath, Object? body, CancellationToken cancellationToken)
         {
             var text = await SendAsync(method, relativePath, body, cancellationToken).ConfigureAwait(false);
-            return text is null ? null : JsonSerializer.Deserialize<JsonElement>(text, JsonOptions);
+            return text is null ? null : JsonSerializer.Deserialize<JsonElement>(text, RestSeam.JsonOptions);
         }
 
         /// <summary>
-        ///   The single HTTP send + status handling. Returns the response body text, or null for
-        ///   the soft-not-found convention (204, or 200 with a literal <c>null</c> body); throws a
-        ///   mapped <see cref="BridgeError"/> for a 4xx/5xx or a transport failure.
+        ///   The single HTTP send. Returns the response body text, or null for the soft-not-found
+        ///   convention <see cref="RestSeam"/> owns; throws a mapped <see cref="BridgeError"/> for a
+        ///   4xx/5xx, a transport failure or a timeout.
         /// </summary>
         private async Task<String?> SendAsync(HttpMethod method, String relativePath, Object? body, CancellationToken cancellationToken)
         {
             using var client = _factory.CreateClient(HttpClientName);
-            using var request = new HttpRequestMessage(method, relativePath);
-            if (body is not null)
-            {
-                request.Content = JsonContent.Create(body, mediaType: null, JsonOptions);
-            }
+            return await RestSeam.SendForBodyAsync(client, method, relativePath, body, NoAnswer, MapErrorAsync,
+                cancellationToken).ConfigureAwait(false);
+        }
 
-            HttpResponseMessage response;
-            try
-            {
-                response = await client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new BridgeError(503, "Fallen-8 unreachable", ex.Message, retryable: true);
-            }
-            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new BridgeError(504, "Fallen-8 timeout", "The downstream request timed out.", retryable: true);
-            }
-
-            using (response)
-            {
-                if (!response.IsSuccessStatusCode)
-                {
-                    throw await MapErrorAsync(response, cancellationToken).ConfigureAwait(false);
-                }
-
-                if (response.StatusCode == HttpStatusCode.NoContent)
-                {
-                    return null;
-                }
-
-                var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                return String.IsNullOrWhiteSpace(text) || text.Trim() == "null" ? null : text;
-            }
+        /// <summary>
+        ///   The bridge's name for an answer that never came. Both are retryable and both are synthetic
+        ///   statuses: no downstream status exists to carry them.
+        /// </summary>
+        private static Exception NoAnswer(RestSendFailure failure, Exception cause)
+        {
+            return failure == RestSendFailure.TimedOut
+                ? new BridgeError(504, "Fallen-8 timeout", "The downstream request timed out.", retryable: true)
+                : new BridgeError(503, "Fallen-8 unreachable", cause.Message, retryable: true);
         }
 
         /// <summary>
         ///   The three-rule error mapping (spec §3.2). Never reads request headers, so the API
         ///   key cannot leak into the mapped error.
         /// </summary>
-        private static async Task<BridgeError> MapErrorAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+        private static async Task<Exception> MapErrorAsync(HttpResponseMessage response, CancellationToken cancellationToken)
         {
             var status = (Int32)response.StatusCode;
             var retryable = status == 429 || status == 503;

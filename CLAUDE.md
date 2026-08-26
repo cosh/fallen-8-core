@@ -16,8 +16,10 @@ Fallen-8 is an in-memory graph database written in C# (.NET 10). Namespaces are 
 Two more are **separate deployables** that reach the graph over the public REST API only, never in
 process, and reference neither the engine nor the apiApp: **`fallen-8-mcp`** (the agent channel) and
 **`fallen-8-integrations`** (the job runner that reads a system on the operator's own network). Both
-have an architecture note below. **`fallen-8-bench`** is the throughput harness and does reference
-the engine, because it measures it in process.
+have an architecture note below. They share one small library, **`fallen-8-rest-client`**
+(`NoSQL.GraphDB.Rest`): the REST-client seam, which is held to the same rule and references
+neither the engine nor the apiApp either. **`fallen-8-bench`** is the throughput harness and does
+reference the engine, because it measures it in process.
 
 **User-facing documentation is a [Starlight](https://starlight.astro.build/) site rooted at
 [`docs/`](docs/), published to <https://docs.fallen-8.com/>.** The pages are

@@ -28,13 +28,12 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using NoSQL.GraphDB.Integrations.Identity;
+using NoSQL.GraphDB.Rest;
 
 namespace NoSQL.GraphDB.Integrations.Graph
 {
@@ -49,6 +48,10 @@ namespace NoSQL.GraphDB.Integrations.Graph
     ///   index automatically. Everything else is batched, because without a batched element read and an atomic
     ///   property replace a run over a few hundred devices is over a thousand round-trips, most producing no
     ///   change.</para>
+    ///
+    ///   <para>Sending, the absent-body convention and the timeout-versus-cancellation classification come from
+    ///   <see cref="RestSeam"/>, shared with the other deployable held to the same REST-only rule; this file
+    ///   names every outcome in the run report's own vocabulary.</para>
     /// </summary>
     public sealed class Fallen8RestTarget : IGraphTarget
     {
@@ -116,8 +119,6 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
         /// <summary>The equality operator's wire code, from the engine's own operator enum.</summary>
         private const Int32 EqualsOperator = 0;
-
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
         private readonly HttpClient _client;
         private readonly String _prefix;
@@ -524,12 +525,8 @@ namespace NoSQL.GraphDB.Integrations.Graph
                         items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
                     }
 
-                    using var request = new HttpRequestMessage(HttpMethod.Post, _prefix + "embedding/elements")
-                    {
-                        Content = JsonContent.Create(new { name = embeddingName, items }, mediaType: null, JsonOptions),
-                    };
-
-                    var response = await SendCoreAsync(request, "the embedding write", cancellationToken)
+                    var response = await SendForResponseAsync(HttpMethod.Post, "embedding/elements",
+                        new { name = embeddingName, items }, "the embedding write", cancellationToken)
                         .ConfigureAwait(false);
 
                     using (response)
@@ -586,7 +583,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 // so pre-empting it must not fail a run whose graph writes are already in. Every other call
                 // this target makes keeps timeout-as-failure. It stops the loop for the reason 503 does: the
                 // next chunk faces the same model. A cancellation the CALLER requested never arrives here,
-                // because the token decides that and not the exception type (see SendCoreAsync).
+                // because the token decides that and not the exception type (see RestSeam).
                 return new EmbeddingWriteOutcome(written,
                     "the target did not answer the embedding write within this runtime's own timeout " +
                     "(Fallen8Target:TimeoutSeconds)");
@@ -615,16 +612,24 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// <summary>
         ///   The route prefix: the bare routes for the reserved default namespace, <c>ns/{name}/</c>
         ///   otherwise. The bare URLs alias the default namespace, so both forms reach the same graph.
+        ///   The name is validated and encoded by <see cref="UrlSafety"/>, which applies Fallen-8's own name
+        ///   rule: a name the platform would refuse fails HERE, before a run writes anything, rather than
+        ///   part way through as a 404 on some route.
         /// </summary>
         private static String BuildPrefix(String? namespaceName)
         {
-            if (String.IsNullOrWhiteSpace(namespaceName) ||
-                String.Equals(namespaceName, "default", StringComparison.OrdinalIgnoreCase))
+            if (UrlSafety.IsDefault(namespaceName))
             {
                 return String.Empty;
             }
 
-            return "ns/" + Uri.EscapeDataString(namespaceName!) + "/";
+            if (!UrlSafety.TryEncodeNamespace(namespaceName, out var encoded, out var error))
+            {
+                throw new GraphTargetException(String.Format(
+                    "The namespace '{0}' cannot address a graph: {1}", namespaceName, error));
+            }
+
+            return "ns/" + encoded + "/";
         }
 
         /// <summary>Which reserved property prefix an index projects, for the add request's key.</summary>
@@ -908,7 +913,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
             try
             {
-                return JsonSerializer.Deserialize<T>(text, JsonOptions);
+                return JsonSerializer.Deserialize<T>(text, RestSeam.JsonOptions);
             }
             catch (JsonException ex)
             {
@@ -938,73 +943,58 @@ namespace NoSQL.GraphDB.Integrations.Graph
             await SendTextAsync(method, suffix, body, cancellationToken).ConfigureAwait(false);
         }
 
-        private async Task<String?> SendTextAsync(HttpMethod method, String suffix, Object? body,
+        private Task<String?> SendTextAsync(HttpMethod method, String suffix, Object? body,
             CancellationToken cancellationToken)
         {
-            using var request = new HttpRequestMessage(method, _prefix + suffix);
-            if (body != null)
-            {
-                request.Content = JsonContent.Create(body, mediaType: null, JsonOptions);
-            }
-
-            var response = await SendCoreAsync(request, String.Format("{0} {1}", method, suffix), cancellationToken)
-                .ConfigureAwait(false);
-
-            using (response)
-            {
-                if (!response.IsSuccessStatusCode)
-                {
-                    var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    throw new GraphTargetException(String.Format(
-                        "The graph refused {0} {1} with {2}: {3}", method, suffix, (Int32)response.StatusCode,
-                        String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
-                }
-
-                if (response.StatusCode == HttpStatusCode.NoContent)
-                {
-                    return null;
-                }
-
-                var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                return String.IsNullOrWhiteSpace(text) || text.Trim() == "null" ? null : text;
-            }
+            return RestSeam.SendForBodyAsync(_client, method, _prefix + suffix, body,
+                Unanswered(String.Format("{0} {1}", method, suffix)),
+                (response, token) => RefusedAsync(method, suffix, response, token),
+                cancellationToken);
         }
 
         /// <summary>
-        ///   The ONE place a transport failure becomes this seam's failure, for every request this target sends,
-        ///   including the embedding write, which reads the status code itself and so cannot go through
-        ///   <see cref="SendTextAsync"/>.
-        ///
-        ///   <para>A client-side timeout arrives as a <c>TaskCanceledException</c>, which IS an
-        ///   <see cref="OperationCanceledException"/>. Letting one escape would present "the target was too slow"
-        ///   to every layer above as "the caller walked away", and those two license opposite statements about
-        ///   what a run wrote. The token is consulted rather than the type, because a cancellation the caller DID
-        ///   request must stay a cancellation. It becomes a <see cref="GraphTargetTimeoutException"/> so a call
-        ///   site can act on "too slow" without reading a message; every caller that does not care sees the
-        ///   graph failure it always saw.</para>
+        ///   For the embedding write alone, which reads the status code itself in order to decide between a
+        ///   degradation and a failure and so cannot go through <see cref="SendTextAsync"/>.
         /// </summary>
-        /// <param name="request">The prepared request; the caller owns and disposes it.</param>
-        /// <param name="what">How the failure names this call, e.g. "PUT vertices" or "the embedding write".</param>
-        /// <param name="cancellationToken">The caller's token, and the only thing that distinguishes its
-        /// cancellation from a timeout.</param>
-        private async Task<HttpResponseMessage> SendCoreAsync(HttpRequestMessage request, String what,
-            CancellationToken cancellationToken)
+        /// <param name="method">The HTTP method.</param>
+        /// <param name="suffix">The route below this target's namespace prefix.</param>
+        /// <param name="body">The JSON request body, or null.</param>
+        /// <param name="what">How a failure names this call, e.g. "the embedding write".</param>
+        /// <param name="cancellationToken">The caller's token.</param>
+        /// <returns>The response, which the caller owns and disposes.</returns>
+        private Task<HttpResponseMessage> SendForResponseAsync(HttpMethod method, String suffix, Object? body,
+            String what, CancellationToken cancellationToken)
         {
-            try
-            {
-                return await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new GraphTargetException(String.Format(
-                    "The graph did not answer {0}: {1}", what, ex.Message), ex);
-            }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new GraphTargetTimeoutException(String.Format(
+            return RestSeam.SendAsync(_client, method, _prefix + suffix, body, Unanswered(what), cancellationToken);
+        }
+
+        /// <summary>
+        ///   How this target names an answer that never came (<see cref="RestSeam"/> decides WHICH of the two it
+        ///   was, and a cancellation the caller asked for never arrives here at all).
+        ///
+        ///   <para>A timeout gets its own type so a call site can act on "too slow" without reading a message:
+        ///   the request may well have been applied and nothing here can tell, which is a third fact beside
+        ///   "it refused" and "the caller walked away". Every caller that does not care sees the
+        ///   <see cref="GraphTargetException"/> it always saw.</para>
+        /// </summary>
+        private static RestSendFailureNaming Unanswered(String what)
+        {
+            return (failure, cause) => failure == RestSendFailure.TimedOut
+                ? new GraphTargetTimeoutException(String.Format(
                     "The graph did not answer {0} within the request timeout " +
-                    "(Fallen8Target:TimeoutSeconds).", what), ex);
-            }
+                    "(Fallen8Target:TimeoutSeconds).", what), cause)
+                : new GraphTargetException(String.Format(
+                    "The graph did not answer {0}: {1}", what, cause.Message), cause);
+        }
+
+        /// <summary>How this target names a status the graph refused with.</summary>
+        private static async Task<Exception> RefusedAsync(HttpMethod method, String suffix,
+            HttpResponseMessage response, CancellationToken cancellationToken)
+        {
+            var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return new GraphTargetException(String.Format(
+                "The graph refused {0} {1} with {2}: {3}", method, suffix, (Int32)response.StatusCode,
+                String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
         }
     }
 }

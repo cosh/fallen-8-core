@@ -30,8 +30,10 @@ namespace NoSQL.GraphDB.Integrations.Configuration
     /// <summary>
     ///   The Fallen-8 this runtime writes into (config section <c>Fallen8Target</c>). Section name and
     ///   shape match <c>fallen-8-mcp</c>'s as a small copied options class: an operator configuring two
-    ///   sidecars should not learn two spellings, and a shared library to save five properties would
-    ///   couple two deployables that must version independently.
+    ///   sidecars should not learn two spellings, while the CONFIGURATION SHAPE stays each deployable's
+    ///   own, so one may gain a knob the other has no use for. What the two do share is the behavioural
+    ///   seam (<c>fallen-8-rest-client</c>), where a divergence would be a difference in what a run
+    ///   reports rather than in what an operator may set.
     ///
     ///   <para>A CALLER'S CREDENTIAL IS NEVER FORWARDED: the runtime authenticates to the graph as
     ///   itself, so a job cannot escalate beyond what this deployable may already do and a graph audit

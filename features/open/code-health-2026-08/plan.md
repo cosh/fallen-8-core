@@ -39,7 +39,15 @@ were read at HEAD on 2026-08-26 and are re-checked when touched).
 - [x] **D5. One-home collapses use the TYPE-OWNED homes as proposed** (`RunTracker`,
   `NahilWarmupRetryHandler`, `NamespaceLoader`, `AutosarArxmlProvider`,
   `JobTransportLimit`, `IdentityClaimDto`/`EntityDto`); docs pages keep the user-facing
-  conclusion, specs and controller remarks become one-line pointers.
+  conclusion, controller remarks become one-line pointers.
+  CORRECTION made at implementation time: this plan originally said feature SPECS become
+  pointers too. They do not. CLAUDE.md's one-home gate says in the same breath that
+  "specs/plans are historical records and are not rewritten", so a spec that narrates the
+  story at length is not a violation to fix - the rule governs the LIVING sites (the owning
+  type, controller remarks, the docs-site page, the feature README where one exists). The
+  collapses therefore leave every `features/done/*/spec.md` alone, except the two
+  contract ENUMERATIONS already extended in phase 1 (the entity-skip list and the
+  Fallen8Target key list), which are lists rather than narration.
 
 All implementation phases land on ONE feature branch, `feature/code-health-2026-08`,
 gated as usual before merge (owner's decision 2026-08-26).
@@ -153,20 +161,70 @@ phase-2 additions), several hundred LOC of infrastructure gone, suite runtime pe
 
 ## Phase 4 - duplication, one home, docs
 
-- [ ] Apply D3's outcome to the REST-client seam.
-- [ ] H1..H6 collapses per D5: full story at the owning home, one-line pointers
+- [x] Apply D3's outcome to the REST-client seam.
+  As built: a new library `fallen-8-rest-client` (`NoSQL.GraphDB.Rest`) with no ProjectReference and
+  no PackageReference at all, added to the solution and consumed by both deployables. It owns
+  `RestSeam` (request building, the shared web-JSON options, the absent-body convention, and the
+  unreachable-versus-timed-out classification) plus the moved `UrlSafety`. The CLASSIFICATION is
+  shared and the VOCABULARY is not: each consumer passes a `RestSendFailureNaming` and a
+  `RestRefusalNaming`, so `BridgeError` and `GraphTargetException`/`GraphTargetTimeoutException`
+  keep their own types and wording, including the phase-1 timeout subclass and the one place the
+  embed loop attaches `SummariesWritten`. The OPTIONS classes stay copied per deployable and that
+  doc comment now says so precisely (the behavioural seam is shared, the configuration shape is
+  not). `CodeQualityTest.TheRestOnlyDeployables_ReferenceNeitherTheEngineNorTheApiApp` pins the
+  architecture rule for all three projects, since a reference added to the shared library would
+  reach both consumers and nothing else would notice.
+  Two corrections to the report's claims, both verified: the integrations target's `BuildPrefix`
+  matched the reserved `default` alias case-INSENSITIVELY while the platform compares namespace
+  names ordinally, so a namespace named `DEFAULT` had its writes sent to the default graph; and
+  the two Dockerfiles do NOT copy the repo root (only `Directory.Build.props` plus their own
+  project directory), so each needed the new project's directory added to its build context.
+  Both container builds were run to prove it.
+- [x] H1..H6 collapses per D5: full story at the owning home, one-line pointers
   elsewhere; docs pages keep the user-facing conclusion only.
-- [ ] Provider-internal helpers: `RequireFileTextAsync` on the provider context,
+  As built: H6 and H5's "no literal word beside a hole" rule were already homed in phase 1 and were
+  re-verified rather than redone (`SnapshotDocument.EntityDto`, `ProviderDescriptor.EntitySummaryTemplate`).
+  H4 needed no code change at all: every satellite site in the apiApp already pointed at
+  `NamespaceLoader`, so only the docs page still carried the derivation, and the runtime log line and
+  the 409 body keep the full reason as required. Two H3 sites the report does not list were found and
+  collapsed as well, both in the web-ui (`api/types.ts` `IntegrationRunState`,
+  `screens/IntegrationsScreen.tsx`), plus a compressed restatement at the runtime's own route.
+  H1's second in-file copy shrank the OpenAPI description of `POST /integrations/job`, and H3's the
+  one of `GET /integrations/run`; the snapshot diff is exactly those two strings. The `JobTransportLimit`
+  pointer is `<c>`-quoted rather than a `see cref`, because a cref renders into the published
+  description as "int IntegrationsController.JobTransportLimit".
+- [x] Provider-internal helpers: `RequireFileTextAsync` on the provider context,
   `EntityDto.SetIfPresent` (one null/whitespace semantic instead of four).
-- [ ] Docs drift: "four routes" becomes six (docs page + three code comments);
+  Done in phase 1 by the providers slice, because they live in the files M4 already had open;
+  see the phase 1 minors note for the single semantic chosen and the one site deliberately
+  left spelled out (the ARXML reader's own model, which must not import the snapshot
+  contract).
+- [x] Docs drift: "four routes" becomes six (docs page + three code comments);
   `mcp-server.md`'s `f8_admin` row gains `get_settings`/`set_settings`; optionally the
   run-visibility clause in the README integrations bullet.
-- [ ] Web-ui minors: `canvas-accessible-name.test.tsx` adopts `fakeForceGraph`; export
+  As built: the count is stale at EIGHT sites, not four. Beyond the four the report names, it is
+  also in `docker-compose.yml`, `Fallen8IntegrationsOptions` (twice), `fallen-8-web-ui/src/api/types.ts`
+  and `IntegrationsEndpointTest` - and the last one was not only prose: `ProxyRoutes` /
+  `CallEveryProxyRoute` enumerated four routes, so the capability-off 403, the unsecured 401, both
+  unreachable 503s and the "not twinned under /ns" pin all skipped the two run routes that
+  run-visibility added. The two routes joined that list (the three test names lost their "AllFour"),
+  which is a coverage gain rather than a rename. Where a count carries no information it was dropped
+  instead of corrected. The README clause landed: the bullet gained "with a run you can watch" and
+  lost a line, so it still fits the list.
+- [x] Web-ui minors: `canvas-accessible-name.test.tsx` adopts `fakeForceGraph`; export
   `startDeadline` (or a shared deadline util) and use it in `generate.ts`; dedupe the NL
   panels' reachability-probe effect into `useNlRun`.
-- [ ] Record (not fix) the three latent config risks in the writable-instance-config
+  Done alongside M5 in the Studio slice, since they are the same tree. The extracted probe
+  gained its first isolated tests, and both "reports nothing" cases assert the probe was
+  never SENT rather than that the state is null: the weaker form passed with the instance-mode
+  guard removed, which the mutation check caught.
+- [x] Record (not fix) the three latent config risks in the writable-instance-config
   feature record, each with its revisit trigger (parallel boot, policy relaxation,
   authority-type addition).
+  As built: `features/done/writable-instance-config/` held only a spec and a plan, both
+  historical, so there was no living doc to record them in. Added a README there (the repo's
+  living-doc convention) carrying the three risks, each with the change that would make it
+  reachable, plus where the contract actually lives.
 
 ## Impact on existing features (mandatory sweep)
 

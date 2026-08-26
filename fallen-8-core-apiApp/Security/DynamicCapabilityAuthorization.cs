@@ -59,8 +59,8 @@ namespace NoSQL.GraphDB.App.Security
             Ingestion,
 
             /// <summary>The integration runtime proxy (feature integrations,
-            /// <c>Fallen8:Integrations:Enabled</c>) - default off: the four <c>/integrations</c>
-            /// routes answer 403 and no sidecar is contacted. This 403 is the whole opt-out
+            /// <c>Fallen8:Integrations:Enabled</c>) - default off: every <c>/integrations</c>
+            /// route answers 403 and no sidecar is contacted. This 403 is the whole opt-out
             /// (<c>F8_INTEGRATIONS=false</c>), and it is what a client gates the feature on, so it
             /// lives here rather than as a flag check in the controller.</summary>
             Integrations

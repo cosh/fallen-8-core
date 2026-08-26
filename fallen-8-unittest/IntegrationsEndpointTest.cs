@@ -46,7 +46,7 @@ namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     /// Pins the HTTP surface of the integrations feature through both hosted pipelines: the
-    /// fallen-8-integrations runtime's own four routes plus its health probe, and the apiApp's
+    /// fallen-8-integrations runtime's own six routes plus its health probe, and the apiApp's
     /// authenticated proxy over them. Both halves run in process, the runtime under
     /// WebApplicationFactory over its deliberately namespaced entry point.
     /// </summary>
@@ -230,6 +230,8 @@ namespace NoSQL.GraphDB.Tests
         private const String ProxyVocabularyRoute = "/integrations/vocabulary";
         private const String ProxyValidateRoute = "/integrations/snapshot/validate";
         private const String ProxyJobRoute = "/integrations/job";
+        private const String ProxyRunsRoute = "/integrations/run";
+        private const String ProxyRunRoute = "/integrations/run/garage";
 
         private const String CsvProviderId = "csv-device-list";
         private const String UnifiProviderId = "unifi-network";
@@ -1181,6 +1183,8 @@ namespace NoSQL.GraphDB.Tests
                 await client.GetAsync(ProxyVocabularyRoute),
                 await client.PostAsync(ProxyValidateRoute, Json(SnapshotBody("complete"))),
                 await client.PostAsync(ProxyJobRoute, Json(JobBody(CsvProviderId, "garage", null))),
+                await client.GetAsync(ProxyRunsRoute),
+                await client.GetAsync(ProxyRunRoute),
             };
 
             return answers;
@@ -1189,6 +1193,7 @@ namespace NoSQL.GraphDB.Tests
         private static readonly String[] ProxyRoutes =
         {
             ProxyProvidersRoute, ProxyVocabularyRoute, ProxyValidateRoute, ProxyJobRoute,
+            ProxyRunsRoute, ProxyRunRoute,
         };
 
         /// <summary>
@@ -1197,7 +1202,7 @@ namespace NoSQL.GraphDB.Tests
         /// a caller the instance knows, and an unauthenticated one is challenged first (below).
         /// </summary>
         [TestMethod]
-        public async Task WithTheCapabilityOff_AllFourProxyRoutesAnswer403ToAnAuthenticatedCaller()
+        public async Task WithTheCapabilityOff_EveryProxyRouteAnswers403ToAnAuthenticatedCaller()
         {
             // Nothing sets Fallen8:Integrations:Enabled: OFF is the default, and no endpoint is
             // configured either, so a 403 here also proves no sidecar was contacted before the gate.
@@ -1244,7 +1249,7 @@ namespace NoSQL.GraphDB.Tests
         /// On, but no runtime configured: a bare dotnet run says so rather than timing out.
         /// </summary>
         [TestMethod]
-        public async Task WithNoEndpointConfigured_AllFourProxyRoutesAnswer503()
+        public async Task WithNoEndpointConfigured_EveryProxyRouteAnswers503()
         {
             using var factory = new ProxyFactory(enabled: "true");
             using var client = factory.CreateClient();
@@ -1317,7 +1322,7 @@ namespace NoSQL.GraphDB.Tests
         /// On, with an endpoint nothing listens on: unreachable becomes 503, not a 500 and not a hang.
         /// </summary>
         [TestMethod]
-        public async Task WithAnEndpointNothingListensOn_AllFourProxyRoutesAnswer503RatherThan500()
+        public async Task WithAnEndpointNothingListensOn_EveryProxyRouteAnswers503RatherThan500()
         {
             var endpoint = "http://127.0.0.1:" + ClosedLoopbackPort().ToString(CultureInfo.InvariantCulture) + "/";
 
@@ -1346,11 +1351,11 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        /// The four routes are Fallen-8-level: one runtime serves the whole instance and a job names
+        /// Every proxy route is Fallen-8-level: one runtime serves the whole instance and a job names
         /// the namespace it writes into.
         /// </summary>
         [TestMethod]
-        public async Task TheFourProxyRoutesAreNotTwinnedUnderNs()
+        public async Task TheProxyRoutesAreNotTwinnedUnderNs()
         {
             var endpoint = "http://127.0.0.1:" + ClosedLoopbackPort().ToString(CultureInfo.InvariantCulture) + "/";
 
@@ -1375,6 +1380,8 @@ namespace NoSQL.GraphDB.Tests
                 await client.GetAsync("/ns/default" + ProxyVocabularyRoute),
                 await client.PostAsync("/ns/default" + ProxyValidateRoute, Json(SnapshotBody("complete"))),
                 await client.PostAsync("/ns/default" + ProxyJobRoute, Json(JobBody(CsvProviderId, "garage", null))),
+                await client.GetAsync("/ns/default" + ProxyRunsRoute),
+                await client.GetAsync("/ns/default" + ProxyRunRoute),
             };
 
             for (var i = 0; i < twins.Count; i++)

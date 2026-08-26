@@ -96,7 +96,7 @@ services:
       - Fallen8__Nlp__Endpoint=http://nlp:8100
       # Integration jobs (feature integrations): the f8-integrations sidecar below reads a system
       # on the user's own network and writes what it saw into a namespace. The apiApp only proxies
-      # its four routes, so F8_INTEGRATIONS=false makes them answer 403 AND (via env:up) skips the
+      # its routes, so F8_INTEGRATIONS=false makes them answer 403 AND (via env:up) skips the
       # sidecar (compose profile "integrations"). The endpoint is in-network only: that container
       # has no host port.
       - Fallen8__Integrations__Enabled=${F8_INTEGRATIONS:-true}

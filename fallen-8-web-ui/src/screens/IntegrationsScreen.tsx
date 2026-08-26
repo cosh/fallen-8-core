@@ -56,10 +56,9 @@ import { RUN_PHASES } from "../api/types";
  * writes the fourth integration cannot write a React component for it anyway.
  *
  * Submitting STARTS a run and does not wait for it: the runtime answers a run id, and this screen
- * then watches that run - the phase it is in, and its report once it ends. That is not a run history.
- * The runtime keeps one slot per identity, superseded by that identity's next run and dropped on
- * restart, so there is still no schedule, no list of past runs and no saved job list here; timing
- * belongs to whoever wants the data.
+ * then watches that run - the phase it is in, and its report once it ends. That is not a run history
+ * (the boundary is on IntegrationRunState), so there is no schedule, no list of past runs and no
+ * saved job list here; timing belongs to whoever wants the data.
  */
 export function IntegrationsScreen() {
   const instance = useActiveInstance()!;

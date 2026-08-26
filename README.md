@@ -55,9 +55,8 @@ Each feature has a deep-dive doc — follow the link.
   JSON that round-trips exactly.
 - **[Integrations](https://docs.fallen-8.com/integrations/)**: a sidecar that reads a system on
   your own network (a CSV inventory, a UniFi console, a Fronius inverter, an AUTOSAR vehicle-network
-  extract) and writes what it saw into a
-  namespace, with credentials **and uploaded files** that are held for one run and never stored, and
-  exact-match identity.
+  extract) and writes what it saw into a namespace, with a run you can watch, exact-match identity,
+  and credentials **and uploaded files** that are held for one run and never stored.
 - **[Live change feed](https://docs.fallen-8.com/change-feed/)** — committed mutations as Server-Sent Events, in
   commit order, with in-band resync.
 - **[Save games](https://docs.fallen-8.com/save-games/)** — checkpoints tracked by a registry that drives startup,

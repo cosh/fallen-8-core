@@ -41,8 +41,8 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class CodeQualityTest
     {
-        private static readonly string[] _allProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-unittest" };
-        private static readonly string[] _productProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp" };
+        private static readonly string[] _allProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client", "fallen-8-unittest" };
+        private static readonly string[] _productProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client" };
 
         private static IEnumerable<string> SourceFiles(params string[] projects)
         {
@@ -258,6 +258,42 @@ namespace NoSQL.GraphDB.Tests
             }
 
             AssertNoViolations(violations, "every PackageReference pins an exact version");
+        }
+
+        [TestMethod]
+        public void TheRestOnlyDeployables_ReferenceNeitherTheEngineNorTheApiApp()
+        {
+            // fallen-8-mcp and fallen-8-integrations reach a graph over the public REST contract ONLY: one
+            // is handed somebody's network-admin credential, both must version independently against a
+            // boundary a project reference would widen to the whole engine surface. That rule is what makes
+            // fallen-8-rest-client (the seam they share) legal, so the seam is held to it as well - a
+            // reference added THERE would reach both consumers transitively and nothing else would notice.
+            var root = TestRepo.Root();
+            var forbidden = new[] { "fallen-8-core.csproj", "fallen-8-core-apiApp.csproj" };
+            var violations = new List<string>();
+
+            foreach (var project in new[] { "fallen-8-mcp", "fallen-8-integrations", "fallen-8-rest-client" })
+            {
+                var csproj = Path.Combine(root, project, project + ".csproj");
+                foreach (var line in File.ReadLines(csproj))
+                {
+                    if (!line.Contains("<ProjectReference", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    foreach (var banned in forbidden)
+                    {
+                        if (line.Contains(banned, StringComparison.OrdinalIgnoreCase))
+                        {
+                            violations.Add(project + ": " + line.Trim());
+                        }
+                    }
+                }
+            }
+
+            AssertNoViolations(violations,
+                "the REST-only deployables and the seam they share reference neither fallen-8-core nor fallen-8-core-apiApp");
         }
     }
 }

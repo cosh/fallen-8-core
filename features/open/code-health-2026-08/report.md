@@ -161,7 +161,7 @@ record.
 
 ## Major - duplication (VERIFIED)
 
-- [ ] **D1. The REST-client seam is reimplemented near line-for-line in both REST-only
+- [x] **D1. The REST-client seam is reimplemented near line-for-line in both REST-only
   deployables.** `fallen-8-mcp/Bridge/Fallen8RestClient.cs:169-207` and
   `fallen-8-integrations/Graph/Fallen8RestTarget.cs:911-981` duplicate request building,
   `JsonContent.Create(body, mediaType: null, JsonOptions)`, the 204/`"null"`-body
@@ -183,24 +183,24 @@ Each story below is narrated in full at 3+ sites; the fix is one owning home and
 pointers everywhere else (docs pages keep the user-facing conclusion, never the
 derivation):
 
-- [ ] **H1.** The 192 MiB proxy bound / 128 MiB `MaxFileBytes` / ~171 MiB legal job /
+- [x] **H1.** The 192 MiB proxy bound / 128 MiB `MaxFileBytes` / ~171 MiB legal job /
   "above ~144 MiB has no effect" derivation: `docs/src/content/docs/integrations.md:113-122`,
   `IntegrationsController.cs` `JobTransportLimit` doc AND the `Job` method remarks.
   Home: `JobTransportLimit`.
-- [ ] **H2.** The Nahil warm-up retry algorithm (both Retry-After forms, 2s to 30s jittered
+- [x] **H2.** The Nahil warm-up retry algorithm (both Retry-After forms, 2s to 30s jittered
   backoff, 60s clamp, caller's timeout the only budget):
   `features/done/nahil-backend/spec.md` FR-4, `docs/src/content/docs/nahil.md:145-165`,
   `Helper/NahilWarmupRetryHandler.cs:36-53`. Home: the handler (it owns the contract).
-- [ ] **H3.** Run visibility's "one slot per identity, superseded, in memory, capped, not
+- [x] **H3.** Run visibility's "one slot per identity, superseded, in memory, capped, not
   a history": spec §, `docs/src/content/docs/integrations.md:82-84`,
   `IntegrationsController.cs:168-170`, `fallen-8-integrations/Run/RunTracker.cs:35-42`.
   Home: `RunTracker`.
-- [ ] **H4.** Why activation refuses unregistered checkpoint files:
+- [x] **H4.** Why activation refuses unregistered checkpoint files:
   `features/done/namespace-startup-load/spec.md:96-99`,
   `docs/src/content/docs/namespaces.mdx:199`, `Services/NamespaceLoader.cs:55-61`.
   Home: `NamespaceLoader` (runtime log line and 409 body keep the full reason; they are
   operator-facing strings, not documentation).
-- [ ] **H5.** The AUTOSAR "a system extract is complete by construction" story:
+- [x] **H5.** The AUTOSAR "a system extract is complete by construction" story:
   `features/done/autosar-arxml/spec.md:32-34` AND its own §10 repeat,
   `docs/src/content/docs/integrations.md:381-383`, `AutosarArxmlProvider.cs:48-50`.
   Home: the provider (it owns `Complete`).

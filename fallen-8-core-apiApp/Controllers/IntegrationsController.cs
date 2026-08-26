@@ -40,7 +40,7 @@ namespace NoSQL.GraphDB.App.Controllers
 {
     /// <summary>
     ///   The instance's door to the integration runtime (feature integrations): an authenticated
-    ///   proxy for the four routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
+    ///   proxy for the six routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
     ///   on the operator's own network and writes what it saw into one namespace. The runtime's
     ///   container port is not published, because jobs hand that container third-party credentials, so
     ///   this proxy is the only way in and needs no second auth story on the runtime side.
@@ -166,11 +166,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
         /// <remarks>What is happening NOW, and what happened LAST, per integration identity - and nothing
-        /// else. This is deliberately not a run log: the runtime keeps one slot per identity, superseded by
-        /// that identity's next run, in memory, dropped on restart, and capped so a caller inventing an
-        /// identity per run cannot grow it without bound.
-        /// <para>It exists because a report used to be unreachable. The job route's answer was the only copy
-        /// the runtime made, and any real source outlives the connection that would have carried it.</para></remarks>
+        /// else: this is deliberately not a run log. Exactly how narrow that is, and why a report has to
+        /// be readable after the run at all, is stated once on the runtime's <c>RunTracker</c>.</remarks>
         /// <response code="200">Every tracked run, newest first</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>
@@ -243,14 +240,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// https://docs.fallen-8.com/integrations/. The caller owns the stability of the
         /// integration instance id, which nothing can validate: a run under an identity that
         /// integration has not always used withdraws and deletes what the real one claimed.</para>
-        /// <para>Because a file travels in the body, this is the one route besides document upload
-        /// whose body bound is larger than the 1 MiB every other endpoint carries. That bound (192 MiB)
-        /// sits above any legal job and below the runtime's own, so an oversized FILE is refused by the
-        /// runtime with a message naming both its size and the ceiling, while an absurd BODY is refused
-        /// here with a 413 - and neither is ever reported as a runtime that did not answer. It is fixed
-        /// rather than configurable, so raising the runtime's Integrations:MaxFileBytes past about 144 MiB
-        /// has no effect through this proxy, which is the only way in (base64 costs a third, so a maximal
-        /// 128 MiB file arrives at about 171 MiB).</para></remarks>
+        /// <para>Because a file travels in the body, this route carries a 192 MiB body bound rather than
+        /// the 1 MiB every other endpoint has, and a body over it is refused here with a 413. An oversized
+        /// FILE inside a legal body is the runtime's refusal instead, naming both its size and the
+        /// ceiling. Why that number and what it means for the runtime's own Integrations:MaxFileBytes is
+        /// stated once on this controller's <c>JobTransportLimit</c>.</para></remarks>
         /// <response code="200">The report, for a run that ended before it had a phase or when wait=true</response>
         /// <response code="202">The run was accepted; watch it at /integrations/run/{instanceId}</response>
         /// <response code="400">The runtime refused the job as written, its own message saying why</response>
