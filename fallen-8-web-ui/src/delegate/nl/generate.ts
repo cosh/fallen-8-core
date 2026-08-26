@@ -27,6 +27,7 @@ import { effectiveNlConfig, resolveNlConfig, type NlAssistConfig } from "./confi
 import { getStudioConfig } from "../../app/studioConfig";
 import type { NlPrompt } from "./prompt";
 import { postChat } from "../../api/endpoints";
+import { startDeadline } from "../../api/client";
 import type { InstanceConfig } from "../../instances/types";
 
 /**
@@ -112,20 +113,8 @@ export async function generateChat(
   const resolved = resolveNlConfig(config);
 
   // One deadline per call, applied HERE so both transports inherit it from a single place.
-  const deadline = new AbortController();
-  let expired = false;
-  const timer = setTimeout(() => {
-    expired = true;
-    deadline.abort();
-  }, NL_REQUEST_TIMEOUT_MS);
-  const forwardAbort = () => deadline.abort();
-  if (signal?.aborted) {
-    // An ALREADY-aborted caller signal fires no event, so forwarding alone would let the call
-    // proceed uncancelled. Real fetch rejects such a request outright; match that.
-    deadline.abort();
-  } else {
-    signal?.addEventListener("abort", forwardAbort, { once: true });
-  }
+  // See startDeadline (api/client.ts) for the caller-abort-vs-timeout mechanics.
+  const deadline = startDeadline(signal, NL_REQUEST_TIMEOUT_MS);
 
   try {
     if (resolved.mode === "instance") {
@@ -142,7 +131,7 @@ export async function generateChat(
     // `expired` alone is not enough: if a real response or error lands in the same tick the timer
     // fires, relabelling it would replace the server's honest message (a 504 naming its own budget)
     // with ours. Only an actual cancellation is ours to translate.
-    if (expired && (e as { name?: string })?.name === "AbortError") {
+    if (deadline.expired && (e as { name?: string })?.name === "AbortError") {
       // Says only what is true: OUR limit was reached. It deliberately does not claim the request
       // "never completed", because a chat budget configured above this ceiling would be cut off
       // here while the server was still legitimately working.
@@ -155,8 +144,7 @@ export async function generateChat(
     }
     throw e;
   } finally {
-    clearTimeout(timer);
-    signal?.removeEventListener("abort", forwardAbort);
+    deadline.done();
   }
 }
 

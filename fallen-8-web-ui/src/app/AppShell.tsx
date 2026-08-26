@@ -46,6 +46,7 @@ import { FirstRunOverlay } from "../firstrun/FirstRunOverlay";
 import { useFirstRun } from "../firstrun/firstRunStore";
 import { help } from "../lib/fieldHelp";
 import { DOCS_BASE } from "../lib/sectionHelp";
+import { STATUS_POLL_MS } from "../lib/pollIntervals";
 import { NAV, navCapability, type NavItem } from "./nav";
 import { useNamespaceSignals } from "./namespaceSignals";
 import { sameScopedScreen } from "./scopedRoute";
@@ -69,7 +70,7 @@ function useConnectionState(instance: InstanceConfig | null): ConnectionState {
     queryKey: [instance?.id, "status"],
     queryFn: ({ signal }) => getStatus(instance!, signal),
     enabled: instance !== null,
-    refetchInterval: 15_000,
+    refetchInterval: STATUS_POLL_MS,
     retry: 0,
   });
 
@@ -188,7 +189,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     queryKey: [active?.id, "namespaces"],
     queryFn: ({ signal }) => listNamespaces(active!, signal),
     enabled: active !== null && connection === "connected",
-    refetchInterval: 15_000,
+    refetchInterval: STATUS_POLL_MS,
     retry: 0,
   });
   useEffect(() => {

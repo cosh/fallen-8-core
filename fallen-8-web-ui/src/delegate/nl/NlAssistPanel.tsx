@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { DelegateKind, DelegateValidationResult } from "../../api/types";
 import { help } from "../../lib/fieldHelp";
 import {
@@ -38,14 +38,8 @@ import { downloadText, toTrainingJsonl, type TrainingExample, type Verdict } fro
 import { NlDraftList, type NlDraftView } from "./NlDraftList";
 import { formatFragment } from "./format";
 import { buildGenerationPrompt, buildRefinePrompt, extractFragment } from "./prompt";
-import {
-  generateChat,
-  initialMessages,
-  probeEndpoint,
-  type ChatTurn,
-  type NlGenerationStats,
-} from "./generate";
-import { useElapsedSeconds, useNlRun } from "./useNlRun";
+import { generateChat, initialMessages, type ChatTurn, type NlGenerationStats } from "./generate";
+import { useElapsedSeconds, useNlRun, useReachabilityProbe } from "./useNlRun";
 import { useActiveInstance } from "../../instances/registry";
 
 /**
@@ -92,7 +86,6 @@ function NlAssistPanelInner({
   const [attempts, setAttempts] = useState<NlAttempt[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showConfig, setShowConfig] = useState(false);
-  const [reachable, setReachable] = useState<boolean | null>(null);
   const run = useNlRun();
   // Progress feedback; useElapsedSeconds explains why it is load-bearing.
   const elapsedSeconds = useElapsedSeconds(busy !== null);
@@ -103,23 +96,7 @@ function NlAssistPanelInner({
   // Instance mode targets the already-trusted instance, so it never shows an egress notice.
   const needsLeaveNotice =
     !isInstance && configured && !isLoopbackEndpoint(effective.endpoint) && !leaveNoticeAccepted;
-
-  // Informational reachability probe (FR-2) - never gates generation. Custom mode only:
-  // instance mode's reachability is the instance connection itself (shown on Connect).
-  useEffect(() => {
-    if (!configured || isInstance) {
-      setReachable(null);
-      return;
-    }
-    const controller = new AbortController();
-    setReachable(null);
-    void probeEndpoint(effective, controller.signal).then((ok) => {
-      if (!controller.signal.aborted) setReachable(ok);
-    });
-    return () => controller.abort();
-    // Deps are the effective backend's primitives - `effective` itself is a new object
-    // every render and would re-probe in a loop.
-  }, [configured, isInstance, effective.endpoint, effective.apiKind, effective.model, effective.apiKey]);
+  const reachable = useReachabilityProbe(configured, isInstance, effective);
 
   const generate = async () => {
     setError(null);

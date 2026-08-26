@@ -23,6 +23,8 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Canvas2D } from "../src/canvas/Canvas2D";
@@ -51,23 +53,8 @@ vi.mock("@sigma/edge-curve", () => import("./fakeSigma").then((m) => m.sigmaEdge
 vi.mock("graphology-layout-forceatlas2/worker", () =>
   import("./fakeSigma").then((m) => m.fa2WorkerModule));
 vi.mock("graphology-layout-forceatlas2", () => import("./fakeSigma").then((m) => m.fa2Module));
-vi.mock("3d-force-graph", () => ({
-  // Every ForceGraph3D setter returns the instance for chaining, so ONE self-returning proxy stands
-  // in for the whole fluent surface instead of forty stub methods - and it keeps working when
-  // Canvas3D starts calling a setter it does not call today.
-  default: class FakeForceGraph3D {
-    constructor() {
-      const chainable: Record<string | symbol, unknown> = {};
-      const proxy: unknown = new Proxy(chainable, {
-        get: (_target, prop) => {
-          if (prop === "camera") return () => ({ getWorldDirection: () => ({}) });
-          return () => proxy;
-        },
-      });
-      return proxy as FakeForceGraph3D;
-    }
-  },
-}));
+vi.mock("3d-force-graph", () =>
+  import("./fakeForceGraph").then((m) => ({ default: m.FakeForceGraph })));
 
 describe("canvas accessible name", () => {
   it("names the 2D graph container through a role that legitimately takes one", () => {
@@ -100,5 +87,16 @@ describe("canvas accessible name", () => {
 
     const canvas = screen.getByRole("img", { name: "graph canvas" });
     expect(canvas).toBe(screen.getByTestId("graph-canvas"));
+  });
+});
+
+describe("the 3d-force-graph double has one home", () => {
+  it("this file imports fakeForceGraph rather than hand-rolling its own proxy stub", () => {
+    const source = readFileSync(fileURLToPath(import.meta.url), "utf8");
+    expect(source).toMatch(/import\(["']\.\/fakeForceGraph["']\)/);
+    // Built rather than written literally, so this assertion does not itself contain the very
+    // string it is checking the file for.
+    const oldMockClassName = ["class Fake", "ForceGraph3D"].join("");
+    expect(source).not.toContain(oldMockClassName);
   });
 });

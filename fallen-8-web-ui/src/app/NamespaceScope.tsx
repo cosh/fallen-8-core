@@ -33,6 +33,7 @@ import { bumpFeedGeneration } from "../state/liveFeed";
 import { ErrorBox } from "../components/ErrorBox";
 import { useStudioConfig } from "./studioConfig";
 import { sameScopedScreen } from "./scopedRoute";
+import { STATUS_POLL_MS } from "../lib/pollIntervals";
 
 /**
  * Layout under /q/$ns/… (feature graph-namespaces): keeps the registry's active namespace
@@ -71,7 +72,7 @@ export function NamespaceScope() {
     queryKey: [instance?.id, "namespaces"],
     queryFn: ({ signal }) => listNamespaces(instance!, signal),
     enabled: instance !== null,
-    refetchInterval: 15_000,
+    refetchInterval: STATUS_POLL_MS,
     retry: 0,
   });
   const refetchNamespaces = namespaces.refetch;

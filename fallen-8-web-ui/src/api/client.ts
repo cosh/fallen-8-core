@@ -234,8 +234,12 @@ export async function throwIfNotOk(response: Response, url: string): Promise<voi
  *
  * Built by hand rather than with `AbortSignal.any`, which jsdom does not implement - a test suite
  * that cannot run the code is not covering it.
+ *
+ * `timeoutMs` undefined or 0 means no deadline at all: the caller's own signal passes through
+ * unchanged and `expired` never becomes true. Exported so a caller with its own timeout budget
+ * (nl-assist's model-call ceiling, generate.ts) reuses this rather than re-deriving it.
  */
-function startDeadline(
+export function startDeadline(
   caller: AbortSignal | undefined,
   timeoutMs: number | undefined,
 ): { signal: AbortSignal | undefined; expired: boolean; done: () => void } {
