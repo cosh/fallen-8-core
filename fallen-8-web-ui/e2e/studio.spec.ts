@@ -491,11 +491,15 @@ test("scenario 13 (graph-namespaces): benchmark generation writes the SELECTED n
     await registerSecuredInstance(page, "benchtest");
 
     await page.goto(`/q/${ns}/benchmarks`);
-    // The screen names the graph it acts on (instance / namespace).
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(ns);
     // A namespace created for this test, so it is empty and gets its own first-run show over
     // this screen. The setup dismissed it for `default` only - the memory is per namespace.
+    // BEFORE the heading assertion, not after: the show is a MODAL Radix dialog, so while it is
+    // open every sibling carries aria-hidden, and getByRole reads the accessibility tree - the
+    // h1 is not merely covered, it is unfindable. Asserting first was a race against the show's
+    // own mount, and it lost about half the time.
     await dismissFirstRunIfPresent(page);
+    // The screen names the graph it acts on (instance / namespace).
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(ns);
 
     await page.getByTestId("generate-sample").click();
     await expect(page.getByTestId("generate-result")).toBeVisible({ timeout: 30_000 });

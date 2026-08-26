@@ -133,8 +133,21 @@ test("the artifact mounts, scopes its styles, and runs monaco and sigma", async 
   //    a graphology-layout worker at load, so a bare "more than zero" would pass with
   //    monaco's worker missing entirely. Typing is what a real user does and gets the lazy
   //    worker started soonest.
-  const workersBeforeEditor = page.workers().length;
   await page.getByTestId("nav-path").click();
+
+  // Landing on a namespace-scoped screen is the last precondition the first-run walkthrough's
+  // auto path waits for (connected + arrived at an empty graph + never dismissed), and the
+  // STATUS_STUB above reports an empty graph, so it opens HERE - modal, with a viewport-wide
+  // scrim that owns every pointer event until it is closed. Dismissed the way an operator has
+  // to, and ASSERTED rather than tolerated: if the auto-show ever stops firing on this path,
+  // this step must fail loudly instead of quietly skipping a precondition it no longer has.
+  await expect(page.getByTestId("first-run-overlay")).toBeVisible();
+  await page.getByTestId("first-run-overlay-close").click();
+  await expect(page.getByTestId("first-run-overlay")).toHaveCount(0);
+
+  // Counted with the walkthrough gone, so the delta asserted below is monaco's worker and
+  // nothing the intervening UI happened to start.
+  const workersBeforeEditor = page.workers().length;
   await page.getByTestId("toggle-advanced").click();
   await page.getByTestId("slot-filter-vertexfilter").click();
   await expect(page.locator(".monaco-editor").first()).toBeVisible({ timeout: 15_000 });
