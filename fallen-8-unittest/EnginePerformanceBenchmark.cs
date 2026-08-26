@@ -57,17 +57,6 @@ namespace NoSQL.GraphDB.Tests
             Console.WriteLine("[EPBENCH] " + line);
         }
 
-        private static VertexModel[] CreateVertices(Fallen8 fallen8, int count, string label = "v")
-        {
-            var tx = new CreateVerticesTransaction();
-            for (int i = 0; i < count; i++)
-            {
-                tx.AddVertex(1u, label);
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
-
         // ---- P1: /path compiles once under repeated identical requests --------------------------
 
         [TestMethod]
@@ -77,7 +66,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var loggerFactory = TestLoggerFactory.Create();
             var fallen8 = new Fallen8(loggerFactory);
-            var vertices = CreateVertices(fallen8, 2);
+            var vertices = TestVertices.Create(fallen8, 2);
             var edgeTx = new CreateEdgesTransaction();
             edgeTx.AddEdge(vertices[0].Id, "e", vertices[1].Id, 1u);
             fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
@@ -124,7 +113,7 @@ namespace NoSQL.GraphDB.Tests
             foreach (var n in new[] { 20_000, 100_000, 500_000 })
             {
                 var fallen8 = new Fallen8(loggerFactory);
-                var vertices = CreateVertices(fallen8, n);
+                var vertices = TestVertices.Create(fallen8, n);
 
                 // Give one target vertex a small fixed degree (10 edges), independent of n.
                 int target = vertices[0].Id;
@@ -173,7 +162,7 @@ namespace NoSQL.GraphDB.Tests
                 var fallen8 = new Fallen8(loggerFactory);
 
                 const int n = 500_000;
-                var vertices = CreateVertices(fallen8, n);
+                var vertices = TestVertices.Create(fallen8, n);
                 var index = new RangeIndex();
                 index.Initialize(fallen8, null);
                 for (int i = 0; i < n; i++)
@@ -212,7 +201,7 @@ namespace NoSQL.GraphDB.Tests
                 var fallen8 = new Fallen8(loggerFactory);
 
                 const int n = 200_000;
-                var vertices = CreateVertices(fallen8, n);
+                var vertices = TestVertices.Create(fallen8, n);
 
                 IIndex rangeIndex, dictIndex;
                 fallen8.IndexFactory.TryCreateIndex(out rangeIndex, "benchRange", "RangeIndex");
@@ -299,13 +288,13 @@ namespace NoSQL.GraphDB.Tests
 
                 // S -> layer0 -> ... -> layer(depth-1) -> T; each layer holds `width` vertices, adjacent
                 // layers fully connected. width^depth distinct S->T routes, all of length depth+1.
-                var s = CreateVertices(fallen8, 1)[0];
+                var s = TestVertices.Create(fallen8, 1)[0];
                 var layers = new VertexModel[depth][];
                 for (int d = 0; d < depth; d++)
                 {
-                    layers[d] = CreateVertices(fallen8, width);
+                    layers[d] = TestVertices.Create(fallen8, width);
                 }
-                var t = CreateVertices(fallen8, 1)[0];
+                var t = TestVertices.Create(fallen8, 1)[0];
 
                 var edgeTx = new CreateEdgesTransaction();
                 foreach (var first in layers[0])

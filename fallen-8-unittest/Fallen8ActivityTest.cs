@@ -100,35 +100,30 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void CheckpointSpans_CarryPartitionsBytesAndReplayCount()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_obs_span_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
+            // Declared first, so it is disposed LAST: the engines release their checkpoint handles
+            // before the directory goes.
+            using var temp = new TempDirectory("f8_obs_span_");
+
+            using var collector = new SpanCollector("NoSQL.GraphDB.Core");
+            using var engine = new Fallen8(TestLoggerFactory.Create());
+            engine.EnqueueTransaction(new CreateVertexTransaction
             {
-                using var collector = new SpanCollector("NoSQL.GraphDB.Core");
-                using var engine = new Fallen8(TestLoggerFactory.Create());
-                engine.EnqueueTransaction(new CreateVertexTransaction
-                {
-                    Definition = new VertexDefinition { CreationDate = 1u, Label = "person" }
-                }).WaitUntilFinished();
+                Definition = new VertexDefinition { CreationDate = 1u, Label = "person" }
+            }).WaitUntilFinished();
 
-                var save = new SaveTransaction { Path = Path.Combine(tempDir, "snap.f8s"), SavePartitions = 2 };
-                engine.EnqueueTransaction(save).WaitUntilFinished();
+            var save = new SaveTransaction { Path = Path.Combine(temp.FullName, "snap.f8s"), SavePartitions = 2 };
+            engine.EnqueueTransaction(save).WaitUntilFinished();
 
-                var saveSpan = collector.Stopped.Single(a => a.OperationName == "fallen8.checkpoint.save");
-                Assert.AreEqual(2, saveSpan.GetTagItem("checkpoint.partitions"));
-                Assert.IsTrue((Int64)saveSpan.GetTagItem("checkpoint.bytes") > 0L);
+            var saveSpan = collector.Stopped.Single(a => a.OperationName == "fallen8.checkpoint.save");
+            Assert.AreEqual(2, saveSpan.GetTagItem("checkpoint.partitions"));
+            Assert.IsTrue((Int64)saveSpan.GetTagItem("checkpoint.bytes") > 0L);
 
-                using var restored = new Fallen8(TestLoggerFactory.Create());
-                restored.EnqueueTransaction(new LoadTransaction { Path = save.ActualPath }).WaitUntilFinished();
+            using var restored = new Fallen8(TestLoggerFactory.Create());
+            restored.EnqueueTransaction(new LoadTransaction { Path = save.ActualPath }).WaitUntilFinished();
 
-                var loadSpan = collector.Stopped.Single(a => a.OperationName == "fallen8.checkpoint.load");
-                Assert.IsTrue((Int64)loadSpan.GetTagItem("checkpoint.bytes") > 0L);
-                Assert.AreEqual(0, loadSpan.GetTagItem("checkpoint.wal.replayed"), "no WAL, nothing replayed");
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            var loadSpan = collector.Stopped.Single(a => a.OperationName == "fallen8.checkpoint.load");
+            Assert.IsTrue((Int64)loadSpan.GetTagItem("checkpoint.bytes") > 0L);
+            Assert.AreEqual(0, loadSpan.GetTagItem("checkpoint.wal.replayed"), "no WAL, nothing replayed");
         }
 
         [TestMethod]

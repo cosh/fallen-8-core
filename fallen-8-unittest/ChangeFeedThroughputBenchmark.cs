@@ -53,26 +53,19 @@ namespace NoSQL.GraphDB.Tests
         [Ignore("Benchmark harness; opt-in. Not part of the default suite.")]
         public void CommittedWriteThroughput_FeedOff_vs_FeedOn()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_cfbench_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                var results = new List<string>
-                {
-                    Run("feed-off", tempDir, changeFeed: null, subscriber: SubscriberMode.None),
-                    Run("feed-on-no-subscriber", tempDir, new ChangeFeedOptions(), SubscriberMode.None),
-                    Run("feed-on-one-subscriber", tempDir, new ChangeFeedOptions(), SubscriberMode.Draining),
-                    Run("feed-on-stalled-subscriber", tempDir, new ChangeFeedOptions(), SubscriberMode.Stalled)
-                };
+            using var temp = new TempDirectory("f8_cfbench_");
 
-                foreach (var line in results)
-                {
-                    Console.WriteLine("[change-feed benchmark] " + line);
-                }
-            }
-            finally
+            var results = new List<string>
             {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
+                Run("feed-off", temp.FullName, changeFeed: null, subscriber: SubscriberMode.None),
+                Run("feed-on-no-subscriber", temp.FullName, new ChangeFeedOptions(), SubscriberMode.None),
+                Run("feed-on-one-subscriber", temp.FullName, new ChangeFeedOptions(), SubscriberMode.Draining),
+                Run("feed-on-stalled-subscriber", temp.FullName, new ChangeFeedOptions(), SubscriberMode.Stalled)
+            };
+
+            foreach (var line in results)
+            {
+                Console.WriteLine("[change-feed benchmark] " + line);
             }
         }
 

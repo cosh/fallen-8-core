@@ -57,35 +57,24 @@ namespace NoSQL.GraphDB.Tests
     public class PersistenceHardeningTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_persist_hardening_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_persist_hardening_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         #region helpers
 
-        private string SavePath => Path.Combine(_tempDir, "savegame.f8s");
+        private string SavePath => Path.Combine(_temp.FullName, "savegame.f8s");
 
         private string Save(Fallen8 fallen8, int partitions = 1)
         {
@@ -125,7 +114,7 @@ namespace NoSQL.GraphDB.Tests
 
         private string FindSingleSidecar(string marker)
         {
-            return Directory.GetFiles(_tempDir)
+            return Directory.GetFiles(_temp.FullName)
                 .Where(f => Path.GetFileName(f).Contains(marker))
                 .Single(f => !f.Contains(Constants.TempSaveSuffix));
         }
@@ -187,7 +176,7 @@ namespace NoSQL.GraphDB.Tests
 
             // A pre-existing/unversioned or foreign file: it does not carry the format magic. This is
             // exactly what an old (pre-hardening) save file looks like - and it must be REJECTED loudly.
-            var foreign = Path.Combine(_tempDir, "foreign.bin");
+            var foreign = Path.Combine(_temp.FullName, "foreign.bin");
             File.WriteAllBytes(foreign, Enumerable.Range(0, 4096).Select(i => (byte)(i % 251)).ToArray());
 
             var (state, error) = Load(fallen8, foreign);
@@ -285,7 +274,7 @@ namespace NoSQL.GraphDB.Tests
             var fallen8 = new Fallen8(_loggerFactory);
             AddVertices(fallen8, ("person", "Alice"));
 
-            var tiny = Path.Combine(_tempDir, "tiny.bin");
+            var tiny = Path.Combine(_temp.FullName, "tiny.bin");
             File.WriteAllBytes(tiny, new byte[] { 1, 2, 3 });
 
             var (state, _) = Load(fallen8, tiny);

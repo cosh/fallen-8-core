@@ -387,31 +387,24 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void SaveEmitsNothing_LoadEmitsResync()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_cf_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                TwoVertices();
-                WaitForSeq(_fallen8, 2);
-                using var subscription = Subscribe();
+            using var temp = new TempDirectory("f8_cf_");
 
-                var save = new SaveTransaction { Path = Path.Combine(tempDir, "cf.f8s"), SavePartitions = 1 };
-                _fallen8.EnqueueTransaction(save).WaitUntilFinished();
-                AssertQuiet(subscription);
+            TwoVertices();
+            WaitForSeq(_fallen8, 2);
+            using var subscription = Subscribe();
 
-                var load = new LoadTransaction { Path = save.ActualPath };
-                var info = _fallen8.EnqueueTransaction(load);
-                info.WaitUntilFinished();
-                Assert.AreEqual(TransactionState.Finished, info.TransactionState);
+            var save = new SaveTransaction { Path = Path.Combine(temp.FullName, "cf.f8s"), SavePartitions = 1 };
+            _fallen8.EnqueueTransaction(save).WaitUntilFinished();
+            AssertQuiet(subscription);
 
-                var resync = Read(subscription);
-                Assert.AreEqual(ChangeEventKind.Resync, resync.Kind);
-                Assert.AreEqual("load", resync.ResyncReason);
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            var load = new LoadTransaction { Path = save.ActualPath };
+            var info = _fallen8.EnqueueTransaction(load);
+            info.WaitUntilFinished();
+            Assert.AreEqual(TransactionState.Finished, info.TransactionState);
+
+            var resync = Read(subscription);
+            Assert.AreEqual(ChangeEventKind.Resync, resync.Kind);
+            Assert.AreEqual("load", resync.ResyncReason);
         }
 
         /// <summary>
@@ -860,32 +853,25 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void WalEnabledEngine_DeliversEvents_AfterDurableCommit()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_cfwal_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                using var walEngine = new Fallen8(_loggerFactory,
-                    new WriteAheadLogOptions(Path.Combine(tempDir, "cf.wal")), null, null, new ChangeFeedOptions());
+            using var temp = new TempDirectory("f8_cfwal_");
 
-                Assert.IsTrue(walEngine.ChangeFeed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription));
-                using (subscription)
+            using var walEngine = new Fallen8(_loggerFactory,
+                new WriteAheadLogOptions(Path.Combine(temp.FullName, "cf.wal")), null, null, new ChangeFeedOptions());
+
+            Assert.IsTrue(walEngine.ChangeFeed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription));
+            using (subscription)
+            {
+                var tx = new CreateVertexTransaction
                 {
-                    var tx = new CreateVertexTransaction
-                    {
-                        Definition = new NoSQL.GraphDB.Core.Model.VertexDefinition { CreationDate = 1u, Label = "person" }
-                    };
-                    var info = walEngine.EnqueueTransaction(tx);
-                    info.WaitUntilFinished();
-                    Assert.IsTrue(info.Durable, "the WAL-enabled commit is durable");
+                    Definition = new NoSQL.GraphDB.Core.Model.VertexDefinition { CreationDate = 1u, Label = "person" }
+                };
+                var info = walEngine.EnqueueTransaction(tx);
+                info.WaitUntilFinished();
+                Assert.IsTrue(info.Durable, "the WAL-enabled commit is durable");
 
-                    var evt = Read(subscription);
-                    Assert.AreEqual(ChangeEventKind.VertexCreated, evt.Kind);
-                    Assert.AreEqual(1, evt.Seq);
-                }
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
+                var evt = Read(subscription);
+                Assert.AreEqual(ChangeEventKind.VertexCreated, evt.Kind);
+                Assert.AreEqual(1, evt.Seq);
             }
         }
 

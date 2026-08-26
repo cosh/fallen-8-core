@@ -102,33 +102,23 @@ namespace NoSQL.GraphDB.Tests
         /// </summary>
         private NamespaceFactory NotLoadedHost(string name = "archived")
         {
-            _storageDir = Path.Combine(Path.GetTempPath(), "f8_nsx_" + Guid.NewGuid().ToString("N"));
-            _metaDir = Path.Combine(_storageDir, "metadata");
-            Directory.CreateDirectory(_metaDir);
-            File.WriteAllText(Path.Combine(_metaDir, "namespaces.json"),
+            _storage = new TempDirectory("f8_nsx_");
+            var metaDir = Path.Combine(_storage.FullName, "metadata");
+            Directory.CreateDirectory(metaDir);
+            File.WriteAllText(Path.Combine(metaDir, "namespaces.json"),
                 "{\"schemaVersion\":1,\"namespaces\":[{\"id\":\"ns-20260101-000000-abcd\",\"name\":\"" + name +
                 "\",\"createdAt\":\"2026-01-01T00:00:00.000Z\",\"loadOnStartupEnabled\":false}]}");
 
-            return new NamespaceFactory(storageDir: _storageDir, metaDir: _metaDir);
+            return new NamespaceFactory(storageDir: _storage.FullName, metaDir: metaDir);
         }
 
-        private string _storageDir;
-        private string _metaDir;
+        /// <summary>Only the tests that need a catalog have one; the rest leave this null.</summary>
+        private TempDirectory _storage;
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_storageDir != null && Directory.Exists(_storageDir))
-                {
-                    Directory.Delete(_storageDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _storage?.Dispose();
         }
 
         private static StringContent Json(string body)
@@ -806,7 +796,7 @@ namespace NoSQL.GraphDB.Tests
 
         private string[] Checkpoints()
         {
-            return Directory.GetFiles(_storageDir, "*.f8s*", SearchOption.AllDirectories);
+            return Directory.GetFiles(_storage.FullName, "*.f8s*", SearchOption.AllDirectories);
         }
 
         /// <summary>

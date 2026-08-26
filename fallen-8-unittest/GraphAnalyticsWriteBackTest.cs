@@ -56,80 +56,69 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void WriteBack_ModeA_SurvivesSnapshot_ButNotWalOnlyReplay()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_analytics_wb_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
+            using var temp = new TempDirectory("f8_analytics_wb_");
+
+            // (1) WAL on: the vertex creation IS logged; the analytics write-back property
+            // (a DelegateTransaction SetProperty - the exact write-back shape) is NOT.
+            var walPath = Path.Combine(temp.FullName, "wal.f8s.wal");
+            Int32 vertexId;
+            using (var fallen8 = new Fallen8(_loggerFactory, new WriteAheadLogOptions(walPath)))
             {
-                // (1) WAL on: the vertex creation IS logged; the analytics write-back property
-                // (a DelegateTransaction SetProperty - the exact write-back shape) is NOT.
-                var walPath = Path.Combine(tempDir, "wal.f8s.wal");
-                Int32 vertexId;
-                using (var fallen8 = new Fallen8(_loggerFactory, new WriteAheadLogOptions(walPath)))
+                var createTx = new CreateVertexTransaction
                 {
-                    var createTx = new CreateVertexTransaction
-                    {
-                        Definition = new VertexDefinition { CreationDate = 1u, Label = "person" }
-                    };
-                    fallen8.EnqueueTransaction(createTx).WaitUntilFinished();
-                    vertexId = createTx.VertexCreated.Id;
+                    Definition = new VertexDefinition { CreationDate = 1u, Label = "person" }
+                };
+                fallen8.EnqueueTransaction(createTx).WaitUntilFinished();
+                vertexId = createTx.VertexCreated.Id;
 
-                    Assert.IsTrue(fallen8.TryRunAnalytics(out var run, "PAGERANK", new GraphAnalyticsDefinition()));
-                    var score = run.VertexScores[vertexId];
+                Assert.IsTrue(fallen8.TryRunAnalytics(out var run, "PAGERANK", new GraphAnalyticsDefinition()));
+                var score = run.VertexScores[vertexId];
 
-                    var writeBack = new DelegateTransaction(
-                        ctx => ctx.SetProperty(vertexId, "analytics.pagerank", score),
-                        name: "analytics-writeback:analytics.pagerank");
-                    var info = fallen8.EnqueueTransaction(writeBack);
-                    info.WaitUntilFinished();
-                    Assert.AreEqual(TransactionState.Finished, info.TransactionState);
-                }
-
-                using (var recovered = new Fallen8(_loggerFactory, new WriteAheadLogOptions(walPath)))
-                {
-                    Assert.IsTrue(recovered.TryGetVertex(out var vertex, vertexId),
-                        "the vertex itself is WAL-logged and replays");
-                    Assert.IsFalse(vertex.TryGetProperty<Object>(out _, "analytics.pagerank"),
-                        "the write-back property is mode (a): NOT WAL-logged, absent after a WAL-only replay - re-run to restore");
-                }
-
-                // (2) The same write-back IS captured by a snapshot.
-                var walPath2 = Path.Combine(tempDir, "snap.f8s.wal");
-                var savePath = Path.Combine(tempDir, "snap.f8s");
-                String actualSavePath;
-                Int32 vertexId2;
-                using (var fallen8 = new Fallen8(_loggerFactory, new WriteAheadLogOptions(walPath2)))
-                {
-                    var createTx = new CreateVertexTransaction
-                    {
-                        Definition = new VertexDefinition { CreationDate = 1u, Label = "person" }
-                    };
-                    fallen8.EnqueueTransaction(createTx).WaitUntilFinished();
-                    vertexId2 = createTx.VertexCreated.Id;
-
-                    fallen8.EnqueueTransaction(new DelegateTransaction(
-                        ctx => ctx.SetProperty(vertexId2, "analytics.pagerank", 1d))).WaitUntilFinished();
-
-                    var saveTx = new SaveTransaction { Path = savePath, SavePartitions = 1 };
-                    fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
-                    actualSavePath = saveTx.ActualPath;
-                }
-
-                using (var reloaded = new Fallen8(_loggerFactory))
-                {
-                    reloaded.EnqueueTransaction(new LoadTransaction { Path = actualSavePath }).WaitUntilFinished();
-                    Assert.IsTrue(reloaded.TryGetVertex(out var vertex, vertexId2));
-                    Assert.IsTrue(vertex.TryGetProperty<Double>(out var score, "analytics.pagerank"),
-                        "snapshot-durable");
-                    Assert.AreEqual(1d, score);
-                }
+                var writeBack = new DelegateTransaction(
+                    ctx => ctx.SetProperty(vertexId, "analytics.pagerank", score),
+                    name: "analytics-writeback:analytics.pagerank");
+                var info = fallen8.EnqueueTransaction(writeBack);
+                info.WaitUntilFinished();
+                Assert.AreEqual(TransactionState.Finished, info.TransactionState);
             }
-            finally
+
+            using (var recovered = new Fallen8(_loggerFactory, new WriteAheadLogOptions(walPath)))
             {
-                try
+                Assert.IsTrue(recovered.TryGetVertex(out var vertex, vertexId),
+                    "the vertex itself is WAL-logged and replays");
+                Assert.IsFalse(vertex.TryGetProperty<Object>(out _, "analytics.pagerank"),
+                    "the write-back property is mode (a): NOT WAL-logged, absent after a WAL-only replay - re-run to restore");
+            }
+
+            // (2) The same write-back IS captured by a snapshot.
+            var walPath2 = Path.Combine(temp.FullName, "snap.f8s.wal");
+            var savePath = Path.Combine(temp.FullName, "snap.f8s");
+            String actualSavePath;
+            Int32 vertexId2;
+            using (var fallen8 = new Fallen8(_loggerFactory, new WriteAheadLogOptions(walPath2)))
+            {
+                var createTx = new CreateVertexTransaction
                 {
-                    Directory.Delete(tempDir, true);
-                }
-                catch { /* best effort */ }
+                    Definition = new VertexDefinition { CreationDate = 1u, Label = "person" }
+                };
+                fallen8.EnqueueTransaction(createTx).WaitUntilFinished();
+                vertexId2 = createTx.VertexCreated.Id;
+
+                fallen8.EnqueueTransaction(new DelegateTransaction(
+                    ctx => ctx.SetProperty(vertexId2, "analytics.pagerank", 1d))).WaitUntilFinished();
+
+                var saveTx = new SaveTransaction { Path = savePath, SavePartitions = 1 };
+                fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+                actualSavePath = saveTx.ActualPath;
+            }
+
+            using (var reloaded = new Fallen8(_loggerFactory))
+            {
+                reloaded.EnqueueTransaction(new LoadTransaction { Path = actualSavePath }).WaitUntilFinished();
+                Assert.IsTrue(reloaded.TryGetVertex(out var vertex, vertexId2));
+                Assert.IsTrue(vertex.TryGetProperty<Double>(out var score, "analytics.pagerank"),
+                    "snapshot-durable");
+                Assert.AreEqual(1d, score);
             }
         }
 

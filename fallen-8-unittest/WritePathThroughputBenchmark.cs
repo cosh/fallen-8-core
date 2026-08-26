@@ -61,22 +61,14 @@ namespace NoSQL.GraphDB.Tests
             var loggerFactory = TestLoggerFactory.Create();
             var totalWrites = EnvInt("WPTBENCH_WRITES", 20_000);
             var producers = EnvInt("WPTBENCH_PRODUCERS", 32);
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_wptbench_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
+            using var temp = new TempDirectory("f8_wptbench_");
 
-            try
-            {
-                // Serial baseline (a group of one per commit: one fsync each).
-                RunScenario(loggerFactory, Path.Combine(tempDir, "serial.wal"), totalWrites, producers: 1, label: "serial (1 producer)");
+            // Serial baseline (a group of one per commit: one fsync each).
+            RunScenario(loggerFactory, Path.Combine(temp.FullName, "serial.wal"), totalWrites, producers: 1, label: "serial (1 producer)");
 
-                // Concurrent producers: the single writer drains ready writes into groups, amortising
-                // the fsync.
-                RunScenario(loggerFactory, Path.Combine(tempDir, "grouped.wal"), totalWrites, producers, label: producers + " producers");
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { }
-            }
+            // Concurrent producers: the single writer drains ready writes into groups, amortising
+            // the fsync.
+            RunScenario(loggerFactory, Path.Combine(temp.FullName, "grouped.wal"), totalWrites, producers, label: producers + " producers");
         }
 
         private static void RunScenario(ILoggerFactory loggerFactory, string walPath, int totalWrites, int producers, string label)

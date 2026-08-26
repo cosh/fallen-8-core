@@ -109,21 +109,6 @@ namespace NoSQL.GraphDB.Tests
             return new VertexModel[] { vertexTx1.VertexCreated, vertexTx2.VertexCreated, vertexTx3.VertexCreated };
         }
 
-        /// <summary>
-        /// A batch of plain, indistinguishable vertices for the multi-value and range tests, which
-        /// care only about identity, not about property content.
-        /// </summary>
-        private VertexModel[] CreateVertices(Fallen8 fallen8, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (int i = 0; i < count; i++)
-            {
-                tx.AddVertex(1, "test", new Dictionary<string, object> { { "idx", i } });
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
-
         #region Dictionary Index Tests
 
         [TestMethod]
@@ -404,7 +389,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 3);
+            var vertices = TestVertices.Create(fallen8, 3, "test", "idx");
             var index = new RangeIndex();
             index.Initialize(fallen8, null);
             index.AddOrUpdate(10, vertices[0]);
@@ -426,7 +411,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 3);
+            var vertices = TestVertices.Create(fallen8, 3, "test", "idx");
             var index = new RangeIndex();
             index.Initialize(fallen8, null);
             index.AddOrUpdate(10, vertices[0]);
@@ -450,7 +435,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 3);
+            var vertices = TestVertices.Create(fallen8, 3, "test", "idx");
             var index = new RangeIndex();
             index.Initialize(fallen8, null);
             index.AddOrUpdate(10, vertices[0]);
@@ -472,7 +457,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - reach the Between predicate through the public Fallen8 surface.
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 3);
+            var vertices = TestVertices.Create(fallen8, 3, "test", "idx");
 
             IIndex index;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out index, "ageRange", "RangeIndex"),
@@ -499,7 +484,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 3);
+            var vertices = TestVertices.Create(fallen8, 3, "test", "idx");
             var index = new RangeIndex();
             index.Initialize(fallen8, null);
 
@@ -529,7 +514,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 3);
+            var vertices = TestVertices.Create(fallen8, 3, "test", "idx");
             var index = new RangeIndex();
             index.Initialize(fallen8, null);
             index.AddOrUpdate(20, vertices[0]);
@@ -648,7 +633,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 3);
+            var vertices = TestVertices.Create(fallen8, 3, "test", "idx");
             var index = new RegExIndex();
             index.Initialize(fallen8, null);
 
@@ -673,7 +658,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 3);
+            var vertices = TestVertices.Create(fallen8, 3, "test", "idx");
             var index = new RegExIndex();
             index.Initialize(fallen8, null);
             index.AddOrUpdate("the quick brown fox", vertices[0]);

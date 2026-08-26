@@ -29,11 +29,8 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -63,32 +60,6 @@ namespace NoSQL.GraphDB.Tests
         /// <summary>The addressed namespace every request here names.</summary>
         private const string Ns = "/ns/default";
 
-        private sealed class VolatileFactory : WebApplicationFactory<Program>
-        {
-            private readonly IDictionary<String, String> _settings;
-
-            public VolatileFactory(IDictionary<String, String> settings = null)
-            {
-                _settings = settings;
-            }
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                // Volatile durability: booting the host writes no checkpoint/WAL into the test bin.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-
-                if (_settings == null)
-                {
-                    return;
-                }
-
-                foreach (var setting in _settings)
-                {
-                    builder.UseSetting(setting.Key, setting.Value);
-                }
-            }
-        }
-
         #region helpers
 
         private static async Task<JsonElement> ReadJson(HttpResponseMessage response)
@@ -108,7 +79,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Benchmark_OnGeneratedGraph_ReturnsStructuredStatistics()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var generate = await client.GetAsync(Ns + "/generate?nodeCount=50&edgeCount=2");
@@ -131,7 +102,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Benchmark_OnEmptyGraph_Returns400()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var response = await client.GetAsync(Ns + "/benchmark?iterations=1");
@@ -142,7 +113,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Benchmark_NonPositiveOrGarbageIterations_Return400()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var generate = await client.GetAsync(Ns + "/generate?nodeCount=10&edgeCount=1");
@@ -160,7 +131,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Benchmark_AboveTheConfiguredCeiling_Returns400_NamingTheKeyAndTheCeiling()
         {
-            using var factory = new VolatileFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 ["Fallen8:Security:BenchmarkMaxIterations"] = "3"
             });
@@ -187,7 +158,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // The endpoint default is 1000; with a lower ceiling a request that names NO count must
             // still succeed (it never asked for the rejected value) and report what it ran.
-            using var factory = new VolatileFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 ["Fallen8:Security:BenchmarkMaxIterations"] = "2"
             });
@@ -202,7 +173,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Benchmark_UnconfiguredCeiling_RejectsTheMistypedExtraZero_AndKeepsTheOldFourHundreds()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             await Generate(client);
 
@@ -234,7 +205,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Generate_PreferentialDistribution_ProducesHubs_AndTheExactEdgeCount()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             const int nodes = 2000;
@@ -285,7 +256,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Regression: uniform generation used to spin forever when edgeCount > nodeCount
             // (only nodeCount distinct targets exist). It must complete and cap per-vertex edges.
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var generate = await client.GetAsync(Ns + "/generate?nodeCount=3&edgeCount=10");
@@ -303,7 +274,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // nodeCount=0 is accepted (only negatives are 400); it must not throw on the
             // partitioner (Partitioner.Create(0,0) would). Empty graph, 200.
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var generate = await client.GetAsync(Ns + "/generate?nodeCount=0&edgeCount=5");
@@ -317,7 +288,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Generate_ValidatesItsInputs_With400s()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var unknownDistribution = await client.GetAsync(Ns + "/generate?nodeCount=10&edgeCount=1&distribution=banana");

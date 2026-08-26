@@ -108,30 +108,23 @@ namespace NoSQL.GraphDB.Tests
         [Ignore("Benchmark harness; opt-in. Not part of the default suite.")]
         public void SaveWriterHoldTime_ScalesWithGraphSize()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_nbs_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                int[] sizes = { 50_000, 200_000, 1_000_000 };
-                foreach (var size in sizes)
-                {
-                    var fallen8 = new Fallen8(TestLoggerFactory.Create());
-                    BuildGraph(fallen8, size);
-                    var elements = fallen8.VertexCount + fallen8.EdgeCount;
+            using var temp = new TempDirectory("f8_nbs_");
 
-                    // Warm one save (JIT, file-system), then time a second.
-                    var path = Path.Combine(tempDir, "sg_" + size + ".f8s");
-                    TimeSave(fallen8, path);
-                    var ms = TimeSave(fallen8, path);
-
-                    Emit(string.Format("size={0,10} elements ({1} vertices + {2} edges): save writer-hold = {3} ms",
-                        elements, fallen8.VertexCount, fallen8.EdgeCount, ms));
-                    fallen8.Dispose();
-                }
-            }
-            finally
+            int[] sizes = { 50_000, 200_000, 1_000_000 };
+            foreach (var size in sizes)
             {
-                try { Directory.Delete(tempDir, true); } catch { /* best-effort */ }
+                var fallen8 = new Fallen8(TestLoggerFactory.Create());
+                BuildGraph(fallen8, size);
+                var elements = fallen8.VertexCount + fallen8.EdgeCount;
+
+                // Warm one save (JIT, file-system), then time a second.
+                var path = Path.Combine(temp.FullName, "sg_" + size + ".f8s");
+                TimeSave(fallen8, path);
+                var ms = TimeSave(fallen8, path);
+
+                Emit(string.Format("size={0,10} elements ({1} vertices + {2} edges): save writer-hold = {3} ms",
+                    elements, fallen8.VertexCount, fallen8.EdgeCount, ms));
+                fallen8.Dispose();
             }
         }
 
@@ -140,43 +133,36 @@ namespace NoSQL.GraphDB.Tests
         [Ignore("Benchmark harness; opt-in. Not part of the default suite.")]
         public void ConcurrentWriteStall_DuringSave_IsAboutSaveDuration()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_nbs_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                const int size = 500_000;
-                var fallen8 = new Fallen8(TestLoggerFactory.Create());
-                BuildGraph(fallen8, size);
-                var path = Path.Combine(tempDir, "concurrent.f8s");
+            using var temp = new TempDirectory("f8_nbs_");
 
-                // Warm.
-                TimeSave(fallen8, path);
+            const int size = 500_000;
+            var fallen8 = new Fallen8(TestLoggerFactory.Create());
+            BuildGraph(fallen8, size);
+            var path = Path.Combine(temp.FullName, "concurrent.f8s");
 
-                // Enqueue a save but DO NOT wait; then immediately enqueue a tiny write. Because there
-                // is exactly one writer and the queue is FIFO, the write runs only AFTER the save, so
-                // its WaitUntilFinished measures the stall a concurrent writer observes.
-                var saveTx = new SaveTransaction { Path = path, SavePartitions = 0 };
-                var saveSw = Stopwatch.StartNew();
-                var saveInfo = fallen8.EnqueueTransaction(saveTx);
+            // Warm.
+            TimeSave(fallen8, path);
 
-                var probe = new CreateVerticesTransaction();
-                probe.AddVertex(1u, "late");
-                var stallSw = Stopwatch.StartNew();
-                var probeInfo = fallen8.EnqueueTransaction(probe);
-                probeInfo.WaitUntilFinished();
-                stallSw.Stop();
+            // Enqueue a save but DO NOT wait; then immediately enqueue a tiny write. Because there
+            // is exactly one writer and the queue is FIFO, the write runs only AFTER the save, so
+            // its WaitUntilFinished measures the stall a concurrent writer observes.
+            var saveTx = new SaveTransaction { Path = path, SavePartitions = 0 };
+            var saveSw = Stopwatch.StartNew();
+            var saveInfo = fallen8.EnqueueTransaction(saveTx);
 
-                saveInfo.WaitUntilFinished();
-                saveSw.Stop();
+            var probe = new CreateVerticesTransaction();
+            probe.AddVertex(1u, "late");
+            var stallSw = Stopwatch.StartNew();
+            var probeInfo = fallen8.EnqueueTransaction(probe);
+            probeInfo.WaitUntilFinished();
+            stallSw.Stop();
 
-                Emit(string.Format("graph={0} vertices + {1} edges: save = {2} ms; a concurrent one-vertex write stalled {3} ms behind it",
-                    fallen8.VertexCount - 1, fallen8.EdgeCount, saveSw.ElapsedMilliseconds, stallSw.ElapsedMilliseconds));
-                fallen8.Dispose();
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best-effort */ }
-            }
+            saveInfo.WaitUntilFinished();
+            saveSw.Stop();
+
+            Emit(string.Format("graph={0} vertices + {1} edges: save = {2} ms; a concurrent one-vertex write stalled {3} ms behind it",
+                fallen8.VertexCount - 1, fallen8.EdgeCount, saveSw.ElapsedMilliseconds, stallSw.ElapsedMilliseconds));
+            fallen8.Dispose();
         }
     }
 }

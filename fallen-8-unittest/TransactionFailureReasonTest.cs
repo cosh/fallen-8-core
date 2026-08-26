@@ -26,7 +26,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -65,17 +64,6 @@ namespace NoSQL.GraphDB.Tests
             _loggerFactory = TestLoggerFactory.Create();
         }
 
-        private VertexModel[] CreateVertices(Fallen8 fallen8, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (int i = 0; i < count; i++)
-            {
-                tx.AddVertex(1, "node", new Dictionary<string, object> { { "idx", i } });
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
-
         private static CreateEdgeTransaction Edge(int source, int target)
         {
             return new CreateEdgeTransaction
@@ -106,7 +94,7 @@ namespace NoSQL.GraphDB.Tests
         public void CreateEdge_Valid_Commits_WithReasonNone()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 2);
+            var v = TestVertices.Create(fallen8, 2, "node", "idx");
 
             var txInfo = fallen8.EnqueueTransaction(Edge(v[0].Id, v[1].Id));
             txInfo.WaitUntilFinished();
@@ -123,7 +111,7 @@ namespace NoSQL.GraphDB.Tests
             // One real vertex so the source resolves but the (out-of-range) target does not. The
             // engine must NOT let the master-store bounds check throw; it fails the create cleanly.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 1);
+            var v = TestVertices.Create(fallen8, 1, "node", "idx");
 
             var txInfo = fallen8.EnqueueTransaction(Edge(v[0].Id, int.MaxValue));
             txInfo.WaitUntilFinished();
@@ -139,7 +127,7 @@ namespace NoSQL.GraphDB.Tests
         public void CreateEdge_MissingSourceVertex_RollsBackWithNotFound()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 1);
+            var v = TestVertices.Create(fallen8, 1, "node", "idx");
 
             var txInfo = fallen8.EnqueueTransaction(Edge(int.MaxValue, v[0].Id));
             txInfo.WaitUntilFinished();
@@ -156,7 +144,7 @@ namespace NoSQL.GraphDB.Tests
             // A referenced vertex that exists in-range but has been REMOVED must also be NotFound,
             // not silently wired to a tombstone.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 2);
+            var v = TestVertices.Create(fallen8, 2, "node", "idx");
 
             var removeInfo = fallen8.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = v[1].Id });
             removeInfo.WaitUntilFinished();
@@ -179,7 +167,7 @@ namespace NoSQL.GraphDB.Tests
             // batch must roll back atomically (nothing wired) with NotFound - not commit the valid
             // edge and drop the other.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 2);
+            var v = TestVertices.Create(fallen8, 2, "node", "idx");
 
             var tx = new CreateEdgesTransaction();
             tx.AddEdge(v[0].Id, "knows", v[1].Id, 1, "knows");         // valid
@@ -198,7 +186,7 @@ namespace NoSQL.GraphDB.Tests
         public void CreateEdges_AllValid_Commits_WithReasonNone()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 3);
+            var v = TestVertices.Create(fallen8, 3, "node", "idx");
 
             var tx = new CreateEdgesTransaction();
             tx.AddEdge(v[0].Id, "knows", v[1].Id, 1, "knows");
@@ -416,7 +404,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var fallen8 = new Fallen8(_loggerFactory);
             var controller = new GraphController(_loggerFactory.CreateLogger<GraphController>(), fallen8);
-            var v = CreateVertices(fallen8, 1);
+            var v = TestVertices.Create(fallen8, 1, "node", "idx");
 
             var edgeSpec = new EdgeSpecification
             {
@@ -440,7 +428,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - one real vertex so the source resolves but the target does not.
             var fallen8 = new Fallen8(_loggerFactory);
             var controller = new GraphController(_loggerFactory.CreateLogger<GraphController>(), fallen8);
-            var vertices = CreateVertices(fallen8, 1);
+            var vertices = TestVertices.Create(fallen8, 1, "node", "idx");
 
             var edgeSpec = new EdgeSpecification
             {
@@ -468,7 +456,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var fallen8 = new Fallen8(_loggerFactory);
             var controller = new GraphController(_loggerFactory.CreateLogger<GraphController>(), fallen8);
-            var v = CreateVertices(fallen8, 2);
+            var v = TestVertices.Create(fallen8, 2, "node", "idx");
 
             var edgeSpec = new EdgeSpecification
             {
@@ -494,7 +482,7 @@ namespace NoSQL.GraphDB.Tests
             // returns 202 immediately regardless of the eventual rollback.
             var fallen8 = new Fallen8(_loggerFactory);
             var controller = new GraphController(_loggerFactory.CreateLogger<GraphController>(), fallen8);
-            var v = CreateVertices(fallen8, 1);
+            var v = TestVertices.Create(fallen8, 1, "node", "idx");
 
             var edgeSpec = new EdgeSpecification
             {

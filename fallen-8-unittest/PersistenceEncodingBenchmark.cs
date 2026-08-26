@@ -74,71 +74,63 @@ namespace NoSQL.GraphDB.Tests
             int partitions = Environment.ProcessorCount;
 
             var loggerFactory = TestLoggerFactory.Create();
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_encoding_bench_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
+            using var temp = new TempDirectory("f8_encoding_bench_");
 
-            try
+            // ---- Build a representative graph (shared labels + edge property ids so tokenization
+            //      and var-int both have something to bite on). ----
+            var fallen8 = new Fallen8(loggerFactory);
+            var vtx = new CreateVerticesTransaction();
+            for (var i = 0; i < vertexCount; i++)
             {
-                // ---- Build a representative graph (shared labels + edge property ids so tokenization
-                //      and var-int both have something to bite on). ----
-                var fallen8 = new Fallen8(loggerFactory);
-                var vtx = new CreateVerticesTransaction();
-                for (var i = 0; i < vertexCount; i++)
-                {
-                    vtx.AddVertex(1u, i % 2 == 0 ? "person" : "company",
-                        new Dictionary<string, object> { { "name", "name-" + (i % 1000) }, { "seq", i } });
-                }
-                fallen8.EnqueueTransaction(vtx).WaitUntilFinished();
-
-                var rng = new Random(12345);
-                var etx = new CreateEdgesTransaction();
-                for (var j = 0; j < edgeCount; j++)
-                {
-                    etx.AddEdge(rng.Next(0, vertexCount), "knows", rng.Next(0, vertexCount), 1u, "knows");
-                }
-                fallen8.EnqueueTransaction(etx).WaitUntilFinished();
-
-                var savePath = Path.Combine(tempDir, "bench.f8s");
-
-                // ---- Save (timed). ----
-                var saveTx = new SaveTransaction { Path = savePath, SavePartitions = partitions };
-                var sw = Stopwatch.StartNew();
-                fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
-                sw.Stop();
-                Assert.AreEqual(TransactionState.Finished, fallen8.GetTransactionState(saveTx.TransactionId));
-                var actualPath = saveTx.ActualPath;
-                double saveMs = sw.Elapsed.TotalMilliseconds;
-
-                // ---- On-disk footprint: the header + every sidecar for this checkpoint. ----
-                long totalBytes = Directory.GetFiles(tempDir)
-                    .Where(f => Path.GetFileName(f).StartsWith(Path.GetFileName(actualPath)))
-                    .Sum(f => new FileInfo(f).Length);
-
-                // ---- Load (timed). ----
-                var reloaded = new Fallen8(loggerFactory);
-                var loadTx = new LoadTransaction { Path = actualPath };
-                sw.Restart();
-                reloaded.EnqueueTransaction(loadTx).WaitUntilFinished();
-                sw.Stop();
-                Assert.AreEqual(TransactionState.Finished, reloaded.GetTransactionState(loadTx.TransactionId));
-                double loadMs = sw.Elapsed.TotalMilliseconds;
-
-                Assert.AreEqual(vertexCount, reloaded.VertexCount);
-                Assert.AreEqual(edgeCount, reloaded.EdgeCount);
-
-                var elements = vertexCount + edgeCount;
-                Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
-                    "[F8ENCBENCH] label={0} elements={1} partitions={2} save_ms={3:0.0} save_elem_per_s={4:0} load_ms={5:0.0} load_elem_per_s={6:0} size_bytes={7} bytes_per_elem={8:0.0}",
-                    Label, elements, partitions, saveMs, elements / (saveMs / 1000.0), loadMs,
-                    elements / (loadMs / 1000.0), totalBytes, (double)totalBytes / elements));
-
-                fallen8.Dispose();
-                reloaded.Dispose();
+                vtx.AddVertex(1u, i % 2 == 0 ? "person" : "company",
+                    new Dictionary<string, object> { { "name", "name-" + (i % 1000) }, { "seq", i } });
             }
-            finally
+            fallen8.EnqueueTransaction(vtx).WaitUntilFinished();
+
+            var rng = new Random(12345);
+            var etx = new CreateEdgesTransaction();
+            for (var j = 0; j < edgeCount; j++)
             {
-                try { Directory.Delete(tempDir, true); } catch { /* best-effort */ }
+                etx.AddEdge(rng.Next(0, vertexCount), "knows", rng.Next(0, vertexCount), 1u, "knows");
             }
+            fallen8.EnqueueTransaction(etx).WaitUntilFinished();
+
+            var savePath = Path.Combine(temp.FullName, "bench.f8s");
+
+            // ---- Save (timed). ----
+            var saveTx = new SaveTransaction { Path = savePath, SavePartitions = partitions };
+            var sw = Stopwatch.StartNew();
+            fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+            sw.Stop();
+            Assert.AreEqual(TransactionState.Finished, fallen8.GetTransactionState(saveTx.TransactionId));
+            var actualPath = saveTx.ActualPath;
+            double saveMs = sw.Elapsed.TotalMilliseconds;
+
+            // ---- On-disk footprint: the header + every sidecar for this checkpoint. ----
+            long totalBytes = Directory.GetFiles(temp.FullName)
+                .Where(f => Path.GetFileName(f).StartsWith(Path.GetFileName(actualPath)))
+                .Sum(f => new FileInfo(f).Length);
+
+            // ---- Load (timed). ----
+            var reloaded = new Fallen8(loggerFactory);
+            var loadTx = new LoadTransaction { Path = actualPath };
+            sw.Restart();
+            reloaded.EnqueueTransaction(loadTx).WaitUntilFinished();
+            sw.Stop();
+            Assert.AreEqual(TransactionState.Finished, reloaded.GetTransactionState(loadTx.TransactionId));
+            double loadMs = sw.Elapsed.TotalMilliseconds;
+
+            Assert.AreEqual(vertexCount, reloaded.VertexCount);
+            Assert.AreEqual(edgeCount, reloaded.EdgeCount);
+
+            var elements = vertexCount + edgeCount;
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                "[F8ENCBENCH] label={0} elements={1} partitions={2} save_ms={3:0.0} save_elem_per_s={4:0} load_ms={5:0.0} load_elem_per_s={6:0} size_bytes={7} bytes_per_elem={8:0.0}",
+                Label, elements, partitions, saveMs, elements / (saveMs / 1000.0), loadMs,
+                elements / (loadMs / 1000.0), totalBytes, (double)totalBytes / elements));
+
+            fallen8.Dispose();
+            reloaded.Dispose();
         }
     }
 }

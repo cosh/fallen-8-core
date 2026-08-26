@@ -52,41 +52,19 @@ namespace NoSQL.GraphDB.Tests
         private const string EdgeKeyB = "B";
 
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_supernode_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_supernode_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort
-            }
-        }
-
-        private static VertexModel[] CreateVertices(Fallen8 fallen8, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i < count; i++)
-            {
-                tx.AddVertex(1u, "v");
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
+            _temp?.Dispose();
         }
 
         // ---- Step 1: batch-group wiring -----------------------------------------------------------
@@ -102,7 +80,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var fallen8 = new Fallen8(_loggerFactory);
             const int degree = 500;
-            var v = CreateVertices(fallen8, degree + 1);
+            var v = TestVertices.Create(fallen8, degree + 1);
             var hub = v[0];
 
             var edgeTx = new CreateEdgesTransaction();
@@ -141,7 +119,7 @@ namespace NoSQL.GraphDB.Tests
         public void BatchCreate_EdgesUnderTwoKeysInOneTransaction_PromotesToMultiGroup()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 7); // hub + 6 leaves
+            var v = TestVertices.Create(fallen8, 7); // hub + 6 leaves
             var hub = v[0];
 
             var edgeTx = new CreateEdgesTransaction();
@@ -178,7 +156,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var fallen8 = new Fallen8(_loggerFactory);
             const int degree = 300;
-            var v = CreateVertices(fallen8, degree + 1);
+            var v = TestVertices.Create(fallen8, degree + 1);
             var hub = v[0];
 
             for (var i = 1; i <= degree; i++)
@@ -234,7 +212,7 @@ namespace NoSQL.GraphDB.Tests
         private long MeasureBatchBuildBytes(int degree)
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, degree + 1);
+            var v = TestVertices.Create(fallen8, degree + 1);
             var hub = v[0];
 
             var edgeTx = new CreateEdgesTransaction();
@@ -271,7 +249,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var fallen8 = new Fallen8(_loggerFactory);
             const int degree = 800;
-            var v = CreateVertices(fallen8, degree + 1);
+            var v = TestVertices.Create(fallen8, degree + 1);
             var hub = v[0];
 
             // The hub gets out-edges to every leaf AND in-edges from every leaf, all under one key.
@@ -331,7 +309,7 @@ namespace NoSQL.GraphDB.Tests
         public void RemovingTheLastEdge_LeavesADegreeZeroGroup_NotASpareSlot()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 2);
+            var v = TestVertices.Create(fallen8, 2);
             var hub = v[0];
 
             // Append two then remove both, so the backing array carries spare capacity when the count
@@ -354,7 +332,7 @@ namespace NoSQL.GraphDB.Tests
 
         #region persistence helpers
 
-        private string SavePath => Path.Combine(_tempDir, "supernode.f8s");
+        private string SavePath => Path.Combine(_temp.FullName, "supernode.f8s");
 
         private string Save(Fallen8 fallen8, int partitions)
         {

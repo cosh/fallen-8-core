@@ -33,7 +33,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -118,13 +117,13 @@ namespace NoSQL.GraphDB.Tests
 
         // --- Walking-skeleton round-trip: MCP tool → bridge → real apiApp → back --------------
 
-        private sealed class ApiAppFactory : WebApplicationFactory<NoSQL.GraphDB.App.Program>
+        /// <summary>The shared volatile apiApp host, in Development so the dev-only routes are mapped.</summary>
+        private sealed class ApiAppFactory : VolatileAppFactory
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-                // Volatile durability: hosting writes no checkpoint/WAL into the test bin.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
 

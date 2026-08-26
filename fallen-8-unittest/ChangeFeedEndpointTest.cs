@@ -33,10 +33,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -50,25 +47,6 @@ namespace NoSQL.GraphDB.Tests
     public class ChangeFeedEndpointTest
     {
         private const string ApiKey = "changefeed-test-key";
-
-        private sealed class FeedFactory : WebApplicationFactory<Program>
-        {
-            private readonly IReadOnlyDictionary<string, string> _settings;
-
-            public FeedFactory(IReadOnlyDictionary<string, string> settings = null)
-            {
-                _settings = settings ?? new Dictionary<string, string>();
-            }
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                foreach (var kv in _settings)
-                {
-                    builder.UseSetting(kv.Key, kv.Value);
-                }
-            }
-        }
 
         private static StringContent Json(string body)
         {
@@ -131,7 +109,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task MutateThenStream_DeliversTheEvent_WithSseFraming()
         {
-            using var factory = new FeedFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
@@ -161,7 +139,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task EdgeCreated_CarriesTheEdgeType_OnTheWire()
         {
-            using var factory = new FeedFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
@@ -195,7 +173,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Filters_AreServerSide_AndKeepAliveCommentsFlow()
         {
-            using var factory = new FeedFactory(new Dictionary<string, string>
+            using var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:ChangeFeed:KeepAliveSeconds"] = "1"
             });
@@ -240,7 +218,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task InvalidFilterOrSince_Return400ProblemJson()
         {
-            using var factory = new FeedFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             using var badKind = await client.GetAsync("/changefeed?kinds=vertexMangled");
@@ -260,7 +238,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Disabled_Returns503_AndTheRestOfTheApiIsUntouched()
         {
-            using var factory = new FeedFactory(new Dictionary<string, string>
+            using var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:ChangeFeed:Enabled"] = "false"
             });
@@ -278,7 +256,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubscriberLimit_Returns503()
         {
-            using var factory = new FeedFactory(new Dictionary<string, string>
+            using var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:ChangeFeed:MaxSubscribers"] = "1"
             });
@@ -297,7 +275,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ClientDisconnect_UnregistersTheSubscription_AndFreesTheSlot()
         {
-            using var factory = new FeedFactory(new Dictionary<string, string>
+            using var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:ChangeFeed:MaxSubscribers"] = "1"
             });
@@ -334,7 +312,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task WithApiKey_AnonymousIs401_AuthenticatedStreams()
         {
-            using var factory = new FeedFactory(new Dictionary<string, string>
+            using var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:Security:ApiKey"] = ApiKey
             });
@@ -364,7 +342,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // The feed's kind filters are declarative - they compile no code, so the feed is
             // unaffected by dynamic code execution either way.
-            using var factory = new FeedFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
@@ -391,7 +369,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Since_AcrossReconnect_ReplaysTheMissedEvents()
         {
-            using var factory = new FeedFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
 

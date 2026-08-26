@@ -87,15 +87,15 @@ namespace NoSQL.GraphDB.Tests
         };
 
         /// <summary>
-        /// Boots the app in Development (only there are /openapi and Scalar mapped) with a volatile
-        /// engine, so generating the document writes no checkpoint or WAL.
+        /// Boots the app in Development (only there are /openapi and Scalar mapped) on the shared
+        /// volatile host, so generating the document writes no checkpoint or WAL.
         /// </summary>
-        private sealed class DevelopmentApiFactory : WebApplicationFactory<Program>
+        private sealed class DevelopmentApiFactory : VolatileAppFactory
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
 

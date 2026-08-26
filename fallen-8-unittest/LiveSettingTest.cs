@@ -105,10 +105,9 @@ namespace NoSQL.GraphDB.Tests
                     "{ \"version\": 1, \"settings\": { " + body + " } }");
             }
 
-            return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            return new VolatileAppFactory().WithWebHostBuilder(builder =>
             {
-                // These four are never-writable, so seeding them by UseSetting collides with nothing.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
+                // These are never-writable, so seeding them by UseSetting collides with nothing.
                 builder.UseSetting("Fallen8:Metadata:Directory", _metadata);
                 builder.UseSetting("Fallen8:Security:ApiKey", Key);
                 builder.UseSetting("Fallen8:Security:EnableConfigurationWrite", "true");

@@ -39,36 +39,25 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class CheckpointDiscoveryTest
     {
-        private string _dir;
+        private TempDirectory _temp;
         private const string BaseName = "Temp.f8s";
 
         [TestInitialize]
         public void TestInitialize()
         {
-            _dir = Path.Combine(Path.GetTempPath(), "f8_discovery_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dir);
+            _temp = new TempDirectory("f8_discovery_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_dir != null && Directory.Exists(_dir))
-                {
-                    Directory.Delete(_dir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         private string VersionedHeader(DateTime utc)
         {
             var name = BaseName + Constants.VersionSeparator + utc.ToBinary().ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var full = Path.Combine(_dir, name);
+            var full = Path.Combine(_temp.FullName, name);
             File.WriteAllText(full, "header");
             return full;
         }
@@ -76,14 +65,14 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void NoFiles_ReturnsFalse()
         {
-            Assert.IsFalse(CheckpointDiscovery.TryFindLatestCheckpoint(_dir, BaseName, out var path));
+            Assert.IsFalse(CheckpointDiscovery.TryFindLatestCheckpoint(_temp.FullName, BaseName, out var path));
             Assert.IsNull(path);
         }
 
         [TestMethod]
         public void MissingDirectory_ReturnsFalse()
         {
-            var missing = Path.Combine(_dir, "does-not-exist");
+            var missing = Path.Combine(_temp.FullName, "does-not-exist");
             Assert.IsFalse(CheckpointDiscovery.TryFindLatestCheckpoint(missing, BaseName, out var path));
             Assert.IsNull(path);
         }
@@ -91,10 +80,10 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void UnversionedBaseFile_IsFound()
         {
-            var full = Path.Combine(_dir, BaseName);
+            var full = Path.Combine(_temp.FullName, BaseName);
             File.WriteAllText(full, "header");
 
-            Assert.IsTrue(CheckpointDiscovery.TryFindLatestCheckpoint(_dir, BaseName, out var path));
+            Assert.IsTrue(CheckpointDiscovery.TryFindLatestCheckpoint(_temp.FullName, BaseName, out var path));
             Assert.AreEqual(full, path);
         }
 
@@ -104,7 +93,7 @@ namespace NoSQL.GraphDB.Tests
             var older = VersionedHeader(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
             var newer = VersionedHeader(new DateTime(2026, 7, 14, 0, 0, 0, DateTimeKind.Utc));
 
-            Assert.IsTrue(CheckpointDiscovery.TryFindLatestCheckpoint(_dir, BaseName, out var path));
+            Assert.IsTrue(CheckpointDiscovery.TryFindLatestCheckpoint(_temp.FullName, BaseName, out var path));
             Assert.AreEqual(newer, path, "The newest header by version stamp must be chosen.");
             Assert.AreNotEqual(older, path);
         }
@@ -115,14 +104,14 @@ namespace NoSQL.GraphDB.Tests
             // A versioned header plus its sidecars and an in-progress temp file for the same version.
             var stamp = new DateTime(2026, 7, 14, 0, 0, 0, DateTimeKind.Utc).ToBinary()
                 .ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var header = Path.Combine(_dir, BaseName + Constants.VersionSeparator + stamp);
+            var header = Path.Combine(_temp.FullName, BaseName + Constants.VersionSeparator + stamp);
             File.WriteAllText(header, "header");
-            File.WriteAllText(Path.Combine(_dir, BaseName + Constants.VersionSeparator + stamp + Constants.GraphElementsSaveString + "0"), "x");
-            File.WriteAllText(Path.Combine(_dir, BaseName + Constants.VersionSeparator + stamp + Constants.IndexSaveString + "0"), "x");
-            File.WriteAllText(Path.Combine(_dir, BaseName + Constants.VersionSeparator + stamp + Constants.SubGraphManifestString), "x");
-            File.WriteAllText(Path.Combine(_dir, BaseName + Constants.VersionSeparator + stamp + Constants.TempSaveSuffix), "x");
+            File.WriteAllText(Path.Combine(_temp.FullName, BaseName + Constants.VersionSeparator + stamp + Constants.GraphElementsSaveString + "0"), "x");
+            File.WriteAllText(Path.Combine(_temp.FullName, BaseName + Constants.VersionSeparator + stamp + Constants.IndexSaveString + "0"), "x");
+            File.WriteAllText(Path.Combine(_temp.FullName, BaseName + Constants.VersionSeparator + stamp + Constants.SubGraphManifestString), "x");
+            File.WriteAllText(Path.Combine(_temp.FullName, BaseName + Constants.VersionSeparator + stamp + Constants.TempSaveSuffix), "x");
 
-            Assert.IsTrue(CheckpointDiscovery.TryFindLatestCheckpoint(_dir, BaseName, out var path));
+            Assert.IsTrue(CheckpointDiscovery.TryFindLatestCheckpoint(_temp.FullName, BaseName, out var path));
             Assert.AreEqual(header, path, "Only the main header (not a sidecar/temp) may be selected.");
         }
     }

@@ -30,8 +30,6 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App;
@@ -54,16 +52,16 @@ namespace NoSQL.GraphDB.Tests
     {
         private const string ApiKey = "matrix-test-key";
 
-        private sealed class MatrixFactory : WebApplicationFactory<Program>
+        /// <summary>A volatile host with the API key configured, so the 401 half of the matrix is real.</summary>
+        private static VolatileAppFactory NewFactory()
         {
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
+            return new VolatileAppFactory(new Dictionary<string, string>
             {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                builder.UseSetting("Fallen8:Security:ApiKey", ApiKey);
-            }
+                { "Fallen8:Security:ApiKey", ApiKey }
+            });
         }
 
-        private static HttpClient Client(MatrixFactory factory, bool withKey = true)
+        private static HttpClient Client(VolatileAppFactory factory, bool withKey = true)
         {
             var client = factory.CreateClient();
             if (withKey)
@@ -92,7 +90,7 @@ namespace NoSQL.GraphDB.Tests
         ///   the state an operator provisions out of band (a library/plugin host, a restored
         ///   save game), so invocation is exercised without a REST registration call.
         /// </summary>
-        private static void RegisterDirectlyOnEngine(MatrixFactory factory, string name, StoredQueryKind kind)
+        private static void RegisterDirectlyOnEngine(VolatileAppFactory factory, string name, StoredQueryKind kind)
         {
             var engine = factory.Services.GetRequiredService<IFallen8>();
 
@@ -144,7 +142,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Registration_Returns201()
         {
-            using var factory = new MatrixFactory();
+            using var factory = NewFactory();
             using var client = Client(factory);
 
             using var response = await client.PostAsync("/storedquery", Json(RegisterBody));
@@ -155,7 +153,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task InlineAndStoredAndFilterless_AllPass()
         {
-            using var factory = new MatrixFactory();
+            using var factory = NewFactory();
             using var client = Client(factory);
             await CreateTwoVertices(client);
 
@@ -201,7 +199,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task StoredInvocation_Succeeds()
         {
-            using var factory = new MatrixFactory();
+            using var factory = NewFactory();
             using var client = Client(factory);
             await CreateTwoVertices(client);
 
@@ -223,7 +221,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // A filterless path search compiles no user-supplied code at all, so nothing but
             // authentication stands between the caller and a 200.
-            using var factory = new MatrixFactory();
+            using var factory = NewFactory();
             using var client = Client(factory);
             await CreateTwoVertices(client);
 
@@ -236,7 +234,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ListGetDelete_AreNeverGated()
         {
-            using var factory = new MatrixFactory();
+            using var factory = NewFactory();
             using var client = Client(factory);
 
             RegisterDirectlyOnEngine(factory, "manage-me", StoredQueryKind.Path);
@@ -259,7 +257,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Anonymous_InlineFragments_Return401_WhenKeyConfigured()
         {
-            using var factory = new MatrixFactory();
+            using var factory = NewFactory();
             using var client = Client(factory, withKey: false);
 
             using var path = await client.PostAsync("/path/0/to/1", Json(InlinePathBody));
@@ -276,7 +274,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Anonymous_StoredEndpoints_RequireAuthentication()
         {
-            using var factory = new MatrixFactory();
+            using var factory = NewFactory();
             using var client = Client(factory, withKey: false);
 
             RegisterDirectlyOnEngine(factory, "auth-check", StoredQueryKind.Path);

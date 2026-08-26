@@ -49,46 +49,24 @@ namespace NoSQL.GraphDB.Tests
     public class TransactionAtomicityTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_txatomic_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_txatomic_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         #region helpers
 
-        private string WalPath => Path.Combine(_tempDir, "atomicity.f8s.wal");
-
-        private static VertexModel[] CreateVertices(Fallen8 fallen8, int count, string label = "node")
-        {
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i < count; i++)
-            {
-                tx.AddVertex(1u, label, new Dictionary<string, object> { { "idx", i } });
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
+        private string WalPath => Path.Combine(_temp.FullName, "atomicity.f8s.wal");
 
         private static EdgeModel CreateEdge(Fallen8 fallen8, int sourceId, int targetId, string edgePropertyId = "knows")
         {
@@ -158,7 +136,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - two committed baseline vertices (ids 0 and 1).
             var fallen8 = new Fallen8(_loggerFactory);
-            var baseline = CreateVertices(fallen8, 2);
+            var baseline = TestVertices.Create(fallen8, 2, "node", "idx");
 
             // Act - a batch whose middle definition is null (a JSON array element can be null).
             var failing = new CreateVerticesTransaction();
@@ -198,7 +176,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - two vertices to connect.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 2);
+            var v = TestVertices.Create(fallen8, 2, "node", "idx");
 
             // Act - a batch whose second definition is null.
             var failing = new CreateEdgesTransaction();
@@ -237,7 +215,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - a vertex whose "b" already differs from the batch's value.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 1)[0];
+            var v = TestVertices.Create(fallen8, 1, "node", "idx")[0];
             fallen8.EnqueueTransaction(new AddPropertyTransaction
             {
                 Definition = new PropertyAddDefinition { GraphElementId = v.Id, PropertyId = "b", Property = 2 }
@@ -271,7 +249,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 1)[0];
+            var v = TestVertices.Create(fallen8, 1, "node", "idx")[0];
 
             // Act - the batch conflicts with ITSELF: two different values for the same new key.
             var failing = new AddPropertiesTransaction();
@@ -297,7 +275,7 @@ namespace NoSQL.GraphDB.Tests
             // Guards the conflict pre-check against being over-strict: setting the same key to an
             // EQUAL value twice is the existing no-op-update semantics and must still commit.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 1)[0];
+            var v = TestVertices.Create(fallen8, 1, "node", "idx")[0];
 
             var tx = new AddPropertiesTransaction();
             tx.AddProperty(v.Id, "d", 5);
@@ -315,7 +293,7 @@ namespace NoSQL.GraphDB.Tests
         public void AddPropertiesBatch_WithNullDefinitionMidBatch_AppliesNothing()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 1)[0];
+            var v = TestVertices.Create(fallen8, 1, "node", "idx")[0];
 
             var failing = new AddPropertiesTransaction();
             failing.AddProperty(v.Id, "e", 1);
@@ -342,7 +320,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 2);
+            var v = TestVertices.Create(fallen8, 2, "node", "idx");
 
             // Act - the first id is valid, the second is out of range.
             var failing = new RemoveGraphElementsTransaction
@@ -375,7 +353,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - two disjoint edges; the SECOND one's source out-bucket is poisoned so its
             // removal faults mid-detach (after the first edge was already removed).
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 4);
+            var v = TestVertices.Create(fallen8, 4, "node", "idx");
             var edgeA = CreateEdge(fallen8, v[0].Id, v[1].Id);
             var edgeB = CreateEdge(fallen8, v[2].Id, v[3].Id);
             InjectRawOutEdge(v[2], "knows", null);
@@ -417,7 +395,7 @@ namespace NoSQL.GraphDB.Tests
             // its edges, including a self-loop) must be fully reversed when a later id in the batch
             // faults. Layout: V --self--> V, V --knows--> W, plus a poisoned edge X --knows--> Y.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 4);
+            var v = TestVertices.Create(fallen8, 4, "node", "idx");
             VertexModel vertexV = v[0], vertexW = v[1], vertexX = v[2], vertexY = v[3];
             var selfLoop = CreateEdge(fallen8, vertexV.Id, vertexV.Id, "self");
             var edgeVw = CreateEdge(fallen8, vertexV.Id, vertexW.Id);
@@ -464,7 +442,7 @@ namespace NoSQL.GraphDB.Tests
         public void RemoveGraphElementsBatch_WithNullIdList_RollsBackCleanWithInvalidInput()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            CreateVertices(fallen8, 1);
+            TestVertices.Create(fallen8, 1, "node", "idx");
 
             var failing = new RemoveGraphElementsTransaction { GraphElementIds = null };
             var info = fallen8.EnqueueTransaction(failing);
@@ -485,7 +463,7 @@ namespace NoSQL.GraphDB.Tests
             // Guards the pre-validation against regressing the normal path: a valid batch (including
             // an in-range but already-removed id, which stays a documented no-op) commits.
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 3);
+            var v = TestVertices.Create(fallen8, 3, "node", "idx");
             fallen8.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = v[1].Id }).WaitUntilFinished();
 
             var tx = new RemoveGraphElementsTransaction
@@ -512,7 +490,7 @@ namespace NoSQL.GraphDB.Tests
             int probeIdBefore;
             using (var fallen8 = new Fallen8(_loggerFactory, new WriteAheadLogOptions(WalPath)))
             {
-                baseline = CreateVertices(fallen8, 2);
+                baseline = TestVertices.Create(fallen8, 2, "node", "idx");
                 CreateEdge(fallen8, baseline[0].Id, baseline[1].Id);
 
                 // Act - three failing batches of each kind, then one more committed write.
@@ -531,7 +509,7 @@ namespace NoSQL.GraphDB.Tests
                 };
                 fallen8.EnqueueTransaction(failingRemove).WaitUntilFinished();
 
-                var committed = CreateVertices(fallen8, 1, "after-failures");
+                var committed = TestVertices.Create(fallen8, 1, "after-failures", "idx");
                 probeIdBefore = committed[0].Id;
 
                 Assert.AreEqual(3, fallen8.VertexCount, "Live state before the crash: 2 baseline + 1 after-failures.");

@@ -33,7 +33,6 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Mcp.Configuration;
@@ -50,12 +49,13 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class McpReadToolsTest
     {
-        private sealed class ApiAppFactory : WebApplicationFactory<NoSQL.GraphDB.App.Program>
+        /// <summary>The shared volatile apiApp host, in Development so the dev-only routes are mapped.</summary>
+        private sealed class ApiAppFactory : VolatileAppFactory
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
 

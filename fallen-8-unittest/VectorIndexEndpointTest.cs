@@ -31,11 +31,8 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
@@ -58,20 +55,12 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class VectorIndexEndpointTest
     {
-        private sealed class VectorFactory : WebApplicationFactory<Program>
-        {
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-            }
-        }
-
         private static StringContent Json(string body)
         {
             return new StringContent(body, Encoding.UTF8, "application/json");
         }
 
-        private static Fallen8 EngineOf(VectorFactory factory)
+        private static Fallen8 EngineOf(VolatileAppFactory factory)
         {
             return factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
         }
@@ -87,7 +76,7 @@ namespace NoSQL.GraphDB.Tests
                 "index creation through the EXISTING surface must succeed");
         }
 
-        private static int SeedVertex(VectorFactory factory, string label = "person", Dictionary<string, object> properties = null)
+        private static int SeedVertex(VolatileAppFactory factory, string label = "person", Dictionary<string, object> properties = null)
         {
             var tx = new CreateVertexTransaction
             {
@@ -150,7 +139,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task AddAndScan_HappyPath_ReturnsBestFirstWithMetricSemantics()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             await CreateVectorIndex(client);
 
@@ -180,7 +169,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task PropertyMode_ReadsTheElementsFloatArrayProperty()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             await CreateVectorIndex(client, dimension: 2, metric: "L2");
 
@@ -203,7 +192,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Add_EveryDocumented400Reason_AndThe404s()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             await CreateVectorIndex(client, dimension: 3);
             var v = SeedVertex(factory);
@@ -272,7 +261,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Scan_EveryDocumented400Reason_AndThe404()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             await CreateVectorIndex(client, dimension: 3);
 
@@ -309,7 +298,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Scan_KindAndLabelConstraints_WorkOverRest()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             await CreateVectorIndex(client, dimension: 2, metric: "L2");
 
@@ -331,7 +320,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ElementRemoval_OnABoundIndex_Is400_AndTheProjectionSurvives()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = SeedVertex(factory, "p");
             var index = BoundIndex(engine, "emb");
@@ -353,7 +342,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task KeyRemoval_OnABoundIndex_Is400_InsteadOfASilentFalse()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = SeedVertex(factory, "p");
             var index = BoundIndex(engine, "emb");
@@ -373,7 +362,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task BoundRefusal_PrecedesTheElementLookup_ButAnIndexMissStillAnswersFalse()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = SeedVertex(factory, "p");
             BoundIndex(engine, "emb");
@@ -407,7 +396,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task NamespaceTwinRoute_RefusesTheBoundRemovalToo()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = SeedVertex(factory, "p");
             var index = BoundIndex(engine, "emb");
@@ -425,7 +414,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Removals_OnAnUnboundVectorIndex_StillSucceed()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = SeedVertex(factory, "p");
             var index = UnboundIndex(engine, "free");
@@ -462,7 +451,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Removals_OnANonVectorIndex_AreUnaffected()
         {
-            using var factory = new VectorFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = SeedVertex(factory, "p");
             var b = SeedVertex(factory, "p");

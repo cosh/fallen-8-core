@@ -72,17 +72,6 @@ namespace NoSQL.GraphDB.Tests
             return tx.GetCreatedVertices().ToArray();
         }
 
-        private static VertexModel[] CreateVertices(Fallen8 fallen8, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i < count; i++)
-            {
-                tx.AddVertex(1u, "v");
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
-
         private static void InjectRawOutEdge(VertexModel vertex, string edgePropertyId, EdgeModel poison)
         {
             typeof(VertexModel)
@@ -172,7 +161,7 @@ namespace NoSQL.GraphDB.Tests
         public void IndexScan_WithAStaleRemovedEntry_FiltersItOut()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 2);
+            var v = TestVertices.Create(fallen8, 2);
 
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out var dict, "dict", "DictionaryIndex"));
             dict.AddOrUpdate("k", v[0]); // live
@@ -197,7 +186,7 @@ namespace NoSQL.GraphDB.Tests
         public void CommittedRemoval_PurgesTheElementFromRegisteredIndices()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 3);
+            var v = TestVertices.Create(fallen8, 3);
 
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out var dict, "dict", "DictionaryIndex"));
             dict.AddOrUpdate("k", v[0]);
@@ -223,7 +212,7 @@ namespace NoSQL.GraphDB.Tests
         public void RolledBackRemoval_LeavesRegisteredIndicesIntact()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 2);
+            var v = TestVertices.Create(fallen8, 2);
 
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out var dict, "dict", "DictionaryIndex"));
             dict.AddOrUpdate("k", v[0]);
@@ -253,7 +242,7 @@ namespace NoSQL.GraphDB.Tests
         public void DictionaryIndex_RemoveValue_TouchesOnlyAffectedKeys()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 3);
+            var v = TestVertices.Create(fallen8, 3);
 
             var dict = new DictionaryIndex();
             dict.Initialize(fallen8, null);
@@ -283,7 +272,7 @@ namespace NoSQL.GraphDB.Tests
         public void RangeIndex_RemoveValue_DropsEmptiedKey_AndRangeQueryReflectsIt()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 3);
+            var v = TestVertices.Create(fallen8, 3);
 
             var range = new RangeIndex();
             range.Initialize(fallen8, null);
@@ -312,43 +301,36 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ReverseMap_SurvivesSaveLoad_AndPurgeStillWorks()
         {
-            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_idxlife_" + Guid.NewGuid().ToString("N"));
-            System.IO.Directory.CreateDirectory(tempDir);
-            try
-            {
-                var source = new Fallen8(_loggerFactory);
-                var v = CreateVertices(source, 3);
-                Assert.IsTrue(source.IndexFactory.TryCreateIndex(out var dict, "dict", "DictionaryIndex"));
-                dict.AddOrUpdate("k", v[0]);
-                dict.AddOrUpdate("k", v[1]);
-                dict.AddOrUpdate("k", v[2]);
+            using var temp = new TempDirectory("f8_idxlife_");
 
-                var savePath = System.IO.Path.Combine(tempDir, "idx.f8s");
-                var saveTx = new SaveTransaction { Path = savePath, SavePartitions = 1 };
-                source.EnqueueTransaction(saveTx).WaitUntilFinished();
+            var source = new Fallen8(_loggerFactory);
+            var v = TestVertices.Create(source, 3);
+            Assert.IsTrue(source.IndexFactory.TryCreateIndex(out var dict, "dict", "DictionaryIndex"));
+            dict.AddOrUpdate("k", v[0]);
+            dict.AddOrUpdate("k", v[1]);
+            dict.AddOrUpdate("k", v[2]);
 
-                var loaded = new Fallen8(_loggerFactory);
-                loaded.EnqueueTransaction(new LoadTransaction { Path = saveTx.ActualPath }).WaitUntilFinished();
+            var savePath = System.IO.Path.Combine(temp.FullName, "idx.f8s");
+            var saveTx = new SaveTransaction { Path = savePath, SavePartitions = 1 };
+            source.EnqueueTransaction(saveTx).WaitUntilFinished();
 
-                Assert.IsTrue(loaded.IndexFactory.TryGetIndex(out var reloaded, "dict"), "The index must reload.");
-                Assert.AreEqual(3, reloaded.CountOfValues());
+            var loaded = new Fallen8(_loggerFactory);
+            loaded.EnqueueTransaction(new LoadTransaction { Path = saveTx.ActualPath }).WaitUntilFinished();
 
-                // Remove a reloaded element through the pipeline: the write-end purge uses the loaded
-                // index's rebuilt reverse map, so the element leaves the bucket.
-                Assert.IsTrue(loaded.TryGetVertex(out var reloadedV1, v[1].Id));
-                loaded.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = reloadedV1.Id }).WaitUntilFinished();
+            Assert.IsTrue(loaded.IndexFactory.TryGetIndex(out var reloaded, "dict"), "The index must reload.");
+            Assert.AreEqual(3, reloaded.CountOfValues());
 
-                Assert.AreEqual(2, reloaded.CountOfValues(), "The purge must work against the reloaded index's reverse map.");
-                Assert.IsTrue(reloaded.TryGetValue(out var bucket, "k"));
-                Assert.IsFalse(bucket.Any(e => e.Id == v[1].Id), "The removed element must be gone from the reloaded bucket.");
+            // Remove a reloaded element through the pipeline: the write-end purge uses the loaded
+            // index's rebuilt reverse map, so the element leaves the bucket.
+            Assert.IsTrue(loaded.TryGetVertex(out var reloadedV1, v[1].Id));
+            loaded.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = reloadedV1.Id }).WaitUntilFinished();
 
-                loaded.Dispose();
-                source.Dispose();
-            }
-            finally
-            {
-                try { System.IO.Directory.Delete(tempDir, true); } catch { }
-            }
+            Assert.AreEqual(2, reloaded.CountOfValues(), "The purge must work against the reloaded index's reverse map.");
+            Assert.IsTrue(reloaded.TryGetValue(out var bucket, "k"));
+            Assert.IsFalse(bucket.Any(e => e.Id == v[1].Id), "The removed element must be gone from the reloaded bucket.");
+
+            loaded.Dispose();
+            source.Dispose();
         }
     }
 }

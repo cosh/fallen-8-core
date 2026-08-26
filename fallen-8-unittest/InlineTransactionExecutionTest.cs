@@ -59,29 +59,19 @@ namespace NoSQL.GraphDB.Tests
     public class InlineTransactionExecutionTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_inline_" + Guid.NewGuid().ToString("N"));
+            _temp = new TempDirectory("f8_inline_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         #region helpers
@@ -89,14 +79,7 @@ namespace NoSQL.GraphDB.Tests
         private Fallen8 NewInlineEngine()
             => new Fallen8(_loggerFactory, transactionExecutionMode: TransactionExecutionMode.Inline);
 
-        private string WalPath
-        {
-            get
-            {
-                Directory.CreateDirectory(_tempDir);
-                return Path.Combine(_tempDir, "inline.f8s.wal");
-            }
-        }
+        private string WalPath => Path.Combine(_temp.FullName, "inline.f8s.wal");
 
         /// <summary>The engine declares no InternalsVisibleTo, so the writer-thread field is read by
         /// reflection - the same approach <see cref="TransactionRetentionTest" /> uses.</summary>
@@ -616,8 +599,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void InlineMode_SaveAndLoad_RoundTripTheGraph()
         {
-            Directory.CreateDirectory(_tempDir);
-            var savePath = Path.Combine(_tempDir, "inline.f8s");
+            var savePath = Path.Combine(_temp.FullName, "inline.f8s");
 
             using (var fallen8 = NewInlineEngine())
             {

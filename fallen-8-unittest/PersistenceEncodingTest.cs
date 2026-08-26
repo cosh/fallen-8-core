@@ -53,35 +53,24 @@ namespace NoSQL.GraphDB.Tests
     public class PersistenceEncodingTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_persist_encoding_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_persist_encoding_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         #region helpers
 
-        private string SavePath => Path.Combine(_tempDir, "encoding.f8s");
+        private string SavePath => Path.Combine(_temp.FullName, "encoding.f8s");
 
         private string Save(Fallen8 fallen8, int partitions)
         {

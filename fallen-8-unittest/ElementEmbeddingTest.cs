@@ -299,44 +299,37 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void SetEmbeddings_SurviveWalReplay_IncludingRemovals()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_embedwal_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            var walPath = Path.Combine(tempDir, "embeddings.wal");
-            try
+            using var temp = new TempDirectory("f8_embedwal_");
+            var walPath = Path.Combine(temp.FullName, "embeddings.wal");
+
+            int keeper, dropper;
+            using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
             {
-                int keeper, dropper;
-                using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
-                {
-                    var tx = new CreateVerticesTransaction();
-                    tx.AddVertex(1u, "person");
-                    tx.AddVertex(1u, "person");
-                    writer.EnqueueTransaction(tx).WaitUntilFinished();
-                    keeper = tx.GetCreatedVertices()[0].Id;
-                    dropper = tx.GetCreatedVertices()[1].Id;
+                var tx = new CreateVerticesTransaction();
+                tx.AddVertex(1u, "person");
+                tx.AddVertex(1u, "person");
+                writer.EnqueueTransaction(tx).WaitUntilFinished();
+                keeper = tx.GetCreatedVertices()[0].Id;
+                dropper = tx.GetCreatedVertices()[1].Id;
 
-                    writer.EnqueueTransaction(new SetEmbeddingsTransaction()
-                            .SetEmbedding(keeper, "default", new[] { 1.5f, -2f })
-                            .SetEmbedding(keeper, "title", new[] { 7f })
-                            .SetEmbedding(dropper, "default", new[] { 3f }))
-                        .WaitUntilFinished();
-                    writer.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(dropper, "default", null))
-                        .WaitUntilFinished();
-                } // crash: no save - the WAL alone carries the embeddings
+                writer.EnqueueTransaction(new SetEmbeddingsTransaction()
+                        .SetEmbedding(keeper, "default", new[] { 1.5f, -2f })
+                        .SetEmbedding(keeper, "title", new[] { 7f })
+                        .SetEmbedding(dropper, "default", new[] { 3f }))
+                    .WaitUntilFinished();
+                writer.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(dropper, "default", null))
+                    .WaitUntilFinished();
+            } // crash: no save - the WAL alone carries the embeddings
 
-                using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
-                Assert.IsTrue(recovered.TryGetGraphElement(out var recoveredKeeper, keeper));
-                Assert.IsTrue(recoveredKeeper.TryGetEmbedding(out var vector));
-                CollectionAssert.AreEqual(new[] { 1.5f, -2f }, vector.ToArray());
-                Assert.IsTrue(recoveredKeeper.TryGetEmbedding(out var title, "title"));
-                CollectionAssert.AreEqual(new[] { 7f }, title.ToArray());
+            using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+            Assert.IsTrue(recovered.TryGetGraphElement(out var recoveredKeeper, keeper));
+            Assert.IsTrue(recoveredKeeper.TryGetEmbedding(out var vector));
+            CollectionAssert.AreEqual(new[] { 1.5f, -2f }, vector.ToArray());
+            Assert.IsTrue(recoveredKeeper.TryGetEmbedding(out var title, "title"));
+            CollectionAssert.AreEqual(new[] { 7f }, title.ToArray());
 
-                Assert.IsTrue(recovered.TryGetGraphElement(out var recoveredDropper, dropper));
-                Assert.IsFalse(recoveredDropper.TryGetEmbedding(out _), "the replayed removal wins");
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            Assert.IsTrue(recovered.TryGetGraphElement(out var recoveredDropper, dropper));
+            Assert.IsFalse(recoveredDropper.TryGetEmbedding(out _), "the replayed removal wins");
         }
 
         [TestMethod]

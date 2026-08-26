@@ -49,30 +49,19 @@ namespace NoSQL.GraphDB.Tests
     public class LoadPathIntegrityTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_loadpath_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_loadpath_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         #region L1 - cross-bunch edge rehydration race
@@ -128,7 +117,7 @@ namespace NoSQL.GraphDB.Tests
 
             for (var iter = 0; iter < iterations; iter++)
             {
-                var savePath = Path.Combine(_tempDir, "cb_" + iter + ".f8s");
+                var savePath = Path.Combine(_temp.FullName, "cb_" + iter + ".f8s");
                 var saveTx = new SaveTransaction { Path = savePath };
                 source.EnqueueTransaction(saveTx).WaitUntilFinished();
 
@@ -137,7 +126,7 @@ namespace NoSQL.GraphDB.Tests
                 // count is min(byWork, ProcessorCount), so on a 1-CPU environment it collapses to a
                 // single bunch and this test would pass VACUOUSLY without exercising the concurrent
                 // fix-up. Make that loud instead of silent (feature load-path-integrity L1).
-                var bunches = Directory.GetFiles(_tempDir)
+                var bunches = Directory.GetFiles(_temp.FullName)
                     .Count(f => Path.GetFileName(f).StartsWith(
                                     Path.GetFileName(saveTx.ActualPath) + Constants.GraphElementsSaveString,
                                     StringComparison.Ordinal)
@@ -198,7 +187,7 @@ namespace NoSQL.GraphDB.Tests
                 }
 
                 File.Delete(saveTx.ActualPath);
-                foreach (var sidecar in Directory.GetFiles(_tempDir, "cb_" + iter + ".f8s*"))
+                foreach (var sidecar in Directory.GetFiles(_temp.FullName, "cb_" + iter + ".f8s*"))
                 {
                     File.Delete(sidecar);
                 }
@@ -215,7 +204,7 @@ namespace NoSQL.GraphDB.Tests
             // A save to a path whose directory does not exist (e.g. a fresh "C:/Fallen8/database.f8s")
             // must create the directory and succeed, not throw DirectoryNotFoundException from the
             // first bunch-sidecar write. Uses multiple partitions to exercise the sidecar path.
-            var missingDir = Path.Combine(_tempDir, "does", "not", "exist", "yet");
+            var missingDir = Path.Combine(_temp.FullName, "does", "not", "exist", "yet");
             var savePath = Path.Combine(missingDir, "database.f8s");
             Assert.IsFalse(Directory.Exists(missingDir), "Precondition: the target directory does not exist.");
 

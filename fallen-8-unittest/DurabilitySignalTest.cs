@@ -23,7 +23,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
 using System.IO;
 using System.Linq;
 using Microsoft.Extensions.Logging;
@@ -53,23 +52,22 @@ namespace NoSQL.GraphDB.Tests
     public class DurabilitySignalTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_w5_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_w5_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try { if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true); } catch { }
+            _temp?.Dispose();
         }
 
-        private string WalPath => Path.Combine(_tempDir, "wal.f8log");
+        private string WalPath => Path.Combine(_temp.FullName, "wal.f8log");
 
         private static int AddVertex(Fallen8 engine)
         {
@@ -147,7 +145,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // A clean replay: the count is populated and truncated stays false, so a client can tell
             // "recovery ran and was complete" from "recovery ran and stopped early".
-            var snapshot = Path.Combine(_tempDir, "snapshot.f8s");
+            var snapshot = Path.Combine(_temp.FullName, "snapshot.f8s");
             string actualPath;
             using (var producer = new Fallen8(_loggerFactory, new WriteAheadLogOptions(WalPath)))
             {
@@ -180,7 +178,7 @@ namespace NoSQL.GraphDB.Tests
             // a graph that is internally consistent but is a PREFIX of committed history. Corrupting the
             // PAYLOAD of the last entry (leaving its CRC envelope intact is not possible here, so this
             // exercises the decode/verify stop rather than a specific failure mode) must set the flag.
-            var snapshot = Path.Combine(_tempDir, "snapshot.f8s");
+            var snapshot = Path.Combine(_temp.FullName, "snapshot.f8s");
             string actualPath;
             using (var producer = new Fallen8(_loggerFactory, new WriteAheadLogOptions(WalPath)))
             {
@@ -221,7 +219,7 @@ namespace NoSQL.GraphDB.Tests
             AddVertex(engine);
             Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out _, "byName"), "index creation");
 
-            var save = new SaveTransaction { Path = Path.Combine(_tempDir, "clean.f8s") };
+            var save = new SaveTransaction { Path = Path.Combine(_temp.FullName, "clean.f8s") };
             engine.EnqueueTransaction(save).WaitUntilFinished();
 
             Assert.AreEqual(0, engine.Durability.LastCheckpointDroppedIndices,

@@ -375,50 +375,43 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void SaveLoad_RoundTripsTheIndex_WithIdenticalScores()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_vec_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
+            using var temp = new TempDirectory("f8_vec_");
+
+            var index = CreateIndex("emb", 3, "Cosine");
+            var a = Vertex();
+            var b = Vertex();
+            var removedBeforeSave = Vertex();
+            index.AddOrUpdate(new[] { 0.3f, -0.7f, 0.64f }, a);
+            index.AddOrUpdate(new[] { -0.11f, 0.99f, 0.02f }, b);
+            index.AddOrUpdate(new[] { 0.25f, -0.6f, 0.7f }, removedBeforeSave);
+            _fallen8.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = removedBeforeSave.Id })
+                .WaitUntilFinished();
+
+            var query = new[] { 0.25f, -0.6f, 0.7f };
+            var before = Knn(index, query, 2);
+
+            var save = new SaveTransaction { Path = Path.Combine(temp.FullName, "vec.f8s"), SavePartitions = 1 };
+            _fallen8.EnqueueTransaction(save).WaitUntilFinished();
+
+            using var restored = new Fallen8(TestLoggerFactory.Create());
+            var load = new LoadTransaction { Path = save.ActualPath };
+            restored.EnqueueTransaction(load).WaitUntilFinished();
+
+            Assert.IsTrue(restored.IndexFactory.TryGetIndex(out var reloadedRaw, "emb"),
+                "the index rehydrates through the standard checkpoint (CanPersist)");
+            var reloaded = (IVectorIndex)reloadedRaw;
+            Assert.AreEqual(3, reloaded.Dimension);
+            Assert.AreEqual(VectorDistanceMetric.Cosine, reloaded.Metric);
+
+            Assert.AreEqual(2, reloaded.CountOfValues(),
+                "the element removed before the save is absent after the load");
+
+            var after = Knn(reloaded, query, 2);
+            Assert.AreEqual(before.Count, after.Count);
+            for (var i = 0; i < before.Count; i++)
             {
-                var index = CreateIndex("emb", 3, "Cosine");
-                var a = Vertex();
-                var b = Vertex();
-                var removedBeforeSave = Vertex();
-                index.AddOrUpdate(new[] { 0.3f, -0.7f, 0.64f }, a);
-                index.AddOrUpdate(new[] { -0.11f, 0.99f, 0.02f }, b);
-                index.AddOrUpdate(new[] { 0.25f, -0.6f, 0.7f }, removedBeforeSave);
-                _fallen8.EnqueueTransaction(new RemoveGraphElementTransaction { GraphElementId = removedBeforeSave.Id })
-                    .WaitUntilFinished();
-
-                var query = new[] { 0.25f, -0.6f, 0.7f };
-                var before = Knn(index, query, 2);
-
-                var save = new SaveTransaction { Path = Path.Combine(tempDir, "vec.f8s"), SavePartitions = 1 };
-                _fallen8.EnqueueTransaction(save).WaitUntilFinished();
-
-                using var restored = new Fallen8(TestLoggerFactory.Create());
-                var load = new LoadTransaction { Path = save.ActualPath };
-                restored.EnqueueTransaction(load).WaitUntilFinished();
-
-                Assert.IsTrue(restored.IndexFactory.TryGetIndex(out var reloadedRaw, "emb"),
-                    "the index rehydrates through the standard checkpoint (CanPersist)");
-                var reloaded = (IVectorIndex)reloadedRaw;
-                Assert.AreEqual(3, reloaded.Dimension);
-                Assert.AreEqual(VectorDistanceMetric.Cosine, reloaded.Metric);
-
-                Assert.AreEqual(2, reloaded.CountOfValues(),
-                    "the element removed before the save is absent after the load");
-
-                var after = Knn(reloaded, query, 2);
-                Assert.AreEqual(before.Count, after.Count);
-                for (var i = 0; i < before.Count; i++)
-                {
-                    Assert.AreEqual(before[i].Id, after[i].Id, "same ids after reload");
-                    Assert.AreEqual(before[i].Score, after[i].Score, "identical scores after reload (same process)");
-                }
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
+                Assert.AreEqual(before[i].Id, after[i].Id, "same ids after reload");
+                Assert.AreEqual(before[i].Score, after[i].Score, "identical scores after reload (same process)");
             }
         }
 

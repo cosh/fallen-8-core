@@ -84,9 +84,8 @@ namespace NoSQL.GraphDB.Tests
                 File.WriteAllText(Path.Combine(_metadata, Fallen8ConfigOverridesSource.FileName), storedOverrides);
             }
 
-            return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            return new VolatileAppFactory().WithWebHostBuilder(builder =>
             {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
                 builder.UseSetting("Fallen8:Metadata:Directory", _metadata);
             });
         }
@@ -304,9 +303,8 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task GetNamespaces_PublishesTheStartupPolicyUncomposed()
         {
-            using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            using var factory = new VolatileAppFactory().WithWebHostBuilder(builder =>
             {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
                 builder.UseSetting("Fallen8:Metadata:Directory", _metadata);
                 builder.UseSetting("Fallen8:Namespaces:LoadOnStartup", "false");
                 builder.UseSetting("Fallen8:Namespaces:StartupLoadMode", "All");

@@ -30,12 +30,9 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Model;
@@ -349,16 +346,7 @@ namespace NoSQL.GraphDB.Tests
 
         #region fragment end-to-end (REST)
 
-        private sealed class RestFactory : WebApplicationFactory<Program>
-        {
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                // Volatile durability so booting the host writes no checkpoint/WAL.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-            }
-        }
-
-        private static Fallen8 EngineOf(RestFactory factory)
+        private static Fallen8 EngineOf(VolatileAppFactory factory)
         {
             return factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
         }
@@ -372,7 +360,7 @@ namespace NoSQL.GraphDB.Tests
         ///   Seeds the diamond a -> b -> d / a -> c -> d used by the traversal tests: a and d are
         ///   labelled "end"; b and c carry the given properties. Returns (a, b, c, d) ids.
         /// </summary>
-        private static (int a, int b, int c, int d) SeedDiamond(RestFactory factory,
+        private static (int a, int b, int c, int d) SeedDiamond(VolatileAppFactory factory,
             Dictionary<string, object> bProps, Dictionary<string, object> cProps)
         {
             var engine = EngineOf(factory);
@@ -399,7 +387,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Proves the existing fragment compilation usings suffice: the nested lambda and
             // StringComparison resolve with no codegen change.
-            using var factory = new RestFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             foreach (var (kind, fragment) in new[]
@@ -421,7 +409,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Path_VertexFilterUsingNewMember_PrunesTheNonMatchingRoute()
         {
-            using var factory = new RestFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             var (a, _, _, d) = SeedDiamond(factory,
                 bProps: new Dictionary<string, object> { { "name", "TechCorp" } },
@@ -443,7 +431,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // b stores age as an int (passes), c stores age as a STRING: the typed read used to
             // throw InvalidCastException inside the traversal (a 500); it now filters c cleanly.
-            using var factory = new RestFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             var (a, _, _, d) = SeedDiamond(factory,
                 bProps: new Dictionary<string, object> { { "age", 40 } },
@@ -464,7 +452,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_TopLevelVertexFilterUsingNewMember_SelectsOnlyMatches()
         {
-            using var factory = new RestFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             SeedDiamond(factory,
                 bProps: new Dictionary<string, object> { { "name", "TechCorp" } },

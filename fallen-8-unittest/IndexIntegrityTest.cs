@@ -56,21 +56,21 @@ namespace NoSQL.GraphDB.Tests
     {
         private ILoggerFactory _loggerFactory;
         private Fallen8 _fallen8;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
             _fallen8 = new Fallen8(_loggerFactory);
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_w3_" + Guid.NewGuid().ToString("N"));
+            _temp = new TempDirectory("f8_w3_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
             _fallen8?.Dispose();
-            try { if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true); } catch { }
+            _temp?.Dispose();
         }
 
         private int NewVertex(string label = "device")
@@ -178,8 +178,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // The reverse map is rebuilt from the buckets on load, so the guard must still hold on a
             // reloaded index - otherwise the first re-population after a restart doubles everything.
-            Directory.CreateDirectory(_tempDir);
-            var snapshot = Path.Combine(_tempDir, "snapshot.f8s");
+            var snapshot = Path.Combine(_temp.FullName, "snapshot.f8s");
 
             var index = NewIndex("claims");
             var element = Element(NewVertex());

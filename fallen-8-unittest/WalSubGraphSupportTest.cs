@@ -51,36 +51,25 @@ namespace NoSQL.GraphDB.Tests
     public class WalSubGraphSupportTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_walsg_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_walsg_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         #region helpers
 
-        private string SavePath => Path.Combine(_tempDir, "savegame.f8s");
-        private string WalPath => Path.Combine(_tempDir, "savegame.f8s.wal");
+        private string SavePath => Path.Combine(_temp.FullName, "savegame.f8s");
+        private string WalPath => Path.Combine(_temp.FullName, "savegame.f8s.wal");
 
         private Fallen8 NewEngineWithWal()
         {

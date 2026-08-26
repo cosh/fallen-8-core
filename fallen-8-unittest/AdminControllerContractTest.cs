@@ -56,8 +56,11 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class AdminControllerContractTest
     {
+        /// <summary>A path only, deliberately NOT created here: the registry is what creates its
+        /// metadata directory, so this arrange must not pre-empt it (hence no TempDirectory).</summary>
         private String _metaDir;
-        private String _dataDir;
+
+        private TempDirectory _data;
         private SaveGameRegistry _registry;
         private ILoggerFactory _loggerFactory;
         private Fallen8 _fallen8;
@@ -66,8 +69,7 @@ namespace NoSQL.GraphDB.Tests
         public void Init()
         {
             _metaDir = Path.Combine(Path.GetTempPath(), "f8_audit_meta_" + Guid.NewGuid().ToString("N"));
-            _dataDir = Path.Combine(Path.GetTempPath(), "f8_audit_data_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dataDir);
+            _data = new TempDirectory("f8_audit_data_");
 
             _registry = new SaveGameRegistry(
                 Options.Create(new Fallen8MetadataOptions { Directory = _metaDir }),
@@ -85,11 +87,9 @@ namespace NoSQL.GraphDB.Tests
         {
             _fallen8?.Dispose();
             _loggerFactory?.Dispose();
-            foreach (var dir in new[] { _metaDir, _dataDir })
-            {
-                // A leftover temp directory must never fail a test.
-                try { if (dir != null && Directory.Exists(dir)) Directory.Delete(dir, true); } catch { }
-            }
+            _data?.Dispose();
+            // A leftover temp directory must never fail a test.
+            try { if (_metaDir != null && Directory.Exists(_metaDir)) Directory.Delete(_metaDir, true); } catch { }
         }
 
         private AdminController NewController()
@@ -100,7 +100,7 @@ namespace NoSQL.GraphDB.Tests
         /// <summary>Writes a real checkpoint of the current engine state and returns its path.</summary>
         private String SaveCheckpoint()
         {
-            var tx = new SaveTransaction { Path = Path.Combine(_dataDir, "database.f8s") };
+            var tx = new SaveTransaction { Path = Path.Combine(_data.FullName, "database.f8s") };
             _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
             return tx.ActualPath;
         }
@@ -130,7 +130,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Load_WithNonExistentPath_Returns400_AndRegistersNoSaveGame()
         {
-            var missing = Path.Combine(_dataDir, "does-not-exist.f8s");
+            var missing = Path.Combine(_data.FullName, "does-not-exist.f8s");
             Assert.IsFalse(File.Exists(missing), "arrange: the path must really be absent");
 
             var result = await NewController().Load(new LoadSpecification { SaveGameLocation = missing });
@@ -151,7 +151,7 @@ namespace NoSQL.GraphDB.Tests
 
             var result = await NewController().Load(new LoadSpecification
             {
-                SaveGameLocation = Path.Combine(_dataDir, "typo.f8s"),
+                SaveGameLocation = Path.Combine(_data.FullName, "typo.f8s"),
             });
 
             ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
@@ -180,7 +180,7 @@ namespace NoSQL.GraphDB.Tests
         public async Task Load_WithDirectoryInsteadOfFile_Returns400()
         {
             // File.Exists is false for a directory, exactly as the engine's own pre-condition is.
-            var result = await NewController().Load(new LoadSpecification { SaveGameLocation = _dataDir });
+            var result = await NewController().Load(new LoadSpecification { SaveGameLocation = _data.FullName });
 
             ProblemAssert.AssertProblem(result, StatusCodes.Status400BadRequest);
             Assert.AreEqual(0, _registry.GetAll().Count);

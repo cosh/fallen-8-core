@@ -44,8 +44,10 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class SaveGameRegistryTest
     {
+        // Stays a bare path, not a TempDirectory: these tests are about a registry whose directory does
+        // not exist yet, and TempDirectory creates on construction.
         private string _metaDir;
-        private string _dataDir;
+        private TempDirectory _data;
         private SaveGameRegistry _registry;
         private Fallen8 _fallen8;
 
@@ -53,8 +55,7 @@ namespace NoSQL.GraphDB.Tests
         public void Init()
         {
             _metaDir = Path.Combine(Path.GetTempPath(), "f8_meta_" + Guid.NewGuid().ToString("N"));
-            _dataDir = Path.Combine(Path.GetTempPath(), "f8_data_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dataDir);
+            _data = new TempDirectory("f8_data_");
             var options = Options.Create(new Fallen8MetadataOptions { Directory = _metaDir });
             _registry = new SaveGameRegistry(options, NullLogger<SaveGameRegistry>.Instance);
             _fallen8 = new Fallen8(TestLoggerFactory.Create());
@@ -64,15 +65,13 @@ namespace NoSQL.GraphDB.Tests
         public void Cleanup()
         {
             _fallen8?.Dispose();
-            foreach (var dir in new[] { _metaDir, _dataDir })
-            {
-                try { if (dir != null && Directory.Exists(dir)) Directory.Delete(dir, true); } catch { }
-            }
+            try { if (_metaDir != null && Directory.Exists(_metaDir)) Directory.Delete(_metaDir, true); } catch { }
+            _data?.Dispose();
         }
 
         private string SaveCheckpoint()
         {
-            var tx = new SaveTransaction { Path = Path.Combine(_dataDir, "database.f8s") };
+            var tx = new SaveTransaction { Path = Path.Combine(_data.FullName, "database.f8s") };
             _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
             return tx.ActualPath;
         }
@@ -197,7 +196,7 @@ namespace NoSQL.GraphDB.Tests
             // Two saves to the SAME base path: the first is "database.f8s" (bare), the second is
             // "database.f8s#<stamp>" (versioned). The bare name is a textual prefix of the versioned
             // one, so a naive prefix glob would delete the sibling's files. It must not.
-            var basePath = Path.Combine(_dataDir, "database.f8s");
+            var basePath = Path.Combine(_data.FullName, "database.f8s");
             var tx1 = new SaveTransaction { Path = basePath };
             _fallen8.EnqueueTransaction(tx1).WaitUntilFinished();
             var first = _registry.Register(_fallen8, tx1.ActualPath, "api");
@@ -222,7 +221,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void MeasureFiles_DoesNotCountAVersionedSiblingsFiles()
         {
-            var basePath = Path.Combine(_dataDir, "database.f8s");
+            var basePath = Path.Combine(_data.FullName, "database.f8s");
             var tx1 = new SaveTransaction { Path = basePath };
             _fallen8.EnqueueTransaction(tx1).WaitUntilFinished();
 

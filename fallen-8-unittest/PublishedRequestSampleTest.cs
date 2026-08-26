@@ -31,9 +31,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.Core.Expression;
 
@@ -102,15 +100,16 @@ namespace NoSQL.GraphDB.Tests
         };
 
         /// <summary>
-        /// Boots the real app in Development (only there are /openapi and Scalar mapped) with a
-        /// volatile engine, so generating the document writes no checkpoint or WAL.
+        /// Boots the real app in Development, because only there are /openapi and Scalar mapped.
+        /// Volatile durability (so generating the document writes no checkpoint or WAL) comes from
+        /// <see cref="VolatileAppFactory"/>.
         /// </summary>
-        private sealed class DevelopmentApiFactory : WebApplicationFactory<Program>
+        private sealed class DevelopmentApiFactory : VolatileAppFactory
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
 

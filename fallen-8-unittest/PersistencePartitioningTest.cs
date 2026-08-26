@@ -51,35 +51,24 @@ namespace NoSQL.GraphDB.Tests
     public class PersistencePartitioningTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_persist_partitioning_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_persist_partitioning_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         #region helpers
 
-        private string SavePath => Path.Combine(_tempDir, "savegame.f8s");
+        private string SavePath => Path.Combine(_temp.FullName, "savegame.f8s");
 
         private string Save(Fallen8 fallen8, int partitions, string path = null)
         {
@@ -105,7 +94,7 @@ namespace NoSQL.GraphDB.Tests
         private int BunchFileCount(string actualPath)
         {
             var prefix = Path.GetFileName(actualPath) + Constants.GraphElementsSaveString;
-            return Directory.GetFiles(_tempDir)
+            return Directory.GetFiles(_temp.FullName)
                 .Count(f => Path.GetFileName(f).StartsWith(prefix, StringComparison.Ordinal)
                          && !f.Contains(Constants.TempSaveSuffix));
         }
@@ -323,7 +312,7 @@ namespace NoSQL.GraphDB.Tests
                             default:
                                 {
                                     // Checkpoint the live graph to a unique path.
-                                    var path = Path.Combine(_tempDir, $"cp_{threadIndex}_{round}.f8s");
+                                    var path = Path.Combine(_temp.FullName, $"cp_{threadIndex}_{round}.f8s");
                                     var saveTx = new SaveTransaction { Path = path, SavePartitions = 4 };
                                     var info = source.EnqueueTransaction(saveTx);
                                     info.WaitUntilFinished();

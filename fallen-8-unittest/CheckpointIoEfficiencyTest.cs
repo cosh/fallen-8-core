@@ -46,21 +46,19 @@ namespace NoSQL.GraphDB.Tests
     public class CheckpointIoEfficiencyTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_ckptio_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_ckptio_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try { if (_tempDir != null && Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true); }
-            catch { }
+            _temp?.Dispose();
         }
 
         // Reflection into the internal Crc32 facade (the engine declares no InternalsVisibleTo).
@@ -114,7 +112,7 @@ namespace NoSQL.GraphDB.Tests
 
         // ---- save (single-pass) round-trip + corruption rejection ---------------------------------
 
-        private string SavePath => Path.Combine(_tempDir, "ckptio.f8s");
+        private string SavePath => Path.Combine(_temp.FullName, "ckptio.f8s");
 
         private string Save(Fallen8 fallen8, int partitions)
         {

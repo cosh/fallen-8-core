@@ -139,7 +139,7 @@ namespace NoSQL.GraphDB.Tests
 
         private const string ApiKey = "embedding-test-key";
 
-        private sealed class ProviderFactory : WebApplicationFactory<Program>
+        private sealed class ProviderFactory : VolatileAppFactory
         {
             private readonly bool _enabled;
             private readonly int _fakeDimension;
@@ -154,7 +154,7 @@ namespace NoSQL.GraphDB.Tests
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
+                base.ConfigureWebHost(builder);
                 builder.UseSetting("Fallen8:Embedding:Enabled", _enabled ? "true" : "false");
                 builder.UseSetting("Fallen8:Embedding:Backend", "Onnx"); // never constructed: the fake replaces it
                 builder.UseSetting("Fallen8:Embedding:ModelName", "fake-model");
@@ -399,13 +399,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Diamond a -> b -> d / a -> c -> d, embedded via the provider: b matches the
             // query text exactly, c does not.
-            var vtx = new CreateVerticesTransaction();
-            for (var i = 0; i < 4; i++)
-            {
-                vtx.AddVertex(1u, "n");
-            }
-            engine.EnqueueTransaction(vtx).WaitUntilFinished();
-            var v = vtx.GetCreatedVertices();
+            var v = TestVertices.Create(engine, 4, "n");
             var edges = new CreateEdgesTransaction();
             edges.AddEdge(v[0].Id, "knows", v[1].Id, 1u, "knows");
             edges.AddEdge(v[1].Id, "knows", v[3].Id, 1u, "knows");
@@ -804,23 +798,18 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(prefixed.Message, "Fallen8:Embedding:Ollama:Endpoint");
         }
 
-        private sealed class RealBackendFactory : WebApplicationFactory<Program>
+        /// <summary>No model paths configured - and no fake: the REAL backend factory runs.</summary>
+        private sealed class RealBackendFactory : VolatileAppFactory
         {
-            private readonly string _backend;
-
             public RealBackendFactory(string backend)
+                : base(new Dictionary<string, string>
+                {
+                    ["Fallen8:Embedding:Enabled"] = "true",
+                    ["Fallen8:Embedding:Backend"] = backend,
+                    ["Fallen8:Embedding:ModelName"] = "m",
+                    ["Fallen8:Embedding:Dimension"] = "2"
+                })
             {
-                _backend = backend;
-            }
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                builder.UseSetting("Fallen8:Embedding:Enabled", "true");
-                builder.UseSetting("Fallen8:Embedding:Backend", _backend);
-                builder.UseSetting("Fallen8:Embedding:ModelName", "m");
-                builder.UseSetting("Fallen8:Embedding:Dimension", "2");
-                // No model paths configured - and no fake: the REAL backend factory runs.
             }
         }
 
@@ -872,36 +861,29 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ModelStamp_RoundTripsThroughTheWal()
         {
-            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_stampwal_" + Guid.NewGuid().ToString("N"));
-            System.IO.Directory.CreateDirectory(tempDir);
-            var walPath = System.IO.Path.Combine(tempDir, "stamp.wal");
-            try
+            using var temp = new TempDirectory("f8_stampwal_");
+            var walPath = System.IO.Path.Combine(temp.FullName, "stamp.wal");
+
+            int a;
+            using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
             {
-                int a;
-                using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
-                {
-                    var tx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u } };
-                    writer.EnqueueTransaction(tx).WaitUntilFinished();
-                    a = tx.VertexCreated.Id;
-                    writer.EnqueueTransaction(new SetEmbeddingsTransaction()
-                            .SetEmbedding(a, "default", new[] { 1f, 2f }, "fake-model#2#Cosine"))
-                        .WaitUntilFinished();
-                }
-
-                using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
-                Assert.IsTrue(recovered.TryGetGraphElement(out var element, a));
-                Assert.IsTrue(element.TryGetEmbeddingModelStamp(out var stamp));
-                Assert.AreEqual("fake-model#2#Cosine", stamp);
-
-                // A bring-your-own-vector overwrite CLEARS the stamp - it can never lie.
-                recovered.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(a, "default", new[] { 3f, 4f }))
+                var tx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u } };
+                writer.EnqueueTransaction(tx).WaitUntilFinished();
+                a = tx.VertexCreated.Id;
+                writer.EnqueueTransaction(new SetEmbeddingsTransaction()
+                        .SetEmbedding(a, "default", new[] { 1f, 2f }, "fake-model#2#Cosine"))
                     .WaitUntilFinished();
-                Assert.IsFalse(element.TryGetEmbeddingModelStamp(out _));
             }
-            finally
-            {
-                try { System.IO.Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+
+            using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+            Assert.IsTrue(recovered.TryGetGraphElement(out var element, a));
+            Assert.IsTrue(element.TryGetEmbeddingModelStamp(out var stamp));
+            Assert.AreEqual("fake-model#2#Cosine", stamp);
+
+            // A bring-your-own-vector overwrite CLEARS the stamp - it can never lie.
+            recovered.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(a, "default", new[] { 3f, 4f }))
+                .WaitUntilFinished();
+            Assert.IsFalse(element.TryGetEmbeddingModelStamp(out _));
         }
 
         #endregion

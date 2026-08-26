@@ -33,11 +33,8 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Transaction;
@@ -53,28 +50,9 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class BulkImportExportTest
     {
-        private sealed class BulkFactory : WebApplicationFactory<Program>
-        {
-            private readonly IReadOnlyDictionary<string, string> _settings;
-
-            public BulkFactory(IReadOnlyDictionary<string, string> settings = null)
-            {
-                _settings = settings ?? new Dictionary<string, string>();
-            }
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                foreach (var kv in _settings)
-                {
-                    builder.UseSetting(kv.Key, kv.Value);
-                }
-            }
-        }
-
         #region helpers
 
-        private static Fallen8 EngineOf(BulkFactory factory)
+        private static Fallen8 EngineOf(VolatileAppFactory factory)
         {
             return factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
         }
@@ -291,7 +269,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ExportImportRoundTrip_PreservesStructureAndEveryPropertyType()
         {
-            using var source = new BulkFactory();
+            using var source = new VolatileAppFactory();
             var sourceEngine = EngineOf(source);
 
             // A graph with multiple labels, a self-loop, shared endpoints, and one property of
@@ -316,7 +294,7 @@ namespace NoSQL.GraphDB.Tests
             var exported = await sourceClient.GetStringAsync("/bulk/export");
 
             // Import into a FRESH instance.
-            using var target = new BulkFactory();
+            using var target = new VolatileAppFactory();
             using var targetClient = target.CreateClient();
             using var importResponse = await Import(targetClient, exported);
             Assert.AreEqual(HttpStatusCode.OK, importResponse.StatusCode,
@@ -357,7 +335,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Export_ShapeIsMetaThenVerticesThenEdges_WithExactCounts()
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             SeedSmallGraph(EngineOf(factory));
 
             using var client = factory.CreateClient();
@@ -383,7 +361,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Export_LabelFilters_AreEndpointConsistent_AndTheSubsetImports()
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             SeedSmallGraph(engine); // person -> robot edge
 
@@ -397,7 +375,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1, lines[0].GetProperty("vertexCount").GetInt32());
             Assert.AreEqual(0, lines[0].GetProperty("edgeCount").GetInt32());
 
-            using var target = new BulkFactory();
+            using var target = new VolatileAppFactory();
             using var targetClient = target.CreateClient();
             using var import = await Import(targetClient, subset);
             Assert.AreEqual(HttpStatusCode.OK, import.StatusCode);
@@ -407,7 +385,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Export_EdgeLabelFilter_MapsToTheEngineScan()
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var (a, b, _) = SeedSmallGraph(engine); // friendship edge
             var extra = new CreateEdgesTransaction();
@@ -424,7 +402,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("trusts", edgeLine.GetProperty("edgePropertyId").GetString());
 
             // ...and the filtered file imports.
-            using var target = new BulkFactory();
+            using var target = new VolatileAppFactory();
             using var targetClient = target.CreateClient();
             using var import = await Import(targetClient, exported);
             Assert.AreEqual(HttpStatusCode.OK, import.StatusCode);
@@ -434,7 +412,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Export_EdgeTypeFilter_ScopesByEdgePropertyId_AndAndsWithEdgeLabel()
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var (a, b, _) = SeedSmallGraph(engine); // knows edge, label "friendship"
             var extra = new CreateEdgesTransaction();
@@ -457,7 +435,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(disjoint.Any(l => l.GetProperty("type").GetString() == "edge"));
 
             // ...and the type-filtered file imports.
-            using var target = new BulkFactory();
+            using var target = new VolatileAppFactory();
             using var targetClient = target.CreateClient();
             using var import = await Import(targetClient, exported);
             Assert.AreEqual(HttpStatusCode.OK, import.StatusCode);
@@ -467,7 +445,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Export_EmbeddedGraph_StampsVersion2_AndTheVectorRoundTrips()
         {
-            using var source = new BulkFactory();
+            using var source = new VolatileAppFactory();
             var engine = EngineOf(source);
             var vector = new[] { 0.25f, -0.5f, 0.125f };
             var vtx = new CreateVerticesTransaction();
@@ -498,7 +476,7 @@ namespace NoSQL.GraphDB.Tests
 
             // The file imports into a fresh instance; the reserved property IS the embedding
             // there (element-embeddings v1 layout), and the model stamp survives next to it.
-            using var target = new BulkFactory();
+            using var target = new VolatileAppFactory();
             using var targetClient = target.CreateClient();
             using var import = await Import(targetClient, exported);
             Assert.AreEqual(HttpStatusCode.OK, import.StatusCode, await import.Content.ReadAsStringAsync());
@@ -515,7 +493,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Standardized on version 2 (feature sample-graphs): the writer always stamps the
             // current version - no lowest-sufficient escalation, no version-dependent behaviour.
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             SeedSmallGraph(EngineOf(factory));
 
             using var client = factory.CreateClient();
@@ -532,7 +510,7 @@ namespace NoSQL.GraphDB.Tests
                 "{\"type\":\"meta\",\"format\":\"fallen8-jsonl\",\"version\":1}\n" +
                 "{\"type\":\"vertex\",\"id\":1,\"label\":\"doc\",\"creationDate\":1,\"properties\":{\"$embedding:default\":{\"type\":\"System.Single[]\",\"value\":\"1,2\"}}}\n";
 
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var response = await Import(client, file);
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
@@ -550,7 +528,7 @@ namespace NoSQL.GraphDB.Tests
             const string file =
                 "{\"type\":\"vertex\",\"id\":1,\"label\":\"doc\",\"creationDate\":1,\"properties\":{\"$embedding:default\":{\"type\":\"System.Single[]\",\"value\":\"0.5,1.5\"}}}\n";
 
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var response = await Import(client, file);
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
@@ -572,7 +550,7 @@ namespace NoSQL.GraphDB.Tests
                 "{\"type\":\"vertex\",\"id\":7,\"label\":\"b\",\"creationDate\":1}\n" +
                 "{\"type\":\"edge\",\"id\":123456,\"edgePropertyId\":\"knows\",\"source\":9000,\"target\":7,\"creationDate\":1}\n";
 
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var response = await Import(client, file);
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
@@ -592,7 +570,7 @@ namespace NoSQL.GraphDB.Tests
                 "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
                 "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n";
 
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var response = await Import(client, file);
 
@@ -612,7 +590,7 @@ namespace NoSQL.GraphDB.Tests
                 "{\"type\":\"vertex\",\"id\":3,\"creationDate\":1}\n" +
                 "{\"type\":\"edge\",\"id\":11,\"edgePropertyId\":\"knows\",\"source\":2,\"target\":3,\"creationDate\":1}\n";
 
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var response = await Import(client, file);
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
@@ -630,7 +608,7 @@ namespace NoSQL.GraphDB.Tests
         public async Task Import_EdgeToUnknownId_Is400_AndCommittedBatchesRemain()
         {
             // Batch size 2: the first two vertices commit as a batch BEFORE the bad edge line.
-            using var factory = new BulkFactory(new Dictionary<string, string>
+            using var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:BulkIO:ImportBatchSize"] = "2"
             });
@@ -660,7 +638,7 @@ namespace NoSQL.GraphDB.Tests
                 "{\"type\":\"meta\",\"format\":\"fallen8-jsonl\",\"version\":1,\"vertexCount\":3,\"edgeCount\":0}\n" +
                 "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n";
 
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var response = await Import(client, file);
 
@@ -676,7 +654,7 @@ namespace NoSQL.GraphDB.Tests
                 "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
                 "{\"type\":\"meta\",\"format\":\"fallen8-jsonl\",\"version\":1}\n";
 
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var response = await Import(client, file);
 
@@ -688,7 +666,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Import_OverlongLine_Is400_WithItsLineNumber()
         {
-            using var factory = new BulkFactory(new Dictionary<string, string>
+            using var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:BulkIO:MaxLineBytes"] = "128"
             });
@@ -707,7 +685,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Import_MalformedJsonLine_Is400ProblemJson_ThroughTheFullPipeline()
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var response = await Import(client,
                 "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\nnot json at all\n");
@@ -723,7 +701,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Import_WrongContentType_Is415()
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             using var response = await client.PostAsync("/bulk/import",
                 new StringContent("{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}", Encoding.UTF8, "application/json"));
@@ -768,7 +746,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Import_NonEmptyGraph_Is409_WithNothingMutated()
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             SeedSmallGraph(EngineOf(factory));
             var before = EngineOf(factory).VertexCount;
 
@@ -787,7 +765,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Import_LargerThanTwoBatches_CommitsInMultipleTransactions()
         {
-            using var factory = new BulkFactory(new Dictionary<string, string>
+            using var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:BulkIO:ImportBatchSize"] = "3"
             });
@@ -810,51 +788,44 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Import_MidFileFailureUnderWal_LeavesExactlyTheCommittedBatches_AndReplayAgrees()
         {
-            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_bulkwalfail_" + Guid.NewGuid().ToString("N"));
-            System.IO.Directory.CreateDirectory(tempDir);
-            var walPath = System.IO.Path.Combine(tempDir, "bulkfail.wal");
-            try
-            {
-                using (var factory = new BulkFactory(new Dictionary<string, string>
-                {
-                    ["Fallen8:Durability:Volatile"] = "false",
-                    ["Fallen8:Durability:StorageDirectory"] = tempDir,
-                    ["Fallen8:Durability:WalPath"] = walPath,
-                    ["Fallen8:Durability:SaveOnShutdown"] = "false",
-                    ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(tempDir, "metadata"),
-                    ["Fallen8:BulkIO:ImportBatchSize"] = "2"
-                }))
-                {
-                    // 5 vertices at batch size 2: batches (v1,v2) and (v3,v4) commit; v5 is
-                    // pending and never flushed when line 6 fails - proving batch-wise commits
-                    // AND the honest partial-import contract in one scenario.
-                    const string file =
-                        "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
-                        "{\"type\":\"vertex\",\"id\":2,\"creationDate\":1}\n" +
-                        "{\"type\":\"vertex\",\"id\":3,\"creationDate\":1}\n" +
-                        "{\"type\":\"vertex\",\"id\":4,\"creationDate\":1}\n" +
-                        "{\"type\":\"vertex\",\"id\":5,\"creationDate\":1}\n" +
-                        "this is not json\n";
+            using var temp = new TempDirectory("f8_bulkwalfail_");
+            var walPath = System.IO.Path.Combine(temp.FullName, "bulkfail.wal");
 
-                    using var client = factory.CreateClient();
-                    using var response = await Import(client, file);
-                    Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
-                    var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
-                    Assert.AreEqual(6, problem.GetProperty("lineNumber").GetInt32());
-                    Assert.AreEqual(4, problem.GetProperty("verticesCommitted").GetInt32(),
-                        "two full batches committed; the pending fifth vertex was never flushed");
-                    Assert.AreEqual(4, EngineOf(factory).VertexCount, "live state agrees with the report");
-                } // crash: no shutdown save - the WAL alone carries the committed batches
-
-                using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
-                Assert.AreEqual(4, recovered.VertexCount,
-                    "WAL replay reproduces exactly the committed batches - state and replay agree");
-                Assert.AreEqual(0, recovered.EdgeCount);
-            }
-            finally
+            using (var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
-                try { System.IO.Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+                ["Fallen8:Durability:Volatile"] = "false",
+                ["Fallen8:Durability:StorageDirectory"] = temp.FullName,
+                ["Fallen8:Durability:WalPath"] = walPath,
+                ["Fallen8:Durability:SaveOnShutdown"] = "false",
+                ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(temp.FullName, "metadata"),
+                ["Fallen8:BulkIO:ImportBatchSize"] = "2"
+            }))
+            {
+                // 5 vertices at batch size 2: batches (v1,v2) and (v3,v4) commit; v5 is
+                // pending and never flushed when line 6 fails - proving batch-wise commits
+                // AND the honest partial-import contract in one scenario.
+                const string file =
+                    "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":2,\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":3,\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":4,\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":5,\"creationDate\":1}\n" +
+                    "this is not json\n";
+
+                using var client = factory.CreateClient();
+                using var response = await Import(client, file);
+                Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+                var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+                Assert.AreEqual(6, problem.GetProperty("lineNumber").GetInt32());
+                Assert.AreEqual(4, problem.GetProperty("verticesCommitted").GetInt32(),
+                    "two full batches committed; the pending fifth vertex was never flushed");
+                Assert.AreEqual(4, EngineOf(factory).VertexCount, "live state agrees with the report");
+            } // crash: no shutdown save - the WAL alone carries the committed batches
+
+            using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+            Assert.AreEqual(4, recovered.VertexCount,
+                "WAL replay reproduces exactly the committed batches - state and replay agree");
+            Assert.AreEqual(0, recovered.EdgeCount);
         }
 
         /// <summary>
@@ -874,7 +845,7 @@ namespace NoSQL.GraphDB.Tests
             var walPath = System.IO.Path.Combine(tempDir, "problem.wal");
             try
             {
-                using var factory = new BulkFactory(new Dictionary<string, string>
+                using var factory = new VolatileAppFactory(new Dictionary<string, string>
                 {
                     ["Fallen8:Durability:Volatile"] = "false",
                     ["Fallen8:Durability:StorageDirectory"] = tempDir,
@@ -945,38 +916,31 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Import_UnderAHealthyWal_ReportsDurableTrue()
         {
-            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_bulkdurable_" + Guid.NewGuid().ToString("N"));
-            System.IO.Directory.CreateDirectory(tempDir);
-            var walPath = System.IO.Path.Combine(tempDir, "durable.wal");
-            try
+            using var temp = new TempDirectory("f8_bulkdurable_");
+            var walPath = System.IO.Path.Combine(temp.FullName, "durable.wal");
+
+            using var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
-                using var factory = new BulkFactory(new Dictionary<string, string>
-                {
-                    ["Fallen8:Durability:Volatile"] = "false",
-                    ["Fallen8:Durability:StorageDirectory"] = tempDir,
-                    ["Fallen8:Durability:WalPath"] = walPath,
-                    ["Fallen8:Durability:SaveOnShutdown"] = "false",
-                    ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(tempDir, "metadata")
-                });
+                ["Fallen8:Durability:Volatile"] = "false",
+                ["Fallen8:Durability:StorageDirectory"] = temp.FullName,
+                ["Fallen8:Durability:WalPath"] = walPath,
+                ["Fallen8:Durability:SaveOnShutdown"] = "false",
+                ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(temp.FullName, "metadata")
+            });
 
-                const string file =
-                    "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
-                    "{\"type\":\"vertex\",\"id\":2,\"creationDate\":1}\n";
+            const string file =
+                "{\"type\":\"vertex\",\"id\":1,\"creationDate\":1}\n" +
+                "{\"type\":\"vertex\",\"id\":2,\"creationDate\":1}\n";
 
-                using var client = factory.CreateClient();
-                using var response = await Import(client, file);
-                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            using var client = factory.CreateClient();
+            using var response = await Import(client, file);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
 
-                var summary = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
-                Assert.AreEqual(2, summary.GetProperty("verticesCreated").GetInt32());
-                Assert.IsTrue(summary.GetProperty("durable").GetBoolean(),
-                    "a healthy log must report durable true, or the flag would be useless noise that " +
-                    "callers learn to ignore before it ever matters");
-            }
-            finally
-            {
-                try { System.IO.Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            var summary = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+            Assert.AreEqual(2, summary.GetProperty("verticesCreated").GetInt32());
+            Assert.IsTrue(summary.GetProperty("durable").GetBoolean(),
+                "a healthy log must report durable true, or the flag would be useless noise that " +
+                "callers learn to ignore before it ever matters");
         }
 
         [TestMethod]
@@ -987,7 +951,7 @@ namespace NoSQL.GraphDB.Tests
             var walPath = System.IO.Path.Combine(tempDir, "nondurable.wal");
             try
             {
-                using var factory = new BulkFactory(new Dictionary<string, string>
+                using var factory = new VolatileAppFactory(new Dictionary<string, string>
                 {
                     ["Fallen8:Durability:Volatile"] = "false",
                     ["Fallen8:Durability:StorageDirectory"] = tempDir,
@@ -1049,43 +1013,36 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Import_WithWalEnabled_ReplaysToTheSameGraph_PerCommittedBatch()
         {
-            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_bulkwal_" + Guid.NewGuid().ToString("N"));
-            System.IO.Directory.CreateDirectory(tempDir);
-            var walPath = System.IO.Path.Combine(tempDir, "bulk.wal");
-            try
-            {
-                using (var factory = new BulkFactory(new Dictionary<string, string>
-                {
-                    ["Fallen8:Durability:Volatile"] = "false",
-                    ["Fallen8:Durability:StorageDirectory"] = tempDir,
-                    ["Fallen8:Durability:WalPath"] = walPath,
-                    ["Fallen8:Durability:SaveOnShutdown"] = "false",
-                    ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(tempDir, "metadata"),
-                    ["Fallen8:BulkIO:ImportBatchSize"] = "2"
-                }))
-                {
-                    const string file =
-                        "{\"type\":\"vertex\",\"id\":1,\"label\":\"a\",\"creationDate\":1}\n" +
-                        "{\"type\":\"vertex\",\"id\":2,\"label\":\"b\",\"creationDate\":1}\n" +
-                        "{\"type\":\"vertex\",\"id\":3,\"label\":\"c\",\"creationDate\":1}\n" +
-                        "{\"type\":\"edge\",\"id\":10,\"edgePropertyId\":\"knows\",\"source\":1,\"target\":3,\"creationDate\":1}\n";
+            using var temp = new TempDirectory("f8_bulkwal_");
+            var walPath = System.IO.Path.Combine(temp.FullName, "bulk.wal");
 
-                    using var client = factory.CreateClient();
-                    using var response = await Import(client, file);
-                    Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
-                } // "crash": no shutdown save; the WAL alone carries the import
-
-                using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
-                Assert.AreEqual(3, recovered.VertexCount, "each import batch is an ordinary logged transaction");
-                Assert.AreEqual(1, recovered.EdgeCount);
-                var a = recovered.GetAllVertices("a").Single();
-                Assert.IsTrue(a.TryGetOutEdge(out var edges, "knows"));
-                Assert.AreEqual("c", edges[0].TargetVertex.Label);
-            }
-            finally
+            using (var factory = new VolatileAppFactory(new Dictionary<string, string>
             {
-                try { System.IO.Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+                ["Fallen8:Durability:Volatile"] = "false",
+                ["Fallen8:Durability:StorageDirectory"] = temp.FullName,
+                ["Fallen8:Durability:WalPath"] = walPath,
+                ["Fallen8:Durability:SaveOnShutdown"] = "false",
+                ["Fallen8:Metadata:Directory"] = System.IO.Path.Combine(temp.FullName, "metadata"),
+                ["Fallen8:BulkIO:ImportBatchSize"] = "2"
+            }))
+            {
+                const string file =
+                    "{\"type\":\"vertex\",\"id\":1,\"label\":\"a\",\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":2,\"label\":\"b\",\"creationDate\":1}\n" +
+                    "{\"type\":\"vertex\",\"id\":3,\"label\":\"c\",\"creationDate\":1}\n" +
+                    "{\"type\":\"edge\",\"id\":10,\"edgePropertyId\":\"knows\",\"source\":1,\"target\":3,\"creationDate\":1}\n";
+
+                using var client = factory.CreateClient();
+                using var response = await Import(client, file);
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+            } // "crash": no shutdown save; the WAL alone carries the import
+
+            using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+            Assert.AreEqual(3, recovered.VertexCount, "each import batch is an ordinary logged transaction");
+            Assert.AreEqual(1, recovered.EdgeCount);
+            var a = recovered.GetAllVertices("a").Single();
+            Assert.IsTrue(a.TryGetOutEdge(out var edges, "knows"));
+            Assert.AreEqual("c", edges[0].TargetVertex.Label);
         }
 
         #endregion
@@ -1095,17 +1052,11 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Export_UnderConcurrentWrites_StaysInternallyConsistent_AndImports()
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
 
             // Seed a base graph.
-            var seed = new CreateVerticesTransaction();
-            for (var i = 0; i < 2000; i++)
-            {
-                seed.AddVertex(1u, "person");
-            }
-            engine.EnqueueTransaction(seed).WaitUntilFinished();
-            var seeded = seed.GetCreatedVertices();
+            var seeded = TestVertices.Create(engine, 2000, "person");
             var seedEdges = new CreateEdgesTransaction();
             for (var i = 0; i < 1999; i++)
             {
@@ -1119,11 +1070,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 while (!Volatile.Read(ref stop))
                 {
-                    var vtx = new CreateVerticesTransaction();
-                    vtx.AddVertex(1u, "late");
-                    vtx.AddVertex(1u, "late");
-                    engine.EnqueueTransaction(vtx).WaitUntilFinished();
-                    var v = vtx.GetCreatedVertices();
+                    var v = TestVertices.Create(engine, 2, "late");
                     var etx = new CreateEdgesTransaction();
                     etx.AddEdge(v[0].Id, "knows", v[1].Id, 1u, "knows");
                     engine.EnqueueTransaction(etx).WaitUntilFinished();
@@ -1169,7 +1116,7 @@ namespace NoSQL.GraphDB.Tests
             }
 
             // ...and the file imports cleanly into a fresh instance.
-            using var target = new BulkFactory();
+            using var target = new VolatileAppFactory();
             using var targetClient = target.CreateClient();
             using var import = await Import(targetClient, exported);
             Assert.AreEqual(HttpStatusCode.OK, import.StatusCode, await import.Content.ReadAsStringAsync());
@@ -1183,7 +1130,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Export_NonAllowListedEngineProperty_Is422_BeforeAnyStreaming()
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var vtx = new CreateVerticesTransaction();
             vtx.AddVertex(1u, "person", new Dictionary<string, object> { { "blob", new int[] { 1, 2, 3 } } });
@@ -1202,7 +1149,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Posture_ApiKeyGatesBothEndpoints_AndTheBodyCapReturns413()
         {
-            using (var secured = new BulkFactory(new Dictionary<string, string>
+            using (var secured = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:Security:ApiKey"] = "bulk-key"
             }))
@@ -1215,7 +1162,7 @@ namespace NoSQL.GraphDB.Tests
                 Assert.AreEqual(HttpStatusCode.Unauthorized, import.StatusCode);
             }
 
-            using var capped = new BulkFactory(new Dictionary<string, string>
+            using var capped = new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:BulkIO:MaxImportRequestBytes"] = "64"
             });
@@ -1251,7 +1198,7 @@ namespace NoSQL.GraphDB.Tests
         /// </summary>
         private static async Task<ExportRefusal> ExportWithProperty(Object propertyValue)
         {
-            using var factory = new BulkFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
 
             var vtx = new CreateVerticesTransaction();

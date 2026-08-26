@@ -60,17 +60,6 @@ namespace NoSQL.GraphDB.Tests
             _loggerFactory = TestLoggerFactory.Create();
         }
 
-        private VertexModel[] CreateVertices(Fallen8 fallen8, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (int i = 0; i < count; i++)
-            {
-                tx.AddVertex(1, "test", new Dictionary<string, object> { { "idx", i } });
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
-
         /// <summary>
         /// Appends a raw (possibly poisoned/null) in-edge to a vertex through the internal
         /// fault-injection hook, bypassing the read-only public adjacency surface. Reflection is used
@@ -116,7 +105,7 @@ namespace NoSQL.GraphDB.Tests
             // under the same edge-property key so that removing V throws while its in-edges are being
             // detached, driving the internal restore/rollback path.
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 2);
+            var vertices = TestVertices.Create(fallen8, 2, "test", "idx");
             int sourceId = vertices[0].Id;
             int vId = vertices[1].Id;
 
@@ -199,7 +188,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - a normal edge S --("knows")--> T.
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 2);
+            var vertices = TestVertices.Create(fallen8, 2, "test", "idx");
             int sourceId = vertices[0].Id;
             int targetId = vertices[1].Id;
 

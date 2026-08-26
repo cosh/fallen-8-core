@@ -30,10 +30,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
@@ -52,14 +49,6 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class StatusIndexInventoryTest
     {
-        private sealed class TestFactory : WebApplicationFactory<Program>
-        {
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-            }
-        }
-
         private static StringContent Json(string body)
         {
             return new StringContent(body, Encoding.UTF8, "application/json");
@@ -82,7 +71,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Status_ListsIndexInventory_AndTracksCreateDelete()
         {
-            using var factory = new TestFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var empty = Inventory(await Status(client));
@@ -119,7 +108,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Status_AvailableIndexPlugins_ListTheBuiltins()
         {
-            using var factory = new TestFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var status = await Status(client);
@@ -151,7 +140,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Status_ReportsCapabilities_PerIndexFamily()
         {
-            using var factory = new TestFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             foreach (var (id, type) in new[]
@@ -220,7 +209,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Status_ReportsCounts_ThatTrackIndexContent()
         {
-            using var factory = new TestFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             using (var create = await client.PostAsync("/index",
@@ -252,7 +241,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task CreateSpatialIndex_OverRest_AnswersFalse_AndStaysOffTheInventory()
         {
-            using var factory = new TestFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             // SpatialIndex.Initialize needs live CLR objects (IMetric, Space) that the

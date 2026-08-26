@@ -30,11 +30,8 @@ using System.Net;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -52,27 +49,7 @@ namespace NoSQL.GraphDB.Tests
     {
         private const string ApiKey = "test-secret-key";
 
-        private sealed class SecurityFactory : WebApplicationFactory<Program>
-        {
-            private readonly IReadOnlyDictionary<string, string> _settings;
-
-            public SecurityFactory(IReadOnlyDictionary<string, string> settings)
-            {
-                _settings = settings;
-            }
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                // Volatile durability so booting the host writes no checkpoint/WAL.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                foreach (var kv in _settings)
-                {
-                    builder.UseSetting(kv.Key, kv.Value);
-                }
-            }
-        }
-
-        private SecurityFactory NewHost(bool withApiKey = true, bool enablePlugin = false)
+        private VolatileAppFactory NewHost(bool withApiKey = true, bool enablePlugin = false)
         {
             var settings = new Dictionary<string, string>
             {
@@ -82,10 +59,10 @@ namespace NoSQL.GraphDB.Tests
             {
                 settings["Fallen8:Security:ApiKey"] = ApiKey;
             }
-            return new SecurityFactory(settings);
+            return new VolatileAppFactory(settings);
         }
 
-        private static HttpClient Client(SecurityFactory factory, bool withKey)
+        private static HttpClient Client(VolatileAppFactory factory, bool withKey)
         {
             var client = factory.CreateClient();
             if (withKey)

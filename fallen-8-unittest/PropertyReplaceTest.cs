@@ -61,21 +61,21 @@ namespace NoSQL.GraphDB.Tests
     {
         private ILoggerFactory _loggerFactory;
         private Fallen8 _fallen8;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
             _fallen8 = new Fallen8(_loggerFactory, new ChangeFeedOptions());
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_w2_" + Guid.NewGuid().ToString("N"));
+            _temp = new TempDirectory("f8_w2_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
             _fallen8?.Dispose();
-            try { if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true); } catch { }
+            _temp?.Dispose();
         }
 
         #region helpers
@@ -417,9 +417,8 @@ namespace NoSQL.GraphDB.Tests
             // A new on-disk ordinal is only real once a replay reconstructs it. The producer commits a
             // set-or-remove batch with the WAL on and is disposed WITHOUT a save, so recovery has only
             // the log to work from.
-            Directory.CreateDirectory(_tempDir);
-            var walPath = Path.Combine(_tempDir, "wal.f8log");
-            var snapshotPath = Path.Combine(_tempDir, "snapshot.f8s");
+            var walPath = Path.Combine(_temp.FullName, "wal.f8log");
+            var snapshotPath = Path.Combine(_temp.FullName, "snapshot.f8s");
 
             int id;
             using (var producer = new Fallen8(_loggerFactory, new WriteAheadLogOptions(walPath)))

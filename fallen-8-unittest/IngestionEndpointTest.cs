@@ -117,7 +117,7 @@ namespace NoSQL.GraphDB.Tests
 
     /// <summary>The full-stack test host for the /document surface: volatile engine, the
     /// deterministic embedding fake, the in-test docling, the in-test NLP client.</summary>
-    internal sealed class IngestionFactory : WebApplicationFactory<Program>
+    internal sealed class IngestionFactory : VolatileAppFactory
     {
         internal const Int32 Dim = 4;
 
@@ -138,7 +138,7 @@ namespace NoSQL.GraphDB.Tests
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
-            builder.UseSetting("Fallen8:Durability:Volatile", "true");
+            base.ConfigureWebHost(builder);
             builder.UseSetting("Fallen8:Ingestion:Enabled", "true");
             builder.UseSetting("Fallen8:Ingestion:ChunkMinChars", "1");
             builder.UseSetting("Fallen8:Ingestion:Docling:Endpoint", "http://docling.test:5001");

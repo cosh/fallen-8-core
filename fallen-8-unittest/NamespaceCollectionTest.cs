@@ -30,8 +30,6 @@ using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Namespaces;
-using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -71,13 +69,10 @@ namespace NoSQL.GraphDB.Tests
                 Options.Create(new Fallen8PluginOptions()));
         }
 
+        /// <summary>One unlabelled, propertyless vertex: enough to tell an empty graph from a used one.</summary>
         private static void AddVertex(NoSQL.GraphDB.Core.Fallen8 engine)
         {
-            var info = engine.EnqueueTransaction(new CreateVerticesTransaction
-            {
-                Vertices = new List<VertexDefinition> { new VertexDefinition { CreationDate = 1, Properties = null } }
-            });
-            info.WaitUntilFinished();
+            TestVertices.Create(engine, 1, label: null);
         }
 
         #endregion

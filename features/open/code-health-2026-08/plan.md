@@ -165,9 +165,19 @@ Zero coverage loss is the constraint; the wins are files, LOC, and honesty of st
   As built: every input survives as a row carrying its own message, so a failure still names
   which malformation broke. Note for the record: a DataRow collapse reduces METHODS, not test
   CASES, so it barely moves the suite's headline count - the win is readability, not runtime.
-- [ ] Extract the three shared helpers: `CreateVertices` (19 files), the volatile
+- [x] Extract the three shared helpers: `CreateVertices` (19 files), the volatile
   `WebApplicationFactory` base with a settings-dictionary overload (35 files), a
   disposable `TempDirectory` (58 files). Mechanical, reviewed per file.
+  As built: `TestVertices`, `VolatileAppFactory` and `TempDirectory`, each stating its
+  contract once so the sites stop repeating it. The bar was semantic equivalence, NOT
+  uniformity, and several sites were deliberately left alone with a recorded reason - a
+  checkpoint test that saves into the current directory and whose cleanup DELIBERATELY
+  propagates failures (converting it would have moved the path and started swallowing errors
+  the test exists to surface), and an index test whose helper takes explicit per-vertex
+  property values the shared sequence cannot reproduce. `TempDirectory` swallows cleanup
+  failures on purpose, matching what every hand-rolled site already did, because a delete
+  that threw on a still-locked Windows checkpoint would turn a passing test flaky and blame
+  the assertion that had already succeeded.
 - [x] Apply D4's outcome to `AdjacencyConcurrencyTest`.
   As built: each of the three race hunts became a `_Heavy` method behind the repo's existing
   opt-in gate (`[TestCategory("Benchmark")]` plus `[Ignore]`, the pattern

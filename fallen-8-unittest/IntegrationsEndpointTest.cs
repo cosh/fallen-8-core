@@ -1110,10 +1110,9 @@ namespace NoSQL.GraphDB.Tests
         #region B. the apiApp's proxy
 
         /// <summary>
-        /// The apiApp, whose four /integrations routes proxy the runtime. Volatile durability so
-        /// booting the host writes no checkpoint into the test bin.
+        /// The apiApp, whose four /integrations routes proxy the runtime.
         /// </summary>
-        private sealed class ProxyFactory : WebApplicationFactory<NoSQL.GraphDB.App.Program>
+        private sealed class ProxyFactory : VolatileAppFactory
         {
             internal const String ApiKey = "integrations-proxy-test-key";
 
@@ -1133,6 +1132,8 @@ namespace NoSQL.GraphDB.Tests
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
+
                 // Trace, because the sidecar client base logs its failures at DEBUG: at the app's
                 // configured Information level a body logged there would never reach this sink and the
                 // no-leak check below would pass over exactly the line it exists to catch.
@@ -1142,7 +1143,6 @@ namespace NoSQL.GraphDB.Tests
                     logging.AddProvider(Sink);
                 });
                 builder.UseEnvironment("Development");
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
                 if (_enabled != null)
                 {
                     builder.UseSetting("Fallen8:Integrations:Enabled", _enabled);

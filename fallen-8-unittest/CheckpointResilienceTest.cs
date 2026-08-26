@@ -61,17 +61,6 @@ namespace NoSQL.GraphDB.Tests
             _loggerFactory = TestLoggerFactory.Create();
         }
 
-        private VertexModel[] CreateVertices(Fallen8 fallen8, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (int i = 0; i < count; i++)
-            {
-                tx.AddVertex(1, "test", new Dictionary<string, object> { { "idx", i } });
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
-
         [TestMethod]
         public void SaveAndLoad_WithThrowingIndexPresent_SkipsItAndCompletesCheckpoint()
         {
@@ -81,7 +70,7 @@ namespace NoSQL.GraphDB.Tests
             // per-index catch in LoadIndices mean one throwing index is skipped, never fatal to the
             // whole checkpoint.
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 2);
+            var vertices = TestVertices.Create(fallen8, 2, "test", "idx");
 
             IIndex dictIndex;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out dictIndex, "goodIdx", "DictionaryIndex"),
@@ -150,7 +139,7 @@ namespace NoSQL.GraphDB.Tests
             // rather than aborting the whole load. (This is the "older save point still lists a
             // spatial sidecar / a throwing Load is skipped" path.)
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 2);
+            var vertices = TestVertices.Create(fallen8, 2, "test", "idx");
 
             IIndex dictIndex;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out dictIndex, "goodIdx", "DictionaryIndex"),
@@ -221,7 +210,7 @@ namespace NoSQL.GraphDB.Tests
             // Before the fix, the throw propagated via serviceEntries.Add(saver.Result) and aborted
             // the WHOLE checkpoint.
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 2);
+            var vertices = TestVertices.Create(fallen8, 2, "test", "idx");
 
             IIndex dictIndex;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out dictIndex, "goodIdx", "DictionaryIndex"),
@@ -290,7 +279,7 @@ namespace NoSQL.GraphDB.Tests
             // skipped. The distance query below only returns the right subset if the earth radius was
             // actually restored (a default/zero radius would make every point equidistant).
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 3);
+            var vertices = TestVertices.Create(fallen8, 3, "test", "idx");
 
             IIndex geoIndex;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out geoIndex, "geoIdx", "SpatialIndex", CreateGeoRTreeParameters()),

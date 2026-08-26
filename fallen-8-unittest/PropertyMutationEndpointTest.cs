@@ -29,10 +29,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -45,14 +42,6 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class PropertyMutationEndpointTest
     {
-        private sealed class VolatileFactory : WebApplicationFactory<Program>
-        {
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-            }
-        }
-
         private static StringContent Json(string payload)
         {
             return new StringContent(payload, Encoding.UTF8, "application/json");
@@ -61,7 +50,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task AddProperty_SetsAndRemoves_ThroughThePipeline()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var create = await client.PutAsync("/vertex?waitForCompletion=true",
@@ -140,7 +129,7 @@ namespace NoSQL.GraphDB.Tests
             // not update: waited it answered 500, and UNWAITED (the default) it answered 202 Accepted
             // and wrote nothing. Both halves are asserted, because the unwaited one is the dangerous
             // one - a client that never passes waitForCompletion saw success and lost every update.
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             var id = await NewVertex(client, "w2-update");
 
@@ -173,7 +162,7 @@ namespace NoSQL.GraphDB.Tests
             // here is the WIRE half: that a "remove": true entry reaches RemoveProperty (no other test
             // in the suite sends that flag over HTTP) and that a valid batch answers 202 on this route,
             // whose only other test asserts a 400. Do not fold it into the engine test.
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             var id = await NewVertex(client, "w2-batch");
 
@@ -195,7 +184,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task PutProperties_RejectsABadValue_WithoutWritingAnything()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             var id = await NewVertex(client, "w2-reject");
 
@@ -214,7 +203,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeleteGraphElements_RemovesManyInOneBatch()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             var first = await NewVertex(client, "w2-del-a");
             var second = await NewVertex(client, "w2-del-b");
@@ -238,7 +227,7 @@ namespace NoSQL.GraphDB.Tests
             // The read-side mirror of the batch write path. Also pins the two properties a
             // write-only-if-changed caller depends on: the returned value form is the one that can be
             // written straight back, and a missing id is NAMED rather than silently absent.
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             var first = await NewVertex(client, "w6-a");
             var second = await NewVertex(client, "w6-b");
@@ -274,7 +263,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task PostGraphElementsGet_RejectsANullList()
         {
-            using var factory = new VolatileFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var response = await client.PostAsync("/graphelements/get", Json("null"));

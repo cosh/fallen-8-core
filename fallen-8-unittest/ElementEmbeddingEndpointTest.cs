@@ -30,7 +30,6 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -49,14 +48,6 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class ElementEmbeddingEndpointTest
     {
-        private sealed class EmbeddingFactory : WebApplicationFactory<Program>
-        {
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-            }
-        }
-
         private static Fallen8 EngineOf(WebApplicationFactory<Program> factory)
             => factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
 
@@ -72,7 +63,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task PutGetDelete_RoundTrip()
         {
-            using var factory = new EmbeddingFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = Vertex(engine);
             using var client = factory.CreateClient();
@@ -100,7 +91,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Put_Replaces_AndProjectsIntoBoundIndex()
         {
-            using var factory = new EmbeddingFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = Vertex(engine);
             Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out var index, "emb", "VectorIndex",
@@ -121,7 +112,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Put_400Table_And404()
         {
-            using var factory = new EmbeddingFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = Vertex(engine);
             Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out _, "emb", "VectorIndex",
@@ -156,7 +147,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ExplicitAdd_OnABoundIndex_Is400()
         {
-            using var factory = new EmbeddingFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = Vertex(engine);
             Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out _, "emb", "VectorIndex",
@@ -172,7 +163,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Get_SurfacesTheModelStamp_WhenPresent()
         {
-            using var factory = new EmbeddingFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var a = Vertex(engine);
             engine.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(a, "default", new[] { 1f, 0f }))

@@ -30,11 +30,8 @@ using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Index.Spatial;
 using NoSQL.GraphDB.Core.Model;
@@ -51,31 +48,12 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class ObservabilityEndpointTest
     {
-        private sealed class ObservabilityFactory : WebApplicationFactory<Program>
-        {
-            private readonly Dictionary<String, String> _settings;
-
-            public ObservabilityFactory(Dictionary<String, String> settings = null)
-            {
-                _settings = settings ?? new Dictionary<String, String>();
-            }
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                foreach (var pair in _settings)
-                {
-                    builder.UseSetting(pair.Key, pair.Value);
-                }
-            }
-        }
-
-        private static Fallen8 EngineOf(ObservabilityFactory factory)
+        private static Fallen8 EngineOf(VolatileAppFactory factory)
         {
             return factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
         }
 
-        private static Int32 SeedVertex(ObservabilityFactory factory, string label = "person",
+        private static Int32 SeedVertex(VolatileAppFactory factory, string label = "person",
             Dictionary<string, object> properties = null)
         {
             var tx = new CreateVertexTransaction
@@ -86,7 +64,7 @@ namespace NoSQL.GraphDB.Tests
             return tx.VertexCreated.Id;
         }
 
-        private static void SeedEdge(ObservabilityFactory factory, Int32 source, Int32 target,
+        private static void SeedEdge(VolatileAppFactory factory, Int32 source, Int32 target,
             string edgePropertyId = "link", string label = null)
         {
             var tx = new CreateEdgeTransaction
@@ -108,7 +86,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ZeroConfig_NoMetricsEndpoint_AndNoOtelServices()
         {
-            using var factory = new ObservabilityFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             // No scrape endpoint is mapped. (When a built SPA is present its fallback serves the
@@ -126,7 +104,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task PrometheusEnabled_ServesFallen8Series_AfterRealOperations()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 { "Fallen8:Observability:Prometheus:Enabled", "true" }
             });
@@ -159,7 +137,7 @@ namespace NoSQL.GraphDB.Tests
                 { "Fallen8:Security:ApiKey", "test-key-123" }
             };
 
-            using (var factory = new ObservabilityFactory(withKey))
+            using (var factory = new VolatileAppFactory(withKey))
             using (var client = factory.CreateClient())
             {
                 using var anonymous = await client.GetAsync("/metrics");
@@ -168,7 +146,7 @@ namespace NoSQL.GraphDB.Tests
             }
 
             withKey["Fallen8:Observability:Prometheus:RequireApiKey"] = "true";
-            using (var factory = new ObservabilityFactory(withKey))
+            using (var factory = new VolatileAppFactory(withKey))
             using (var client = factory.CreateClient())
             {
                 using var anonymous = await client.GetAsync("/metrics");
@@ -189,7 +167,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task HealthEndpoints_AnonymousStatusOnly_EvenWithAnApiKey()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 { "Fallen8:Security:ApiKey", "test-key-123" }
             });
@@ -215,7 +193,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_ExactOnAKnownSmallGraph()
         {
-            using var factory = new ObservabilityFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             // A hub with two leaves plus an isolated robot; one property; one index.
@@ -271,18 +249,13 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_AboveTheBudget_SamplesWithAStrideAndSaysSo()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 { "Fallen8:Observability:StatisticsElementBudget", "10" }
             });
             using var client = factory.CreateClient();
 
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i < 40; i++)
-            {
-                tx.AddVertex(1u, "bulk");
-            }
-            EngineOf(factory).EnqueueTransaction(tx).WaitUntilFinished();
+            TestVertices.Create(EngineOf(factory), 40, "bulk");
 
             using var response = await client.GetAsync("/statistics");
             var stats = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
@@ -297,7 +270,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_RequiresTheApiKey_UnlikeMetrics()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 { "Fallen8:Security:ApiKey", "test-key-123" }
             });
@@ -318,7 +291,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_IsRateLimited_UnderTheSensitivePolicy()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 // A tiny window so the test exhausts it deterministically without hammering.
                 { "Fallen8:Security:SensitiveRateLimitPermitPerWindow", "3" },
@@ -353,15 +326,11 @@ namespace NoSQL.GraphDB.Tests
         /// engine-side on purpose - its Initialize needs live CLR objects the REST pluginOptions
         /// cannot carry (pinned by StatusIndexInventoryTest).
         /// </summary>
-        private static void SeedTwoIndices(ObservabilityFactory factory)
+        private static void SeedTwoIndices(VolatileAppFactory factory)
         {
             var engine = EngineOf(factory);
 
-            var vertices = new CreateVerticesTransaction();
-            vertices.AddVertex(1u, "person");
-            vertices.AddVertex(1u, "person");
-            engine.EnqueueTransaction(vertices).WaitUntilFinished();
-            var created = vertices.GetCreatedVertices().ToArray();
+            var created = TestVertices.Create(engine, 2, "person");
             Assert.AreEqual(2, created.Length, "Arrange failed: the vertices were not created.");
 
             Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out var dictionaryIndex, DictionaryIndexName,
@@ -426,7 +395,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_SpatialKeyCount_IsNull_NotTheNegativeSentinel()
         {
-            using var factory = new ObservabilityFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             SeedTwoIndices(factory);
 
@@ -444,7 +413,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_And_Status_ReportIdenticalIndexCounts()
         {
-            using var factory = new ObservabilityFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             SeedTwoIndices(factory);
 
@@ -470,7 +439,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // The unchanged default: nullable fields do not mean "usually null". Every index that
             // supports counting still answers a number.
-            using var factory = new ObservabilityFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             Assert.IsTrue(EngineOf(factory).IndexFactory.TryCreateIndex(out _, DictionaryIndexName,
                 "DictionaryIndex"), "Arrange failed: the dictionary index was not created.");
@@ -501,7 +470,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task OpenApiDocument_ContainsTheStatisticsOperation()
         {
-            using var factory = new ObservabilityFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             using var response = await client.GetAsync("/openapi/v0.1.json");
