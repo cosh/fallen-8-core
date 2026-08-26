@@ -1,7 +1,7 @@
 # Code health review, 2026-08-26
 
-Status: Every finding below is closed on `feature/code-health-2026-08` (six commits), NOT yet
-merged. [plan.md](plan.md) carries the as-built notes, the final gate, and every place this
+Status: Closed - every finding below is fixed, gated and merged to `main` on 2026-08-26.
+[plan.md](plan.md) carries the as-built notes, the final gate, and every place this
 report turned out to be wrong - of which there were three worth naming: one claimed duplicate
 test was not one (deleting it would have removed a route's only success-path coverage), the
 stress test said to cost 69s costs 6.2s on an idle machine, and the one-home rule does not

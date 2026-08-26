@@ -1,9 +1,8 @@
 # Code health improvement plan, 2026-08
 
-Status: Implemented in full on `feature/code-health-2026-08` (six commits), NOT yet merged.
-Every phase below is ticked and carries its as-built note, including the places the plan or
-the report turned out to be wrong. This directory moves to `features/done/` when the branch
-merges, per the repo's feature workflow.
+Status: Done - implemented in full on `feature/code-health-2026-08` and merged to `main`
+2026-08-26. Every phase below is ticked and carries its as-built note, including the places
+the plan or the report turned out to be wrong.
 Findings and evidence: [report.md](report.md). Finding ids (M1..M5, S1, C1..C5, D1,
 H1..H6) refer to that report.
 
