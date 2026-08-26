@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -62,6 +63,7 @@ namespace NoSQL.GraphDB.Tests
         private const String Instance = "file-upload-suite";
         private const String FileSetting = "extract";
         private const String OptionalFileSetting = "overlay";
+        private const String MultiFileSetting = "extracts";
         private const String FileName = "devices.csv";
         private const String Text = "mac,name\nAA:BB:CC:DD:EE:01,Reception\n";
 
@@ -295,8 +297,194 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(job.TryNormalize(out var normalized, out var failure, 64),
                 "the ceiling is inclusive, or the documented limit is one byte smaller than the one that " +
                 "actually applies: " + failure);
-            Assert.AreEqual(64, normalized.Files[FileSetting].Content.Length,
+            Assert.AreEqual(64, normalized.Files[FileSetting].First.Content.Length,
                 "and the whole file survives normalisation");
+        }
+
+        #endregion
+
+        #region several files, one source (feature integration-run-lifecycle)
+
+        [TestMethod]
+        public async Task EveryFileOfAMultipleSettingReachesTheProvider_InTheOrderTheJobListedThem()
+        {
+            using var harness = new Harness();
+            harness.Provider.ReadMany = true;
+
+            var report = await harness.RunAsync(JobWithMany(
+                FileOf("chassis.arxml", "chassis"),
+                FileOf("body.arxml", "body"),
+                FileOf("powertrain.arxml", "powertrain")));
+
+            Assert.IsNull(report.ErrorKind, "the run must succeed: " + report.Error);
+            CollectionAssert.AreEqual(new[] { "chassis.arxml", "body.arxml", "powertrain.arxml" },
+                harness.Provider.ManyNames.ToArray(),
+                "order is part of the meaning for a provider that composes its files: which file owns a " +
+                "re-declared path is decided by it, so a set that arrives sorted or reversed is a different " +
+                "graph");
+            CollectionAssert.AreEqual(new[] { "chassis", "body", "powertrain" },
+                harness.Provider.ManyTexts.ToArray(),
+                "each file must be readable by position, and read the file at that position");
+        }
+
+        [TestMethod]
+        public async Task TheValueOfAMultipleSettingIsEveryName()
+        {
+            // What a message ABOUT THE SETTING says. The first name alone would be a message quietly about
+            // one file of several, which is how a diagnostic ends up naming the wrong extract.
+            using var harness = new Harness();
+            harness.Provider.ReadMany = true;
+
+            await harness.RunAsync(JobWithMany(FileOf("chassis.arxml", "a"), FileOf("body.arxml", "b")));
+
+            Assert.AreEqual("chassis.arxml, body.arxml", harness.Provider.ManySettingValue);
+        }
+
+        [TestMethod]
+        public async Task OneFileIsStillValidForAMultipleSetting()
+        {
+            // The compatibility half: a setting that CAN take several does not have to, and the single
+            // object form stays exactly what it was.
+            using var harness = new Harness();
+            harness.Provider.ReadMany = true;
+
+            var job = Job(FileOf(FileName, Text));
+            job.Files[MultiFileSetting] = FileOf("only.arxml", "only");
+
+            var report = await harness.RunAsync(job);
+
+            Assert.IsNull(report.ErrorKind, "the run must succeed: " + report.Error);
+            CollectionAssert.AreEqual(new[] { "only.arxml" }, harness.Provider.ManyNames.ToArray());
+            Assert.AreEqual("only.arxml", harness.Provider.ManySettingValue,
+                "and one file's value is still just its name, not a list of one");
+        }
+
+        [TestMethod]
+        public async Task AListForASettingThatTakesOneFileIsRefused()
+        {
+            // The refusal that matters most in this feature. A provider not built to compose files would
+            // read only the FIRST of a list - and this provider class declares COMPLETE snapshots, so the
+            // files it never read would be reported as parts of the source that no longer exist, and
+            // reconciliation would delete everything they describe.
+            var job = Job();
+            job.Files[FileSetting] = new JobFileGroup(FileOf("a.csv", "a"), FileOf("b.csv", "b"));
+
+            var refused = await Refusal(job);
+
+            Assert.AreEqual(JobErrorKinds.Configuration, refused.Kind);
+            StringAssert.Contains(refused.Message, FileSetting,
+                "the refusal has to name the setting, which is the only thing the caller can change: " +
+                refused.Message);
+            StringAssert.Contains(refused.Message, "ONE file",
+                "and say what the setting actually takes: " + refused.Message);
+        }
+
+        [TestMethod]
+        public async Task AListOfONEForASettingThatTakesOneFileIsRefusedToo()
+        {
+            // The shape that would otherwise work by accident and break the day it carried two. A caller
+            // sending an array is asking for the multiple contract, and a setting that does not offer it
+            // says so now rather than after the next file is added.
+            var job = Job();
+            job.Files[FileSetting] = new JobFileGroup(FileOf("a.csv", "a"));
+
+            var refused = await Refusal(job);
+
+            Assert.AreEqual(JobErrorKinds.Configuration, refused.Kind);
+            StringAssert.Contains(refused.Message, FileSetting, refused.Message);
+        }
+
+        [TestMethod]
+        public async Task TwoFilesWithOneNameAreRefused()
+        {
+            var refused = await Refusal(JobWithMany(
+                FileOf("body.arxml", "first"), FileOf("BODY.arxml", "second")));
+
+            Assert.AreEqual(JobErrorKinds.Configuration, refused.Kind);
+            StringAssert.Contains(refused.Message, "body.arxml",
+                "every diagnostic about a file names it, so two files with one name make each of those " +
+                "messages ambiguous - and the commonest cause is the same file picked twice: " +
+                refused.Message);
+            StringAssert.Contains(refused.Message, "BODY.arxml",
+                "and when the two spellings differ only in case, naming just one of them reads as a " +
+                "complaint about a file the caller cannot find in what they sent: " + refused.Message);
+        }
+
+        [TestMethod]
+        public void FilesThatAreLegalOneByOneCanStillBeRefusedAsATotal()
+        {
+            // The second ceiling, and why it is not a restatement of the first: each of these files is well
+            // inside the per-file limit, and what this process has to hold at once is their sum.
+            var job = JobWithMany(FileOf("a.arxml", new String('a', 40)),
+                FileOf("b.arxml", new String('b', 40)));
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure, maxFileBytes: 64, maxJobFileBytes: 100),
+                "a job whose files come to more than the total ceiling was accepted");
+            StringAssert.Contains(failure, "total ceiling",
+                "and the refusal names WHICH ceiling was broken, because a caller shown the per-file number " +
+                "would shrink files that were never the problem: " + failure);
+            StringAssert.Contains(failure, "MaxJobFileBytes", failure);
+        }
+
+        [TestMethod]
+        public void ThePerFileCeilingStillAppliesInsideASet()
+        {
+            // The first ceiling has to survive the second: one absurd file among small ones is still refused
+            // for being one absurd file, with the message that names the per-file knob.
+            var job = JobWithMany(FileOf("small.arxml", "aa"), FileOf("huge.arxml", new String('b', 200)));
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure, maxFileBytes: 64,
+                    maxJobFileBytes: 1_000_000),
+                "one file over the per-file ceiling was accepted because the total was fine");
+            StringAssert.Contains(failure, "MaxFileBytes", failure);
+        }
+
+        [TestMethod]
+        public void ASetOfFilesInsideBothCeilingsIsAccepted()
+        {
+            var job = JobWithMany(FileOf("a.arxml", new String('a', 30)),
+                FileOf("b.arxml", new String('b', 30)));
+
+            Assert.IsTrue(job.TryNormalize(out var normalized, out var failure, maxFileBytes: 64,
+                    maxJobFileBytes: 100),
+                "the ceilings are inclusive, or the documented limits are smaller than the ones that apply: " +
+                failure);
+            Assert.AreEqual(2, normalized.Files[MultiFileSetting].Files.Count);
+            Assert.AreEqual("a.arxml", normalized.Files[MultiFileSetting].First.Name,
+                "and the first file of the set is the one the job listed first");
+        }
+
+        [TestMethod]
+        public async Task AMultipleSettingNobodySentReadsAsNoFilesRatherThanThrowing()
+        {
+            // An OPTIONAL multiple setting that got nothing must be an empty list, not an exception: a
+            // provider loops over the names it was offered, and a throw here would make every optional
+            // multi-file setting a special case at the call site.
+            using var harness = new Harness();
+            harness.Provider.ReadMany = true;
+
+            var report = await harness.RunAsync(Job(FileOf(FileName, Text)));
+
+            Assert.IsNull(report.ErrorKind, "the run must succeed: " + report.Error);
+            Assert.AreEqual(0, harness.Provider.ManyNames.Count);
+            Assert.AreEqual(0, harness.Provider.ManyTexts.Count);
+        }
+
+        [TestMethod]
+        public async Task ReadingPastTheEndOfASetIsAProviderDefect_NotTheFirstFileAgain()
+        {
+            // Answering with the first file instead would silently parse one extract twice, which is a wrong
+            // graph nothing in the report could explain.
+            using var harness = new Harness();
+            harness.Provider.ReadMany = true;
+            harness.Provider.ReadPastEndAt = 5;
+
+            var report = await harness.RunAsync(JobWithMany(FileOf("a.arxml", "a"), FileOf("b.arxml", "b")));
+
+            Assert.AreEqual(JobErrorKinds.Source, report.ErrorKind,
+                "a provider reading past its own file list must fail the run rather than be handed a file it " +
+                "did not ask for: " + report.Error);
+            Assert.AreEqual(0, report.ElementsCreated, "and nothing is written on the way out");
         }
 
         #endregion
@@ -361,6 +549,17 @@ namespace NoSQL.GraphDB.Tests
                 job.Files[FileSetting] = file;
             }
 
+            return job;
+        }
+
+        /// <summary>
+        ///   A job whose MULTIPLE setting carries several files, as an array on the wire. The required
+        ///   single-file setting is filled too, because the fixture provider requires it.
+        /// </summary>
+        private static IntegrationJob JobWithMany(params JobFile[] files)
+        {
+            var job = Job(FileOf(FileName, Text));
+            job.Files[MultiFileSetting] = new JobFileGroup(files);
             return job;
         }
 
@@ -473,6 +672,12 @@ namespace NoSQL.GraphDB.Tests
 
             public Boolean ReadOptional { get; set; }
 
+            /// <summary>Whether to read the MULTIPLE setting, the way a composing provider does.</summary>
+            public Boolean ReadMany { get; set; }
+
+            /// <summary>How far past the end of the list to read, for the provider-defect case.</summary>
+            public Int32 ReadPastEndAt { get; set; } = -1;
+
             public Boolean WasInvoked { get; private set; }
 
             public String ReadText { get; private set; }
@@ -482,6 +687,15 @@ namespace NoSQL.GraphDB.Tests
             public String OptionalValue { get; private set; }
 
             public Boolean OptionalResolved { get; private set; }
+
+            /// <summary>The names the runtime offered for the multiple setting, in the order it offered them.</summary>
+            public IReadOnlyList<String> ManyNames { get; private set; } = Array.Empty<String>();
+
+            /// <summary>Each of those files' text, read one at a time and in the same order.</summary>
+            public List<String> ManyTexts { get; } = new List<String>();
+
+            /// <summary>The effective VALUE of the multiple setting, which is what a message about it says.</summary>
+            public String ManySettingValue { get; private set; }
 
             public ProviderContext KeptContext { get; private set; }
 
@@ -508,6 +722,15 @@ namespace NoSQL.GraphDB.Tests
                         Kind = SettingKind.File,
                         Required = false,
                         Help = "An optional second file.",
+                    },
+                    new ProviderSetting
+                    {
+                        Key = MultiFileSetting,
+                        Label = "Extracts",
+                        Kind = SettingKind.File,
+                        Required = false,
+                        Multiple = true,
+                        Help = "Several files that are ONE source together.",
                     },
                     new ProviderSetting
                     {
@@ -538,6 +761,27 @@ namespace NoSQL.GraphDB.Tests
                 {
                     OptionalValue = context.Optional(OptionalFileSetting);
                     OptionalResolved = context.TryResolveFile(OptionalFileSetting, out _);
+                }
+
+                if (ReadMany)
+                {
+                    // The shape a composing provider uses: the names first, then one file at a time, so a
+                    // set of tens-of-megabytes extracts is never all decoded at once.
+                    ManyNames = context.FileNames(MultiFileSetting);
+                    ManySettingValue = context.Optional(MultiFileSetting);
+                    for (var i = 0; i < ManyNames.Count; i++)
+                    {
+                        ManyTexts.Add(await context
+                            .RequireFileTextAtAsync(MultiFileSetting, i, cancellationToken)
+                            .ConfigureAwait(false));
+                    }
+
+                    if (ReadPastEndAt >= 0)
+                    {
+                        ManyTexts.Add(await context
+                            .RequireFileTextAtAsync(MultiFileSetting, ReadPastEndAt, cancellationToken)
+                            .ConfigureAwait(false));
+                    }
                 }
 
                 // Deliberately EMPTY and complete: this fixture is about how the file arrived, and an

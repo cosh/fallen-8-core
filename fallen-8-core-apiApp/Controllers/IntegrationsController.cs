@@ -40,7 +40,7 @@ namespace NoSQL.GraphDB.App.Controllers
 {
     /// <summary>
     ///   The instance's door to the integration runtime (feature integrations): an authenticated
-    ///   proxy for the six routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
+    ///   proxy for the seven routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
     ///   on the operator's own network and writes what it saw into one namespace. The runtime's
     ///   container port is not published, because jobs hand that container third-party credentials, so
     ///   this proxy is the only way in and needs no second auth story on the runtime side.
@@ -59,16 +59,19 @@ namespace NoSQL.GraphDB.App.Controllers
     public class IntegrationsController : ControllerBase
     {
         /// <summary>
-        ///   The transport bound on a job body, which carries a provider's file as base64 (feature
-        ///   integration-file-upload). 192 MiB, and both of its relations are load-bearing:
+        ///   The transport bound on a job body, which carries a provider's files as base64 (features
+        ///   integration-file-upload and integration-run-lifecycle). 768 MiB, and both of its relations
+        ///   are load-bearing:
         ///
-        ///   <para>ABOVE any legal job. The runtime's default <c>Integrations:MaxFileBytes</c> is 128 MiB
-        ///   of decoded bytes, and base64 costs a third, so a maximal legal job arrives at about 171 MiB
-        ///   and this bound never fires for one the runtime would accept. A real AUTOSAR system extract
-        ///   is what set that size: the first one anybody pointed at this feature was a large size, and an
-        ///   earlier 48 MiB bound refused it with a bare transport 413.</para>
+        ///   <para>ABOVE any legal job. What sets the size is no longer one file but the job TOTAL: a
+        ///   file setting a provider declares <c>multiple</c> takes a whole vehicle's system extracts at
+        ///   once, the runtime's default <c>Integrations:MaxJobFileBytes</c> is 512 MiB of decoded bytes,
+        ///   and base64 costs a third, so a maximal legal job arrives at about 683 MiB and this bound
+        ///   never fires for one the runtime would accept. Real files set both numbers: the first extract
+        ///   anybody pointed at this feature was a large size, an earlier 48 MiB bound refused it with a bare
+        ///   transport 413, and a vehicle arrives as several such extracts that reference each other.</para>
         ///
-        ///   <para>BELOW the runtime's own transport bound (256 MiB, fixed). That ordering is the point:
+        ///   <para>BELOW the runtime's own transport bound (832 MiB, fixed). That ordering is the point:
         ///   an absurd body has to be refused HERE, with a 413 whose meaning is plain, because a body
         ///   this proxy accepts and the runtime refuses fails while being FORWARDED - which surfaces as
         ///   503 "the runtime did not answer", sending whoever sent a huge file to look at a sidecar that
@@ -78,10 +81,10 @@ namespace NoSQL.GraphDB.App.Controllers
         ///   <c>DocumentController</c>'s upload bound is: the real ceiling lives in the OTHER
         ///   deployable's configuration, so a key here would be a second number to keep in step with it
         ///   and a caller could not tell which one refused them. The consequence, stated rather than
-        ///   hidden: raising <c>Integrations:MaxFileBytes</c> past about 144 MiB has no effect through
+        ///   hidden: raising <c>Integrations:MaxJobFileBytes</c> past about 576 MiB has no effect through
         ///   this proxy, and the proxy is the only way in because the runtime publishes no port.</para>
         /// </summary>
-        private const Int32 JobTransportLimit = 201_326_592;
+        private const Int32 JobTransportLimit = 805_306_368;
 
         private readonly IIntegrationsClient _client;
 
@@ -214,6 +217,40 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
+        /// Asks the integration run in flight under one identity to stop (feature integration-run-lifecycle)
+        /// </summary>
+        /// <param name="instanceId">The integration identity whose run should stop</param>
+        /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
+        /// <remarks>A stop is a REQUEST, which is why this answers 202 rather than 200: the run honours it at
+        /// its next safe point, and for summary embedding that is after the chunk already in the model. Watch
+        /// GET /integrations/run/{instanceId} to see it take effect - cancelRequested turns true at once,
+        /// cancelled when the run has actually stopped.
+        /// <para>A cancelled run KEEPS what it had already written and deliberately does not reconcile, so it
+        /// withdraws nothing and deletes nothing; the next completed run under that identity converges the
+        /// graph. Why that is the safe half of the bargain is stated once on the runtime's own applier, and
+        /// for readers at https://docs.fallen-8.com/integrations/.</para>
+        /// <para>404 means nothing is in flight under that identity: a run that already ended is not
+        /// cancellable, and its slot already says what it ended as. Cancelling twice is not an error.</para></remarks>
+        /// <response code="202">The stop was delivered to a run in flight</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>
+        /// <response code="404">No run is in flight under that identity</response>
+        /// <response code="503">No runtime is configured, or it did not answer</response>
+        [HttpPost("/integrations/run/{instanceId}/cancel")]
+        [Produces("application/json")]
+        [ProducesResponseType(StatusCodes.Status202Accepted)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public Task<IActionResult> CancelRun([FromRoute] String instanceId, CancellationToken cancellationToken)
+        {
+            return Forward(HttpMethod.Post,
+                "integration/run/" + Uri.EscapeDataString(instanceId ?? String.Empty) + "/cancel",
+                null, cancellationToken);
+        }
+
+        /// <summary>
         /// Starts one integration job and returns a run id to watch it by (feature integrations)
         /// </summary>
         /// <param name="wait">Wait for the run and return its report instead of a run id. For a small
@@ -240,11 +277,15 @@ namespace NoSQL.GraphDB.App.Controllers
         /// https://docs.fallen-8.com/integrations/. The caller owns the stability of the
         /// integration instance id, which nothing can validate: a run under an identity that
         /// integration has not always used withdraws and deletes what the real one claimed.</para>
-        /// <para>Because a file travels in the body, this route carries a 192 MiB body bound rather than
+        /// <para>Because the files travel in the body, this route carries a 768 MiB body bound rather than
         /// the 1 MiB every other endpoint has, and a body over it is refused here with a 413. An oversized
-        /// FILE inside a legal body is the runtime's refusal instead, naming both its size and the
-        /// ceiling. Why that number and what it means for the runtime's own Integrations:MaxFileBytes is
-        /// stated once on this controller's <c>JobTransportLimit</c>.</para></remarks>
+        /// FILE inside a legal body, or a legal set of files whose total is too large, is the runtime's
+        /// refusal instead, naming the size and the ceiling it broke. Why that number and what it means for
+        /// the runtime's own Integrations:MaxFileBytes and Integrations:MaxJobFileBytes is stated once on
+        /// this controller's <c>JobTransportLimit</c>.</para>
+        /// <para>A file setting the provider declares <c>multiple</c> takes an ARRAY of files rather than
+        /// one, and the order is preserved because a provider composing several files may depend on it. A
+        /// single object stays valid everywhere.</para></remarks>
         /// <response code="200">The report, for a run that ended before it had a phase or when wait=true</response>
         /// <response code="202">The run was accepted; watch it at /integrations/run/{instanceId}</response>
         /// <response code="400">The runtime refused the job as written, its own message saying why</response>

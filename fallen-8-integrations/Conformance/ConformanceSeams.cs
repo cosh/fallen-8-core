@@ -169,6 +169,9 @@ namespace NoSQL.GraphDB.Integrations.Conformance
         /// <inheritdoc />
         public Int64 MaxFileBytes => 0;
 
+        /// <inheritdoc />
+        public Int64 MaxJobFileBytes => 0;
+
         /// <summary>Every setting key any run asked a file for, across every run. Readable after the runs
         /// have ended: ending a run drops the bytes, not the note of what was asked for.</summary>
         public IReadOnlyList<String> Requested
@@ -202,7 +205,7 @@ namespace NoSQL.GraphDB.Integrations.Conformance
         }
 
         /// <inheritdoc />
-        public JobFiles Create(IReadOnlyDictionary<String, JobFilePayload>? filesBySettingKey)
+        public JobFiles Create(IReadOnlyDictionary<String, JobFileSet>? filesBySettingKey)
         {
             var files = new JobFiles(filesBySettingKey);
             _created.Add(files);
@@ -313,9 +316,10 @@ namespace NoSQL.GraphDB.Integrations.Conformance
 
             public Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
                 IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
-                NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null)
+                NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null,
+                NoSQL.GraphDB.Integrations.Run.RunAbort abort = default)
             {
-                return _inner.EmbedSummariesAsync(embeddingName, summaries, cancellationToken, progress);
+                return _inner.EmbedSummariesAsync(embeddingName, summaries, cancellationToken, progress, abort);
             }
 
             public void Dispose()

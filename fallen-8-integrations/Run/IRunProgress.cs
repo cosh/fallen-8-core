@@ -58,6 +58,21 @@ namespace NoSQL.GraphDB.Integrations.Run
     }
 
     /// <summary>
+    ///   A run that has an ID somebody is watching it by.
+    ///
+    ///   <para>Separate from <see cref="IRunProgress" /> on purpose: a progress sink is a place to say what
+    ///   is happening, and most of them - the no-op, a test's journal - are not any particular run. The
+    ///   tracker's handle is, and the spool needs that id, because a run picked up after a restart has to
+    ///   report under the SAME id a client is already polling by. Asked as a capability rather than passed
+    ///   as a parameter, so the fifteen callers that have no id to give keep meaning what they meant.</para>
+    /// </summary>
+    public interface IIdentifiedRun
+    {
+        /// <summary>The id this run reports under.</summary>
+        String RunId { get; }
+    }
+
+    /// <summary>
     ///   The phase names, in the order a run passes through them. They live in ONE place because F8
     ///   Studio renders a row per phase and a typo would be a silently missing row rather than a
     ///   failure - and because "the phases" is a contract between the runtime and every reader of it.

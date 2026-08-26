@@ -130,6 +130,18 @@ namespace NoSQL.GraphDB.Integrations.Contract
                             "accept list is a file picker's hint and means nothing anywhere else.",
                             descriptor.Id, setting.Key, setting.Kind));
                     }
+
+                    if (setting.Kind != SettingKind.File && setting.Multiple)
+                    {
+                        // Left undeclared this is worse than cosmetic: the form would render a multi-file
+                        // control for a scalar, and a job sending the array shape for it would be refused
+                        // per run with a message about a setting the descriptor said was multiple.
+                        throw new InvalidOperationException(String.Format(
+                            "Provider '{0}' declares setting '{1}' multiple, but its kind is {2}. Only a file " +
+                            "setting takes several values: the other kinds are scalars a form types, and " +
+                            "there is no wire shape for several of them.",
+                            descriptor.Id, setting.Key, setting.Kind));
+                    }
                 }
 
                 byId.Add(descriptor.Id, provider!);

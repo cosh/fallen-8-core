@@ -93,12 +93,19 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <param name="report">The run's account, which this counts onto.</param>
         /// <param name="summary">The entity summary to embed, when BOTH halves of the opt-in are set. Null
         /// otherwise, which is the default and the common case.</param>
-        /// <param name="cancellationToken">Aborts the run.</param>
+        /// <param name="cancellationToken">The token the TARGET CALLS receive, and nothing else. The runner
+        /// passes <see cref="CancellationToken.None" /> on purpose: a graph write aborted in flight is the
+        /// one state this runtime cannot heal, so stopping a run is <paramref name="abort" />'s job.</param>
         /// <param name="progress">Where the phases are reported. Defaulted to a no-op, so a caller that
         /// drives an apply without watching it keeps meaning what it meant before.</param>
+        /// <param name="abort">The run's own stop signal, observed at SAFE POINTS only. Defaulted to one
+        /// that never fires, so a caller that offers none keeps meaning what it meant before.</param>
+        /// <param name="journal">Where the one thing an interrupted run cannot recompute is written down,
+        /// and where a RESUMED run reads it back. Null means no run survives a restart, which is the
+        /// default and what every caller meant before it existed.</param>
         public async Task ApplyAsync(ValidatedSnapshot snapshot, String instanceId, IGraphTarget target,
             JobReport report, SummaryRequest? summary, CancellationToken cancellationToken,
-            IRunProgress? progress = null)
+            IRunProgress? progress = null, RunAbort abort = default, IRunJournal? journal = null)
         {
             progress ??= NoRunProgress.Instance;
 
@@ -128,6 +135,11 @@ namespace NoSQL.GraphDB.Integrations.Run
             {
                 await RepairAsync(target, report, cancellationToken).ConfigureAwait(false);
             }
+
+            // SAFE POINT. Nothing has been written: an ensure that created an index and a repair that
+            // backfilled it are both add-only and idempotent, so stopping here leaves a graph that is
+            // strictly healthier than the one this run found.
+            abort.ThrowIfRequested();
 
             var plan = PlanEdges(snapshot, report);
 
@@ -288,6 +300,40 @@ namespace NoSQL.GraphDB.Integrations.Run
                 }
             }
 
+            // THE EMBEDDING PLAN, settled BEFORE the first write, and the ordering is the whole of what
+            // makes a run resumable.
+            //
+            // "Which entities need a summary" is answerable only against the graph AS IT WAS: an entity
+            // qualifies because its properties differ from what is stored, or because it does not exist yet.
+            // The writes below destroy that evidence - afterwards everything this run touched compares equal
+            // - so a run interrupted mid-embed and simply re-run would compute an EMPTY plan and strand
+            // every summary it had not reached, permanently. Recording the answer while it is still knowable
+            // is the fix, and it gives the invariant the journal relies on: if any element of this run was
+            // written, its journal exists.
+            //
+            // A resumed run does not recompute it at all; it reads what its earlier attempt wrote.
+            IReadOnlyList<Int32> embedPlan = Array.Empty<Int32>();
+            if (summary != null)
+            {
+                embedPlan = journal?.ResumedEmbeds ?? PlanSummaries(summaryDirty, createdEntityIndex);
+                if (journal?.ResumedEmbeds == null)
+                {
+                    journal?.RecordEmbedPlan(embedPlan);
+                }
+            }
+
+            // SAFE POINT, and the LAST one until the edges are wired. Everything above this line is
+            // computation: the resolve read the graph, and the loop above turned its answer into lists of
+            // writes nobody has issued. Stopping here has touched nothing.
+            //
+            // What follows deliberately has NO safe point inside it, and that is the sharpest rule in this
+            // file: an element created by the call below is findable only once the index flush after it has
+            // landed, so a stop between the two would manufacture exactly the state the flush's own comment
+            // describes as the one this runtime cannot heal - elements that exist, that nothing indexed, that
+            // the next resolve therefore duplicates, and that reconciliation can never withdraw because the
+            // claims index never named them. A cancel must never be able to corrupt a graph.
+            abort.ThrowIfRequested();
+
             if (creates.Count > 0)
             {
                 // BEFORE the writes, not after them. Entered afterwards the phase named work that was
@@ -302,8 +348,11 @@ namespace NoSQL.GraphDB.Integrations.Run
                     elementIdByEntity[entityIndex] = ids[i];
                     claimedNow.Add(ids[i]);
                     report.ElementsCreated++;
-                    summaryDirty.Add(entityIndex);
 
+                    // A created entity's summary is new by definition, and it is already IN the embedding
+                    // plan: the plan is settled above from the entities being created rather than from the
+                    // ids they came back with, because it has to be recorded before this call rather than
+                    // after it.
                     foreach (var claim in entity.Claims)
                     {
                         indexEntries.Add(new IndexEntry(ClaimSchema.IdentityIndexId, claim.Key, ids[i]));
@@ -329,6 +378,12 @@ namespace NoSQL.GraphDB.Integrations.Run
                 await target.ApplyPropertyWritesAsync(propertyWrites, cancellationToken).ConfigureAwait(false);
             }
 
+            // SAFE POINT. The elements are created, indexed and carry their properties, so what is here is a
+            // consistent partial import: every element this run touched is findable by its claims and
+            // claimed by this identity, which is all the next run needs to match rather than duplicate it.
+            // The edges are what is missing, and a later run wires them by derived key.
+            abort.ThrowIfRequested();
+
             // BEFORE the wiring, for the reason the write-elements block above states: entered afterwards,
             // the phase named work that was already done and nobody polling the run ever saw the edges
             // being written.
@@ -340,11 +395,16 @@ namespace NoSQL.GraphDB.Integrations.Run
             // The edges' own claims; the list was cleared above, so this indexes exactly what wiring added.
             await FlushIndexEntriesAsync(target, report, indexEntries, cancellationToken).ConfigureAwait(false);
 
+            // SAFE POINT. The graph is fully written at this line - elements, properties, edges and every
+            // index entry - and only the embedding is outstanding. It is also the most valuable stop in the
+            // run, because the phase after it is the one that takes hours.
+            abort.ThrowIfRequested();
+
             if (summary != null)
             {
-                await EmbedSummariesAsync(snapshot, summary, target, report, elementIdByEntity, summaryDirty,
+                await EmbedSummariesAsync(snapshot, summary, target, report, elementIdByEntity, embedPlan,
                     progress,
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken, abort).ConfigureAwait(false);
             }
 
             if (reindexed > 0)
@@ -357,14 +417,57 @@ namespace NoSQL.GraphDB.Integrations.Run
                         "duplicate them.", reindexed)));
             }
 
+            // THE LAST SAFE POINT, and the one that carries the argument for the whole cancel feature.
+            //
+            // A cancelled run must NEVER reconcile. Reconciliation withdraws by set difference - everything
+            // this identity ever claimed, minus what this run claimed - and a run stopped early never
+            // claimed the entities it never reached. Running it here would therefore withdraw this
+            // instance's claim from healthy elements the source still describes, and then DELETE the ones
+            // nothing else claims. Cancelling an import would silently destroy the part of it that had
+            // already succeeded, which is the exact opposite of what somebody pressing stop is asking for.
+            //
+            // So the run stops, leaves what it wrote, and says so. Nothing needs converging by hand: the
+            // leftovers carry this identity's claims, so the next complete run matches them instead of
+            // duplicating them, and that run's own reconciliation removes whatever the source really has
+            // stopped describing.
+            abort.ThrowIfRequested();
+
             if (snapshot.Completeness == SnapshotCompleteness.Complete)
             {
+                // No safe point INSIDE reconciliation, deliberately. It is fast - one index read and at most
+                // three batch calls - and it is the one phase whose half-done state is the messiest: a stop
+                // between the withdrawal and the deletion leaves orphans that are healed by a later run
+                // rather than by anything here. A cancel arriving now simply loses the race, and the slot
+                // says so with cancelRequested true beside a report that is not cancelled.
                 progress.EnterPhase(RunPhases.Reconcile);
                 await ReconcileAsync(instanceId, target, report, claimedNow, cancellationToken)
                     .ConfigureAwait(false);
             }
 
             report.IssuedMutations = target.IssuedMutationCount > mutationsBefore;
+        }
+
+        /// <summary>
+        ///   The entities needing a summary: those whose stored properties differ, plus every entity being
+        ///   created, since a new element's summary is new by definition.
+        ///
+        ///   <para>ASCENDING, and that is not cosmetic. The journal's cursor counts positions in this list,
+        ///   and it has to mean the same thing in the process that resumes the run - where a hash set's
+        ///   iteration order would not be the same order at all, so the cursor would point somewhere else and
+        ///   an arbitrary set of summaries would be skipped.</para>
+        /// </summary>
+        private static IReadOnlyList<Int32> PlanSummaries(HashSet<Int32> changed,
+            IReadOnlyList<Int32> created)
+        {
+            var planned = new SortedSet<Int32>(changed);
+            foreach (var entityIndex in created)
+            {
+                planned.Add(entityIndex);
+            }
+
+            var ordered = new Int32[planned.Count];
+            planned.CopyTo(ordered);
+            return ordered;
         }
 
         /// <summary>
@@ -605,11 +708,11 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   rather than a precondition for it.</para>
         /// </summary>
         private static async Task EmbedSummariesAsync(ValidatedSnapshot snapshot, SummaryRequest summary,
-            IGraphTarget target, JobReport report, Int32[] elementIdByEntity, IReadOnlyCollection<Int32> summaryDirty,
-            IRunProgress progress, CancellationToken cancellationToken)
+            IGraphTarget target, JobReport report, Int32[] elementIdByEntity, IReadOnlyList<Int32> plan,
+            IRunProgress progress, CancellationToken cancellationToken, RunAbort abort)
         {
             var writes = new List<SummaryWrite>();
-            foreach (var entityIndex in summaryDirty)
+            foreach (var entityIndex in plan)
             {
                 var elementId = elementIdByEntity[entityIndex];
                 if (elementId == NoElement)
@@ -650,8 +753,17 @@ namespace NoSQL.GraphDB.Integrations.Run
             try
             {
                 outcome = await target
-                    .EmbedSummariesAsync(summary.EmbeddingName, writes, cancellationToken, progress)
+                    .EmbedSummariesAsync(summary.EmbeddingName, writes, cancellationToken, progress, abort)
                     .ConfigureAwait(false);
+            }
+            catch (RunStoppedException stopped)
+            {
+                // The stop landed BETWEEN chunks, which is the only place the target checks it. The chunks
+                // before it are element state and their count leaves here the same way a failure's does -
+                // this is the same bargain as the branch below, for the same reason. Both kinds of stop are
+                // caught, because the count is a fact about the graph either way.
+                report.SummariesEmbedded = stopped.SummariesWritten;
+                throw;
             }
             catch (GraphTargetException failure)
             {

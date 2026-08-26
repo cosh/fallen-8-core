@@ -443,8 +443,14 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// <inheritdoc />
         public Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
             IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
-            NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null)
+            NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null,
+            NoSQL.GraphDB.Integrations.Run.RunAbort abort = default)
         {
+            // One safe point, because there is one chunk: this target does no inference, so its whole write
+            // is the first chunk. Honoured rather than ignored so the fake cannot be laxer than the platform
+            // about the one thing a cancelled embed must guarantee - nothing written after the stop.
+            abort.ThrowIfRequested();
+
             if (!_embedding.Available)
             {
                 return Task.FromResult(new EmbeddingWriteOutcome(0,

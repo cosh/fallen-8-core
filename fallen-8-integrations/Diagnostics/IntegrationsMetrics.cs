@@ -36,8 +36,8 @@ namespace NoSQL.GraphDB.Integrations.Diagnostics
     ///
     ///   <para>The job's CLAIM IDENTITY is deliberately not a metric tag: the identity arrives from a caller on
     ///   every request, so tagging by it lets a caller mint unbounded time series in somebody else's monitoring
-    ///   backend. The provider id is a closed set and is safe, and the run outcome is <c>ok</c> or
-    ///   <c>failed</c>.</para>
+    ///   backend. The provider id is a closed set and is safe, and the run outcome is <c>ok</c>,
+    ///   <c>failed</c> or <c>cancelled</c>.</para>
     /// </summary>
     public sealed class IntegrationsMetrics : IDisposable
     {
@@ -78,7 +78,7 @@ namespace NoSQL.GraphDB.Integrations.Diagnostics
             var tags = new KeyValuePair<String, Object?>[]
             {
                 new KeyValuePair<String, Object?>("provider", providerId),
-                new KeyValuePair<String, Object?>("outcome", report.Failed ? "failed" : "ok"),
+                new KeyValuePair<String, Object?>("outcome", Outcome(report)),
             };
 
             _runs.Add(1, tags);
@@ -87,6 +87,22 @@ namespace NoSQL.GraphDB.Integrations.Diagnostics
             _claimsWithdrawn.Add(report.ClaimsWithdrawn, tags);
             _elementsDeleted.Add(report.ElementsDeleted, tags);
             _deletionsDeferred.Add(report.DeletionsDeferred, tags);
+        }
+
+        /// <summary>
+        ///   A closed set of three, so it is safe as a tag. <c>cancelled</c> is its own value rather than
+        ///   folded into either neighbour: counted as <c>ok</c> a stopped import would inflate the success
+        ///   rate, and counted as <c>failed</c> it would raise an alert for something an operator did on
+        ///   purpose.
+        /// </summary>
+        private static String Outcome(JobReport report)
+        {
+            if (report.Failed)
+            {
+                return "failed";
+            }
+
+            return report.Cancelled ? "cancelled" : "ok";
         }
 
         public void Dispose()

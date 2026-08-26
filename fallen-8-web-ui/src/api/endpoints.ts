@@ -811,3 +811,15 @@ export const getIntegrationRun = (i: InstanceConfig, instanceId: string) =>
   apiRequest<IntegrationRunState>(i, `/integrations/run/${encodeURIComponent(instanceId)}`, {
     scope: "fallen8",
   });
+
+/**
+ * Asks the run in flight under one identity to stop. Answers 202 and not 200 because a stop is a
+ * REQUEST honoured at the run's next safe point, so the run as answered here is the run as it was
+ * when the stop was recorded, and getIntegrationRun is what shows it taking effect. A 404 means
+ * nothing is in flight: a run that already ended is not cancellable. Cancelling twice is not an error.
+ */
+export const cancelIntegrationRun = (i: InstanceConfig, instanceId: string) =>
+  apiRequest<IntegrationRunState>(i, `/integrations/run/${encodeURIComponent(instanceId)}/cancel`, {
+    method: "POST",
+    scope: "fallen8",
+  });

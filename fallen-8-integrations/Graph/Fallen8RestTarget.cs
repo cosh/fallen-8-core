@@ -494,7 +494,8 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// <inheritdoc />
         public async Task<EmbeddingWriteOutcome> EmbedSummariesAsync(String embeddingName,
             IReadOnlyList<SummaryWrite> summaries, CancellationToken cancellationToken,
-            NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null)
+            NoSQL.GraphDB.Integrations.Run.IRunProgress? progress = null,
+            NoSQL.GraphDB.Integrations.Run.RunAbort abort = default)
         {
             if (summaries == null || summaries.Count == 0)
             {
@@ -518,6 +519,16 @@ namespace NoSQL.GraphDB.Integrations.Graph
             {
                 for (var offset = 0; offset < summaries.Count; offset += EmbedBatchSize)
                 {
+                    // THE SAFE POINT THIS FEATURE EXISTS FOR. This loop is the hours: a many-entity extract
+                    // at sixteen per chunk against CPU inference runs overnight, so a stop honoured only after
+                    // it would not be a stop. Checked BETWEEN chunks and never during one - a chunk is one
+                    // atomic write on the target, and abandoning it in flight would leave a vector that landed
+                    // uncounted, which is the one thing the written count must never be wrong about.
+                    //
+                    // The count leaves on the exception, exactly as a failure's does: the vectors already
+                    // written are element state, as valid as if the rest had never been asked for.
+                    abort.ThrowIfRequested(written);
+
                     var take = Math.Min(EmbedBatchSize, summaries.Count - offset);
                     var items = new List<Object>(take);
                     for (var i = offset; i < offset + take; i++)

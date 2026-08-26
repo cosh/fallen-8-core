@@ -152,6 +152,25 @@ namespace NoSQL.GraphDB.Integrations.Contract
         /// </summary>
         [JsonPropertyName("accept")]
         public String? Accept { get; set; }
+
+        /// <summary>
+        ///   For a <see cref="SettingKind.File"/> setting only: whether the setting takes SEVERAL files
+        ///   rather than one.
+        ///
+        ///   <para>It is a statement about the SOURCE, not a convenience. A vehicle network is handed over
+        ///   as one AUTOSAR extract per domain or per bus, and those extracts reference each other by path,
+        ///   so the source is the whole set and no single file is a complete description of it. That matters
+        ///   because completeness licenses withdrawal: a provider declaring
+        ///   <see cref="ProviderDescriptor.CanObserveCompleteState"/> and given one file of a set would
+        ///   report a complete snapshot missing everything the other files describe, and reconciliation would
+        ///   delete it. Declaring the setting multiple is how a provider says "the files I was given, taken
+        ///   together, are the source".</para>
+        ///
+        ///   <para>Declaring it on any other kind is a descriptor error the catalog refuses at startup: the
+        ///   other kinds are scalars a form types, and there is no wire shape for several of them.</para>
+        /// </summary>
+        [JsonPropertyName("multiple")]
+        public Boolean Multiple { get; set; }
     }
 
     /// <summary>What kind of value a setting takes. The whole vocabulary a settings form needs.</summary>

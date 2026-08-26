@@ -278,11 +278,23 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    # NO MOUNT AT ALL, and that is the point: a credential AND a file both arrive with the job that
-    # needs them and are dropped when the run ends, so this container has nothing to store, nothing
-    # to rotate and nothing to read off disk. Whoever submits a job is whoever already holds the
-    # credential and the file.
+    # NO CREDENTIAL MOUNT AND NO FILES MOUNT, and that is still the point: a credential AND a file
+    # both arrive with the job that needs them and are dropped when the run ends, so this container
+    # has nothing to rotate and nothing to read off disk. Whoever submits a job is whoever already
+    # holds the credential and the file.
+    #
+    # The ONE mount is the run spool, and it holds exactly one thing: runs that are IN FLIGHT. It
+    # exists because a run's graph writes are recomputable while its embedding set is not, so a
+    # restart mid-embed used to strand every remaining summary permanently - hours of model inference
+    # lost to a `docker compose restart`, curable only by clearing the namespace. An entry is deleted
+    # on every ending a run has, so a healthy runtime's spool is EMPTY: it is not a run history, and
+    # neither a credential nor a file's byte is ever written there.
+    volumes:
+      - f8-integration-runs:/var/lib/fallen-8/runs
     environment:
+      # Where the in-flight runs live. Unset would switch resumability off, which is what a bare
+      # `dotnet run` gets; here it points at the volume above.
+      - Integrations__SpoolDirectory=/var/lib/fallen-8/runs
       # The downstream Fallen-8 this runtime writes into (in-network) + its own single credential,
       # reusing the existing F8_API_KEY exactly as f8-mcp does, so a secured instance needs no
       # second key. A caller's credential is NEVER forwarded: the runtime writes as itself.
@@ -324,6 +336,10 @@ volumes:
     name: f8-data
   ollama-models:
     name: f8-ollama-models
+  # Runs in flight, and nothing else. Small by construction: one entry per run being executed right
+  # now, each deleted the moment its run ends.
+  f8-integration-runs:
+    name: f8-integration-runs
 
 networks:
   f8-net:

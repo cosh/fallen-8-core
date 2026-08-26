@@ -48,13 +48,19 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
     ///   whole reason this is an integration rather than a converter script: a system extract IS the
     ///   complete description of its network, so re-observing the next release withdraws exactly what
     ///   the release removed, and the change feed becomes the release diff for free.</para>
+    ///
+    ///   <para>THE SET OF FILES IS THE SOURCE, and that is where completeness bites. A job may carry one
+    ///   extract per domain or per bus; they are read as one source, so the snapshot is complete over
+    ///   their UNION and a later run given fewer of them withdraws - and then deletes - everything only
+    ///   the missing file described. The <c>file</c> setting's help text says so, because whoever fills
+    ///   in the form is the only person who can avoid it.</para>
     /// </summary>
     public sealed class AutosarArxmlProvider : IIntegrationProvider, IObservableProvider
     {
         /// <summary>The stable provider id. It is assigned once and never reused.</summary>
         public const String ProviderId = "autosar-arxml";
 
-        /// <summary>The setting naming the file, which is a NAME and never a path.</summary>
+        /// <summary>The setting naming the files, each a NAME and never a path.</summary>
         public const String FileSetting = "file";
 
         /// <summary>The one identifier type this provider claims.</summary>
@@ -72,23 +78,30 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             Id = ProviderId,
             DisplayName = "AUTOSAR system extract (ARXML)",
             Description =
-                "Reads an AUTOSAR classic-platform system extract (ARXML, schema r4.0) the job carries " +
-                "and describes the FlexRay communication matrix it holds: the network, its ECUs, frames, " +
+                "Reads the AUTOSAR classic-platform system extracts (ARXML, schema r4.0) the job carries " +
+                "and describes the FlexRay communication matrix they hold: the network, its ECUs, frames, " +
                 "PDUs, signals, system signals and scaling methods, with the send and receive flow " +
-                "between them.",
+                "between them. Several extracts of one system are read as one source, so a frame in one " +
+                "of them can carry a signal defined in another.",
             Settings = new[]
             {
                 new ProviderSetting
                 {
                     Key = FileSetting,
-                    Label = "System extract",
+                    Label = "System extracts",
                     Kind = SettingKind.File,
                     Required = true,
                     Accept = ".arxml,.xml",
+                    Multiple = true,
                     Help =
-                        "The extract itself, such as network.arxml, sent with the job. It travels with the " +
-                        "run and is dropped when the run ends: nothing is mounted, nothing is stored, and " +
-                        "this provider never sees a path.",
+                        "One or more extracts of ONE system, such as chassis.arxml and body.arxml, sent " +
+                        "with the job. They are read in the order given and resolved as one source, so a " +
+                        "reference from one extract into another resolves exactly like a reference inside " +
+                        "one file; where two of them declare the same AUTOSAR path, the earlier one wins. " +
+                        "THE SET OF FILES IS THE SOURCE: this integration describes it completely, so a " +
+                        "later run given fewer files withdraws - and then deletes - everything only the " +
+                        "missing file described. They travel with the run and are dropped when it ends: " +
+                        "nothing is mounted, nothing is stored, and this provider never sees a path.",
                 },
             },
             EntityKinds = new[]
@@ -133,15 +146,15 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         public SnapshotDocument? LastSnapshot { get; private set; }
 
         /// <summary>
-        ///   Reads the extract the <c>file</c> setting names and describes the whole communication
-        ///   matrix in it.
+        ///   Reads every extract the <c>file</c> setting carries and describes the one communication
+        ///   matrix they hold between them.
         /// </summary>
         /// <exception cref="ProviderConfigurationException">The setting is missing.</exception>
-        /// <exception cref="ProviderSourceException">The file could not be read, is not an AUTOSAR
-        /// r4.0 extract, or carries no FlexRay cluster. Each fails the RUN and withdraws nothing:
-        /// describing an unreadable file as an empty network would withdraw every element this
-        /// identity ever claimed, and "I could not look" must never become "there is nothing
-        /// there".</exception>
+        /// <exception cref="ProviderSourceException">A file could not be read, is not an AUTOSAR
+        /// r4.0 extract, or no file in the set carries a FlexRay cluster. Each fails the RUN and
+        /// withdraws nothing: describing an unreadable file as an empty network would withdraw every
+        /// element this identity ever claimed, and "I could not look" must never become "there is
+        /// nothing there".</exception>
         public async Task<SnapshotDocument> ObserveAsync(ProviderContext context,
             CancellationToken cancellationToken)
         {
@@ -150,22 +163,40 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 throw new ArgumentNullException(nameof(context));
             }
 
-            var fileName = context.Required(FileSetting);
-            var text = await context.RequireFileTextAsync(FileSetting, cancellationToken)
-                .ConfigureAwait(false);
+            // The SETTING's value is every file's name, joined, which is what a message about the set as a
+            // whole says; the per-file name a refusal needs comes from the list itself, and the reader
+            // carries it into its own messages.
+            var settingValue = context.Required(FileSetting);
+            var fileNames = context.FileNames(FileSetting);
 
+            var reader = new ArxmlReader();
             ArxmlNetwork network;
             try
             {
-                network = ArxmlReader.Read(text);
+                // One file at a time, in JOB ORDER, into one reader. The order is what decides which extract
+                // owns a path two of them declare, and reading them one by one rather than gathering the
+                // texts first is what keeps a set of tens-of-megabytes extracts from being held decoded all
+                // at once.
+                for (var index = 0; index < fileNames.Count; index++)
+                {
+                    var text = await context.RequireFileTextAtAsync(FileSetting, index, cancellationToken)
+                        .ConfigureAwait(false);
+                    reader.Add(fileNames[index], text);
+                }
+
+                // Resolved ONCE, over the union: a frame in one extract carrying a signal defined in another
+                // is the whole reason a job may carry several, and per-file resolution would drop that edge.
+                network = reader.Complete();
             }
             catch (ArxmlFormatException failure)
             {
+                // The set, then the reader's own sentence about the one file that failed. Both halves are
+                // needed once a job carries several: the set says what was submitted, and only the reader
+                // knows which of them an operator has to go and open.
                 throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
-                    "The file '{0}', named by setting '{1}', is not an AUTOSAR system extract this " +
-                    "runtime can read: {2} The run fails rather than reporting an empty network, because " +
-                    "a complete snapshot with nothing in it withdraws every element this identity claimed.",
-                    fileName, FileSetting, failure.Message), failure);
+                    "Setting '{0}' was given '{1}'. {2} The run fails rather than reporting an empty " +
+                    "network, because a complete snapshot with nothing in it withdraws every element this " +
+                    "identity claimed.", FileSetting, settingValue, failure.Message), failure);
             }
 
             var describesABus = false;
@@ -181,16 +212,20 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             if (!describesABus)
             {
                 // A communication matrix with no bus in it has not been OBSERVED, it has failed to be
-                // observed: the file is readable AUTOSAR but describes something else (a software
+                // observed: the files are readable AUTOSAR but describe something else (a software
                 // component package, a diagnostic extract, a CAN-only network this version does not
                 // read). Reporting it as an empty complete snapshot would delete the whole network a
                 // previous run described.
+                //
+                // Judged over the SET and never per file: a body-domain extract with no bus in it is
+                // perfectly ordinary beside a chassis extract that has one, and failing per file would
+                // refuse exactly the jobs this provider now exists to accept.
                 throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
-                    "The file '{0}', named by setting '{1}', is a readable AUTOSAR extract but carries no " +
-                    "FlexRay cluster, so there is no communication matrix in it to describe. This version " +
-                    "reads FlexRay clusters only. The run fails rather than reporting an empty network, " +
-                    "because a complete snapshot with nothing in it withdraws every element this identity " +
-                    "claimed.", fileName, FileSetting));
+                    "Nothing in '{0}', the extract set named by setting '{1}', carries a FlexRay cluster, " +
+                    "though every file in it read as AUTOSAR, so there is no communication matrix in the " +
+                    "set to describe. This version reads FlexRay clusters only. The run fails rather than " +
+                    "reporting an empty network, because a complete snapshot with nothing in it withdraws " +
+                    "every element this identity claimed.", settingValue, FileSetting));
             }
 
             var snapshot = new SnapshotDocument
@@ -252,6 +287,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     return DiagnosticCodes.ArxmlDuplicatePath;
                 case ArxmlDiagnosticKind.UndecidablePortDirection:
                     return DiagnosticCodes.ArxmlUndecidablePortDirection;
+                case ArxmlDiagnosticKind.RedeclaredPaths:
+                    return DiagnosticCodes.ArxmlRedeclaredPaths;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(kind), kind,
                         "Every reader diagnostic kind needs a wire code, or a report would carry one " +

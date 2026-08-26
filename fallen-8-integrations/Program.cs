@@ -57,12 +57,13 @@ namespace NoSQL.GraphDB.Integrations
             // runtime that did not answer, sending the caller to look at a healthy sidecar.
             //
             // FIXED rather than derived from Integrations:MaxFileBytes, and that is the whole point: the
-            // proxy in front of this container has its own fixed bound (48 MiB), and the two are only
+            // proxy in front of this container has its own fixed bound (768 MiB), and the two are only
             // useful if THIS one is always the larger, so an absurd body is refused at the front door
             // where the 413 means something. A bound that scaled with the ceiling would invert that
             // ordering the moment an operator LOWERED the ceiling. Size refusals a caller can actually
-            // read are therefore exactly two: the proxy's 413 for an absurd body, and this runtime's
-            // MaxFileBytes message - which names both numbers - for a file over the ceiling.
+            // read are therefore exactly three: the proxy's 413 for an absurd body, this runtime's
+            // MaxFileBytes message for one file over the per-file ceiling, and its MaxJobFileBytes message
+            // for a set of legal files whose total is not. Each names its own numbers.
             builder.WebHost.ConfigureKestrel(kestrel =>
                 kestrel.Limits.MaxRequestBodySize = TransportBound);
 
@@ -81,12 +82,16 @@ namespace NoSQL.GraphDB.Integrations
         }
 
         /// <summary>
-        ///   The bound on a request body reaching this runtime: 256 MiB, chosen only to sit ABOVE the
-        ///   apiApp proxy's own fixed bound (192 MiB), which is the only way in because this container
+        ///   The bound on a request body reaching this runtime: 832 MiB, chosen only to sit ABOVE the
+        ///   apiApp proxy's own fixed bound (768 MiB), which is the only way in because this container
         ///   publishes no port. It is not a statement about how big a file may be - that is
-        ///   <c>Integrations:MaxFileBytes</c>, enforced on the decoded bytes with a message naming both
-        ///   numbers.
+        ///   <c>Integrations:MaxFileBytes</c> per file and <c>Integrations:MaxJobFileBytes</c> for their
+        ///   total, both enforced on the decoded bytes with messages naming their own numbers.
+        ///
+        ///   <para>It grew with multi-file input: one request still carries a whole run, so a job carrying a
+        ///   vehicle's worth of extracts is one body, and 512 MiB of decoded files is about 683 MiB of
+        ///   base64 before the JSON around it.</para>
         /// </summary>
-        internal const Int64 TransportBound = 268_435_456;
+        internal const Int64 TransportBound = 872_415_232;
     }
 }

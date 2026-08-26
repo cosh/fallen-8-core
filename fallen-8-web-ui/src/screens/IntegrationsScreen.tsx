@@ -24,10 +24,12 @@
 // SOFTWARE.
 
 import { useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance, useActiveNamespace, useInstanceStore } from "../instances/registry";
-import { getIntegrationRun, submitIntegrationJob } from "../api/endpoints";
+import { cancelIntegrationRun, getIntegrationRun, submitIntegrationJob } from "../api/endpoints";
+import type { InstanceConfig } from "../instances/types";
 import type {
+  IntegrationJobFile,
   IntegrationJobReport,
   IntegrationJobRequest,
   IntegrationRunState,
@@ -66,11 +68,15 @@ export function IntegrationsScreen() {
   const namespace = useActiveNamespace();
   const providers = useIntegrationProviders(instance);
   const capability = capabilityOf(providers);
+  const queryClient = useQueryClient();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [instanceId, setInstanceId] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
-  const [files, setFiles] = useState<Record<string, StagedFile>>({});
+  // A LIST per setting even where the setting takes one file, so nothing here branches on the
+  // descriptor twice: `multiple` decides what may be added and what shape the job carries, and one
+  // file is a list of one everywhere in between.
+  const [files, setFiles] = useState<Record<string, StagedFile[]>>({});
   const [fileProblems, setFileProblems] = useState<Record<string, string>>({});
   // PERSISTED, so reopening the screen re-attaches to a run instead of losing it. A run can take
   // hours and deliberately outlives the request that started it, so "which identity am I watching"
@@ -145,8 +151,9 @@ export function IntegrationsScreen() {
   // query rather than a cache hit. Without it the screen served the finished previous run from cache,
   // never refetched (its `running` was false, so the interval was off), and presented the old run's
   // report as the new run's outcome.
+  const runQueryKey = [instance.id, "integration-run", watching, expectedRunId];
   const runQuery = useQuery({
-    queryKey: [instance.id, "integration-run", watching, expectedRunId],
+    queryKey: runQueryKey,
     queryFn: () => getIntegrationRun(instance, watching!),
     enabled: watching !== null,
     retry: false,
@@ -192,38 +199,64 @@ export function IntegrationsScreen() {
     setValues(defaults);
   }
 
-  /** Reads one picked or dropped file into memory, as BYTES. Nothing is sent until "run now". */
-  async function stage(setting: IntegrationSetting, file: File) {
-    // Which integration asked for it. Reading is asynchronous, so a big file picked just before
+  /** Reads picked or dropped files into memory, as BYTES. Nothing is sent until "run now". */
+  async function stage(setting: IntegrationSetting, picked: File[]) {
+    // Which integration asked for them. Reading is asynchronous, so a big file picked just before
     // switching provider would otherwise land on the NEW one - the exact outcome select()'s reset
     // exists to prevent, arriving a moment too late for it.
     const askedBy = selectedId;
+    const multiple = setting.multiple === true;
 
     setFileProblems((current) => withoutKey(current, setting.key));
-    try {
-      const bytes = await readBytes(file);
+
+    // What a name has to be unique against: the files a multiple setting already holds, since a
+    // second drop adds to them rather than replacing them, plus the ones accepted out of this batch.
+    // Case is set aside, which is how the runtime compares - so 'Body.arxml' beside 'body.arxml' is
+    // caught here instead of costing the whole job a 400.
+    const taken = new Set(
+      (multiple ? (files[setting.key] ?? []) : []).map((file) => file.name.trim().toLowerCase()),
+    );
+    const accepted: StagedFile[] = [];
+    const problems: string[] = [];
+
+    for (const file of multiple ? picked : picked.slice(0, 1)) {
+      let bytes: Uint8Array;
+      try {
+        bytes = await readBytes(file);
+      } catch (error) {
+        if (askedBy !== selectedIdRef.current) return;
+        problems.push(`${file.name} could not be read: ${describeReadFailure(error)}`);
+        continue;
+      }
       if (askedBy !== selectedIdRef.current) return;
 
       if (bytes.length === 0) {
         // Refused here as well as by the runtime, because the round trip for this one is pure
         // latency: an empty file is the mistake somebody makes when they pick before saving.
-        setFileProblems((current) => ({
-          ...current,
-          [setting.key]: `${file.name} is empty, so there would be nothing to read.`,
-        }));
-        return;
+        problems.push(`${file.name} is empty, so there would be nothing to read.`);
+        continue;
       }
 
+      const name = file.name.trim().toLowerCase();
+      if (taken.has(name)) {
+        problems.push(`${file.name} is already staged here, and one name cannot mean two files.`);
+        continue;
+      }
+      taken.add(name);
+      accepted.push({ name: file.name, size: bytes.length, bytes });
+    }
+
+    if (accepted.length > 0) {
       setFiles((current) => ({
         ...current,
-        [setting.key]: { name: file.name, size: bytes.length, bytes },
+        // APPENDED for a multiple setting: a handover is read domain by domain, so somebody adds
+        // the second extract to the first, and replacing the list would throw away the pick they
+        // already made without saying so.
+        [setting.key]: multiple ? [...(current[setting.key] ?? []), ...accepted] : accepted,
       }));
-    } catch (error) {
-      if (askedBy !== selectedIdRef.current) return;
-      setFileProblems((current) => ({
-        ...current,
-        [setting.key]: `${file.name} could not be read: ${describeReadFailure(error)}`,
-      }));
+    }
+    if (problems.length > 0) {
+      setFileProblems((current) => ({ ...current, [setting.key]: problems.join(" ") }));
     }
   }
 
@@ -339,10 +372,22 @@ export function IntegrationsScreen() {
                 setting={setting}
                 value={values[setting.key] ?? ""}
                 onChange={(next) => setValues((current) => ({ ...current, [setting.key]: next }))}
-                file={files[setting.key]}
+                files={files[setting.key] ?? []}
                 problem={fileProblems[setting.key]}
-                onFile={(picked) => void stage(setting, picked)}
-                onClearFile={() => {
+                onFiles={(picked) => void stage(setting, picked)}
+                onRemoveFile={(index) => {
+                  setFiles((current) => {
+                    const kept = (current[setting.key] ?? []).filter((_, at) => at !== index);
+                    // The key GOES when the last file does, rather than staying as an empty list: a
+                    // required file setting is judged on there being a file, and an empty entry
+                    // would answer that question with the wrong answer.
+                    return kept.length > 0
+                      ? { ...current, [setting.key]: kept }
+                      : withoutKey(current, setting.key);
+                  });
+                  setFileProblems((current) => withoutKey(current, setting.key));
+                }}
+                onClearFiles={() => {
                   setFiles((current) => withoutKey(current, setting.key));
                   setFileProblems((current) => withoutKey(current, setting.key));
                 }}
@@ -362,7 +407,7 @@ export function IntegrationsScreen() {
                         ? undefined
                         : providerEnabled === null
                           ? "provider status not reported by this server"
-                          : "the embedding provider is off on this instance — set the Fallen8:Embedding section (F8_EMBEDDINGS under compose)"
+                          : "the embedding provider is off on this instance - set the Fallen8:Embedding section (F8_EMBEDDINGS under compose)"
                     }
                     onChange={(event) => setEmbedSummaries(event.target.checked)}
                   />
@@ -376,8 +421,8 @@ export function IntegrationsScreen() {
                 {!canEmbed && (
                   <span className="text-warn block text-[11px]" data-testid="integration-embed-off">
                     {providerEnabled === null
-                      ? "provider status not reported by this server — the run can still write the graph."
-                      : "the embedding provider is off on this instance — the run can still write the graph."}
+                      ? "provider status not reported by this server - the run can still write the graph."
+                      : "the embedding provider is off on this instance - the run can still write the graph."}
                   </span>
                 )}
                 {embedRequested && (
@@ -400,7 +445,7 @@ export function IntegrationsScreen() {
                       )}
                     </label>
                     <span className="text-fg-faint block text-[11px]" data-testid="integration-embed-template">
-                      embeds <code>{summaryTemplate}</code> per entity — a hole the entity cannot
+                      embeds <code>{summaryTemplate}</code> per entity - a hole the entity cannot
                       fill collapses, so an entity with no description embeds only its name.
                     </span>
                     <span className="text-fg-faint block text-[11px]">
@@ -435,8 +480,9 @@ export function IntegrationsScreen() {
                 <ErrorBox error={submit.error} />
                 {submit.error instanceof ApiError && submit.error.status === 413 && (
                   <p className="text-fg-dim text-[12px]">
-                    The request body was refused before the run started - the file is larger than this
-                    instance forwards. Nothing was read and nothing was withdrawn.
+                    The request body was refused before the run started - what it carries is larger
+                    than this instance forwards, whether that is one file or the set of them.
+                    Nothing was read and nothing was withdrawn.
                   </p>
                 )}
               </div>
@@ -445,7 +491,22 @@ export function IntegrationsScreen() {
         </section>
       )}
 
-      {run && <RunPanel run={run} />}
+      {run && (
+        <RunPanel
+          // Keyed on the run, so a half-armed stop or a note about the LAST run cannot greet the
+          // next one: a second run under one identity reuses this panel otherwise.
+          key={run.runId}
+          run={run}
+          instance={instance}
+          onCancelAnswered={(answered) => {
+            // The 202 carries the run as it was when the stop was recorded, which is why the route
+            // answers a body at all: the pending state shows without waiting out the poll interval.
+            // The invalidate right after keeps the poll the authority on what the run is doing.
+            if (answered) queryClient.setQueryData(runQueryKey, answered);
+            void queryClient.invalidateQueries({ queryKey: runQueryKey });
+          }}
+        />
+      )}
       {watching !== null && untracked && !startedHere && (
         <section className="panel" data-testid="run-untracked">
           <div className="panel-title">run</div>
@@ -479,16 +540,18 @@ function SettingField(props: {
   setting: IntegrationSetting;
   value: string;
   onChange: (value: string) => void;
-  /** File settings only: the file staged for this one, if any. */
-  file?: StagedFile;
+  /** File settings only: what is staged for this one, in the order it will be sent. */
+  files?: StagedFile[];
   /** File settings only: why the last pick could not be used. */
   problem?: string;
-  /** File settings only: a file was picked or dropped. */
-  onFile?: (file: File) => void;
-  /** File settings only: forget the staged file. */
-  onClearFile?: () => void;
+  /** File settings only: files were picked or dropped. */
+  onFiles?: (files: File[]) => void;
+  /** File settings only: forget the staged file at this position. */
+  onRemoveFile?: (index: number) => void;
+  /** File settings only: forget all of them. */
+  onClearFiles?: () => void;
 }) {
-  const { setting, value, onChange, file, problem, onFile, onClearFile } = props;
+  const { setting, value, onChange, files, problem, onFiles, onRemoveFile, onClearFiles } = props;
   const testid = `integration-setting-${setting.key}`;
 
   if (setting.kind === "Credential") {
@@ -501,10 +564,11 @@ function SettingField(props: {
     return (
       <FileField
         setting={setting}
-        file={file}
+        files={files ?? []}
         problem={problem}
-        onFile={onFile!}
-        onClear={onClearFile!}
+        onFiles={onFiles!}
+        onRemove={onRemoveFile!}
+        onClear={onClearFiles!}
         testid={testid}
       />
     );
@@ -591,17 +655,27 @@ function CredentialField(props: {
  * other settings - and the file's bytes ride with the job when "run now" is pressed. It follows the
  * credential rule (see {@link CredentialField}) with one difference stated in the help: a file is not
  * a secret, so the form keeps it after a run instead of forgetting it.
+ *
+ * A setting the descriptor declares `multiple` takes a SET instead, and the set is what differs: a
+ * pick adds to it rather than replacing it, each file has its own row and its own remove, and the
+ * total is shown beside them because the job's total is a ceiling of its own. The order the rows are
+ * in is the order the job carries, which a composing provider reads as precedence.
  */
 function FileField(props: {
   setting: IntegrationSetting;
-  file?: StagedFile;
+  files: StagedFile[];
   problem?: string;
-  onFile: (file: File) => void;
+  onFiles: (files: File[]) => void;
+  onRemove: (index: number) => void;
   onClear: () => void;
   testid: string;
 }) {
-  const { setting, file, problem, onFile, onClear, testid } = props;
+  const { setting, files, problem, onFiles, onRemove, onClear, testid } = props;
   const pickRef = useRef<HTMLInputElement>(null);
+  const multiple = setting.multiple === true;
+  const staged = files.length > 0;
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  const extensions = setting.accept ? ` (${setting.accept.split(",").join(" ")})` : "";
 
   // A div and not a label: this field's controls are BUTTONS, and a label wrapping them makes its
   // static text activate the first one, which is not what clicking a caption should do.
@@ -615,20 +689,58 @@ function FileField(props: {
       {/* The zone stays put once a file is staged, so a replacement can be DROPPED and not only
           picked. Swapping it for a plain row would leave the form with no drop target at all, and
           the second drop would land on the document and navigate away from the half-filled form. */}
-      <FileDropzone testId={`${testid}-dropzone`} onFile={onFile}>
-        {file ? (
+      <FileDropzone testId={`${testid}-dropzone`} multiple={multiple} onFiles={onFiles}>
+        {!staged ? (
+          <>
+            Drop {setting.label.toLowerCase()} here{extensions}
+            {multiple ? ", several at once if you have them" : ""}
+          </>
+        ) : multiple ? (
           <span data-testid={`${testid}-staged`}>
-            <span className="text-fg">{file.name}</span>{" "}
-            <span className="text-fg-faint">({formatBytes(file.size)})</span> - drop another to
-            replace it
+            {files.length} {files.length === 1 ? "file" : "files"} staged - drop more to add them
           </span>
         ) : (
-          <>
-            Drop {setting.label.toLowerCase()} here
-            {setting.accept ? ` (${setting.accept.split(",").join(" ")})` : ""}
-          </>
+          <span data-testid={`${testid}-staged`}>
+            <span className="text-fg">{files[0].name}</span>{" "}
+            <span className="text-fg-faint">({formatBytes(files[0].size)})</span> - drop another to
+            replace it
+          </span>
         )}
       </FileDropzone>
+
+      {multiple && staged && (
+        <>
+          <ul className="mt-2 space-y-1 text-[12px]" data-testid={`${testid}-staged-list`}>
+            {files.map((file, index) => (
+              <li
+                key={file.name}
+                className="flex items-center gap-2"
+                data-testid={`${testid}-staged-file`}
+              >
+                {/* The position, because it is not decoration: a provider composing its files gives
+                    a re-declared path to the first one that declares it. */}
+                <span className="text-fg-faint">{index + 1}.</span>
+                <span className="text-fg min-w-0 truncate">{file.name}</span>
+                <span className="text-fg-faint">{formatBytes(file.size)}</span>
+                <button
+                  type="button"
+                  className="btn ml-auto"
+                  data-testid={`${testid}-remove-${index}`}
+                  onClick={() => onRemove(index)}
+                >
+                  remove
+                </button>
+              </li>
+            ))}
+          </ul>
+          {/* The TOTAL, because it is a refusal of its own: the runtime bounds one job's files
+              together as well as each file on its own. */}
+          <span className="text-fg-faint block text-[11px]" data-testid={`${testid}-total`}>
+            {files.length} {files.length === 1 ? "file" : "files"}, {formatBytes(totalBytes)} in
+            total
+          </span>
+        </>
+      )}
 
       <div className="mt-2 flex items-center gap-2">
         <button
@@ -637,11 +749,13 @@ function FileField(props: {
           data-testid={`${testid}-pick`}
           onClick={() => pickRef.current?.click()}
         >
-          {file ? "replace" : "pick a file"}
+          {multiple ? (staged ? "add files" : "pick files") : staged ? "replace" : "pick a file"}
         </button>
-        {file && (
+        {/* For a set, only once there is more than one to clear: with a single file the row's own
+            remove is already that button. */}
+        {(multiple ? files.length > 1 : staged) && (
           <button type="button" className="btn" data-testid={`${testid}-clear`} onClick={onClear}>
-            remove
+            {multiple ? "remove all" : "remove"}
           </button>
         )}
       </div>
@@ -650,15 +764,16 @@ function FileField(props: {
         ref={pickRef}
         type="file"
         className="hidden"
+        multiple={multiple}
         accept={setting.accept ?? undefined}
         aria-label={setting.label}
         data-testid={testid}
         onChange={(event) => {
-          const picked = event.target.files?.[0];
+          const picked = event.target.files ? Array.from(event.target.files) : [];
           // Cleared so that re-picking the same file fires a change again, which is what somebody
           // does after saving an edit to it.
           event.target.value = "";
-          if (picked) onFile(picked);
+          if (picked.length > 0) onFiles(picked);
         }}
       />
 
@@ -669,9 +784,17 @@ function FileField(props: {
       )}
 
       <span className="label-help">
-        {setting.help} It is read in your browser and travels with the run, so nothing is mounted and
+        {setting.help}{" "}
+        {multiple && (
+          <>
+            The set of files is the source, taken together, so a later run with fewer of them
+            withdraws whatever only the missing file described. Where two of them declare the same
+            thing, the one listed first wins.{" "}
+          </>
+        )}
+        What you stage is read in your browser and travels with the run, so nothing is mounted and
         nothing is stored: the runtime drops it when the run ends. This tab keeps it for a re-run
-        until you replace it, remove it, or pick another integration.
+        until you change it or pick another integration.
       </span>
     </div>
   );
@@ -686,19 +809,61 @@ function FileField(props: {
  * between "it is on step 3 of 7" and "it said something once". Two of these phases can run for a long
  * time while the graph shows no change at all (a large extract parsing, and summary embedding), and
  * those are exactly the ones that used to be indistinguishable from a hang.
+ *
+ * Those same two phases are why a stop is offered here and why it is rendered as PENDING rather than
+ * as taken: the run honours it at its next safe point, which for embedding is after the chunk already
+ * in the model. What a stopped run leaves behind is stated once on the runtime's own report.
  */
-function RunPanel({ run }: { run: IntegrationRunState }) {
+function RunPanel({
+  run,
+  instance,
+  onCancelAnswered,
+}: {
+  run: IntegrationRunState;
+  instance: InstanceConfig;
+  /** The 202's body, or null when the answer said nothing about the run (a 404, or a failed call). */
+  onCancelAnswered: (answered: IntegrationRunState | null) => void;
+}) {
   const done = new Set(run.completedPhases);
   const elapsed = formatElapsed(run.elapsedMilliseconds);
+  // Two-step in place, like the other destructive actions here, and the first step is deliberately
+  // not the request: a run costs hours and there is no way to resume one that was stopped.
+  const [armed, setArmed] = useState(false);
+  const stopping = run.running && run.cancelRequested === true;
+
+  const cancel = useMutation({
+    mutationFn: () => cancelIntegrationRun(instance, run.integrationInstanceId),
+    onSuccess: (answered) => {
+      setArmed(false);
+      onCancelAnswered(answered);
+    },
+    onError: () => {
+      // Refreshed on failure too, because the interesting failure is the 404: the run ended between
+      // the last poll and the click, so it is this panel's view that is stale rather than anything
+      // being wrong.
+      setArmed(false);
+      onCancelAnswered(null);
+    },
+  });
+  const alreadyEnded = cancel.error instanceof ApiError && cancel.error.status === 404;
 
   return (
     <section className="panel" data-testid="run-panel">
       <div className="panel-title">
-        run — {run.running ? "in flight" : "finished"}
+        run - {run.running ? "in flight" : run.cancelled ? "cancelled" : "finished"}
         <span className="text-fg-faint normal-case" data-testid="run-elapsed">
           {run.integrationInstanceId} · {elapsed}
         </span>
       </div>
+      {/* Shown for a finished resumed run as well as one still going: its report's counts cover
+          only the part after the pickup, so without this line a run that matched everything reads
+          as one that did almost nothing. */}
+      {run.resumed && (
+        <p className="text-fg-dim px-3 pb-2 text-[11px]" data-testid="run-resumed">
+          Picked up after a restart of the integrations runtime, continuing where it stopped. It is
+          the same run, so the elapsed time above includes the outage.
+        </p>
+      )}
       <ul className="space-y-1 px-3 pb-3 text-[12px]">
         {RUN_PHASES.map((phase) => {
           const isCurrent = run.phase === phase;
@@ -736,6 +901,77 @@ function RunPanel({ run }: { run: IntegrationRunState }) {
           does not stop it. Come back to this screen and it re-attaches.
         </p>
       )}
+      {run.running && (
+        <div className="space-y-1 px-3 pb-3">
+          <div className="flex items-center gap-2">
+            {armed && !stopping ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  data-testid="integration-run-cancel-confirm"
+                  disabled={cancel.isPending}
+                  onClick={() => cancel.mutate()}
+                >
+                  {cancel.isPending ? "asking..." : "yes, stop it"}
+                </button>
+                <button
+                  type="button"
+                  className="btn"
+                  data-testid="integration-run-cancel-keep"
+                  onClick={() => setArmed(false)}
+                >
+                  keep it running
+                </button>
+                <span className="text-fg-faint text-[11px]">
+                  It keeps everything it has already written.
+                </span>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-danger"
+                data-testid="integration-run-cancel"
+                disabled={stopping || cancel.isPending}
+                onClick={() => setArmed(true)}
+              >
+                {stopping ? "cancelling..." : "stop this run"}
+              </button>
+            )}
+          </div>
+          {stopping && (
+            <p className="text-warn text-[11px]" data-testid="run-cancelling">
+              Asked to stop, waiting for the run's next safe point. In embed-summaries that is after
+              the chunk of 16 already in the model, which on CPU inference is a wait and not an
+              instant.
+            </p>
+          )}
+        </div>
+      )}
+      {!run.running && run.cancelled && (
+        <p className="text-fg-dim px-3 pb-3 text-[11px]" data-testid="run-cancelled">
+          Stopped on request{run.stoppedInPhase ? ` in ${run.stoppedInPhase}` : ""}. Nothing was
+          withdrawn or deleted: it kept what it had written and deliberately did not reconcile, so
+          the next completed run under this identity converges the graph.
+        </p>
+      )}
+      {!run.running && !run.cancelled && run.cancelRequested && (
+        <p className="text-fg-faint px-3 pb-3 text-[11px]" data-testid="run-cancel-too-late">
+          The run completed. The stop arrived after its last safe point, so it finished normally and
+          this is not a cancelled run.
+        </p>
+      )}
+      {cancel.isError &&
+        (alreadyEnded ? (
+          <p className="text-fg-dim px-3 pb-3 text-[11px]" data-testid="run-cancel-already-ended">
+            That run had already ended, so there was nothing to stop. A finished run is deliberately
+            not cancellable, and what this one ended as is above.
+          </p>
+        ) : (
+          <div className="px-3 pb-3" data-testid="run-cancel-error">
+            <ErrorBox error={cancel.error} />
+          </div>
+        ))}
       {run.error && (
         <p className="text-warn px-3 pb-3 text-[11px]" data-testid="run-error">
           The run ended without producing a report: {run.error}
@@ -773,6 +1009,15 @@ function ReportPanel({
           <p className="text-warn text-[12px]" data-testid="integration-report-error">
             failed ({report.errorKind}): {report.error}. Nothing was withdrawn, so the next run starts
             from the same graph.
+          </p>
+        )}
+        {/* Without this a cancelled report reads exactly like a successful one: it carries no
+            errorKind, because being stopped is not a failure. What it means for the graph is on the
+            run panel above; this says only that the counts are partial. */}
+        {report.cancelled && (
+          <p className="text-fg-dim text-[12px]" data-testid="integration-report-cancelled">
+            cancelled: the counts below are what really landed before the run stopped, not a failure
+            and not a whole import.
           </p>
         )}
         <div className="grid grid-cols-2 gap-2 text-[12px] sm:grid-cols-4">
@@ -939,13 +1184,13 @@ function inputType(kind: SettingKind): string {
 function missingRequired(
   provider: IntegrationProvider,
   values: Record<string, string>,
-  files: Record<string, StagedFile>,
+  files: Record<string, StagedFile[]>,
 ): string[] {
   return provider.settings
     .filter((setting) =>
       setting.required &&
       (setting.kind === "File"
-        ? !files[setting.key]
+        ? (files[setting.key]?.length ?? 0) === 0
         : !(values[setting.key] ?? "").trim()),
     )
     .map((setting) => setting.label);
@@ -978,21 +1223,29 @@ function buildJob(
   namespace: string,
   instanceId: string,
   values: Record<string, string>,
-  staged: Record<string, StagedFile>,
+  staged: Record<string, StagedFile[]>,
   embedSummaries: boolean,
   embeddingName: string,
 ): IntegrationJobRequest {
   const settings: Record<string, string> = {};
   const credentialValues: Record<string, string> = {};
-  const files: Record<string, { name: string; contentBase64: string }> = {};
+  const files: Record<string, IntegrationJobFile | IntegrationJobFile[]> = {};
 
   for (const setting of provider.settings) {
     if (setting.kind === "File") {
-      const file = staged[setting.key];
-      if (file) {
-        // NOT trimmed, and not decoded to text on the way: the bytes are what the provider parses,
-        // and the file's own name is what its messages will call it.
-        files[setting.key] = { name: file.name, contentBase64: base64Of(file.bytes) };
+      // NOT trimmed, and not decoded to text on the way: the bytes are what the provider parses,
+      // and the file's own name is what its messages will call it. The staged order is kept, because
+      // a provider composing its files reads it as precedence.
+      const carried = (staged[setting.key] ?? []).map((file) => ({
+        name: file.name,
+        contentBase64: base64Of(file.bytes),
+      }));
+
+      if (carried.length > 0) {
+        // The SHAPE comes from the descriptor and never from the count: the runtime refuses a list
+        // for a setting that takes one file, so a set of one still travels as the bare object unless
+        // the setting was declared multiple.
+        files[setting.key] = setting.multiple === true ? carried : carried[0];
       }
 
       continue;

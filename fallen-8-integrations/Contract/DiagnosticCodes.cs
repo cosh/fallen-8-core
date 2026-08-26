@@ -247,10 +247,19 @@ namespace NoSQL.GraphDB.Integrations.Contract
         public const String ArxmlUnresolvedReference = "arxmlUnresolvedReference";
 
         /// <summary>
-        ///   <c>autosar-arxml</c>: two elements compose one AUTOSAR reference path. The first was kept,
-        ///   because keeping both would make which one wins depend on the order the file is written in.
+        ///   <c>autosar-arxml</c>: two elements OF ONE FILE compose one AUTOSAR reference path. The first was
+        ///   kept, because keeping both would make which one wins depend on the order the file is written in.
         /// </summary>
         public const String ArxmlDuplicatePath = "arxmlDuplicatePath";
+
+        /// <summary>
+        ///   <c>autosar-arxml</c>: one file of a set re-declared paths an earlier file already declared, with
+        ///   the earlier file keeping them. Counted per FILE rather than listed per path, and a separate code
+        ///   from <see cref="ArxmlDuplicatePath"/>, because it is the ordinary shape of a multi-extract job
+        ///   (every extract of a system repeats the standard's shared packages) and hundreds of per-path
+        ///   entries would bury the diagnostics that mean something.
+        /// </summary>
+        public const String ArxmlRedeclaredPaths = "arxmlRedeclaredPaths";
 
         /// <summary>
         ///   <c>autosar-arxml</c>: a port exists but declares no direction the reader understands, so the

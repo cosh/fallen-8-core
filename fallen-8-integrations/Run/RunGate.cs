@@ -34,6 +34,10 @@ namespace NoSQL.GraphDB.Integrations.Run
     ///   <para>Two concurrent runs under one identity both resolve against the graph as it was before either
     ///   wrote, so both create the elements the other is creating: the duplicate-everything failure, with no
     ///   index ever going missing. It REFUSES rather than queueing because the caller is waiting on this call.</para>
+    ///
+    ///   <para>A refusal is no longer a dead end: the run it points at can be CANCELLED, so the message names
+    ///   that route. Before cancellation existed, an identity whose run had hours of embedding left could not
+    ///   be run again at all except by restarting the container.</para>
     /// </summary>
     public sealed class RunGate
     {
@@ -59,7 +63,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                     throw new JobRejectedException(JobErrorKinds.Conflict, String.Format(
                         "A job is already running as '{0}'. Two concurrent runs under one identity both resolve " +
                         "against the graph as it was before either wrote, so both create the elements the other " +
-                        "is creating.", instanceId));
+                        "is creating. Cancel the run in flight to start another: POST " +
+                        "/integrations/run/{0}/cancel.", instanceId));
                 }
             }
 

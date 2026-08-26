@@ -54,9 +54,11 @@ Each feature has a deep-dive doc — follow the link.
 - **[Bulk import/export](https://docs.fallen-8.com/bulk-import-export/)** — stream whole graphs as newline-delimited
   JSON that round-trips exactly.
 - **[Integrations](https://docs.fallen-8.com/integrations/)**: a sidecar that reads a system on
-  your own network (a CSV inventory, a UniFi console, a Fronius inverter, an AUTOSAR vehicle-network
-  extract) and writes what it saw into a namespace, with a run you can watch, exact-match identity,
-  and credentials **and uploaded files** that are held for one run and never stored.
+  your own network (a CSV inventory, a UniFi console, a Fronius inverter, a set of AUTOSAR
+  vehicle-network extracts) and writes what it saw into a namespace, with exact-match identity and
+  credentials **and uploaded files** that are held for one run and never stored. A run can be
+  **watched**, **stopped** at a safe point without withdrawing anything, and **picked up where it
+  stopped** after a restart of the runtime.
 - **[Live change feed](https://docs.fallen-8.com/change-feed/)** — committed mutations as Server-Sent Events, in
   commit order, with in-band resync.
 - **[Save games](https://docs.fallen-8.com/save-games/)** — checkpoints tracked by a registry that drives startup,

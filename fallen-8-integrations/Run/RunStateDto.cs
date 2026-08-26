@@ -77,6 +77,27 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// </summary>
         public Boolean EmbedRequested { get; set; }
 
+        /// <summary>
+        ///   Whether a stop has been ASKED FOR. It stays true after the run ends, which is what separates
+        ///   the two outcomes a request can have: with <see cref="Cancelled" /> the run stopped because of
+        ///   it, without it the run had already passed its last safe point and finished normally.
+        /// </summary>
+        public Boolean CancelRequested { get; set; }
+
+        /// <summary>
+        ///   Whether the run ENDED because it was cancelled. A third terminal state beside succeeded and
+        ///   failed, and not a kind of failure: nothing is wrong, the counts on the report are what really
+        ///   landed, and the run deliberately did not reconcile.
+        /// </summary>
+        public Boolean Cancelled { get; set; }
+
+        /// <summary>
+        ///   Whether this run was PICKED UP after a restart rather than started here. The same run under the
+        ///   same id: its elapsed time counts from when it originally began, outage included, because that
+        ///   is what actually elapsed. Its counts cover the portion after the resume, which its report says.
+        /// </summary>
+        public Boolean Resumed { get; set; }
+
         /// <summary>How far through the current phase, where it counts. Zero when it does not.</summary>
         public Int32 PhaseDone { get; set; }
 

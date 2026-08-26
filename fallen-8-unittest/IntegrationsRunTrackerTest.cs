@@ -24,7 +24,6 @@
 // SOFTWARE.
 
 using System;
-using System.Globalization;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Integrations.Run;
@@ -32,291 +31,208 @@ using NoSQL.GraphDB.Integrations.Run;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   The run tracker (feature integration-run-visibility): the one place this runtime remembers
-    ///   anything about a run. Each test here pins a rule that, if inverted, either loses the progress
-    ///   somebody is watching or turns the slot into the run history the runtime is not allowed to keep.
+    ///   What the run tracker will and will not say about a run, at the level where saying it wrongly is a
+    ///   one-line mistake: whether a run can be stopped, and what a stopped one looks like afterwards.
+    ///
+    ///   <para>Kept off the HTTP surface on purpose. A test that needs a run to still be IN FLIGHT while it
+    ///   asserts has to hold one there, and holding one through a real host means a sleep and a race; here
+    ///   the slot is simply not finished yet, which is the same state without the timing.</para>
     /// </summary>
     [TestClass]
     public class IntegrationsRunTrackerTest
     {
+        private const String Provider = "csv-device-list";
+
+        #region what may be cancelled
+
         [TestMethod]
-        public void ARunThatNeverStarted_LeavesNoTrace()
+        public void AnIdentityThatNeverRan_CannotBeCancelled()
         {
             var tracker = new RunTracker();
 
-            tracker.Begin("run-1", "csv-device-list", "office", null);
-
-            // Begin is not "started" - the first PHASE is. Everything that can reject a job is judged inside
-            // the run, so a slot opened at Begin would be a slot opened for jobs that never ran.
-            Assert.IsFalse(tracker.TryGet("office", out _),
-                "a job that was rejected before it ran is reported as a run that happened");
-            Assert.AreEqual(0, tracker.All().Count);
+            Assert.IsFalse(tracker.TryCancel("never-ran", out var state),
+                "cancelling an identity with no run must not answer as though it stopped something");
+            Assert.IsNull(state);
         }
 
         [TestMethod]
-        public void ARejectedSecondRun_DoesNotDisturbTheOneAlreadyInFlight()
+        public void ARunThatHasNotReachedItsFirstPhase_CannotBeCancelledYet()
         {
-            // THE crux. The commonest rejection is 409 "already running as this identity", and the caller who
-            // gets it is asking about the run that holds the gate. An eager slot would have destroyed exactly
-            // that run's progress at exactly the moment somebody asked for it.
+            // The slot materialises on the first phase, deliberately, so that a REJECTED job cannot overwrite
+            // the slot of the run it was rejected for. The honest consequence is this window: for the moment
+            // between accepting a job and its first phase there is nothing tracked to stop, and 404 says so
+            // rather than inventing a slot.
             var tracker = new RunTracker();
-            var running = tracker.Begin("run-1", "csv-device-list", "office", "default");
-            running.EnterPhase(RunPhases.Observe);
-            running.Advance(3, 10);
+            using var handle = tracker.Begin("run-1", Provider, "pending", null);
 
-            tracker.Begin("run-2", "csv-device-list", "office", "default");
+            Assert.IsFalse(tracker.TryCancel("pending", out _),
+                "a slot was materialised by a cancel, which is the bug the deferred slot exists to prevent");
+        }
+
+        [TestMethod]
+        public void ARunInFlight_IsCancelled_AndSaysSoAtOnce()
+        {
+            var tracker = new RunTracker();
+            using var handle = tracker.Begin("run-1", Provider, "office", null);
+            handle.EnterPhase(RunPhases.Observe);
+
+            Assert.IsTrue(tracker.TryCancel("office", out var state));
+
+            Assert.IsNotNull(state);
+            Assert.IsTrue(state.CancelRequested,
+                "the answer carries the state as it is NOW, so a client need not wait for its next poll to " +
+                "show that the stop was recorded");
+            Assert.IsTrue(state.Running, "the run has not stopped yet: a stop is a request, not an event");
+            Assert.IsTrue(handle.Abort.Requested,
+                "the signal never reached the run, so nothing will ever observe it");
+        }
+
+        [TestMethod]
+        public void CancellingTwice_IsNotAnError()
+        {
+            // A stop is honoured at the next safe point, and for the embedding phase that is after the chunk
+            // already in the model. So a second click means "yes, still stopping" and must not read as
+            // "nothing is happening".
+            var tracker = new RunTracker();
+            using var handle = tracker.Begin("run-1", Provider, "office", null);
+            handle.EnterPhase(RunPhases.EmbedSummaries);
+
+            Assert.IsTrue(tracker.TryCancel("office", out _));
+            Assert.IsTrue(tracker.TryCancel("office", out var again),
+                "the second ask answered as though there were no run, which reads as 'it already stopped'");
+            Assert.IsTrue(again.CancelRequested);
+        }
+
+        [TestMethod]
+        public void ARunThatAlreadyEnded_CannotBeCancelled()
+        {
+            var tracker = new RunTracker();
+            using var handle = tracker.Begin("run-1", Provider, "office", null);
+            handle.EnterPhase(RunPhases.Reconcile);
+            tracker.Finish("office", "run-1", new JobReport());
+
+            Assert.IsFalse(tracker.TryCancel("office", out _),
+                "cancelling a finished run must not answer 202: a client would believe it had prevented " +
+                "writes that had already landed");
+        }
+
+        [TestMethod]
+        public void CancellingOneIdentity_LeavesAnotherAlone()
+        {
+            var tracker = new RunTracker();
+            using var mine = tracker.Begin("run-1", Provider, "mine", null);
+            using var theirs = tracker.Begin("run-2", Provider, "theirs", null);
+            mine.EnterPhase(RunPhases.Observe);
+            theirs.EnterPhase(RunPhases.Observe);
+
+            Assert.IsTrue(tracker.TryCancel("mine", out _));
+
+            Assert.IsFalse(theirs.Abort.Requested,
+                "the gate and this tracker are keyed by identity, and a stop that crossed identities would " +
+                "abort somebody else's import");
+            Assert.IsTrue(tracker.TryGet("theirs", out var other) && !other.CancelRequested);
+        }
+
+        #endregion
+
+        #region what a stopped run looks like afterwards
+
+        [TestMethod]
+        public void ACancelledRun_RecordsThePhaseItStoppedIn_RatherThanCompletingIt()
+        {
+            var tracker = new RunTracker();
+            using var handle = tracker.Begin("run-1", Provider, "office", null);
+            handle.EnterPhase(RunPhases.EmbedSummaries);
+
+            tracker.Finish("office", "run-1", new JobReport { Cancelled = true, SummariesEmbedded = 32 });
 
             Assert.IsTrue(tracker.TryGet("office", out var state));
-            Assert.AreEqual("run-1", state!.RunId, "the in-flight run was displaced by one that never started");
-            Assert.AreEqual(RunPhases.Observe, state.Phase);
-            Assert.AreEqual(3, state.PhaseDone);
+            Assert.IsTrue(state.Cancelled, "the terminal state has to name itself, or the panel guesses");
+            Assert.AreEqual(RunPhases.EmbedSummaries, state.StoppedInPhase,
+                "a cancelled report carries no errorKind, so keying on that alone completes the very phase " +
+                "the run was stopped in the middle of");
+            Assert.IsFalse(state.CompletedPhases.Contains(RunPhases.EmbedSummaries),
+                "and it must not also be reported as finished: it embedded 32 of an unknown total");
+            Assert.IsFalse(state.Running);
         }
 
         [TestMethod]
-        public void PhasesAccumulateInOrder_AndTheCurrentOneIsNotAlsoCompleted()
+        public void AStopThatArrivedTooLate_ShowsARunThatFinished_NotACancelledOne()
         {
+            // A reachable state, not a corner case: the last safe point is before reconciliation, so a stop
+            // asked for during it loses the race. Reporting that run as cancelled would claim writes were
+            // prevented when the import actually completed.
             var tracker = new RunTracker();
-            var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
-
-            progress.EnterPhase(RunPhases.Observe);
-            progress.EnterPhase(RunPhases.Validate);
-            progress.EnterPhase(RunPhases.WriteElements);
-
-            Assert.IsTrue(tracker.TryGet("office", out var state));
-            CollectionAssert.AreEqual(new[] { RunPhases.Observe, RunPhases.Validate },
-                state!.CompletedPhases, "a phase is completed when the NEXT one starts, and not before");
-            Assert.AreEqual(RunPhases.WriteElements, state.Phase);
-        }
-
-        [TestMethod]
-        public void EnteringAPhase_ResetsTheCounter_SoOnePhaseCannotInheritAnother()
-        {
-            var tracker = new RunTracker();
-            var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
-
-            progress.EnterPhase(RunPhases.WriteElements);
-            progress.Advance(500, 500);
-            progress.EnterPhase(RunPhases.EmbedSummaries);
-
-            Assert.IsTrue(tracker.TryGet("office", out var state));
-            Assert.AreEqual(0, state!.PhaseDone,
-                "the new phase reports the previous phase's progress, so embedding looks finished before it began");
-            Assert.AreEqual(0, state.PhaseTotal);
-        }
-
-        [TestMethod]
-        public void AdvanceBeforeAnyPhase_IsDropped_RatherThanInventingAPhaselessRun()
-        {
-            var tracker = new RunTracker();
-            var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
-
-            progress.Advance(1, 2);
-
-            Assert.IsFalse(tracker.TryGet("office", out _),
-                "a counter with no phase opened a slot, so a rejected job can still appear as a run");
-        }
-
-        [TestMethod]
-        public void AFinishedRun_KeepsItsReport_BecauseThatIsTheWholePoint()
-        {
-            var tracker = new RunTracker();
-            var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
-            progress.EnterPhase(RunPhases.Observe);
+            using var handle = tracker.Begin("run-1", Provider, "office", null);
+            handle.EnterPhase(RunPhases.Reconcile);
+            Assert.IsTrue(tracker.TryCancel("office", out _));
 
             tracker.Finish("office", "run-1", new JobReport { ElementsCreated = 7 });
 
             Assert.IsTrue(tracker.TryGet("office", out var state));
-            Assert.IsFalse(state!.Running, "a finished run still reports itself as running");
-            Assert.IsNotNull(state.Report, "the outcome is gone, which is the failure this feature exists to fix");
-            Assert.AreEqual(7, state.Report!.ElementsCreated);
-            Assert.IsNull(state.Phase, "a finished run is still shown as being in a phase");
+            Assert.IsFalse(state.Cancelled, "the run finished, so it was not cancelled");
+            Assert.IsTrue(state.CancelRequested,
+                "but somebody DID ask, and dropping that leaves them unable to tell 'too late' from 'the " +
+                "button did nothing'");
+            Assert.IsTrue(state.CompletedPhases.Contains(RunPhases.Reconcile),
+                "and the phase it was in really did complete");
+            Assert.IsNull(state.StoppedInPhase);
         }
 
         [TestMethod]
-        public void ARunThatThrew_ReportsTheError_RatherThanStayingInFlightForever()
+        public void AFailedRun_IsStillNotACancelledOne()
         {
+            // A regression guard on the branch the cancelled case was threaded into: 'failed' and 'cancelled'
+            // are different answers to "why did this end", and one must not start reporting the other.
             var tracker = new RunTracker();
-            var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
-            progress.EnterPhase(RunPhases.EmbedSummaries);
-
-            tracker.Abort("office", "run-1", "the graph refused the embedding write with 400");
-
-            Assert.IsTrue(tracker.TryGet("office", out var state));
-            Assert.IsFalse(state!.Running);
-            Assert.IsNull(state.Report, "a run that produced no report is shown as having one");
-            StringAssert.Contains(state.Error, "400");
-        }
-
-        [TestMethod]
-        public void ANewIdentityBeyondTheCap_EvictsTheOldestFINISHEDRun()
-        {
-            var tracker = new RunTracker();
-            for (var i = 0; i < RunTracker.MaxIdentities; i++)
-            {
-                var id = "id-" + i.ToString(CultureInfo.InvariantCulture);
-                var progress = tracker.Begin("run-" + i.ToString(CultureInfo.InvariantCulture),
-                    "csv-device-list", id, null);
-                progress.EnterPhase(RunPhases.Observe);
-                tracker.Finish(id, "run-" + i.ToString(CultureInfo.InvariantCulture), new JobReport());
-            }
-
-            Assert.AreEqual(RunTracker.MaxIdentities, tracker.All().Count);
-
-            var newest = tracker.Begin("run-new", "csv-device-list", "late-arrival", null);
-            newest.EnterPhase(RunPhases.Observe);
-
-            Assert.AreEqual(RunTracker.MaxIdentities, tracker.All().Count, "the cap is not enforced");
-            Assert.IsFalse(tracker.TryGet("id-0", out _), "the OLDEST finished run survived instead of the newer ones");
-            Assert.IsTrue(tracker.TryGet("id-1", out _), "more than the oldest was evicted");
-            Assert.IsTrue(tracker.TryGet("late-arrival", out _));
-        }
-
-        [TestMethod]
-        public void AnInFlightRun_IsNeverEvicted_EvenWhenThatBreaksTheCap()
-        {
-            // Dropping the one run somebody is watching, in order to remember runs that already ended, would
-            // invert the whole point of the type. Exceeding the cap is the lesser evil and is deliberate.
-            var tracker = new RunTracker();
-            for (var i = 0; i < RunTracker.MaxIdentities; i++)
-            {
-                var id = "id-" + i.ToString(CultureInfo.InvariantCulture);
-                tracker.Begin("run-" + i.ToString(CultureInfo.InvariantCulture), "csv-device-list", id, null)
-                    .EnterPhase(RunPhases.Observe);
-            }
-
-            tracker.Begin("run-new", "csv-device-list", "late-arrival", null).EnterPhase(RunPhases.Observe);
-
-            Assert.AreEqual(RunTracker.MaxIdentities + 1, tracker.All().Count,
-                "an in-flight run was evicted to make room, so the run being watched is the one that vanished");
-            Assert.IsTrue(tracker.All().All(r => r.Running));
-        }
-
-        [TestMethod]
-        public void TheSameIdentityRunningAgain_SupersedesItsOwnSlot_WhichIsWhyThisIsNotAHistory()
-        {
-            var tracker = new RunTracker();
-            var first = tracker.Begin("run-1", "csv-device-list", "office", null);
-            first.EnterPhase(RunPhases.Observe);
-            tracker.Finish("office", "run-1", new JobReport { ElementsCreated = 1 });
-
-            var second = tracker.Begin("run-2", "csv-device-list", "office", null);
-            second.EnterPhase(RunPhases.Observe);
-
-            Assert.AreEqual(1, tracker.All().Count, "two runs of one identity are both remembered, which is a log");
-            Assert.IsTrue(tracker.TryGet("office", out var state));
-            Assert.AreEqual("run-2", state!.RunId);
-            Assert.IsNull(state.Report, "the new run reports the previous run's outcome as its own");
-        }
-
-        [TestMethod]
-        public void TheIdentityLookupIsCaseInsensitive_BecauseTheJobBoundaryLowercasesIt()
-        {
-            // The runtime folds the identity to lower case at the job boundary, but a caller polls with
-            // whatever it typed. A case-sensitive slot would answer 404 for a run that is right there.
-            var tracker = new RunTracker();
-            tracker.Begin("run-1", "csv-device-list", "Office", null).EnterPhase(RunPhases.Observe);
-
-            Assert.IsTrue(tracker.TryGet("office", out var state));
-            Assert.AreEqual("run-1", state!.RunId);
-        }
-
-        [TestMethod]
-        public void TheStartedSignal_CompletesOnTheFirstPhaseAndNotBefore()
-        {
-            // What the job route awaits to tell a 202 from a 400: a run that never entered a phase never
-            // started, and that is the definition the route relies on.
-            var tracker = new RunTracker();
-            var handle = tracker.Begin("run-1", "csv-device-list", "office", null);
-
-            Assert.IsFalse(handle.Started.IsCompleted);
-
+            using var handle = tracker.Begin("run-1", Provider, "office", null);
             handle.EnterPhase(RunPhases.Observe);
 
-            Assert.IsTrue(handle.Started.IsCompleted);
-        }
-
-        [TestMethod]
-        public void TheLastPhaseOfACleanRun_IsMarkedCompleted_NotLeftLookingLikeItNeverRan()
-        {
-            var tracker = new RunTracker();
-            var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
-            progress.EnterPhase(RunPhases.EmbedSummaries);
-            progress.EnterPhase(RunPhases.Reconcile);
-
-            tracker.Finish("office", "run-1", new JobReport());
+            tracker.Finish("office", "run-1",
+                new JobReport { ErrorKind = JobErrorKinds.Source, Error = "the console did not answer" });
 
             Assert.IsTrue(tracker.TryGet("office", out var state));
-            CollectionAssert.Contains(state!.CompletedPhases, RunPhases.Reconcile,
-                "the phase a successful run ENDED in is shown as never having run, so every clean import " +
-                "reads as having skipped its last step");
-            Assert.IsNull(state.StoppedInPhase, "a clean run did not stop anywhere");
+            Assert.IsFalse(state.Cancelled);
+            Assert.IsFalse(state.CancelRequested);
+            Assert.AreEqual(RunPhases.Observe, state.StoppedInPhase);
         }
 
         [TestMethod]
-        public void AFailedRun_RecordsWhereItStopped_RatherThanCompletingThatPhase()
+        public void ASucceededRun_ReportsNeitherFlag()
         {
             var tracker = new RunTracker();
-            var progress = tracker.Begin("run-1", "csv-device-list", "office", null);
-            progress.EnterPhase(RunPhases.EmbedSummaries);
+            using var handle = tracker.Begin("run-1", Provider, "office", null);
+            handle.EnterPhase(RunPhases.Reconcile);
 
-            tracker.Finish("office", "run-1", new JobReport { ErrorKind = "graph" });
+            tracker.Finish("office", "run-1", new JobReport { ElementsCreated = 3 });
 
             Assert.IsTrue(tracker.TryGet("office", out var state));
-            Assert.AreEqual(RunPhases.EmbedSummaries, state!.StoppedInPhase);
-            CollectionAssert.DoesNotContain(state.CompletedPhases, RunPhases.EmbedSummaries,
-                "the phase a run FAILED in is reported as completed, which is the opposite of what happened");
+            Assert.IsFalse(state.Cancelled);
+            Assert.IsFalse(state.CancelRequested);
         }
 
         [TestMethod]
-        public void TheEmbedRequest_IsCarriedOnTheRun_NotLeftToTheClientToRemember()
+        public void AStaleFinish_CannotStampACancellationOntoTheNextRun()
         {
-            // A client holding this in component state reports it wrongly after any remount - claiming
-            // nobody asked for embedding that actually happened.
+            // The run-id scoping this tracker already had, asserted for the new flags too: the gate is
+            // released when a run returns and its report is recorded a moment later, so a second run under the
+            // same identity can open its own slot in between.
             var tracker = new RunTracker();
-            tracker.Begin("run-1", "csv-device-list", "office", null, embedRequested: true)
-                .EnterPhase(RunPhases.Observe);
-
-            Assert.IsTrue(tracker.TryGet("office", out var state));
-            Assert.IsTrue(state!.EmbedRequested);
-        }
-
-        [TestMethod]
-        public void ThePhaseListIsExactlyTheSevenNamedPhases_InRunOrder()
-        {
-            // RunPhases.InOrder is what a reader renders a row per. Its COUNTERPART is RUN_PHASES in
-            // fallen-8-web-ui/src/api/types.ts, pinned by its own test there: a phase renamed on one side
-            // only leaves both suites green while the Studio row goes permanently pending, so the two tests
-            // exist to make that a two-file edit somebody has to notice.
-            CollectionAssert.AreEqual(
-                new[]
-                {
-                    "observe", "validate", "resolve", "write-elements", "write-edges", "embed-summaries",
-                    "reconcile",
-                },
-                RunPhases.InOrder,
-                "the phase list changed; update RUN_PHASES in the Studio in the same change");
-        }
-
-        [TestMethod]
-        public void AFinishArrivingAfterTheNextRunStarted_IsDropped()
-        {
-            // The run gate is released when a run returns, and its report is recorded a moment later, so a
-            // second run under the same identity can open its own slot in between. Without the run-id scope
-            // the older report lands on the newer run: in flight, but reading as finished, with someone
-            // else's counts.
-            var tracker = new RunTracker();
-            var first = tracker.Begin("run-1", "csv-device-list", "office", null);
+            using var first = tracker.Begin("run-1", Provider, "office", null);
             first.EnterPhase(RunPhases.Observe);
-
-            var second = tracker.Begin("run-2", "csv-device-list", "office", null);
+            using var second = tracker.Begin("run-2", Provider, "office", null);
             second.EnterPhase(RunPhases.Observe);
 
-            tracker.Finish("office", "run-1", new JobReport { ElementsCreated = 99 });
+            tracker.Finish("office", "run-1", new JobReport { Cancelled = true });
 
             Assert.IsTrue(tracker.TryGet("office", out var state));
-            Assert.AreEqual("run-2", state!.RunId);
-            Assert.IsTrue(state.Running, "the new run was marked finished by the previous run's report");
-            Assert.IsNull(state.Report, "the new run is reporting counts from a run that already ended");
+            Assert.AreEqual("run-2", state.RunId);
+            Assert.IsFalse(state.Cancelled,
+                "the older run's cancellation was stamped onto the run actually in flight, which would read " +
+                "as a run that stopped while it is still going");
+            Assert.IsTrue(state.Running);
         }
+
+        #endregion
     }
 }

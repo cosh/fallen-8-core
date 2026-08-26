@@ -317,7 +317,7 @@ export function KnowledgeScreen() {
         <FileDropzone
           className="m-3"
           disabled={!bound}
-          onFile={(file) => uploadFile.mutate(file)}
+          onFiles={(files) => uploadFile.mutate(files[0])}
         >
           Drop a file here to ingest it ({acceptedFormats.map((f) => `.${f}`).join(" ")})
         </FileDropzone>

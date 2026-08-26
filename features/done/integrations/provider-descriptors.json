@@ -11,7 +11,8 @@
         "required": true,
         "help": "The file itself, such as devices.csv, sent with the job. It travels with the run and is dropped when the run ends: nothing is mounted, nothing is stored, and this provider never sees a path.",
         "defaultValue": null,
-        "accept": ".csv,.tsv,.txt"
+        "accept": ".csv,.tsv,.txt",
+        "multiple": false
       },
       {
         "key": "delimiter",
@@ -20,7 +21,8 @@
         "required": false,
         "help": "What separates the columns: one of the words tab, semicolon, pipe or comma, or a single literal character. The words exist because a literal tab does not survive a human editing a JSON field. Defaults to a comma.",
         "defaultValue": ",",
-        "accept": null
+        "accept": null,
+        "multiple": false
       },
       {
         "key": "label",
@@ -29,7 +31,8 @@
         "required": false,
         "help": "What to call the rows this file describes, for a list that is not devices (say 'printer'). It RENAMES what the run produces and never selects which rows are read, which is why a setting is allowed here: it cannot change what a complete snapshot covers. Defaults to device.",
         "defaultValue": "device",
-        "accept": null
+        "accept": null,
+        "multiple": false
       }
     ],
     "entityKinds": [
@@ -56,7 +59,8 @@
         "required": true,
         "help": "The FULL integration API base URL, not just the console's address. A local console is https://{consoleIP}/proxy/network/integration; the cloud connector is https://api.ui.com/v1/connector/consoles/{consoleId}/proxy/network/integration. A bare host is refused rather than repaired.",
         "defaultValue": null,
-        "accept": null
+        "accept": null,
+        "multiple": false
       },
       {
         "key": "apiKey",
@@ -65,7 +69,8 @@
         "required": true,
         "help": "The API key for the front door the base URL above names, and the two take DIFFERENT keys: a local console's key is created in the Network application under Settings and then Integrations, while an api.ui.com base URL is the cloud connector and takes a Site Manager key created at unifi.ui.com under Settings and then API Keys.",
         "defaultValue": null,
-        "accept": null
+        "accept": null,
+        "multiple": false
       }
     ],
     "entityKinds": [
@@ -101,7 +106,8 @@
         "required": true,
         "help": "The device's address on your own network, with its scheme: http://192.168.1.50. Nothing else is needed, and there is deliberately no credential: the local Solar API is unauthenticated HTTP. If the device answers 404, its Solar API is switched off - turn it on in the inverter's own web interface, under Communication and then Solar API.",
         "defaultValue": null,
-        "accept": null
+        "accept": null,
+        "multiple": false
       }
     ],
     "entityKinds": [
@@ -123,16 +129,17 @@
   {
     "id": "autosar-arxml",
     "displayName": "AUTOSAR system extract (ARXML)",
-    "description": "Reads an AUTOSAR classic-platform system extract (ARXML, schema r4.0) the job carries and describes the FlexRay communication matrix it holds: the network, its ECUs, frames, PDUs, signals, system signals and scaling methods, with the send and receive flow between them.",
+    "description": "Reads the AUTOSAR classic-platform system extracts (ARXML, schema r4.0) the job carries and describes the FlexRay communication matrix they hold: the network, its ECUs, frames, PDUs, signals, system signals and scaling methods, with the send and receive flow between them. Several extracts of one system are read as one source, so a frame in one of them can carry a signal defined in another.",
     "settings": [
       {
         "key": "file",
-        "label": "System extract",
+        "label": "System extracts",
         "kind": "File",
         "required": true,
-        "help": "The extract itself, such as network.arxml, sent with the job. It travels with the run and is dropped when the run ends: nothing is mounted, nothing is stored, and this provider never sees a path.",
+        "help": "One or more extracts of ONE system, such as chassis.arxml and body.arxml, sent with the job. They are read in the order given and resolved as one source, so a reference from one extract into another resolves exactly like a reference inside one file; where two of them declare the same AUTOSAR path, the earlier one wins. THE SET OF FILES IS THE SOURCE: this integration describes it completely, so a later run given fewer files withdraws - and then deletes - everything only the missing file described. They travel with the run and are dropped when it ends: nothing is mounted, nothing is stored, and this provider never sees a path.",
         "defaultValue": null,
-        "accept": ".arxml,.xml"
+        "accept": ".arxml,.xml",
+        "multiple": true
       }
     ],
     "entityKinds": [
