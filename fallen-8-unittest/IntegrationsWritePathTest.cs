@@ -29,12 +29,15 @@ using System.Globalization;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Integrations.Conformance;
+using NoSQL.GraphDB.Integrations.Configuration;
 using NoSQL.GraphDB.Integrations.Contract;
 using NoSQL.GraphDB.Integrations.Credentials;
 using NoSQL.GraphDB.Integrations.Diagnostics;
@@ -536,27 +539,123 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task AClientTimeoutOnTheEmbeddingWrite_IsAGraphFailure_NotACancellation()
+        public async Task AClientTimeoutOnTheEmbeddingWrite_DegradesToAbsent_AndIsNeverACancellation()
         {
             // HttpClient reports its OWN timeout as a TaskCanceledException, which IS an
             // OperationCanceledException. The embedding write caught HttpRequestException alone, so a sidecar or
             // proxy that timed out escaped this seam as a cancellation - indistinguishable one frame up from the
-            // caller walking away, and the two license opposite statements about what the run wrote. Every other
-            // route through this target already rewraps it.
+            // caller walking away, and the two license opposite statements about what the run wrote.
+            //
+            // It now DEGRADES instead of failing, and only here: an embedding is an addition to what landed, so
+            // pre-empting a model must not fail a run whose graph writes are already in. Every other call this
+            // target makes still fails on a timeout.
             using var client = new HttpClient(new TimingOutHandler())
             {
                 BaseAddress = new Uri("http://localhost/"),
             };
             using var target = new Fallen8RestTarget(client, "default");
 
-            var failure = await Assert.ThrowsExceptionAsync<GraphTargetException>(
-                () => target.EmbedSummariesAsync("default", new[] { new SummaryWrite(0, "device printer") },
-                    CancellationToken.None),
-                "a target that did not answer in time is this seam's own failure, and only the caller's token can " +
-                "make a cancellation the caller's");
+            var outcome = await target.EmbedSummariesAsync("default",
+                new[] { new SummaryWrite(0, "device printer") }, CancellationToken.None);
 
-            StringAssert.Contains(failure.Message, "embedding write",
-                "and the failure names which write did not come back: " + failure.Message);
+            Assert.AreEqual(0, outcome.Written, "nothing was embedded, and nothing pretends to have been");
+            Assert.IsNotNull(outcome.Degraded,
+                "a target that did not answer in time is an absent embedding rather than a failed run, and " +
+                "silence would make it look like a write that succeeded");
+            StringAssert.Contains(outcome.Degraded, "TimeoutSeconds",
+                "and the reason names the knob an operator would change, because the only other lever is the " +
+                "target's own embedding budget: " + outcome.Degraded);
+        }
+
+        [TestMethod]
+        public async Task AClientTimeoutOnAGraphWrite_IsStillAFailure_NotADegrade()
+        {
+            // The other half of the degrade decision, and the half that would rot silently: a vertex create
+            // that timed out may or may not have been applied, and carrying on as if it had not is how a run
+            // reports elements it never claimed. Only the embedding write may treat a deadline as an absence.
+            using var client = new HttpClient(new TimingOutHandler())
+            {
+                BaseAddress = new Uri("http://localhost/"),
+            };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var failure = await Assert.ThrowsExceptionAsync<GraphTargetTimeoutException>(
+                () => target.CreateVerticesAsync(
+                    new[] { new VertexWrite("device", Array.Empty<GraphProperty>()) }, CancellationToken.None),
+                "a write whose fate is unknown must fail the run, and it says which deadline expired rather " +
+                "than leaving the caller to read a message");
+
+            StringAssert.Contains(failure.Message, "vertices",
+                "and it names the call that did not come back: " + failure.Message);
+        }
+
+        [TestMethod]
+        public async Task AClientTimeoutMidChunk_DegradesWithTheCountThatLanded_AndStopsAsking()
+        {
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 3,
+                throwInstead: new TaskCanceledException(
+                    "The request was canceled due to the configured HttpClient.Timeout", new TimeoutException()));
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var outcome = await target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None);
+
+            Assert.AreEqual(32, outcome.Written,
+                "two chunks landed before the deadline fired, and this is the exact incident the chunking was " +
+                "built for: many chunks of a real extract landed and the report said zero");
+            Assert.IsNotNull(outcome.Degraded, "and the shortfall is named rather than silent");
+            Assert.AreEqual(3, handler.BatchSizes.Count,
+                "a deadline says the model is slower than this runtime waits, which the next chunk cannot " +
+                "improve on, so the loop stops for the reason 503 stops it");
+        }
+
+        [TestMethod]
+        public async Task ATransportFailureMidChunk_StillCarriesTheCountThatLanded()
+        {
+            // The failure the chunk count was introduced against, and the one path it did not reach: a
+            // connection dying mid extract threw from the send rather than from a status code, so the count
+            // stayed at its default zero and the report claimed nothing had been embedded.
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 3,
+                throwInstead: new HttpRequestException("the connection was reset"));
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            var failure = await Assert.ThrowsExceptionAsync<GraphTargetException>(
+                () => target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None),
+                "a graph that stopped answering is still a failed run: this is not the provider declining, it " +
+                "is the target being unreachable");
+
+            Assert.AreEqual(32, failure.SummariesWritten,
+                "the two chunks that landed put real vectors on real elements, and a report of zero sends the " +
+                "operator to a tabula rasa they do not need");
+        }
+
+        [TestMethod]
+        public async Task ACancellationTheCallerAskedFor_StaysACancellation_EvenOnTheEmbeddingWrite()
+        {
+            // The other side of the same coin: the token decides, never the exception type. A caller that
+            // walked away must not be answered with a degraded outcome, because a degradation is a statement
+            // that the run carried on and the embedding did not.
+            using var walkedAway = new CancellationTokenSource();
+            using var client = new HttpClient(new CallerCancellingHandler(walkedAway))
+            {
+                BaseAddress = new Uri("http://localhost/"),
+            };
+            using var target = new Fallen8RestTarget(client, "default");
+
+            try
+            {
+                await target.EmbedSummariesAsync("default", Summaries(40), walkedAway.Token);
+                Assert.Fail("the write answered a caller who had already asked for the run to stop");
+            }
+            catch (GraphTargetException graph)
+            {
+                Assert.Fail("a cancellation the caller requested became this seam's own failure: " + graph.Message);
+            }
+            catch (OperationCanceledException)
+            {
+                // The one right answer: the caller's cancellation belongs to the caller.
+            }
         }
 
         [TestMethod]
@@ -834,12 +933,136 @@ namespace NoSQL.GraphDB.Tests
                 "and the claim is keyed on the folded id, so the gate, the keys and reconciliation all agree");
         }
 
+        [TestMethod]
+        public async Task AFilesFactoryThatThrows_LeavesNoCredentialHeld()
+        {
+            var graph = new InMemoryGraphTarget();
+            using var harness = Harness(graph, new ThrowingFilesFactory());
+
+            var job = RunnerJob(Instance);
+            job.CredentialValues["apiKey"] = "s3cret-token";
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => harness.Runner.RunAsync(job, CancellationToken.None),
+                "the factory's failure is nobody's expected case, so it surfaces rather than being folded into " +
+                "a report");
+
+            Assert.IsTrue(harness.ActiveCredentials.IsEmpty,
+                "with no run in flight the held set is empty, and that is what makes redaction's own bookkeeping " +
+                "trustworthy: a leaked hold substitutes a value nothing is using into every line this process " +
+                "logs, for as long as it runs. Held: " +
+                String.Join(", ", harness.ActiveCredentials.Snapshot().Select(value => value.Length + " chars")));
+        }
+
+        #endregion
+
+        #region the phases a watcher sees
+
+        [TestMethod]
+        public async Task TheWriteEdgesPhase_IsEnteredWhileTheEdgesAreStillUnwritten()
+        {
+            // A phase entered AFTER its own work is a phase nobody can observe: a caller polling the run saw
+            // resolve, then write-elements, then a finished run - never write-edges, however long the edges
+            // took. The write-elements block carried that lesson in its own comment from the start and the
+            // edge block never got it, which is why the ordering is pinned here rather than trusted.
+            var journal = new List<String>();
+            var graph = new InMemoryGraphTarget();
+            using var target = new JournallingTarget(graph, journal);
+
+            var report = await ApplyAsync(target, TwoDevicesWithAnUplink(),
+                progress: new JournallingProgress(journal));
+
+            Assert.AreEqual(1, report.EdgesCreated,
+                "the fixture must wire an edge, or there is no work for a phase to be late for: " +
+                Describe(report));
+
+            var elementsPhase = journal.IndexOf("phase:write-elements");
+            var vertexWrite = journal.IndexOf("createVertices");
+            var edgesPhase = journal.IndexOf("phase:write-edges");
+            var edgeWrite = journal.IndexOf("createEdges");
+
+            Assert.IsTrue(elementsPhase >= 0 && vertexWrite > elementsPhase,
+                "the elements phase is entered before the elements are written: " + String.Join(" | ", journal));
+            Assert.IsTrue(edgesPhase >= 0,
+                "the run never named the write-edges phase at all: " + String.Join(" | ", journal));
+            Assert.IsTrue(edgeWrite > edgesPhase,
+                "the edges were written before the phase that describes them was entered, so a watcher can " +
+                "never see write-edges in flight: " + String.Join(" | ", journal));
+            Assert.AreEqual("advance:0/1", journal[edgesPhase + 1],
+                "and the counter opens at NONE done of the planned edges: entered afterwards it read 'all of " +
+                "them' before any of it had been issued: " + String.Join(" | ", journal));
+        }
+
+        #endregion
+
+        #region the deadline every call to the graph carries (Fallen8Target:TimeoutSeconds)
+
+        [TestMethod]
+        public void TheGraphClientsDeadline_SitsAboveTheTargetsOwnEmbeddingBudget()
+        {
+            // The hardcoded 120s this replaced was the nearer of two deadlines: the apiApp's embedding route
+            // may legitimately spend Fallen8:Embedding:TimeoutSeconds (300s) on inference and a cold model's
+            // warm-up, so the client gave up first and reported a local failure instead of the downstream
+            // answer that names which setting to change.
+            var timeout = ClientDeadlineOf(new Fallen8TargetOptions { BaseUrl = "http://graph.invalid:8080" });
+
+            Assert.AreEqual(TimeSpan.FromSeconds(330), timeout);
+            Assert.IsTrue(timeout > TimeSpan.FromSeconds(300),
+                "the embedding write must be allowed to spend the target's whole embedding budget, or this " +
+                "runtime pre-empts the answer it was waiting for");
+        }
+
+        [TestMethod]
+        public void TheGraphClientHonoursTheConfiguredDeadline()
+        {
+            var timeout = ClientDeadlineOf(new Fallen8TargetOptions
+            {
+                BaseUrl = "http://graph.invalid:8080",
+                TimeoutSeconds = 7,
+            });
+
+            Assert.AreEqual(TimeSpan.FromSeconds(7), timeout,
+                "the knob must reach the transport, or it is dead configuration an operator tunes with no effect");
+        }
+
+        [TestMethod]
+        public void TheGraphClientFloorsANonPositiveDeadline_RatherThanThrowingOnEveryCall()
+        {
+            // HttpClient.Timeout refuses anything <= 0, and the client is built per run: unfloored, a stray 0
+            // would throw on every call of every run and name nothing an operator could act on.
+            foreach (var bad in new[] { 0, -5 })
+            {
+                var timeout = ClientDeadlineOf(new Fallen8TargetOptions
+                {
+                    BaseUrl = "http://graph.invalid:8080",
+                    TimeoutSeconds = bad,
+                });
+
+                Assert.AreEqual(TimeSpan.FromSeconds(1), timeout,
+                    "'" + bad.ToString(CultureInfo.InvariantCulture) + "' must be floored, not thrown on");
+            }
+        }
+
+        /// <summary>
+        ///   The deadline the factory really put on the run's client. Read by reflection because the target
+        ///   owns its client and publishes nothing about it, and this suite reaches non-public state that way
+        ///   rather than widening visibility (as elsewhere here: no project declares InternalsVisibleTo).
+        /// </summary>
+        private static TimeSpan ClientDeadlineOf(Fallen8TargetOptions options)
+        {
+            using var target = new GraphTargetFactory(Options.Create(options)).Create(null);
+            var field = typeof(Fallen8RestTarget).GetField("_client",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(field, "Fallen8RestTarget no longer holds its client in _client");
+            return ((HttpClient)field.GetValue(target)).Timeout;
+        }
+
         #endregion
 
         #region helpers
 
         private static async Task<JobReport> ApplyAsync(IGraphTarget target, SnapshotDocument document,
-            SummaryRequest summary = null)
+            SummaryRequest summary = null, IRunProgress progress = null)
         {
             var validator = new SnapshotValidator(IdentifierVocabulary.Shipped);
             var validated = validator.Validate(document);
@@ -853,7 +1076,8 @@ namespace NoSQL.GraphDB.Tests
             }
 
             var applier = new SnapshotApplier(new IdentityResolver());
-            await applier.ApplyAsync(validated, Instance, target, report, summary, CancellationToken.None);
+            await applier.ApplyAsync(validated, Instance, target, report, summary, CancellationToken.None,
+                progress);
             return report;
         }
 
@@ -1158,9 +1382,9 @@ namespace NoSQL.GraphDB.Tests
             return new IntegrationJob { ProviderId = Provider, IntegrationInstanceId = instanceId };
         }
 
-        private static RunnerHarness Harness(IGraphTarget target)
+        private static RunnerHarness Harness(IGraphTarget target, IJobFilesFactory files = null)
         {
-            return new RunnerHarness(target);
+            return new RunnerHarness(target, files ?? new NoFilesFactory());
         }
 
         /// <summary>
@@ -1173,7 +1397,7 @@ namespace NoSQL.GraphDB.Tests
             private readonly ILoggerFactory _loggers;
             private readonly IntegrationsMetrics _metrics;
 
-            public RunnerHarness(IGraphTarget target)
+            public RunnerHarness(IGraphTarget target, IJobFilesFactory files)
             {
                 Log = new CapturingLoggerProvider();
                 _loggers = LoggerFactory.Create(builder => builder.AddProvider(Log));
@@ -1182,6 +1406,7 @@ namespace NoSQL.GraphDB.Tests
 
                 var vocabulary = IdentifierVocabulary.Shipped;
                 var active = new ActiveCredentials();
+                ActiveCredentials = active;
                 Runner = new JobRunner(
                     new ProviderCatalog(new IIntegrationProvider[] { Provider }, vocabulary),
                     new SnapshotValidator(vocabulary),
@@ -1189,7 +1414,7 @@ namespace NoSQL.GraphDB.Tests
                     new CredentialResolver(active),
                     new OneTargetFactory(target),
                     new NoNetworkHttpFactory(),
-                    new NoFilesFactory(),
+                    files,
                     active,
                     new RunGate(),
                     _metrics,
@@ -1202,6 +1427,9 @@ namespace NoSQL.GraphDB.Tests
             public CapturingLoggerProvider Log { get; }
 
             public JobRunner Runner { get; }
+
+            /// <summary>What the runs are holding, which is the only place a leaked lease is visible.</summary>
+            public ActiveCredentials ActiveCredentials { get; }
 
             public void Dispose()
             {
@@ -1302,6 +1530,20 @@ namespace NoSQL.GraphDB.Tests
             public JobFiles Create(IReadOnlyDictionary<String, JobFilePayload> filesBySettingKey)
             {
                 return new JobFiles(filesBySettingKey);
+            }
+        }
+
+        /// <summary>
+        ///   A files factory that cannot hand a run its files. Nothing shipped throws here today, which is
+        ///   exactly why the ordering it depends on has to be pinned rather than observed.
+        /// </summary>
+        private sealed class ThrowingFilesFactory : IJobFilesFactory
+        {
+            public Int64 MaxFileBytes => 0;
+
+            public JobFiles Create(IReadOnlyDictionary<String, JobFilePayload> filesBySettingKey)
+            {
+                throw new InvalidOperationException("no run may have its files");
             }
         }
 
@@ -1456,12 +1698,18 @@ namespace NoSQL.GraphDB.Tests
         {
             private readonly Int32 _failOnCall;
             private readonly HttpStatusCode _status;
+            private readonly Exception _throwInstead;
 
+            /// <param name="failOnCall">Which chunk fails, 1-based; 0 for a handler that answers everything.</param>
+            /// <param name="status">The status that chunk answers with.</param>
+            /// <param name="throwInstead">Fails that chunk from the SEND rather than with a status, which is
+            /// how a dead connection and a client-side deadline arrive: no status code exists to carry them.</param>
             public EmbedBatchRecordingHandler(Int32 failOnCall = 0,
-                HttpStatusCode status = HttpStatusCode.ServiceUnavailable)
+                HttpStatusCode status = HttpStatusCode.ServiceUnavailable, Exception throwInstead = null)
             {
                 _failOnCall = failOnCall;
                 _status = status;
+                _throwInstead = throwInstead;
             }
 
             public List<Int32> BatchSizes { get; } = new List<Int32>();
@@ -1475,10 +1723,87 @@ namespace NoSQL.GraphDB.Tests
 
                 if (_failOnCall > 0 && BatchSizes.Count == _failOnCall)
                 {
+                    if (_throwInstead != null)
+                    {
+                        throw _throwInstead;
+                    }
+
                     return new HttpResponseMessage(_status) { Content = new StringContent("refused") };
                 }
 
                 return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("true") };
+            }
+        }
+
+        /// <summary>
+        ///   Writes every phase and every counter move into a journal SHARED with the target below, so the
+        ///   order of the two is observable: "the phase was entered while the work was still pending" is a
+        ///   statement about interleaving, which neither a list of phases nor a list of calls can make alone.
+        /// </summary>
+        private sealed class JournallingProgress : IRunProgress
+        {
+            private readonly List<String> _journal;
+
+            public JournallingProgress(List<String> journal)
+            {
+                _journal = journal;
+            }
+
+            public void EnterPhase(String phase)
+            {
+                _journal.Add("phase:" + phase);
+            }
+
+            public void Advance(Int32 done, Int32 total)
+            {
+                _journal.Add(String.Format(CultureInfo.InvariantCulture, "advance:{0}/{1}", done, total));
+            }
+        }
+
+        /// <summary>The write calls, into the same journal as the progress above.</summary>
+        private sealed class JournallingTarget : DelegatingGraphTarget
+        {
+            private readonly List<String> _journal;
+
+            public JournallingTarget(IGraphTarget inner, List<String> journal)
+                : base(inner)
+            {
+                _journal = journal;
+            }
+
+            public override Task<IReadOnlyList<Int32>> CreateVerticesAsync(IReadOnlyList<VertexWrite> vertices,
+                CancellationToken cancellationToken)
+            {
+                _journal.Add("createVertices");
+                return base.CreateVerticesAsync(vertices, cancellationToken);
+            }
+
+            public override Task<IReadOnlyList<Int32>> CreateEdgesAsync(IReadOnlyList<EdgeWrite> edges,
+                CancellationToken cancellationToken)
+            {
+                _journal.Add("createEdges");
+                return base.CreateEdgesAsync(edges, cancellationToken);
+            }
+        }
+
+        /// <summary>
+        ///   Cancels the CALLER'S token and then fails the way a cancelled request does. The one shape that
+        ///   must never become this seam's own timeout, however much it looks like one.
+        /// </summary>
+        private sealed class CallerCancellingHandler : HttpMessageHandler
+        {
+            private readonly CancellationTokenSource _caller;
+
+            public CallerCancellingHandler(CancellationTokenSource caller)
+            {
+                _caller = caller;
+            }
+
+            protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
+                CancellationToken cancellationToken)
+            {
+                _caller.Cancel();
+                throw new TaskCanceledException("the caller walked away", null, _caller.Token);
             }
         }
 

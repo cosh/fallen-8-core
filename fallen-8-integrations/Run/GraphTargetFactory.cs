@@ -80,7 +80,7 @@ namespace NoSQL.GraphDB.Integrations.Run
             var client = new HttpClient(handler, disposeHandler: true)
             {
                 BaseAddress = new Uri(baseUrl.EndsWith("/", StringComparison.Ordinal) ? baseUrl : baseUrl + "/"),
-                Timeout = TimeSpan.FromSeconds(120),
+                Timeout = TimeSpan.FromSeconds(Math.Max(1, options.TimeoutSeconds)),
             };
 
             if (!String.IsNullOrEmpty(options.ApiKey))

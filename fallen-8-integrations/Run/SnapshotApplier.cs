@@ -329,12 +329,15 @@ namespace NoSQL.GraphDB.Integrations.Run
                 await target.ApplyPropertyWritesAsync(propertyWrites, cancellationToken).ConfigureAwait(false);
             }
 
-            await WireEdgesAsync(plan, instanceId, target, report, lookup, elementIdByEntity, claimedNow,
-                indexEntries, cancellationToken).ConfigureAwait(false);
-
-            // The edges' own claims; the list was cleared above, so this indexes exactly what wiring added.
+            // BEFORE the wiring, for the reason the write-elements block above states: entered afterwards,
+            // the phase named work that was already done and nobody polling the run ever saw the edges
+            // being written.
             progress.EnterPhase(RunPhases.WriteEdges);
             progress.Advance(0, plan.Count);
+            await WireEdgesAsync(plan, instanceId, target, report, lookup, elementIdByEntity, claimedNow,
+                indexEntries, progress, cancellationToken).ConfigureAwait(false);
+
+            // The edges' own claims; the list was cleared above, so this indexes exactly what wiring added.
             await FlushIndexEntriesAsync(target, report, indexEntries, cancellationToken).ConfigureAwait(false);
 
             if (summary != null)
@@ -488,9 +491,14 @@ namespace NoSQL.GraphDB.Integrations.Run
             return plan;
         }
 
+        /// <remarks>
+        ///   <paramref name="progress" /> advances per unit of work this method can SEE, which is the set of
+        ///   plan entries needing no write and then the write itself: the batching below that belongs to the
+        ///   target, and the interface's counter is documented as per batch rather than per item.
+        /// </remarks>
         private static async Task WireEdgesAsync(List<EdgePlan> plan, String instanceId, IGraphTarget target,
             JobReport report, ClaimLookup lookup, Int32[] elementIdByEntity, HashSet<Int32> claimedNow,
-            List<IndexEntry> indexEntries, CancellationToken cancellationToken)
+            List<IndexEntry> indexEntries, IRunProgress progress, CancellationToken cancellationToken)
         {
             if (plan.Count == 0)
             {
@@ -561,12 +569,19 @@ namespace NoSQL.GraphDB.Integrations.Run
                 writtenKeys.Add(edge.DerivedKey);
             }
 
+            // What the plan settled without a write - already wired, or an endpoint with no element - is
+            // done, and saying so while the one create call runs is the difference between a counter that
+            // moves and one that sits at zero for the whole phase.
+            var settled = plan.Count - writes.Count;
+            progress.Advance(settled, plan.Count);
+
             if (writes.Count == 0)
             {
                 return;
             }
 
             var ids = await target.CreateEdgesAsync(writes, cancellationToken).ConfigureAwait(false);
+            progress.Advance(settled + ids.Count, plan.Count);
             for (var i = 0; i < ids.Count; i++)
             {
                 claimedNow.Add(ids[i]);

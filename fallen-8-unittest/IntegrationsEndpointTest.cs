@@ -960,6 +960,12 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("configuration", Text(problem, "errorKind"),
                 "a rejection kind is how a caller knows nothing was read and nothing written, so there is " +
                 "something to fix rather than a source to retry");
+
+            using var polled = await client.GetAsync("/integration/run/garage:one");
+            Assert.AreEqual(HttpStatusCode.NotFound, polled.StatusCode,
+                "refused BEFORE the run started is the half of this rule the status code cannot show: a " +
+                "tracked slot would mean the identity was admitted far enough to be watched, and it would " +
+                "supersede the slot of whatever is legitimately running under it: " + await ReadText(polled));
         }
 
         /// <summary>

@@ -210,7 +210,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
     ///   broken", "the password is wrong", "the console will not answer" and "the graph will not answer" send
     ///   a reader to four different places.
     /// </summary>
-    public sealed class GraphTargetException : Exception
+    public class GraphTargetException : Exception
     {
         public GraphTargetException(String message)
             : base(message)
@@ -226,11 +226,30 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///   How many entity summaries were embedded BEFORE the failure, for the one caller that sends them
         ///   in chunks. Zero everywhere else, which is also the truth everywhere else.
         ///
-        ///   <para>It rides on the exception because the count is only known at the throw site and the value
-        ///   is a fact about the graph rather than about the failure: the chunks that already landed put real
-        ///   vectors on real elements, so a report that said zero would be false about state a bound index
-        ///   will happily answer searches over.</para>
+        ///   <para>It rides on the exception because the count is only known where the chunk loop stands and
+        ///   the value is a fact about the graph rather than about the failure: the chunks that already
+        ///   landed put real vectors on real elements, so a report that said zero would be false about state
+        ///   a bound index will happily answer searches over. Settable rather than construction-only,
+        ///   because the loop attaches it to whatever came out of the send in ONE place instead of at each
+        ///   of the throw sites, where the next one added would forget.</para>
         /// </summary>
-        public Int32 SummariesWritten { get; init; }
+        public Int32 SummariesWritten { get; set; }
+    }
+
+    /// <summary>
+    ///   The graph did not answer within THIS RUNTIME'S OWN deadline, which is a third fact beside "it
+    ///   refused" and "the caller walked away": the request may well have been applied, and nothing here can
+    ///   tell. Its own type so that a call site may decide per call whether that is a failure or a
+    ///   degradation, without reading a message.
+    ///
+    ///   <para>It is a <see cref="GraphTargetException"/>, so every caller that does not care keeps treating
+    ///   a timeout as the graph failure it was: only the embedding write chooses otherwise.</para>
+    /// </summary>
+    public sealed class GraphTargetTimeoutException : GraphTargetException
+    {
+        public GraphTargetTimeoutException(String message, Exception inner)
+            : base(message, inner)
+        {
+        }
     }
 }

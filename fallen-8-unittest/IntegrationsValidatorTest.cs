@@ -511,6 +511,30 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void UnknownRelationTargetType_SkipsOnlyThatEntity()
+        {
+            var misnamed = Entity(CanaryKind, Claim("mac", "44:D2:44:AA:BB:D7"));
+            misnamed.Relations.Add(new RelationDto
+            {
+                Type = "uplinks-to",
+                Target = new ClaimReferenceDto { Type = "wifi-ssid", Value = "guest-net" },
+            });
+
+            var result = _validator.Validate(Document(Canary(), misnamed));
+
+            AssertExactlyOneEntitySkipped(result, "mac=44:D2:44:AA:BB:D7",
+                "an identifier type this runtime does not know composes no claim key, so nothing could ever " +
+                "be found by it: it is the provider's CODE naming a type, which costs the entity, exactly as " +
+                "declaring a weak target does");
+            AssertCanarySurvived(result);
+            var diagnostic = Only(result, DiagnosticCodes.UnknownRelationTargetType,
+                "its own code, or a reader grouping by code is told two different consequences under one " +
+                "name: an unknown type on a CLAIM drops that claim and keeps the entity");
+            StringAssert.Contains(diagnostic.Message, "wifi-ssid",
+                "the message names the type the vocabulary does not have, which is the whole fix");
+        }
+
+        [TestMethod]
         public void WeakRelationTarget_SkipsOnlyThatEntity()
         {
             var misaimed = Entity(CanaryKind, Claim("mac", "44:D2:44:AA:BB:D5"));

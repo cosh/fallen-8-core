@@ -72,10 +72,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             new Dictionary<String, String>(StringComparer.Ordinal);
 
         /// <summary>
-        ///   Reads or writes one property. Writing NULL IS A NO-OP, deliberately and not as a convenience:
-        ///   an absent value must stay absent, because writing an empty string makes the property exist and
-        ///   overwrites what another integration knows about the same element. That is why every collector
-        ///   here can assign an optional element's text without testing it first.
+        ///   Reads or writes one property. Writing NULL IS A NO-OP, deliberately and not as a convenience,
+        ///   which is why every collector here can assign an optional element's text without testing it
+        ///   first. It is the presence rule the snapshot contract's <c>EntityDto</c> owns, tested here on
+        ///   null alone because everything reaching it has been through <c>Clean</c>, and spelled out rather
+        ///   than shared because this model is the READER'S and carries no dependency on that contract.
         /// </summary>
         public String? this[String key]
         {

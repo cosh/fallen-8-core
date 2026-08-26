@@ -736,6 +736,45 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   PUT /save addressed at a not-loaded namespace is refused, the third of the spec's data-loss
+        ///   enforcement points: the alternative is a checkpoint of an engine that never loaded, written
+        ///   over the one file that holds that namespace's data. The loaded half of the test is what
+        ///   makes the refusal meaningful rather than a route that saves nothing anywhere.
+        /// </summary>
+        [TestMethod]
+        public async Task Save_AddressingANotLoadedNamespace_Refuses()
+        {
+            using var factory = NotLoadedHost();
+            using var client = factory.CreateClient();
+
+            using (var refused = await client.PutAsync("/ns/archived/save", Json("{}")))
+            {
+                Assert.AreEqual(HttpStatusCode.ServiceUnavailable, refused.StatusCode,
+                    "a save that ran here would checkpoint an engine that never loaded");
+                var problem = await ReadJson(refused);
+                Assert.AreEqual("Namespace not loaded", problem.GetProperty("title").GetString());
+                Assert.AreEqual("archived", problem.GetProperty("namespace").GetString());
+                Assert.AreEqual("notLoaded", problem.GetProperty("namespaceState").GetString());
+            }
+
+            Assert.AreEqual(0, Checkpoints().Length, "the refusal wrote no checkpoint anywhere");
+
+            using (var saved = await client.PutAsync("/save", Json("{}")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode, await saved.Content.ReadAsStringAsync());
+            }
+
+            Assert.IsTrue(Checkpoints().Length > 0,
+                "the same route on a loaded namespace does write one, so the count above was a refusal "
+                    + "and not a search that can never find anything");
+        }
+
+        private string[] Checkpoints()
+        {
+            return Directory.GetFiles(_storageDir, "*.f8s*", SearchOption.AllDirectories);
+        }
+
+        /// <summary>
         ///   The 404 body is byte-for-byte what it always was. The two refusals must stay
         ///   distinguishable: Studio turns a 404 carrying a string "namespace" extension into its
         ///   recover state, and that state's button recreates the namespace EMPTY.

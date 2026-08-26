@@ -312,24 +312,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.FroniusSolar
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            HttpResponseMessage response;
-            try
-            {
-                response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new ProviderSourceException(String.Format(
-                    "The Fronius Solar API at {0} did not answer: {1}. The run fails and withdraws " +
-                    "nothing, because \"I could not look\" must never become \"there is nothing there\".",
-                    url, ex.Message), ex);
-            }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new ProviderSourceException(String.Format(
-                    "The Fronius Solar API at {0} did not answer in time. The run fails and withdraws " +
-                    "nothing.", url), ex);
-            }
+            var response = await ProviderRequest
+                .SendAsync(_http, request, "The Fronius Solar API", cancellationToken).ConfigureAwait(false);
 
             using (response)
             {

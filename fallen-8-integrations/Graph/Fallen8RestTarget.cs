@@ -88,12 +88,14 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///
         ///   <para>The second is the client TIMEOUT, and it is why this is 16 rather than 32. A chunk's
         ///   duration is model inference, not graph work: measured against a CPU-backed bge-m3, one element
-        ///   costs ~3.5 s, so 32 elements is ~113 s against this target's 120 s client timeout
-        ///   (<c>GraphTargetFactory</c>) - six percent of headroom. That is not a theoretical margin. A real
+        ///   costs ~3.5 s, so 32 elements is ~113 s - which was six percent of headroom against the fixed
+        ///   120 s this runtime used to hold every call to. That was not a theoretical margin. A real
         ///   many-entity extract embedded exactly many chunks and then died on the 86th, losing two
-        ///   hours of inference and leaving the graph a fifth embedded. 16 halves it to ~56 s, which is
-        ///   twice the headroom, and costs only more round-trips - and those stay cheap because chunks are
-        ///   sequential, so the request RATE never approaches the route's rate limit whatever the backend.</para>
+        ///   hours of inference and leaving the graph a fifth embedded. The deadline is now the operator's
+        ///   (<c>Fallen8Target:TimeoutSeconds</c>, default 330), so the margin is no longer thin - but 16
+        ///   stays, because it also halves the interval between progress ticks on the one phase that runs
+        ///   for hours, and it costs only more round-trips: those stay cheap because chunks are sequential,
+        ///   so the request RATE never approaches the route's rate limit whatever the backend.</para>
         ///
         ///   <para>Revisit by making the size ADAPTIVE (halve on timeout, retry, floor at 4) when a
         ///   deployment appears whose per-element cost is far outside the ~50 ms GPU to ~3.5 s CPU range this
@@ -506,75 +508,97 @@ namespace NoSQL.GraphDB.Integrations.Graph
             // independent transactions on the target, so a failure part-way leaves the earlier chunks
             // written - which is correct rather than merely tolerable: an embedding is element state, and
             // the vectors that landed are as valid as if the rest had never been asked for. What is NOT
-            // acceptable is reporting zero for work that happened, so the written count is accumulated and
-            // returned on both the success and the degrade path.
+            // acceptable is reporting zero for work that happened, so the written count is accumulated
+            // OUTSIDE the loop and leaves this method on every path there is: the success, the degrade, and
+            // the failure.
             var written = 0;
 
-            for (var offset = 0; offset < summaries.Count; offset += EmbedBatchSize)
+            try
             {
-                var take = Math.Min(EmbedBatchSize, summaries.Count - offset);
-                var items = new List<Object>(take);
-                for (var i = offset; i < offset + take; i++)
+                for (var offset = 0; offset < summaries.Count; offset += EmbedBatchSize)
                 {
-                    items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
-                }
-
-                using var request = new HttpRequestMessage(HttpMethod.Post, _prefix + "embedding/elements")
-                {
-                    Content = JsonContent.Create(new { name = embeddingName, items }, mediaType: null, JsonOptions),
-                };
-
-                var response = await SendCoreAsync(request, "the embedding write", cancellationToken)
-                    .ConfigureAwait(false);
-
-                using (response)
-                {
-                    if (response.IsSuccessStatusCode)
+                    var take = Math.Min(EmbedBatchSize, summaries.Count - offset);
+                    var items = new List<Object>(take);
+                    for (var i = offset; i < offset + take; i++)
                     {
-                        written += take;
-                        // Per chunk, because that is the only tick this loop has. At ~3 s an element it is a
-                        // visible move roughly every 45 s, which is the difference between "working" and
-                        // "hung" for a phase that runs for hours.
-                        progress?.Advance(written, summaries.Count);
-                        continue;
+                        items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
                     }
 
-                    var status = (Int32)response.StatusCode;
-
-                    // 403 is the capability switched off, 502 and 503 are the backend not answering, and 429 is
-                    // the target throttling this runtime. All four DEGRADE TO ABSENT rather than failing a run
-                    // whose whole purpose is the graph write: an embedding is an addition to what landed, never a
-                    // precondition for it. Anything else is a real graph failure and surfaces as one.
-                    //
-                    // 429 is in that set BECAUSE of chunking, and was not reachable before it: the embedding route
-                    // carries the sensitive-endpoint rate limit (one process-wide fixed window), so a large extract
-                    // sent as hundreds of chunks can trip a throttle that one request never could. Failing the run
-                    // for the target's own pacing would make chunking a regression for exactly the large extracts
-                    // it exists to support.
-                    //
-                    // Degrading STOPS the loop instead of trying the remaining chunks: every one of these statuses
-                    // describes the provider or the window rather than this batch, so the next chunk would answer
-                    // the same way and a run over a large extract would spend hundreds of round-trips proving it.
-                    if (status == 403 || status == 429 || status == 502 || status == 503)
+                    using var request = new HttpRequestMessage(HttpMethod.Post, _prefix + "embedding/elements")
                     {
-                        var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                        return new EmbeddingWriteOutcome(written, String.Format(CultureInfo.InvariantCulture,
-                            "the target answered {0} to the embedding write ({1})", status,
-                            String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
-                    }
-
-                    var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-                    // The count travels WITH the failure. Earlier chunks put real vectors on real elements, and
-                    // this is the one path that could still report zero for them - which the caller's own contract
-                    // forbids, so it is carried rather than reconstructed.
-                    throw new GraphTargetException(String.Format(CultureInfo.InvariantCulture,
-                        "The graph refused the embedding write with {0}: {1}", status,
-                        String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim()))
-                    {
-                        SummariesWritten = written,
+                        Content = JsonContent.Create(new { name = embeddingName, items }, mediaType: null, JsonOptions),
                     };
+
+                    var response = await SendCoreAsync(request, "the embedding write", cancellationToken)
+                        .ConfigureAwait(false);
+
+                    using (response)
+                    {
+                        if (response.IsSuccessStatusCode)
+                        {
+                            written += take;
+                            // Per chunk, because that is the only tick this loop has. At ~3 s an element it is a
+                            // visible move roughly every 45 s, which is the difference between "working" and
+                            // "hung" for a phase that runs for hours.
+                            progress?.Advance(written, summaries.Count);
+                            continue;
+                        }
+
+                        var status = (Int32)response.StatusCode;
+
+                        // 403 is the capability switched off, 502 and 503 are the backend not answering, and 429 is
+                        // the target throttling this runtime. All four DEGRADE TO ABSENT rather than failing a run
+                        // whose whole purpose is the graph write: an embedding is an addition to what landed, never a
+                        // precondition for it. Anything else is a real graph failure and surfaces as one.
+                        //
+                        // 429 is in that set BECAUSE of chunking, and was not reachable before it: the embedding route
+                        // carries the sensitive-endpoint rate limit (one process-wide fixed window), so a large extract
+                        // sent as hundreds of chunks can trip a throttle that one request never could. Failing the run
+                        // for the target's own pacing would make chunking a regression for exactly the large extracts
+                        // it exists to support.
+                        //
+                        // Degrading STOPS the loop instead of trying the remaining chunks: every one of these statuses
+                        // describes the provider or the window rather than this batch, so the next chunk would answer
+                        // the same way and a run over a large extract would spend hundreds of round-trips proving it.
+                        if (status == 403 || status == 429 || status == 502 || status == 503)
+                        {
+                            var detail = await response.Content.ReadAsStringAsync(cancellationToken)
+                                .ConfigureAwait(false);
+                            return new EmbeddingWriteOutcome(written, String.Format(CultureInfo.InvariantCulture,
+                                "the target answered {0} to the embedding write ({1})", status,
+                                String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
+                        }
+
+                        var body = await response.Content.ReadAsStringAsync(cancellationToken)
+                            .ConfigureAwait(false);
+
+                        throw new GraphTargetException(String.Format(CultureInfo.InvariantCulture,
+                            "The graph refused the embedding write with {0}: {1}", status,
+                            String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim()));
+                    }
                 }
+            }
+            catch (GraphTargetTimeoutException)
+            {
+                // A client-side TIMEOUT joins the degrade set above, and only for this write: the target's own
+                // embedding budget is longer than any other route's, this runtime cannot make a model answer
+                // faster, and an embedding is an addition to what landed rather than a precondition for it -
+                // so pre-empting it must not fail a run whose graph writes are already in. Every other call
+                // this target makes keeps timeout-as-failure. It stops the loop for the reason 503 does: the
+                // next chunk faces the same model. A cancellation the CALLER requested never arrives here,
+                // because the token decides that and not the exception type (see SendCoreAsync).
+                return new EmbeddingWriteOutcome(written,
+                    "the target did not answer the embedding write within this runtime's own timeout " +
+                    "(Fallen8Target:TimeoutSeconds)");
+            }
+            catch (GraphTargetException failure)
+            {
+                // THE one place a failure is given the count, rather than each throw site being trusted to
+                // remember: the chunks that landed are element state, and a connection that died mid extract
+                // used to report zero for them - which is false about vectors a bound index answers searches
+                // over, and sends the operator to a tabula rasa they do not need.
+                failure.SummariesWritten = written;
+                throw;
             }
 
             return new EmbeddingWriteOutcome(written, null);
@@ -955,7 +979,9 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///   <see cref="OperationCanceledException"/>. Letting one escape would present "the target was too slow"
         ///   to every layer above as "the caller walked away", and those two license opposite statements about
         ///   what a run wrote. The token is consulted rather than the type, because a cancellation the caller DID
-        ///   request must stay a cancellation.</para>
+        ///   request must stay a cancellation. It becomes a <see cref="GraphTargetTimeoutException"/> so a call
+        ///   site can act on "too slow" without reading a message; every caller that does not care sees the
+        ///   graph failure it always saw.</para>
         /// </summary>
         /// <param name="request">The prepared request; the caller owns and disposes it.</param>
         /// <param name="what">How the failure names this call, e.g. "PUT vertices" or "the embedding write".</param>
@@ -975,8 +1001,9 @@ namespace NoSQL.GraphDB.Integrations.Graph
             }
             catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
             {
-                throw new GraphTargetException(String.Format(
-                    "The graph did not answer {0} within the request timeout.", what), ex);
+                throw new GraphTargetTimeoutException(String.Format(
+                    "The graph did not answer {0} within the request timeout " +
+                    "(Fallen8Target:TimeoutSeconds).", what), ex);
             }
         }
     }

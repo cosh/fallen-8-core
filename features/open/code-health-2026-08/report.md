@@ -1,6 +1,7 @@
 # Code health review, 2026-08-26
 
-Status: Open - findings recorded, improvement plan in [plan.md](plan.md), nothing implemented yet.
+Status: Open - being implemented on `feature/code-health-2026-08`. A ticked box below is
+landed and gated; [plan.md](plan.md) carries the as-built notes and every deviation.
 
 Scope: everything merged in the two weeks 2026-08-11 to 2026-08-26 (`0764b38e..main`, ~200
 commits, 597 files, ~97k insertions): integrations (+ hardening, autosar-arxml,
@@ -38,7 +39,7 @@ closed by research on 2026-08-26: the code is correct.)
 
 ## Majors - correctness (all VERIFIED by hand)
 
-- [ ] **M1. A transport failure mid-way through the chunked embedding write reports 0
+- [x] **M1. A transport failure mid-way through the chunked embedding write reports 0
   summaries embedded, even when chunks landed.**
   `fallen-8-integrations/Graph/Fallen8RestTarget.cs:511-578` accumulates `written` but only
   attaches it on the explicit status-code throw (`:571-576`). A connection failure or a
@@ -53,7 +54,7 @@ closed by research on 2026-08-26: the code is correct.)
   exercises a 400 status, never a transport failure. Fix: carry `written` on every throw
   path out of the embed loop; add the transport-failure test.
 
-- [ ] **M2. The integrations runtime and the apiApp hold competing deadlines, the exact
+- [x] **M2. The integrations runtime and the apiApp hold competing deadlines, the exact
   mistake this repo removed from the chat gateway and the MCP bridge.**
   `fallen-8-integrations/Run/GraphTargetFactory.cs:83` hardcodes
   `Timeout = TimeSpan.FromSeconds(120)` on every call to the apiApp, while the embedding
@@ -67,7 +68,7 @@ closed by research on 2026-08-26: the code is correct.)
   stated reasoning), and decide whether a client-side timeout on the embedding write
   joins the degrade-to-absent set (see plan, decision D2).
 
-- [ ] **M3. The `write-edges` run phase is entered only after the edges are already
+- [x] **M3. The `write-edges` run phase is entered only after the edges are already
   written.** `fallen-8-integrations/Run/SnapshotApplier.cs:332-337`: `WireEdgesAsync`
   (the real batched writes) completes, then `EnterPhase(RunPhases.WriteEdges)` fires. A
   caller polling `GET /integrations/run/{id}` never observes `write-edges` while edges are
@@ -79,7 +80,7 @@ closed by research on 2026-08-26: the code is correct.)
   calls before the work, thread `progress` into `WireEdgesAsync` for per-batch advances,
   add an ordering test.
 
-- [ ] **M4. The UniFi and Fronius summary templates embed dangling literal words into
+- [x] **M4. The UniFi and Fronius summary templates embed dangling literal words into
   semantic text.** `Providers/UnifiNetwork/UnifiNetworkProvider.cs:151` has
   `state {unifi.state}`, `Providers/FroniusSolar/FroniusSolarProvider.cs:112` has
   `status {fronius.status}`. `EntitySummaryTemplate.Collapse` removes punctuation around
@@ -95,7 +96,7 @@ closed by research on 2026-08-26: the code is correct.)
   `provider-descriptors.json`, recapture `screen-integrations.png` (the snapshot is what
   the docs capture replays).
 
-- [ ] **M5. Studio polls the same status twice with conflicting intervals.**
+- [x] **M5. Studio polls the same status twice with conflicting intervals.**
   `fallen-8-web-ui/src/app/AppShell.tsx:67-74` and
   `src/components/InstanceHealth.tsx:58-63` each hand-roll a `useQuery` on the identical
   cache key `[instance.id, "status"]` with different `refetchInterval` (15s vs 20s); both
@@ -124,7 +125,7 @@ record.
 
 ## Majors - coverage gaps (VERIFIED)
 
-- [ ] **C1/C2. Two single-threaded arms are executed by no test, including the browser
+- [x] **C1/C2. Two single-threaded arms are executed by no test, including the browser
   probe that exists to run them.** The sequential traversal sweep
   (`fallen-8-core/Algorithms/Traversal/OutEdgeSweep.cs`, the `SweepRange` arm) and the
   skip-the-wait branch of `ChangeFeedDispatcher.Dispose`
@@ -135,7 +136,7 @@ record.
   coverage. Fix: probe checks 8 and 9 (a small sweep with exact edge count; open a
   change-feed-enabled engine, subscribe, dispose, assert completion).
 
-- [ ] **C3. Two of six live-tier settings have no live-apply test.**
+- [x] **C3. Two of six live-tier settings have no live-apply test.**
   `Fallen8:ChangeFeed:KeepAliveSeconds` and `Fallen8:Plugins:MaxCount` have `ApplyNow`
   delegates (`fallen-8-core-apiApp/Configuration/Fallen8SettingCatalog.cs:192-204`) that
   no test invokes through a live PATCH; the other four each have a dedicated
@@ -143,7 +144,7 @@ record.
   (phase 4) requires exactly such a test per promoted key. Fix: two tests mirroring the
   existing ceiling pattern.
 
-- [ ] **C4. The "failing live apply downgrades to restart" path is pinned with a hand-fed
+- [x] **C4. The "failing live apply downgrades to restart" path is pinned with a hand-fed
   string, never a thrown exception.** `Fallen8LiveSettings.Apply`
   (`fallen-8-core-apiApp/Configuration/Fallen8LiveSettings.cs:97-117`) catches the
   delegate's exception; the only test (`ConfigOverridesTest.cs:606`) feeds
@@ -152,7 +153,7 @@ record.
   deliberately throwing `ApplyNow`, asserting `FailureFor` reports it and later entries
   still apply.
 
-- [ ] **C5. The bge-m3 ceiling fix's two mechanisms are untested.** `truncate: false`
+- [x] **C5. The bge-m3 ceiling fix's two mechanisms are untested.** `truncate: false`
   (`fallen-8-core-apiApp/Embedding/Fallen8EmbeddingProvider.cs:90-130`) and
   `OverLongInputHint`'s substring match (`:275-304`) have zero automated coverage, and the
   code's own comment says "re-check on an OllamaSharp upgrade". Fix: a fake-generator
@@ -203,7 +204,7 @@ derivation):
   `features/done/autosar-arxml/spec.md:32-34` AND its own §10 repeat,
   `docs/src/content/docs/integrations.md:381-383`, `AutosarArxmlProvider.cs:48-50`.
   Home: the provider (it owns `Complete`).
-- [ ] **H6 (provider-internal).** "Value goes out as the source wrote it" is re-narrated
+- [x] **H6 (provider-internal).** "Value goes out as the source wrote it" is re-narrated
   in all four providers, "absent is absent, never empty string" at five sites. Home:
   `IdentityClaimDto`/`EntityDto`.
 
@@ -290,6 +291,16 @@ showed breadth, not padding.
   "tracks nothing" half its sibling does.
 - `nahil.md` / README simple diagram: the simple view says "remote gateway" where the full
   view names Nahil; changed deliberately by the Nahil commit itself, so optional.
+
+Found during implementation, both pre-existing and outside this plan's scope (recorded so
+they are not re-found):
+
+- `fallen-8-integrations/Providers/AutosarArxml/ArxmlReader.cs` contains a RAW NUL byte
+  inside a string literal used as a composite-key separator (an actual 0x00 byte where
+  `"\0"` was meant). It compiles and behaves correctly, but it makes ripgrep and grep treat
+  the whole file as binary, so the file is invisible to content search - which is how a
+  reviewer finds anything. Worth replacing with the escape.
+- UniFi's `BuildDevice`/`BuildClient` take a `diagnostics` parameter neither uses.
 
 ## What held up (recorded so the review's coverage is auditable)
 

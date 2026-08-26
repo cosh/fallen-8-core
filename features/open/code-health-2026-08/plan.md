@@ -46,42 +46,80 @@ gated as usual before merge (owner's decision 2026-08-26).
 
 ## Phase 1 - correctness fixes
 
-- [ ] M1: carry `written` on every throw path out of `EmbedSummariesAsync`
+- [x] M1: carry `written` on every throw path out of `EmbedSummariesAsync`
   (wrap the send, or catch/rethrow with `SummariesWritten`); test: transport failure and
   client timeout mid-chunk both report the landed count.
-- [ ] M2: `TimeoutSeconds` on the integrations `Fallen8TargetOptions` (default 330,
+  As built: the loop is wrapped and the count is attached in exactly ONE place, so the next
+  throw site added cannot forget it. `SummariesWritten` became settable for that reason.
+- [x] M2: `TimeoutSeconds` on the integrations `Fallen8TargetOptions` (default 330,
   reasoning stated once, pointing at the MCP bridge's identical decision); apply D2's
   outcome to the embedding write's degrade set; test: the configured value reaches the
   client, and the embed path behaves per D2.
-- [ ] M3: `EnterPhase(WriteEdges)`/`Advance` before `WireEdgesAsync`, `progress` threaded
+  As built: a `GraphTargetTimeoutException` SUBCLASSES `GraphTargetException`, so every
+  caller that does not care keeps treating a timeout as the graph failure it always was and
+  only the embedding write chooses otherwise. No `appsettings.json` was created for
+  fallen-8-integrations: it is deliberately configured by environment only (Program.cs adds
+  no file, the Dockerfile publishes none), so the default's single home is the options type.
+  The `EmbedBatchSize` doc comment kept 16 but re-derived WHY, since the 120s headroom that
+  originally justified it is gone.
+- [x] M3: `EnterPhase(WriteEdges)`/`Advance` before `WireEdgesAsync`, `progress` threaded
   in for per-batch advances; `EnterPhase(Validate)` before `_validator.Validate`;
   test: phase-ordering through the real `SnapshotApplier` (progress observed while work
   is pending, not after).
-- [ ] M4: fix both templates (`"{kind} {unifi.name}, {unifi.model}, {unifi.state},
+  As built: the applier half is pinned through the real `SnapshotApplier`. The `JobRunner`
+  validate half is FIXED but NOT pinned: `SnapshotValidator` is sealed with a non-virtual
+  `Validate` whose only observable effect appears after it returns, so pinning it would mean
+  adding a seam to production purely for the test. Accepted rather than done.
+- [x] M4: fix both templates (`"{kind} {unifi.name}, {unifi.model}, {unifi.state},
   {unifi.ipAddress}"`; `"{kind} {fronius.customName}, {fronius.status}"`); rendered-summary
   test per provider entity kind (as AUTOSAR already has); regenerate the provider
-  descriptor snapshot; recapture `screen-integrations.png`; fix the stale template copy at
+  descriptor snapshot; ~~recapture `screen-integrations.png`~~; fix the stale template copy at
   `features/done/autosar-arxml/spec.md:67` in passing.
-- [ ] M5: `InstanceHealth` consumes `useStatus()`; one shared poll-interval constant
+  As built: the descriptor snapshot diff is exactly the two template strings. NO screenshot
+  recapture was needed and none was done: `screen-integrations.png` renders only the CSV
+  provider's form and its template, which this change does not touch (verified by looking at
+  the image). The "no literal word beside a hole" rule was homed on
+  `ProviderDescriptor.EntitySummaryTemplate` rather than on a provider, because the finding's
+  own root cause is that a provider-local comment never reached the other two providers.
+- [x] M5: `InstanceHealth` consumes `useStatus()`; one shared poll-interval constant
   replaces the six `15_000` literals; test: one observer set per status key.
-- [ ] Minors that ride along: move `_files.Create` inside the lease scope
+- [x] Minors that ride along: move `_files.Create` inside the lease scope
   (`JobRunner.cs`); `Classify` delegates to `IsAuthority` (or a parity test); the
   UniFi/Fronius HTTP-failure translation and the Fronius ipv4-claim paste get the named
   helper UniFi already has.
+  As built: `Classify` DELEGATES; no test accompanies it and none is possible, because both
+  sites use subtype-aware `is` patterns, so any provider type a test could define that
+  `IsAuthority` accepts is necessarily matched by `Classify`'s existing cases too. The drift
+  it closes is a future authority type no test can name today. Fronius got no private
+  `ClaimAddress` wrapper: both former pastes now call the shared `ClaimIfPresent` helper
+  directly, which is the named helper, so a wrapper would only add a name.
 
 ## Phase 2 - close the coverage gaps
 
-- [ ] C1/C2: browser-probe checks 8 and 9 (sequential sweep with exact count;
+- [x] C1/C2: browser-probe checks 8 and 9 (sequential sweep with exact count;
   change-feed subscribe + dispose completes). Run the probe locally; it is the only gate
   for these arms.
-- [ ] C3: `LiveSettingTest` methods for `KeepAliveSeconds` and `Plugins:MaxCount` through
+  As built: the probe now has NINE checks and both arms run for real. Check 1 already proves
+  `Thread.Start` throws on this host, which is exactly what makes
+  `HostCapabilities.SupportsBackgroundWork` false process-wide, so checks 8 and 9 take the
+  sequential arms by construction. CLAUDE.md's browser-host bullet was corrected to say the
+  arms are covered by no UNIT test.
+- [x] C3: `LiveSettingTest` methods for `KeepAliveSeconds` and `Plugins:MaxCount` through
   a live PATCH, asserting observed behaviour change (mirror the existing ceiling tests).
-- [ ] C4: `Fallen8LiveSettings.ApplyAll` with a throwing `ApplyNow`: failure reported,
+  As built: `KeepAliveSeconds` is asserted on the SSE wire (a stream opened after the write
+  heartbeats, the one already on air does not), because that is the only place a client can
+  observe it.
+- [x] C4: `Fallen8LiveSettings.ApplyAll` with a throwing `ApplyNow`: failure reported,
   next entry still applies.
-- [ ] C5: `truncate: false` reaches `GenerateAsync`; `OverLongInputHint` present/absent.
-- [ ] The named small pins: `Save_AddressingANotLoadedNamespace_Refuses`,
+- [x] C5: `truncate: false` reaches `GenerateAsync`; `OverLongInputHint` present/absent.
+  As built: reused the existing `FakeEmbeddingGenerator` seam rather than adding a fake.
+- [x] The named small pins: `Save_AddressingANotLoadedNamespace_Refuses`,
   `UnknownRelationTargetType_SkipsOnlyThatEntity` (and its line in the integrations
   spec's skip list), the "tracks nothing" half of the colon-identity refusal test.
+  Correction to the report: the FIRST refusal for a save on a not-loaded namespace is
+  pre-action, in `NamespaceValidationFilter`, not the throwing `Namespace.Engine` accessor
+  (which is a second guard behind it). The pin asserts the observable contract, so it holds
+  either way.
 
 ## Phase 3 - test-suite reshape
 

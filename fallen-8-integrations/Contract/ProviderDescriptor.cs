@@ -93,12 +93,18 @@ namespace NoSQL.GraphDB.Integrations.Contract
 
         /// <summary>
         ///   Optional: the text to embed for one entity, as a DECLARATIVE template over the entity's own kind and
-        ///   properties, e.g. <c>{unifi.model} {unifi.name} on {unifi.site}</c>.
+        ///   properties, e.g. <c>{kind} {unifi.name}, {unifi.model}</c>.
         ///
         ///   <para>Declaring one is the PROVIDER'S half of the embedding opt-in; a job declares the other half,
         ///   and both are needed because embedding every client on a busy network by default is cost and noise in
         ///   equal measure. It is a template rather than a method because a template expressed as code would put
         ///   provider-authored code on the path that produces embedding text.</para>
+        ///
+        ///   <para>NO LITERAL WORD MAY SIT BESIDE A HOLE, only punctuation. One template serves every kind a
+        ///   provider emits and the kinds fill different holes, so a hole an entity cannot fill collapses along
+        ///   with the punctuation around it - but rendering cannot remove a WORD, and <c>state {unifi.state}</c>
+        ///   then ends the summary of every kind that has no state with a dangling "state", embedding the shape of
+        ///   the template instead of the description of the thing.</para>
         /// </summary>
         [JsonPropertyName("entitySummaryTemplate")]
         public String? EntitySummaryTemplate { get; set; }

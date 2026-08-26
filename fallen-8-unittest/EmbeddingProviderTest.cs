@@ -69,6 +69,14 @@ namespace NoSQL.GraphDB.Tests
         /// </summary>
         internal int RefuseFromCall;
 
+        /// <summary>The refusal's wording, which belongs to the backend and is what the provider reads
+        /// to decide whether a failure deserves a pointer at the setting behind it.</summary>
+        internal string RefusalMessage = "the hourly token budget for this key is spent";
+
+        /// <summary>The per-call options the provider passed, so a test sees what the backend was
+        /// actually ASKED to do rather than trusting the wrapper's intent.</summary>
+        internal EmbeddingGenerationOptions LastOptions;
+
         internal FakeEmbeddingGenerator(int dimension)
         {
             _dimension = dimension;
@@ -94,10 +102,11 @@ namespace NoSQL.GraphDB.Tests
         public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(IEnumerable<string> values,
             EmbeddingGenerationOptions options = null, CancellationToken cancellationToken = default)
         {
+            LastOptions = options;
             var call = Interlocked.Increment(ref Calls);
             if (RefuseFromCall > 0 && call >= RefuseFromCall)
             {
-                throw new InvalidOperationException("the hourly token budget for this key is spent");
+                throw new InvalidOperationException(RefusalMessage);
             }
 
             var result = new GeneratedEmbeddings<Embedding<float>>();
@@ -587,6 +596,83 @@ namespace NoSQL.GraphDB.Tests
             public void Dispose()
             {
             }
+        }
+
+        [TestMethod]
+        public async Task Wrapper_OllamaProtocolBackends_AskTheBackendNotToTruncate()
+        {
+            // The flag defaults to TRUE on both, and a truncated input comes back as a valid-looking
+            // vector that describes only its head - so the request carrying it is the whole mechanism,
+            // and nothing else in the pipeline can notice it went missing.
+            foreach (var backend in new[] { "Ollama", "Nahil" })
+            {
+                var fake = new FakeEmbeddingGenerator(2);
+                await Provider(EmbeddingOptions(backend), fake).EmbedAsync(new[] { "x" }, default);
+
+                Assert.AreEqual(1, fake.Calls, backend);
+                Assert.IsNotNull(fake.LastOptions, backend + ": per-call options must reach the generator");
+                Assert.IsTrue(fake.LastOptions.AdditionalProperties.ContainsKey("truncate"),
+                    backend + ": the option is carried by NAME, which is what OllamaSharp's mapper binds on");
+                Assert.AreEqual((object)false, fake.LastOptions.AdditionalProperties["truncate"],
+                    backend + ": a real boolean false, since that is what reaches the request body");
+            }
+
+            // The in-process backends read none of this: options they ignore would only suggest the
+            // flag governs them too.
+            foreach (var backend in new[] { "Onnx", "LLamaSharp" })
+            {
+                var fake = new FakeEmbeddingGenerator(2);
+                await Provider(EmbeddingOptions(backend), fake).EmbedAsync(new[] { "x" }, default);
+
+                Assert.AreEqual(1, fake.Calls, backend);
+                Assert.IsNull(fake.LastOptions, backend + " truncates on its own configured terms, if at all");
+            }
+        }
+
+        private static Fallen8EmbeddingOptions EmbeddingOptions(string backend)
+        {
+            return new Fallen8EmbeddingOptions
+            {
+                Enabled = true, ModelName = "m", Dimension = 2, Backend = backend
+            };
+        }
+
+        [TestMethod]
+        public async Task Wrapper_AnOverLongRefusal_NamesWhatToChange_AndEveryOtherFailureDoesNot()
+        {
+            // The backend's sentence as it really arrives: unpunctuated, so the hint has to supply the
+            // separator, or the two run together into one unreadable line.
+            var refusing = new FakeEmbeddingGenerator(2)
+            {
+                RefuseFromCall = 1, RefusalMessage = "input length exceeds the context length"
+            };
+            var hinted = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
+                () => Provider(EmbeddingOptions("Ollama"), refusing).EmbedAsync(new[] { "x" }, default));
+            StringAssert.Contains(hinted.Message, "input length exceeds the context length",
+                "the backend's own reason is never replaced by the hint");
+            StringAssert.Contains(hinted.Message, "lower Fallen8:Ingestion:ChunkMaxChars",
+                "a refusal Fallen-8 asked for must name the Fallen-8 setting that produced the input");
+            StringAssert.Contains(hinted.Message, "length. One input exceeds");
+
+            // Same sentence, the backend's casing changed: the wording is not ours to depend on exactly.
+            var shouty = new FakeEmbeddingGenerator(2)
+            {
+                RefuseFromCall = 1, RefusalMessage = "The input EXCEEDS THE CONTEXT LENGTH."
+            };
+            var shoutyHinted = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
+                () => Provider(EmbeddingOptions("Ollama"), shouty).EmbedAsync(new[] { "x" }, default));
+            StringAssert.Contains(shoutyHinted.Message, "One input exceeds the model's per-input token ceiling");
+            Assert.IsFalse(shoutyHinted.Message.Contains(".."),
+                "an already-punctuated reason must not collect a second full stop");
+
+            // Any other failure carries no hint: pointing at a length setting for an unrelated outage
+            // sends the operator to fix the one thing that is not wrong.
+            var down = new FakeEmbeddingGenerator(2) { RefuseFromCall = 1 };
+            var plain = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
+                () => Provider(EmbeddingOptions("Ollama"), down).EmbedAsync(new[] { "x" }, default));
+            StringAssert.Contains(plain.Message, "the hourly token budget for this key is spent");
+            Assert.IsFalse(plain.Message.Contains("ChunkMaxChars"),
+                "the hint belongs to the over-long refusal alone");
         }
 
         [TestMethod]

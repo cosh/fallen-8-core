@@ -398,8 +398,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.FroniusSolar
         ///   rather than reparsed, because a GEN24 id is seventeen digits and reparsing one only risks
         ///   losing a digit the device already spelled out.
         /// </summary>
-        /// <returns>Null for absent, blank, or a shape that is neither a string nor a number, because an
-        /// absent value is absent rather than an empty string.</returns>
+        /// <returns>Null for absent, blank, or a shape that is neither a string nor a number.</returns>
         public static String? Text(JsonElement? value)
         {
             if (value == null)

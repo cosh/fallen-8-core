@@ -35,11 +35,14 @@ using System.Threading.Tasks;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Integrations.Conformance;
 using NoSQL.GraphDB.Integrations.Contract;
+using NoSQL.GraphDB.Integrations.Identity;
 using NoSQL.GraphDB.Integrations.Providers.AutosarArxml;
 using NoSQL.GraphDB.Integrations.Providers.CsvDeviceList;
 using NoSQL.GraphDB.Integrations.Providers.FroniusSolar;
 using NoSQL.GraphDB.Integrations.Providers.UnifiNetwork;
 using NoSQL.GraphDB.Integrations.Run;
+using NoSQL.GraphDB.Integrations.Summary;
+using NoSQL.GraphDB.Integrations.Validation;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -782,6 +785,52 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task AConsoleThatDoesNotAnswerAtAllFailsTheRunAndWithdrawsNothing()
+        {
+            var provider = new UnifiNetworkProvider();
+            var console = new SourceDouble(
+                request => throw new HttpRequestException("connection refused"));
+
+            var report = await VerifyUnifiAsync(provider, console);
+
+            var refusal = Refusal(report);
+            StringAssert.Contains(refusal, "did not answer",
+                "\"I could not look\" must never become \"there is nothing there\": a console that never " +
+                "answered is a failed run, and reading it as an empty console withdraws every element this " +
+                "integration ever claimed");
+            StringAssert.Contains(refusal, "connection refused",
+                "the transport's own words are what tell an operator whether to look at the address, the " +
+                "certificate or the network");
+            Assert.IsNull(provider.LastSnapshot, "a source that did not answer describes nothing at all");
+            AssertWithdrewNothing(report, "the failed run withdraws nothing");
+        }
+
+        [TestMethod]
+        public async Task EveryUnifiKindRendersASummaryWithNoWordLeftBehindByAHoleItCannotFill()
+        {
+            var provider = new UnifiNetworkProvider();
+
+            await VerifyUnifiAsync(provider, new SourceDouble(HappyConsole));
+
+            // The RENDERED text, not the template: one template serves three kinds, and a site fills only
+            // the name while a client fills no model and no state. Hole collapse removes the punctuation
+            // around a hole an entity cannot fill but it cannot remove a word, so a literal word here is
+            // embedded verbatim into the semantic text of every kind that has no such value ("site HQ,
+            // state"), which is the shape of the template rather than the description of the thing.
+            CollectionAssert.AreEquivalent(
+                new[]
+                {
+                    "site HQ",
+                    "device Gateway, USW-24, ONLINE, 192.168.1.1",
+                    "device Switch, USW-24, ONLINE, 192.168.1.2",
+                    "client Laptop, 192.168.1.50",
+                },
+                RenderedSummaries(provider),
+                "these four strings are what a semantic query is matched against, so a token none of them " +
+                "describes is noise in every comparison this integration's embeddings ever take part in");
+        }
+
+        [TestMethod]
         public async Task TheUnifiNetworkBlueprintConforms()
         {
             var provider = new UnifiNetworkProvider();
@@ -1170,6 +1219,42 @@ namespace NoSQL.GraphDB.Tests
                     "the same holds for the power flow resource, and reading a resource whose values are not " +
                     "recorded would still cost the device a request on every run: " + url);
             }
+        }
+
+        [TestMethod]
+        public async Task ADeviceThatAnswersTooLateFailsTheRunAsATimeoutRatherThanACancellation()
+        {
+            var provider = new FroniusSolarProvider();
+            var device = FroniusDevice(
+                resource => throw new TaskCanceledException("the client's own timeout elapsed"));
+
+            var report = await VerifyFroniusAsync(provider, device);
+
+            StringAssert.Contains(Refusal(report), "in time",
+                "a request that timed out is told apart from a run somebody cancelled by the TOKEN and not " +
+                "by the exception type, which is the same for both: reported as a cancellation the operator " +
+                "is sent to look for whoever cancelled, and nothing names the device that went quiet");
+            Assert.IsNull(provider.LastSnapshot, "a device that answered nothing describes nothing at all");
+            AssertWithdrewNothing(report, "the failed run withdraws nothing");
+        }
+
+        [TestMethod]
+        public async Task TheInverterAndTheDatamanagerRenderSummariesWithNoWordLeftBehindByAnUnfilledHole()
+        {
+            var provider = new FroniusSolarProvider();
+            var device = FroniusDevice(Fronius(HappyInverters, Logger("240.107620")));
+
+            await VerifyFroniusAsync(provider, device);
+
+            // The logging device carries neither a custom name nor a status: it is a card that fronts the
+            // API, and both holes of the one template belong to an inverter. A literal word beside either
+            // would be all that is left of its summary.
+            CollectionAssert.AreEquivalent(
+                new[] { "inverter Carport, Running", "datamanager" },
+                RenderedSummaries(provider),
+                "the status word is the only coarse state this provider embeds at all, so a summary reading " +
+                "'datamanager, status' says nothing true about the device and drags the template's own " +
+                "vocabulary into every semantic comparison");
         }
 
         [TestMethod]
@@ -1632,6 +1717,33 @@ namespace NoSQL.GraphDB.Tests
                 "the run described nothing at all, so it failed: the graph then keeps whatever it had, and " +
                 "everything this test is about is unobservable");
             return snapshot;
+        }
+
+        /// <summary>
+        ///   Every entity's summary as the embedding write sees it: the provider's OWN template, rendered
+        ///   through the real validator, because a hole is filled from a property that has already been
+        ///   rendered for the wire.
+        /// </summary>
+        private static List<String> RenderedSummaries<TProvider>(TProvider provider)
+            where TProvider : IIntegrationProvider, IObservableProvider
+        {
+            var validated = new SnapshotValidator(IdentifierVocabulary.Shipped)
+                .Validate(SnapshotOf(provider), provider.Descriptor);
+            Assert.IsTrue(validated.EnvelopeAccepted,
+                "the run's own document did not survive validation, so nothing below is a statement about a " +
+                "summary");
+
+            var summaries = new List<String>();
+            foreach (var entity in validated.Entities)
+            {
+                var text = EntitySummaryTemplate.Render(provider.Descriptor.EntitySummaryTemplate, entity);
+                Assert.IsNotNull(text,
+                    "every hole of the '" + entity.Kind + "' summary collapsed, so that entity would be " +
+                    "embedded as nothing at all");
+                summaries.Add(text);
+            }
+
+            return summaries;
         }
 
         private static Int32 CountByKind(SnapshotDocument snapshot, String kind)

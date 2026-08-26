@@ -61,5 +61,19 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   <see cref="IntegrationsOptions.SelfSignedHosts"/> this feature's single reduction of trust.
         /// </summary>
         public String DefaultNamespace { get; set; } = "default";
+
+        /// <summary>
+        ///   The per-request deadline on every call this runtime makes to the graph. Values below 1 are
+        ///   floored at 1 second, so a stray 0 cannot make every call throw.
+        ///   <para>
+        ///     The default sits deliberately ABOVE the longest budget the apiApp applies to a route this
+        ///     runtime calls, for the reason <c>fallen-8-mcp</c>'s <c>Fallen8TargetOptions.TimeoutSeconds</c>
+        ///     states in full: two competing deadlines make the nearer one report a vague local failure
+        ///     instead of the downstream answer that names what to change. Here the far one is
+        ///     <c>Fallen8:Embedding:TimeoutSeconds</c> (300s), which the embedding write can legitimately
+        ///     spend on model inference and cold-model warm-up.
+        ///   </para>
+        /// </summary>
+        public Int32 TimeoutSeconds { get; set; } = 330;
     }
 }

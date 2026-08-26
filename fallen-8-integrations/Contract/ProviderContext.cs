@@ -190,6 +190,33 @@ namespace NoSQL.GraphDB.Integrations.Contract
         }
 
         /// <summary>
+        ///   The text of the file a REQUIRED setting names, with anything that went wrong on the way turned
+        ///   into a source failure naming the setting. A cancellation and a configuration failure pass
+        ///   through untouched: both already name the right system, and calling a bad file name a source
+        ///   failure sends an operator to look at the file rather than at the job.
+        /// </summary>
+        /// <exception cref="ProviderConfigurationException">The setting was not supplied.</exception>
+        /// <exception cref="ProviderSourceException">The file could not be read.</exception>
+        public async Task<String> RequireFileTextAsync(String settingKey, CancellationToken cancellationToken)
+        {
+            var fileName = Required(settingKey);
+            try
+            {
+                return await _readFile(settingKey, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException
+                                            && failure is not ProviderConfigurationException
+                                            && failure is not ProviderSourceException)
+            {
+                throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
+                    "The file '{0}', named by setting '{1}', could not be read: {2}. The run fails and " +
+                    "withdraws nothing: reporting an empty source would withdraw every element this " +
+                    "identity claimed, because \"I could not look\" must never become \"there is nothing " +
+                    "there\".", fileName, settingKey, failure.Message), failure);
+            }
+        }
+
+        /// <summary>
         ///   Whether the file a setting names can be resolved at all, without reading it: null when it can,
         ///   otherwise why not. For a provider that wants to fail early with a good message.
         /// </summary>
