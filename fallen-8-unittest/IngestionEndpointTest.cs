@@ -117,7 +117,7 @@ namespace NoSQL.GraphDB.Tests
 
     /// <summary>The full-stack test host for the /document surface: volatile engine, the
     /// deterministic embedding fake, the in-test docling, the in-test NLP client.</summary>
-    internal sealed class IngestionFactory : WebApplicationFactory<Program>
+    internal sealed class IngestionFactory : VolatileAppFactory
     {
         internal const Int32 Dim = 4;
 
@@ -138,7 +138,7 @@ namespace NoSQL.GraphDB.Tests
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
-            builder.UseSetting("Fallen8:Durability:Volatile", "true");
+            base.ConfigureWebHost(builder);
             builder.UseSetting("Fallen8:Ingestion:Enabled", "true");
             builder.UseSetting("Fallen8:Ingestion:ChunkMinChars", "1");
             builder.UseSetting("Fallen8:Ingestion:Docling:Endpoint", "http://docling.test:5001");
@@ -906,20 +906,37 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(ingestion.GetProperty("textFormats").GetArrayLength() > 0);
         }
 
+        /// <summary>
+        ///   F2: the capability being off is reported as "not reachable" on its own, so no sidecar is
+        ///   contacted while ingestion is disabled.
+        ///
+        ///   <para>This replaces a former weaker sibling (<c>Status_ReportsDisabledAndUnreachable</c>)
+        ///   that turned the sidecar OFF as well. The block is computed as
+        ///   <c>Enabled &amp;&amp; Configured &amp;&amp; IsReachableAsync(...)</c>, so with the capability off that
+        ///   arrangement short-circuited before the probe ever ran: it read "reachable is false" out of
+        ///   the sidecar being down and pinned nothing about the capability gate. Same code path, strictly
+        ///   more assertions, and the harder precondition, so it is not kept alongside.</para>
+        /// </summary>
         [TestMethod]
-        public async Task Status_ReportsDisabledAndUnreachable()
+        public async Task Status_WithIngestionOff_ReportsDoclingNotReachable_EvenWhenSidecarIsUp()
         {
             using var factory = new IngestionFactory(new Dictionary<String, String>
             {
                 { "Fallen8:Ingestion:Enabled", "false" }
             });
-            factory.Docling.Reachable = false;
+            // The sidecar IS configured and healthy; the gate must still report it unreachable
+            // because the capability is off (the "off => no sidecar contacted" invariant).
+            factory.Docling.ConfiguredFlag = true;
+            factory.Docling.Reachable = true;
             using var client = factory.CreateClient();
 
             using var response = await client.GetAsync("/status");
             var ingestion = (await IngestionTestHelper.ReadJson(response)).GetProperty("ingestion");
+
             Assert.IsFalse(ingestion.GetProperty("enabled").GetBoolean());
-            Assert.IsFalse(ingestion.GetProperty("docling").GetProperty("reachable").GetBoolean());
+            Assert.IsTrue(ingestion.GetProperty("docling").GetProperty("configured").GetBoolean());
+            Assert.IsFalse(ingestion.GetProperty("docling").GetProperty("reachable").GetBoolean(),
+                "reachable must be false when the capability is off, regardless of the sidecar");
         }
 
         #endregion

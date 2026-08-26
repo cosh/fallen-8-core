@@ -53,19 +53,18 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class DurableFileIoTest
     {
-        private String _dir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
-            _dir = Path.Combine(Path.GetTempPath(), "f8_dfio_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_dir);
+            _temp = new TempDirectory("f8_dfio_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try { if (_dir != null && Directory.Exists(_dir)) Directory.Delete(_dir, true); } catch { }
+            _temp?.Dispose();
         }
 
         #region reaching the internal publish (the engine declares no InternalsVisibleTo)
@@ -161,7 +160,7 @@ namespace NoSQL.GraphDB.Tests
 
         private String WriteTemp(String content)
         {
-            var temp = Path.Combine(_dir, "payload" + Guid.NewGuid().ToString("N") + ".tmp");
+            var temp = Path.Combine(_temp.FullName, "payload" + Guid.NewGuid().ToString("N") + ".tmp");
             File.WriteAllText(temp, content);
             return temp;
         }
@@ -218,7 +217,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void PublishWithRetry_RetriesARefusedRename_AndThenPublishes()
         {
-            var target = Path.Combine(_dir, "manifest.json");
+            var target = Path.Combine(_temp.FullName, "manifest.json");
             var temp = WriteTemp("new");
 
             var block = new RenameBlock(target);
@@ -236,8 +235,8 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void PublishWithRetry_DoesNotRetryAMissingTempFile()
         {
-            var missing = Path.Combine(_dir, "never-written.tmp");
-            var target = Path.Combine(_dir, "target.json");
+            var missing = Path.Combine(_temp.FullName, "never-written.tmp");
+            var target = Path.Combine(_temp.FullName, "target.json");
             var watcher = new RetryWatcher();
 
             Assert.ThrowsException<FileNotFoundException>(() => Publish(missing, target, watcher));
@@ -249,7 +248,7 @@ namespace NoSQL.GraphDB.Tests
         public void PublishWithRetry_DoesNotRetryAMissingDirectory()
         {
             var temp = WriteTemp("payload");
-            var target = Path.Combine(_dir, "no-such-directory", "target.json");
+            var target = Path.Combine(_temp.FullName, "no-such-directory", "target.json");
             var watcher = new RetryWatcher();
 
             Assert.ThrowsException<DirectoryNotFoundException>(() => Publish(temp, target, watcher));
@@ -260,7 +259,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void PublishWithRetry_GivesUpAfterTheAttemptCap()
         {
-            var target = Path.Combine(_dir, "manifest.json");
+            var target = Path.Combine(_temp.FullName, "manifest.json");
             var temp = WriteTemp("new");
             var watcher = new RetryWatcher();
 
@@ -290,7 +289,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ReplaceAllTextDurably_RemovesItsTempFile_WhenThePublishNeverSucceeds()
         {
-            var target = Path.Combine(_dir, "registry.json");
+            var target = Path.Combine(_temp.FullName, "registry.json");
             var watcher = new RetryWatcher();
 
             Exception thrown = null;
@@ -307,9 +306,9 @@ namespace NoSQL.GraphDB.Tests
 
                 Assert.IsNotNull(thrown, "the caller must learn that the pointer file was NOT replaced");
                 // The obstruction is a directory, so a surviving temp is the only FILE that could be here.
-                Assert.AreEqual(0, Directory.GetFiles(_dir).Length,
+                Assert.AreEqual(0, Directory.GetFiles(_temp.FullName).Length,
                     "a failed attempt must not litter the directory with a temp file: " +
-                    String.Join(", ", Directory.GetFiles(_dir)));
+                    String.Join(", ", Directory.GetFiles(_temp.FullName)));
                 Assert.IsTrue(block.IsIntact, "the previous destination must still be there");
             }
         }
@@ -317,13 +316,13 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ReplaceAllTextDurably_WritesTheContent_AndKeepsNoTempFile()
         {
-            var target = Path.Combine(_dir, "registry.json");
+            var target = Path.Combine(_temp.FullName, "registry.json");
 
             DurableFileIo.ReplaceAllTextDurably(target, "first", null);
             DurableFileIo.ReplaceAllTextDurably(target, "second", null);
 
             Assert.AreEqual("second", File.ReadAllText(target));
-            CollectionAssert.AreEqual(new[] { target }, Directory.GetFiles(_dir),
+            CollectionAssert.AreEqual(new[] { target }, Directory.GetFiles(_temp.FullName),
                 "the temp name must never survive a successful publish");
         }
 
@@ -344,11 +343,11 @@ namespace NoSQL.GraphDB.Tests
                 create.AddVertex(new VertexDefinition { Label = "device", CreationDate = 0 });
                 fallen8.EnqueueTransaction(create).WaitUntilFinished();
 
-                var path = Path.Combine(_dir, "checkpoint.f8s");
+                var path = Path.Combine(_temp.FullName, "checkpoint.f8s");
                 Assert.AreEqual(TransactionState.Finished, Save(fallen8, path), "the first save must finish");
 
                 var sidecar = Directory.GetFiles(
-                    _dir, Path.GetFileName(path) + Constants.GraphElementsSaveString + "*");
+                    _temp.FullName, Path.GetFileName(path) + Constants.GraphElementsSaveString + "*");
                 Assert.AreEqual(1, sidecar.Length,
                     "one vertex saves as exactly one graph-element sidecar: " + String.Join(", ", sidecar));
 

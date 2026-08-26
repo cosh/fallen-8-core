@@ -23,7 +23,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -277,163 +276,135 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void BoundIndex_SaveLoad_RebuildsFromElementState_WithIdenticalScores()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_boundvec_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
+            using var temp = new TempDirectory("f8_boundvec_");
+
+            var a = Vertex();
+            var b = Vertex();
+            SetEmbedding(a, "default", new[] { 0.6f, -0.8f });
+            SetEmbedding(b, "default", new[] { 0.9f, 0.1f });
+            var index = CreateBoundIndex("emb", 2, metric: "Cosine");
+
+            var query = new[] { 1f, 0f };
+            Assert.IsTrue(index.TryNearestNeighbors(out var before, query, 2));
+
+            var save = new SaveTransaction { Path = Path.Combine(temp.FullName, "bound.f8s"), SavePartitions = 1 };
+            _fallen8.EnqueueTransaction(save).WaitUntilFinished();
+
+            using var restored = new Fallen8(TestLoggerFactory.Create());
+            restored.EnqueueTransaction(new LoadTransaction { Path = save.ActualPath }).WaitUntilFinished();
+
+            Assert.IsTrue(restored.IndexFactory.TryGetIndex(out var reloadedRaw, "emb"));
+            var reloaded = (IVectorIndex)reloadedRaw;
+            Assert.AreEqual("default", reloaded.EmbeddingName, "the binding survives the checkpoint");
+            Assert.IsTrue(reloaded.TryNearestNeighbors(out var after, query, 2));
+
+            Assert.AreEqual(before.Entries.Count, after.Entries.Count);
+            for (var i = 0; i < before.Entries.Count; i++)
             {
-                var a = Vertex();
-                var b = Vertex();
-                SetEmbedding(a, "default", new[] { 0.6f, -0.8f });
-                SetEmbedding(b, "default", new[] { 0.9f, 0.1f });
-                var index = CreateBoundIndex("emb", 2, metric: "Cosine");
-
-                var query = new[] { 1f, 0f };
-                Assert.IsTrue(index.TryNearestNeighbors(out var before, query, 2));
-
-                var save = new SaveTransaction { Path = Path.Combine(tempDir, "bound.f8s"), SavePartitions = 1 };
-                _fallen8.EnqueueTransaction(save).WaitUntilFinished();
-
-                using var restored = new Fallen8(TestLoggerFactory.Create());
-                restored.EnqueueTransaction(new LoadTransaction { Path = save.ActualPath }).WaitUntilFinished();
-
-                Assert.IsTrue(restored.IndexFactory.TryGetIndex(out var reloadedRaw, "emb"));
-                var reloaded = (IVectorIndex)reloadedRaw;
-                Assert.AreEqual("default", reloaded.EmbeddingName, "the binding survives the checkpoint");
-                Assert.IsTrue(reloaded.TryNearestNeighbors(out var after, query, 2));
-
-                Assert.AreEqual(before.Entries.Count, after.Entries.Count);
-                for (var i = 0; i < before.Entries.Count; i++)
-                {
-                    Assert.AreEqual(before.Entries[i].Element.Id, after.Entries[i].Element.Id);
-                    Assert.AreEqual(before.Entries[i].Score, after.Entries[i].Score,
-                        "the rebuilt projection scores identically - the vectors came from element state");
-                }
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
+                Assert.AreEqual(before.Entries[i].Element.Id, after.Entries[i].Element.Id);
+                Assert.AreEqual(before.Entries[i].Score, after.Entries[i].Score,
+                    "the rebuilt projection scores identically - the vectors came from element state");
             }
         }
 
         [TestMethod]
         public void UnboundIndex_NewFormat_RoundTripsSlotsAndModelOption()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_rawvec_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                var a = Vertex();
-                Assert.IsTrue(_fallen8.IndexFactory.TryCreateIndex(out var rawIndex, "raw", "VectorIndex",
-                    new Dictionary<string, object> { { "dimension", 2 }, { "model", "bge-micro-v2@q8#2#Cosine" } }));
-                Assert.IsTrue(_fallen8.TryGetGraphElement(out var element, a));
-                rawIndex.AddOrUpdate(new[] { 0.3f, 0.4f }, element);
+            using var temp = new TempDirectory("f8_rawvec_");
 
-                var save = new SaveTransaction { Path = Path.Combine(tempDir, "raw.f8s"), SavePartitions = 1 };
-                _fallen8.EnqueueTransaction(save).WaitUntilFinished();
+            var a = Vertex();
+            Assert.IsTrue(_fallen8.IndexFactory.TryCreateIndex(out var rawIndex, "raw", "VectorIndex",
+                new Dictionary<string, object> { { "dimension", 2 }, { "model", "bge-micro-v2@q8#2#Cosine" } }));
+            Assert.IsTrue(_fallen8.TryGetGraphElement(out var element, a));
+            rawIndex.AddOrUpdate(new[] { 0.3f, 0.4f }, element);
 
-                using var restored = new Fallen8(TestLoggerFactory.Create());
-                restored.EnqueueTransaction(new LoadTransaction { Path = save.ActualPath }).WaitUntilFinished();
+            var save = new SaveTransaction { Path = Path.Combine(temp.FullName, "raw.f8s"), SavePartitions = 1 };
+            _fallen8.EnqueueTransaction(save).WaitUntilFinished();
 
-                Assert.IsTrue(restored.IndexFactory.TryGetIndex(out var reloadedRaw, "raw"));
-                var reloaded = (IVectorIndex)reloadedRaw;
-                Assert.IsNull(reloaded.EmbeddingName);
-                Assert.AreEqual("bge-micro-v2@q8#2#Cosine", reloaded.Model, "the declared model identity persists");
-                Assert.AreEqual(1, reloaded.CountOfValues(), "unbound vectors persist in the sidecar as before");
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            using var restored = new Fallen8(TestLoggerFactory.Create());
+            restored.EnqueueTransaction(new LoadTransaction { Path = save.ActualPath }).WaitUntilFinished();
+
+            Assert.IsTrue(restored.IndexFactory.TryGetIndex(out var reloadedRaw, "raw"));
+            var reloaded = (IVectorIndex)reloadedRaw;
+            Assert.IsNull(reloaded.EmbeddingName);
+            Assert.AreEqual("bge-micro-v2@q8#2#Cosine", reloaded.Model, "the declared model identity persists");
+            Assert.AreEqual(1, reloaded.CountOfValues(), "unbound vectors persist in the sidecar as before");
         }
 
         [TestMethod]
         public void BoundIndex_WalReplay_RecoversTheProjection_WithZeroOperatorAction()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_boundwal_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            var walPath = Path.Combine(tempDir, "bound.wal");
-            try
+            using var temp = new TempDirectory("f8_boundwal_");
+            var walPath = Path.Combine(temp.FullName, "bound.wal");
+
+            int a;
+            using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
             {
-                int a;
-                using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
-                {
-                    var tx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u, Label = "p" } };
-                    writer.EnqueueTransaction(tx).WaitUntilFinished();
-                    a = tx.VertexCreated.Id;
+                var tx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u, Label = "p" } };
+                writer.EnqueueTransaction(tx).WaitUntilFinished();
+                a = tx.VertexCreated.Id;
 
-                    // The embedding write is WAL-logged; the index membership is derived, so
-                    // nothing index-related needs to be logged at all.
-                    writer.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(a, "default", new[] { 1f, 0f }))
-                        .WaitUntilFinished();
-                } // crash: no checkpoint - the index sidecar never existed
+                // The embedding write is WAL-logged; the index membership is derived, so
+                // nothing index-related needs to be logged at all.
+                writer.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(a, "default", new[] { 1f, 0f }))
+                    .WaitUntilFinished();
+            } // crash: no checkpoint - the index sidecar never existed
 
-                using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+            using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
 
-                // The operator re-creates the bound index by config/API as on first setup - or it
-                // exists from a checkpoint; either way the projection derives from element state.
-                Assert.IsTrue(recovered.IndexFactory.TryCreateIndex(out var index, "emb", "VectorIndex",
-                    new Dictionary<string, object> { { "dimension", 2 }, { "embeddingName", "default" } }));
+            // The operator re-creates the bound index by config/API as on first setup - or it
+            // exists from a checkpoint; either way the projection derives from element state.
+            Assert.IsTrue(recovered.IndexFactory.TryCreateIndex(out var index, "emb", "VectorIndex",
+                new Dictionary<string, object> { { "dimension", 2 }, { "embeddingName", "default" } }));
 
-                Assert.AreEqual(1, index.CountOfValues(),
-                    "the WAL-replayed embedding is a member - the vector survived the crash on the element");
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            Assert.AreEqual(1, index.CountOfValues(),
+                "the WAL-replayed embedding is a member - the vector survived the crash on the element");
         }
 
         [TestMethod]
         public void BoundIndex_CheckpointPlusWalTail_ReplaysEmbeddingWritesIntoTheLoadedIndex()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_boundwal2_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            var walPath = Path.Combine(tempDir, "bound.wal");
-            try
+            using var temp = new TempDirectory("f8_boundwal2_");
+            var walPath = Path.Combine(temp.FullName, "bound.wal");
+
+            // This is THE retired-workaround scenario: checkpoint with the bound index,
+            // then embedding writes AFTER the checkpoint, then crash. Pre-feature, those
+            // vectors were lost (index writes are not WAL-logged) and needed manual
+            // re-adds; now replaying the embedding transactions re-projects them.
+            string checkpointPath;
+            int a, b;
+            using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
             {
-                // This is THE retired-workaround scenario: checkpoint with the bound index,
-                // then embedding writes AFTER the checkpoint, then crash. Pre-feature, those
-                // vectors were lost (index writes are not WAL-logged) and needed manual
-                // re-adds; now replaying the embedding transactions re-projects them.
-                string checkpointPath;
-                int a, b;
-                using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
-                {
-                    var tx = new CreateVerticesTransaction();
-                    tx.AddVertex(1u, "p");
-                    tx.AddVertex(1u, "p");
-                    writer.EnqueueTransaction(tx).WaitUntilFinished();
-                    a = tx.GetCreatedVertices()[0].Id;
-                    b = tx.GetCreatedVertices()[1].Id;
+                var tx = new CreateVerticesTransaction();
+                tx.AddVertex(1u, "p");
+                tx.AddVertex(1u, "p");
+                writer.EnqueueTransaction(tx).WaitUntilFinished();
+                a = tx.GetCreatedVertices()[0].Id;
+                b = tx.GetCreatedVertices()[1].Id;
 
-                    writer.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(a, "default", new[] { 1f, 0f }))
-                        .WaitUntilFinished();
-                    Assert.IsTrue(writer.IndexFactory.TryCreateIndex(out _, "emb", "VectorIndex",
-                        new Dictionary<string, object> { { "dimension", 2 }, { "embeddingName", "default" } }));
+                writer.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(a, "default", new[] { 1f, 0f }))
+                    .WaitUntilFinished();
+                Assert.IsTrue(writer.IndexFactory.TryCreateIndex(out _, "emb", "VectorIndex",
+                    new Dictionary<string, object> { { "dimension", 2 }, { "embeddingName", "default" } }));
 
-                    var save = new SaveTransaction { Path = Path.Combine(tempDir, "bound.f8s"), SavePartitions = 1 };
-                    writer.EnqueueTransaction(save).WaitUntilFinished();
-                    checkpointPath = save.ActualPath;
+                var save = new SaveTransaction { Path = Path.Combine(temp.FullName, "bound.f8s"), SavePartitions = 1 };
+                writer.EnqueueTransaction(save).WaitUntilFinished();
+                checkpointPath = save.ActualPath;
 
-                    // Post-checkpoint write: only the WAL carries it.
-                    writer.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(b, "default", new[] { 0f, 1f }))
-                        .WaitUntilFinished();
-                }
-
-                // Recovery: open the anchored WAL, load its paired checkpoint - the log's
-                // post-checkpoint tail replays onto the loaded state.
-                using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
-                recovered.EnqueueTransaction(new LoadTransaction { Path = checkpointPath }).WaitUntilFinished();
-
-                Assert.IsTrue(recovered.IndexFactory.TryGetIndex(out var reloadedRaw, "emb"));
-                var reloaded = (IVectorIndex)reloadedRaw;
-                Assert.AreEqual(2, reloaded.CountOfValues(),
-                    "checkpointed AND post-checkpoint embeddings are members after replay - no re-add step");
+                // Post-checkpoint write: only the WAL carries it.
+                writer.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(b, "default", new[] { 0f, 1f }))
+                    .WaitUntilFinished();
             }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+
+            // Recovery: open the anchored WAL, load its paired checkpoint - the log's
+            // post-checkpoint tail replays onto the loaded state.
+            using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+            recovered.EnqueueTransaction(new LoadTransaction { Path = checkpointPath }).WaitUntilFinished();
+
+            Assert.IsTrue(recovered.IndexFactory.TryGetIndex(out var reloadedRaw, "emb"));
+            var reloaded = (IVectorIndex)reloadedRaw;
+            Assert.AreEqual(2, reloaded.CountOfValues(),
+                "checkpointed AND post-checkpoint embeddings are members after replay - no re-add step");
         }
 
         #endregion

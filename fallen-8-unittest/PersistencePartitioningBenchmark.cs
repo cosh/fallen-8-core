@@ -120,89 +120,81 @@ namespace NoSQL.GraphDB.Tests
             int partitions = Environment.ProcessorCount;
 
             var loggerFactory = TestLoggerFactory.Create();
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_partitioning_bench_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
+            using var temp = new TempDirectory("f8_partitioning_bench_");
 
-            try
+            var fallen8 = new Fallen8(loggerFactory);
+            var vtx = new CreateVerticesTransaction();
+            for (var i = 0; i < vertexCount; i++)
             {
-                var fallen8 = new Fallen8(loggerFactory);
-                var vtx = new CreateVerticesTransaction();
-                for (var i = 0; i < vertexCount; i++)
-                {
-                    vtx.AddVertex(1u, i % 2 == 0 ? "person" : "company",
-                        new Dictionary<string, object> { { "name", "name-" + (i % 1000) }, { "seq", i } });
-                }
-                fallen8.EnqueueTransaction(vtx).WaitUntilFinished();
-
-                var rng = new Random(12345);
-                var etx = new CreateEdgesTransaction();
-                for (var j = 0; j < edgeCount; j++)
-                {
-                    etx.AddEdge(rng.Next(0, vertexCount), "knows", rng.Next(0, vertexCount), 1u, "knows");
-                }
-                fallen8.EnqueueTransaction(etx).WaitUntilFinished();
-
-                var savePath = Path.Combine(tempDir, "bench.f8s");
-
-                // ---- Save (timed + sampled). ----
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                long saveAllocBefore = GC.GetTotalAllocatedBytes(true);
-                var saveSampler = new ManagedMemorySampler();
-                var saveTx = new SaveTransaction { Path = savePath, SavePartitions = partitions };
-                var sw = Stopwatch.StartNew();
-                fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
-                sw.Stop();
-                long savePeak = saveSampler.StopAndPeak();
-                long saveAlloc = GC.GetTotalAllocatedBytes(true) - saveAllocBefore;
-                Assert.AreEqual(TransactionState.Finished, fallen8.GetTransactionState(saveTx.TransactionId));
-                var actualPath = saveTx.ActualPath;
-                double saveMs = sw.Elapsed.TotalMilliseconds;
-
-                int bunchFiles = 0;
-                foreach (var f in Directory.GetFiles(tempDir))
-                {
-                    var name = Path.GetFileName(f);
-                    if (name.Contains("_graphElements_") && !name.Contains(".f8tmp"))
-                    {
-                        bunchFiles++;
-                    }
-                }
-
-                // ---- Load (timed + sampled). ----
-                var reloaded = new Fallen8(loggerFactory);
-                var loadTx = new LoadTransaction { Path = actualPath };
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                long loadAllocBefore = GC.GetTotalAllocatedBytes(true);
-                var loadSampler = new ManagedMemorySampler();
-                sw.Restart();
-                reloaded.EnqueueTransaction(loadTx).WaitUntilFinished();
-                sw.Stop();
-                long loadPeak = loadSampler.StopAndPeak();
-                long loadAlloc = GC.GetTotalAllocatedBytes(true) - loadAllocBefore;
-                Assert.AreEqual(TransactionState.Finished, reloaded.GetTransactionState(loadTx.TransactionId));
-                double loadMs = sw.Elapsed.TotalMilliseconds;
-
-                Assert.AreEqual(vertexCount, reloaded.VertexCount);
-                Assert.AreEqual(edgeCount, reloaded.EdgeCount);
-
-                var elements = vertexCount + edgeCount;
-                Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
-                    "[F8PARTBENCH] label={0} elements={1} cores={2} partitions_req={3} bunch_files={4} " +
-                    "save_ms={5:0.0} save_peak_mb={6:0.0} save_alloc_mb={7:0.0} " +
-                    "load_ms={8:0.0} load_peak_mb={9:0.0} load_alloc_mb={10:0.0}",
-                    Label, elements, Environment.ProcessorCount, partitions, bunchFiles,
-                    saveMs, savePeak / (1024.0 * 1024.0), saveAlloc / (1024.0 * 1024.0),
-                    loadMs, loadPeak / (1024.0 * 1024.0), loadAlloc / (1024.0 * 1024.0)));
-
-                fallen8.Dispose();
-                reloaded.Dispose();
+                vtx.AddVertex(1u, i % 2 == 0 ? "person" : "company",
+                    new Dictionary<string, object> { { "name", "name-" + (i % 1000) }, { "seq", i } });
             }
-            finally
+            fallen8.EnqueueTransaction(vtx).WaitUntilFinished();
+
+            var rng = new Random(12345);
+            var etx = new CreateEdgesTransaction();
+            for (var j = 0; j < edgeCount; j++)
             {
-                try { Directory.Delete(tempDir, true); } catch { /* best-effort */ }
+                etx.AddEdge(rng.Next(0, vertexCount), "knows", rng.Next(0, vertexCount), 1u, "knows");
             }
+            fallen8.EnqueueTransaction(etx).WaitUntilFinished();
+
+            var savePath = Path.Combine(temp.FullName, "bench.f8s");
+
+            // ---- Save (timed + sampled). ----
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            long saveAllocBefore = GC.GetTotalAllocatedBytes(true);
+            var saveSampler = new ManagedMemorySampler();
+            var saveTx = new SaveTransaction { Path = savePath, SavePartitions = partitions };
+            var sw = Stopwatch.StartNew();
+            fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+            sw.Stop();
+            long savePeak = saveSampler.StopAndPeak();
+            long saveAlloc = GC.GetTotalAllocatedBytes(true) - saveAllocBefore;
+            Assert.AreEqual(TransactionState.Finished, fallen8.GetTransactionState(saveTx.TransactionId));
+            var actualPath = saveTx.ActualPath;
+            double saveMs = sw.Elapsed.TotalMilliseconds;
+
+            int bunchFiles = 0;
+            foreach (var f in Directory.GetFiles(temp.FullName))
+            {
+                var name = Path.GetFileName(f);
+                if (name.Contains("_graphElements_") && !name.Contains(".f8tmp"))
+                {
+                    bunchFiles++;
+                }
+            }
+
+            // ---- Load (timed + sampled). ----
+            var reloaded = new Fallen8(loggerFactory);
+            var loadTx = new LoadTransaction { Path = actualPath };
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            long loadAllocBefore = GC.GetTotalAllocatedBytes(true);
+            var loadSampler = new ManagedMemorySampler();
+            sw.Restart();
+            reloaded.EnqueueTransaction(loadTx).WaitUntilFinished();
+            sw.Stop();
+            long loadPeak = loadSampler.StopAndPeak();
+            long loadAlloc = GC.GetTotalAllocatedBytes(true) - loadAllocBefore;
+            Assert.AreEqual(TransactionState.Finished, reloaded.GetTransactionState(loadTx.TransactionId));
+            double loadMs = sw.Elapsed.TotalMilliseconds;
+
+            Assert.AreEqual(vertexCount, reloaded.VertexCount);
+            Assert.AreEqual(edgeCount, reloaded.EdgeCount);
+
+            var elements = vertexCount + edgeCount;
+            Console.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                "[F8PARTBENCH] label={0} elements={1} cores={2} partitions_req={3} bunch_files={4} " +
+                "save_ms={5:0.0} save_peak_mb={6:0.0} save_alloc_mb={7:0.0} " +
+                "load_ms={8:0.0} load_peak_mb={9:0.0} load_alloc_mb={10:0.0}",
+                Label, elements, Environment.ProcessorCount, partitions, bunchFiles,
+                saveMs, savePeak / (1024.0 * 1024.0), saveAlloc / (1024.0 * 1024.0),
+                loadMs, loadPeak / (1024.0 * 1024.0), loadAlloc / (1024.0 * 1024.0)));
+
+            fallen8.Dispose();
+            reloaded.Dispose();
         }
     }
 }

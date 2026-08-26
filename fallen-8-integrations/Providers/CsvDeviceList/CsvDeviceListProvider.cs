@@ -194,7 +194,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.CsvDeviceList
             var fileName = context.Required(FileSetting);
             var delimiter = ReadDelimiter(context);
             var label = context.Optional(LabelSetting, DefaultEntityKind)!.Trim();
-            var text = await ReadAsync(context, fileName, cancellationToken).ConfigureAwait(false);
+            var text = await context.RequireFileTextAsync(FileSetting, cancellationToken)
+                .ConfigureAwait(false);
 
             if (!CsvTable.TryParse(text, delimiter, out var table, out var parseFailure))
             {
@@ -288,54 +289,20 @@ namespace NoSQL.GraphDB.Integrations.Providers.CsvDeviceList
                 }
 
                 var entity = new EntityDto { Kind = label };
-
-                // The value goes out as the file wrote it: the runtime canonicalises it, and a provider that
-                // canonicalised first would be the second home of a rule that only works if there is one.
-                entity.Claims.Add(new IdentityClaimDto { Type = MacClaimType, Value = mac });
+                entity.ClaimIfPresent(MacClaimType, mac);
 
                 var hostname = row.Cell(hostnameColumn);
-                if (hostname != null)
-                {
-                    // Weak, and the vocabulary is what says so. No strength is declared here: a provider
-                    // able to call its own weak identifier strong makes a hostname resolve, and the run then
-                    // attaches this file's data to whichever element last held the name.
-                    entity.Claims.Add(new IdentityClaimDto { Type = HostnameClaimType, Value = hostname });
-                }
+                entity.ClaimIfPresent(HostnameClaimType, hostname);
 
-                Record(entity, NameProperty, row.Cell(nameColumn));
-                Record(entity, NoteProperty, row.Cell(noteColumn));
-                Record(entity, HostnameProperty, hostname);
+                entity.SetIfPresent(NameProperty, row.Cell(nameColumn));
+                entity.SetIfPresent(NoteProperty, row.Cell(noteColumn));
+                entity.SetIfPresent(HostnameProperty, hostname);
 
                 snapshot.Entities.Add(entity);
             }
 
             LastSnapshot = snapshot;
             return snapshot;
-        }
-
-        /// <summary>
-        ///   Reads the file the setting names, turning anything that went wrong into a SOURCE failure that
-        ///   names the setting. A configuration failure and a cancellation pass through untouched, because
-        ///   both already name the right system and calling a bad file name a source failure would send an
-        ///   operator to look at the file rather than at the job.
-        /// </summary>
-        private static async Task<String> ReadAsync(ProviderContext context, String fileName,
-            CancellationToken cancellationToken)
-        {
-            try
-            {
-                return await context.ReadFileAsync(FileSetting, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception failure) when (failure is not OperationCanceledException
-                                            && failure is not ProviderConfigurationException
-                                            && failure is not ProviderSourceException)
-            {
-                throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
-                    "The file '{0}', named by setting '{1}', could not be read: {2}. The run fails and " +
-                    "withdraws nothing: reporting an empty list would withdraw every device this identity " +
-                    "claimed, because \"I could not look\" must never become \"there is nothing there\".",
-                    fileName, FileSetting, failure.Message), failure);
-            }
         }
 
         /// <summary>
@@ -375,19 +342,6 @@ namespace NoSQL.GraphDB.Integrations.Providers.CsvDeviceList
         private static Int32 ColumnOf(CsvTable table, String name)
         {
             return table.TryGetColumn(name, out var index) ? index : NoColumn;
-        }
-
-        /// <summary>
-        ///   Writes a property only when the file answered it. An ABSENT value is absent: writing an empty
-        ///   string for something the source did not say makes the property exist and overwrites what
-        ///   another integration knows about the same device.
-        /// </summary>
-        private static void Record(EntityDto entity, String key, String? value)
-        {
-            if (value != null)
-            {
-                entity.Properties[key] = value;
-            }
         }
 
         /// <summary>

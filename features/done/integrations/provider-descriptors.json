@@ -87,7 +87,7 @@
     ],
     "canObserveCompleteState": true,
     "readOnly": true,
-    "entitySummaryTemplate": "{kind} {unifi.name}, {unifi.model}, state {unifi.state}, {unifi.ipAddress}"
+    "entitySummaryTemplate": "{kind} {unifi.name}, {unifi.model}, {unifi.state}, {unifi.ipAddress}"
   },
   {
     "id": "fronius-solar",
@@ -118,7 +118,7 @@
     ],
     "canObserveCompleteState": true,
     "readOnly": true,
-    "entitySummaryTemplate": "{kind} {fronius.customName}, status {fronius.status}"
+    "entitySummaryTemplate": "{kind} {fronius.customName}, {fronius.status}"
   },
   {
     "id": "autosar-arxml",

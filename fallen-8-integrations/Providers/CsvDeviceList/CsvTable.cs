@@ -274,9 +274,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.CsvDeviceList
 
         /// <summary>
         ///   The cell at a column index, or null. Null covers a column this row does not reach, a column
-        ///   the header does not have (index below zero), and a blank cell: an absent value is absent, and
-        ///   writing an empty string for something the source did not answer makes a property exist and
-        ///   overwrites what another integration knows.
+        ///   the header does not have (index below zero), and a blank cell, which is absent under the
+        ///   presence rule the snapshot contract's <c>EntityDto</c> owns.
         /// </summary>
         public String? Cell(Int32 columnIndex)
         {

@@ -14,6 +14,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The REST-client seam shared with fallen-8-integrations: send classification, the
+         absent-body convention, URL safety. It references neither the engine nor the API app, so
+         consuming it keeps this deployable's REST-only rule intact. -->
+    <ProjectReference Include="..\fallen-8-rest-client\fallen-8-rest-client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Official MCP C# SDK. Stable 1.4.x line (pins the 2025-06-18 protocol revision the
          server advertises). ModelContextProtocol.AspNetCore transitively brings the core +
          hosting packages; version pinned exactly per the repo's exact-version gate. -->

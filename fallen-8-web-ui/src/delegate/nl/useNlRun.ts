@@ -24,6 +24,8 @@
 // SOFTWARE.
 
 import { useEffect, useRef, useState } from "react";
+import { probeEndpoint } from "./generate";
+import type { NlAssistConfig } from "./config";
 
 /**
  * Run lifecycle shared by both NL panels (the delegate editor's and the plugin editor's).
@@ -83,4 +85,34 @@ export function useElapsedSeconds(active: boolean): number {
   }, [active]);
 
   return elapsed;
+}
+
+/**
+ * Informational-only reachability read (nl-assist-ux FR-2), shared by both NL panels: custom mode
+ * probes the configured endpoint, instance mode reports nothing (its reachability is the instance
+ * connection itself, shown on Connect). Never gates generation.
+ */
+export function useReachabilityProbe(
+  configured: boolean,
+  isInstance: boolean,
+  effective: NlAssistConfig,
+): boolean | null {
+  const [reachable, setReachable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!configured || isInstance) {
+      setReachable(null);
+      return;
+    }
+    const controller = new AbortController();
+    setReachable(null);
+    void probeEndpoint(effective, controller.signal).then((ok) => {
+      if (!controller.signal.aborted) setReachable(ok);
+    });
+    return () => controller.abort();
+    // Deps are the effective backend's primitives - `effective` itself is a new object every
+    // render and would re-probe in a loop.
+  }, [configured, isInstance, effective.endpoint, effective.apiKind, effective.model, effective.apiKey]);
+
+  return reachable;
 }

@@ -387,31 +387,24 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void SaveEmitsNothing_LoadEmitsResync()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_cf_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                TwoVertices();
-                WaitForSeq(_fallen8, 2);
-                using var subscription = Subscribe();
+            using var temp = new TempDirectory("f8_cf_");
 
-                var save = new SaveTransaction { Path = Path.Combine(tempDir, "cf.f8s"), SavePartitions = 1 };
-                _fallen8.EnqueueTransaction(save).WaitUntilFinished();
-                AssertQuiet(subscription);
+            TwoVertices();
+            WaitForSeq(_fallen8, 2);
+            using var subscription = Subscribe();
 
-                var load = new LoadTransaction { Path = save.ActualPath };
-                var info = _fallen8.EnqueueTransaction(load);
-                info.WaitUntilFinished();
-                Assert.AreEqual(TransactionState.Finished, info.TransactionState);
+            var save = new SaveTransaction { Path = Path.Combine(temp.FullName, "cf.f8s"), SavePartitions = 1 };
+            _fallen8.EnqueueTransaction(save).WaitUntilFinished();
+            AssertQuiet(subscription);
 
-                var resync = Read(subscription);
-                Assert.AreEqual(ChangeEventKind.Resync, resync.Kind);
-                Assert.AreEqual("load", resync.ResyncReason);
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            var load = new LoadTransaction { Path = save.ActualPath };
+            var info = _fallen8.EnqueueTransaction(load);
+            info.WaitUntilFinished();
+            Assert.AreEqual(TransactionState.Finished, info.TransactionState);
+
+            var resync = Read(subscription);
+            Assert.AreEqual(ChangeEventKind.Resync, resync.Kind);
+            Assert.AreEqual("load", resync.ResyncReason);
         }
 
         /// <summary>
@@ -860,32 +853,25 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void WalEnabledEngine_DeliversEvents_AfterDurableCommit()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_cfwal_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                using var walEngine = new Fallen8(_loggerFactory,
-                    new WriteAheadLogOptions(Path.Combine(tempDir, "cf.wal")), null, null, new ChangeFeedOptions());
+            using var temp = new TempDirectory("f8_cfwal_");
 
-                Assert.IsTrue(walEngine.ChangeFeed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription));
-                using (subscription)
+            using var walEngine = new Fallen8(_loggerFactory,
+                new WriteAheadLogOptions(Path.Combine(temp.FullName, "cf.wal")), null, null, new ChangeFeedOptions());
+
+            Assert.IsTrue(walEngine.ChangeFeed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription));
+            using (subscription)
+            {
+                var tx = new CreateVertexTransaction
                 {
-                    var tx = new CreateVertexTransaction
-                    {
-                        Definition = new NoSQL.GraphDB.Core.Model.VertexDefinition { CreationDate = 1u, Label = "person" }
-                    };
-                    var info = walEngine.EnqueueTransaction(tx);
-                    info.WaitUntilFinished();
-                    Assert.IsTrue(info.Durable, "the WAL-enabled commit is durable");
+                    Definition = new NoSQL.GraphDB.Core.Model.VertexDefinition { CreationDate = 1u, Label = "person" }
+                };
+                var info = walEngine.EnqueueTransaction(tx);
+                info.WaitUntilFinished();
+                Assert.IsTrue(info.Durable, "the WAL-enabled commit is durable");
 
-                    var evt = Read(subscription);
-                    Assert.AreEqual(ChangeEventKind.VertexCreated, evt.Kind);
-                    Assert.AreEqual(1, evt.Seq);
-                }
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
+                var evt = Read(subscription);
+                Assert.AreEqual(ChangeEventKind.VertexCreated, evt.Kind);
+                Assert.AreEqual(1, evt.Seq);
             }
         }
 
@@ -954,6 +940,74 @@ namespace NoSQL.GraphDB.Tests
             var completion = subscription.Reader.Completion;
             Assert.IsTrue(completion.Wait(5000), "the subscriber stream completes on engine dispose");
         }
+
+        #region a refusal names its own cause: disposal is not the subscriber limit
+
+        // Subscribing to a DISPOSED feed was reported as "subscriber limit reached" although no limit
+        // was hit, which sends an operator after the wrong knob. IsDisposed is what tells the two
+        // refusals apart, so each one is pinned against it here.
+
+        [TestMethod]
+        public void TrySubscribe_AfterFeedDispose_FailsForDisposal_NotTheSubscriberLimit()
+        {
+            var engine = new Fallen8(_loggerFactory, new ChangeFeedOptions { MaxSubscribers = 32 });
+
+            // The in-flight request's captured reference: the engine nulls its own property on
+            // dispose, the dispatcher instance the request already holds stays reachable.
+            var feed = engine.ChangeFeed;
+            Assert.IsFalse(feed.IsDisposed, "a live feed is not disposed");
+
+            engine.Dispose();
+
+            Assert.IsTrue(feed.IsDisposed, "the dropped/shut-down engine disposed its feed");
+            Assert.AreEqual(0, feed.SubscriberCount,
+                "no subscriber is registered, so the limit demonstrably is NOT the cause");
+            Assert.IsFalse(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription),
+                "a disposed feed accepts nobody");
+            Assert.IsNull(subscription);
+        }
+
+        [TestMethod]
+        public void TrySubscribe_AtTheSubscriberLimit_IsNotReportedAsDisposal()
+        {
+            using var engine = new Fallen8(_loggerFactory, new ChangeFeedOptions { MaxSubscribers = 1 });
+            var feed = engine.ChangeFeed;
+
+            Assert.IsTrue(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var first));
+
+            // MaxSubscribers_IsEnforced_AndUnsubscribeFreesTheSlot owns the refusal-and-slot contract
+            // at a limit of two; what these assertions add is the CAUSE, at the tightest limit there
+            // is - a one-slot feed, where a full feed and a shut-down feed look alike from outside.
+            Assert.IsFalse(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out _),
+                "the second subscriber exceeds MaxSubscribers");
+            Assert.IsFalse(feed.IsDisposed, "the limit refusal must not read as a shut-down feed");
+            Assert.AreEqual(feed.Options.MaxSubscribers, feed.SubscriberCount,
+                "the limit is genuinely reached: that IS the cause here");
+
+            // Freeing the slot lifts the refusal, and the feed was never disposed.
+            first.Dispose();
+            Assert.IsTrue(feed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var second));
+            Assert.IsFalse(feed.IsDisposed);
+            second.Dispose();
+        }
+
+        [TestMethod]
+        public void FeedIsDisposed_IsIdempotentAcrossRepeatedDisposal()
+        {
+            var feed = new ChangeFeedDispatcher(new ChangeFeedOptions(),
+                _loggerFactory.CreateLogger<ChangeFeedDispatcher>());
+
+            Assert.IsFalse(feed.IsDisposed);
+
+            feed.Dispose();
+            Assert.IsTrue(feed.IsDisposed);
+
+            // Dispose is documented as idempotent; the flag must not flip back.
+            feed.Dispose();
+            Assert.IsTrue(feed.IsDisposed);
+        }
+
+        #endregion
 
         [TestMethod]
         public void EventPayloads_NeverContainPropertyValues()

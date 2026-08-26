@@ -1,6 +1,6 @@
 // MIT License
 //
-// EnginePerformanceFollowupsTest.cs
+// OrderedIndexScanTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -33,12 +33,12 @@ using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Expression;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Behaviour regression tests for the "engine-performance-followups" feature.
+    /// Ordered-operator index scans: the O(log n + k) RangeIndex reroute must be invisible in the
+    /// RESULT a scan returns, being a speed change and not a behaviour change.
     ///
     ///  - P4: <see cref="Fallen8.IndexScan"/> routes ORDERED operators (Greater / GreaterOrEquals /
     ///        Lower / LowerOrEquals) on a RangeIndex through the index's O(log n + k) sorted methods
@@ -52,7 +52,7 @@ namespace NoSQL.GraphDB.Tests
     /// a positional list comparison - matching the only ordering contract IndexScan has ever offered.
     /// </summary>
     [TestClass]
-    public class EnginePerformanceFollowupsTest
+    public class OrderedIndexScanTest
     {
         private ILoggerFactory _loggerFactory;
 
@@ -60,17 +60,6 @@ namespace NoSQL.GraphDB.Tests
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-        }
-
-        private VertexModel[] CreateVertices(Fallen8 fallen8, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (int i = 0; i < count; i++)
-            {
-                tx.AddVertex(1u, "test");
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
         }
 
         /// <summary>
@@ -113,7 +102,7 @@ namespace NoSQL.GraphDB.Tests
         public void P4_OrderedIndexScan_RangeIndex_MatchesGenericPath_AcrossOperatorsAndSelectivities()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 6);
+            var v = TestVertices.Create(fallen8, 6, "test");
 
             // Two indices, populated IDENTICALLY. The RangeIndex takes the new O(log n + k) reroute;
             // the DictionaryIndex (not an IRangeIndex) takes the untouched generic O(n) FindElementsIndex
@@ -158,7 +147,7 @@ namespace NoSQL.GraphDB.Tests
         public void P4_OrderedIndexScan_RangeIndex_MatchesHandComputedSets_IncludingCrossBucketDedup()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 6);
+            var v = TestVertices.Create(fallen8, 6, "test");
 
             IIndex rangeIndex;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out rangeIndex, "rangeIdx", "RangeIndex"));
@@ -197,7 +186,7 @@ namespace NoSQL.GraphDB.Tests
         public void P4_OrderedIndexScan_EmptyAndFullSelectivity_MatchGenericPath()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 6);
+            var v = TestVertices.Create(fallen8, 6, "test");
 
             IIndex rangeIndex;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out rangeIndex, "rangeIdx", "RangeIndex"));
@@ -225,7 +214,7 @@ namespace NoSQL.GraphDB.Tests
         public void P4_NonRangeIndex_And_NonOrderedOperators_UseGenericPath_Unaffected()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var v = CreateVertices(fallen8, 6);
+            var v = TestVertices.Create(fallen8, 6, "test");
 
             IIndex rangeIndex, dictIndex;
             Assert.IsTrue(fallen8.IndexFactory.TryCreateIndex(out rangeIndex, "rangeIdx", "RangeIndex"));

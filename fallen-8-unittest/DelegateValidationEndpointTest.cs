@@ -31,10 +31,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -51,23 +48,13 @@ namespace NoSQL.GraphDB.Tests
     {
         private const string ApiKey = "delegate-validation-test-key";
 
-        private sealed class ValidationFactory : WebApplicationFactory<Program>
+        private sealed class ValidationFactory : VolatileAppFactory
         {
-            private readonly bool _withApiKey;
-
             public ValidationFactory(bool withApiKey = true)
+                : base(withApiKey
+                    ? new Dictionary<string, string> { ["Fallen8:Security:ApiKey"] = ApiKey }
+                    : null)
             {
-                _withApiKey = withApiKey;
-            }
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                // Volatile durability so booting the host writes no checkpoint/WAL.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                if (_withApiKey)
-                {
-                    builder.UseSetting("Fallen8:Security:ApiKey", ApiKey);
-                }
             }
         }
 

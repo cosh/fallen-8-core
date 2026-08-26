@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type {
   AlgorithmContract,
   PluginAuthoringCategory,
@@ -43,11 +43,10 @@ import { NlDraftList, type NlDraftView } from "../../delegate/nl/NlDraftList";
 import {
   generateChat,
   initialMessages,
-  probeEndpoint,
   type ChatTurn,
   type NlGenerationStats,
 } from "../../delegate/nl/generate";
-import { useElapsedSeconds, useNlRun } from "../../delegate/nl/useNlRun";
+import { useElapsedSeconds, useNlRun, useReachabilityProbe } from "../../delegate/nl/useNlRun";
 import { useActiveInstance } from "../../instances/registry";
 import {
   buildPluginGenerationPrompt,
@@ -108,7 +107,6 @@ function PluginNlAssistPanelInner({
   const [attempts, setAttempts] = useState<PluginNlAttempt[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showConfig, setShowConfig] = useState(false);
-  const [reachable, setReachable] = useState<boolean | null>(null);
   const run = useNlRun();
   // Progress feedback; useElapsedSeconds explains why it is load-bearing.
   const elapsedSeconds = useElapsedSeconds(busy !== null);
@@ -118,19 +116,7 @@ function PluginNlAssistPanelInner({
   const configured = isInstance ? instance !== null : isNlConfigured(config);
   const needsLeaveNotice =
     !isInstance && configured && !isLoopbackEndpoint(effective.endpoint) && !leaveNoticeAccepted;
-
-  useEffect(() => {
-    if (!configured || isInstance) {
-      setReachable(null);
-      return;
-    }
-    const controller = new AbortController();
-    setReachable(null);
-    void probeEndpoint(effective, controller.signal).then((ok) => {
-      if (!controller.signal.aborted) setReachable(ok);
-    });
-    return () => controller.abort();
-  }, [configured, isInstance, effective.endpoint, effective.apiKind, effective.model, effective.apiKey]);
+  const reachable = useReachabilityProbe(configured, isInstance, effective);
 
   const generate = async () => {
     setError(null);

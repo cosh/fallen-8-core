@@ -30,9 +30,11 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -103,10 +105,9 @@ namespace NoSQL.GraphDB.Tests
                     "{ \"version\": 1, \"settings\": { " + body + " } }");
             }
 
-            return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            return new VolatileAppFactory().WithWebHostBuilder(builder =>
             {
-                // These four are never-writable, so seeding them by UseSetting collides with nothing.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
+                // These are never-writable, so seeding them by UseSetting collides with nothing.
                 builder.UseSetting("Fallen8:Metadata:Directory", _metadata);
                 builder.UseSetting("Fallen8:Security:ApiKey", Key);
                 builder.UseSetting("Fallen8:Security:EnableConfigurationWrite", "true");
@@ -236,6 +237,79 @@ namespace NoSQL.GraphDB.Tests
             return reader.CanCount ? reader.Count : -1;
         }
 
+        /// <summary>
+        ///   The heartbeat period governs a stream opened after the write, while a stream already on air
+        ///   keeps the period it opened with. Observed on the SSE wire, which is the only place a client
+        ///   can see this setting at all: the period is read once when the stream opens.
+        /// </summary>
+        [TestMethod]
+        public async Task KeepAliveSeconds_GovernsAStreamOpenedAfterTheWrite_AndLeavesAnOpenStreamAlone()
+        {
+            using var factory = CreateFactory(new Dictionary<String, String>
+            {
+                ["Fallen8:ChangeFeed:KeepAliveSeconds"] = "3600"
+            });
+            using var client = Authenticated(factory);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+
+            var (silentResponse, silent) = await OpenFeed(client, cts.Token);
+            using (silentResponse)
+            {
+                await Write(client, "Fallen8:ChangeFeed:KeepAliveSeconds", "1");
+
+                var (beatingResponse, beating) = await OpenFeed(client, cts.Token);
+                using (beatingResponse)
+                {
+                    Assert.IsTrue(await SawKeepAlive(beating, TimeSpan.FromSeconds(20)),
+                        "a stream opened after the write heartbeats on the new one-second period, with no restart");
+                    Assert.IsFalse(await SawKeepAlive(silent, TimeSpan.FromSeconds(3)),
+                        "the stream already on air kept its hour-long period, which is what makes this "
+                            + "new-work-only rather than live");
+                }
+            }
+        }
+
+        /// <summary>Opens the change-feed SSE stream and returns a line reader over it.</summary>
+        private static async Task<(HttpResponseMessage Response, StreamReader Reader)> OpenFeed(
+            HttpClient client, CancellationToken cancellation)
+        {
+            var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get, "/changefeed"),
+                HttpCompletionOption.ResponseHeadersRead, cancellation);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            return (response, new StreamReader(await response.Content.ReadAsStreamAsync(cancellation),
+                System.Text.Encoding.UTF8));
+        }
+
+        /// <summary>
+        ///   Whether a keep-alive comment arrives within <paramref name="budget"/>. An idle stream writes
+        ///   nothing else, so the negative answer is a read that never completes; cancelling it ends the
+        ///   wait and leaves the reader unusable, which is why the absence half is asserted last.
+        /// </summary>
+        private static async Task<Boolean> SawKeepAlive(StreamReader reader, TimeSpan budget)
+        {
+            using var deadline = new CancellationTokenSource(budget);
+            try
+            {
+                while (true)
+                {
+                    var line = await reader.ReadLineAsync(deadline.Token);
+                    if (line == null)
+                    {
+                        return false; // the stream ended
+                    }
+
+                    if (line.StartsWith(":", StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+        }
+
         #endregion
 
         #region the registration ceilings
@@ -287,6 +361,65 @@ namespace NoSQL.GraphDB.Tests
                     filter = new { vertexFilter = "return (v) => true;" }
                 }
             });
+        }
+
+        /// <summary>
+        ///   The plugin ceiling governs the next registration immediately, and lowering it unregisters
+        ///   nothing. Asserted through the REST surface that enforces it, so what the assertion sees is
+        ///   what an operator sees.
+        /// </summary>
+        [TestMethod]
+        public async Task PluginCeiling_RefusesTheNextRegistrationImmediately_AndUnregistersNothing()
+        {
+            using var factory = CreateFactory(new Dictionary<String, String>
+            {
+                ["Fallen8:Plugins:MaxCount"] = "1"
+            });
+            using var client = Authenticated(factory);
+
+            Assert.AreEqual(HttpStatusCode.Created, (await RegisterFunction(client, "first")).StatusCode);
+
+            var refused = await RegisterFunction(client, "second");
+            Assert.AreEqual(HttpStatusCode.Conflict, refused.StatusCode,
+                "the ceiling of one is in force, which is the behaviour the write must change");
+
+            await Write(client, "Fallen8:Plugins:MaxCount", "5");
+
+            Assert.AreEqual(HttpStatusCode.Created, (await RegisterFunction(client, "second")).StatusCode,
+                "the raised ceiling governs the very next registration, with no restart");
+
+            // Lowered below what is already registered: nothing is unregistered, only new work is refused.
+            await Write(client, "Fallen8:Plugins:MaxCount", "1");
+            Assert.AreEqual(HttpStatusCode.Conflict, (await RegisterFunction(client, "third")).StatusCode);
+
+            using var listed = await client.GetAsync("/plugins");
+            Assert.AreEqual(HttpStatusCode.OK, listed.StatusCode);
+            var body = await listed.Content.ReadAsStringAsync();
+            StringAssert.Contains(body, "first", "the registrations already held survive a lowered ceiling");
+            StringAssert.Contains(body, "second");
+        }
+
+        private static Task<HttpResponseMessage> RegisterFunction(HttpClient client, String name)
+        {
+            // A graph function whose type name IS the registration name, which the compiler's contract
+            // check requires.
+            var source = "using System;\n"
+                + "using System.Collections.Generic;\n"
+                + "using NoSQL.GraphDB.Core;\n"
+                + "using NoSQL.GraphDB.Core.Plugins;\n"
+                + "public sealed class " + name + " : IGraphFunction\n"
+                + "{\n"
+                + "    public String PluginName => \"" + name + "\";\n"
+                + "    public Type PluginCategory => typeof(IGraphFunction);\n"
+                + "    public String Description => \"a ceiling probe\";\n"
+                + "    public String Manufacturer => \"test\";\n"
+                + "    public void Initialize(IFallen8 fallen8, IDictionary<String, Object> parameter) { }\n"
+                + "    public void Dispose() { }\n"
+                + "    public Boolean TryInvoke(out GraphFunctionResult result, IDictionary<String, Object> parameters)\n"
+                + "    { result = GraphFunctionResult.FromElements(null, null); return true; }\n"
+                + "}";
+
+            return client.PostAsJsonAsync("/plugins/function", new { name, sourceCode = source });
         }
 
         /// <summary>
@@ -413,11 +546,16 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        ///   The catalog's own promise: a live entry can apply itself, and its tier and apply mode agree.
-        ///   Cheap, and it is what stops a future promotion shipping a tier with no way to honour it.
+        ///   The catalog's own promise: every live entry declares the apply mode its behaviour actually
+        ///   honours, and the tranche is the size the spec says. Cheap, and it is what stops a future
+        ///   promotion shipping a tier whose promise the key cannot keep.
+        ///   <para>That a live entry HAS an apply delegate (and that no other entry carries one) is
+        ///   pinned bidirectionally for the whole catalog by
+        ///   <c>SettingCatalogTest.EveryLiveEntry_HasAnApplyDelegate_AndNoOtherEntryCarriesOne</c>, so
+        ///   it is not re-asserted here.</para>
         /// </summary>
         [TestMethod]
-        public void EveryPromotedKey_DeclaresItsApplyModeAndCanApply()
+        public void EveryPromotedKey_DeclaresItsApplyMode_AndTheTrancheIsTheSizeTheSpecSays()
         {
             var live = Fallen8SettingCatalog.Entries
                 .Where(entry => entry.Tier == Fallen8SettingTier.Live)
@@ -427,10 +565,100 @@ namespace NoSQL.GraphDB.Tests
 
             foreach (var entry in live)
             {
-                Assert.IsNotNull(entry.ApplyNow, entry.Key + " claims to be live with no way to apply");
                 Assert.AreEqual(Fallen8SettingApplyMode.LiveForNewWork, entry.ApplyMode,
                     entry.Key + " is a cap consulted when work starts, so it must promise new work only");
             }
+        }
+
+        #endregion
+
+        #region when an apply delegate throws
+
+        /// <summary>
+        ///   Hands every service through except one, so exactly one apply delegate fails the way a
+        ///   delegate reaching into a running subsystem can.
+        /// </summary>
+        private sealed class ServicesFailingFor : IServiceProvider
+        {
+            internal const String Reason = "the subsystem this key reaches is gone";
+
+            private readonly IServiceProvider _inner;
+            private readonly Type _failFor;
+
+            internal ServicesFailingFor(IServiceProvider inner, Type failFor)
+            {
+                _inner = inner;
+                _failFor = failFor;
+            }
+
+            /// <summary>Whether the sabotage is still in place.</summary>
+            internal Boolean Failing { get; set; } = true;
+
+            public Object GetService(Type serviceType)
+            {
+                if (Failing && serviceType == _failFor)
+                {
+                    throw new InvalidOperationException(Reason);
+                }
+
+                return _inner.GetService(serviceType);
+            }
+        }
+
+        /// <summary>
+        ///   A throwing apply delegate is recorded for ITS key and stops nothing else: every other live
+        ///   key still reaches the running process. Asserted against the real catalog through
+        ///   <see cref="Fallen8LiveSettings.ApplyAll"/>, so it exercises the catch rather than the read
+        ///   model's rendering of it (that half is <c>ConfigOverridesTest</c>'s).
+        /// </summary>
+        [TestMethod]
+        public void AnApplyThatThrows_IsRecordedForThatKeyOnly_AndTheOtherKeysStillApply()
+        {
+            using var factory = CreateFactory(new Dictionary<String, String>
+            {
+                ["Fallen8:ChangeFeed:MaxSubscribers"] = "5",
+                ["Fallen8:Namespaces:MaxNamespaces"] = "33",
+                ["Fallen8:Plugins:MaxCount"] = "7"
+            });
+            var namespaces = factory.Services.GetRequiredService<Fallen8Namespaces>();
+
+            // Drive the running process away from its configuration, so a key that applies is visible.
+            namespaces.ChangeFeedLimits.MaxSubscribers = 1;
+            namespaces.ApplyNamespaceCeiling(1);
+            namespaces.ApplyRegistryCeilings(pluginMaxCount: 1, storedQueryMaxCount: null);
+
+            // The keep-alive delegate is the one that asks for this service, and it sits in the middle of
+            // the live tranche, so the keys on both sides of it are the evidence.
+            var services = new ServicesFailingFor(factory.Services, typeof(IOptions<Fallen8ChangeFeedOptions>));
+            var live = new Fallen8LiveSettings(services,
+                (IConfigurationRoot)factory.Services.GetRequiredService<IConfiguration>(),
+                TestLoggerFactory.Create().CreateLogger(nameof(Fallen8LiveSettings)));
+
+            live.ApplyAll();
+
+            var failure = live.FailureFor("Fallen8:ChangeFeed:KeepAliveSeconds");
+            Assert.IsNotNull(failure,
+                "a delegate that threw must be recorded, or the surface goes on calling that key live");
+            StringAssert.Contains(failure, ServicesFailingFor.Reason,
+                "and it carries the reason the key did not take effect");
+            Assert.AreEqual(5, namespaces.ChangeFeedLimits.MaxSubscribers, "the key before it applied");
+            Assert.AreEqual(33, namespaces.MaxNamespaces, "and the keys after it applied too, which is why "
+                + "one failure must not abort the batch");
+            Assert.AreEqual(7, namespaces.Default.Engine.Plugins.MaxCount);
+            foreach (var key in new[]
+            {
+                "Fallen8:ChangeFeed:MaxSubscribers", "Fallen8:ChangeFeed:SubscriberQueueSize",
+                "Fallen8:Namespaces:MaxNamespaces", "Fallen8:Plugins:MaxCount", "Fallen8:StoredQueries:MaxCount"
+            })
+            {
+                Assert.IsNull(live.FailureFor(key), key + " applied, so nothing may be reported against it");
+            }
+
+            // The record is a current state, not a scar: once the delegate can run, the key is healthy
+            // again and the surface stops demanding a restart for it.
+            services.Failing = false;
+            live.ApplyAll();
+            Assert.IsNull(live.FailureFor("Fallen8:ChangeFeed:KeepAliveSeconds"));
         }
 
         #endregion

@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectModificationDateTest.cs
+// ModificationDateProjectionTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -36,14 +36,15 @@ using VertexDto = NoSQL.GraphDB.App.Controllers.Model.Vertex;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   Audit defect B18: the REST projection of an element's modification stamp. The engine keeps
-    ///   AGraphElementModel.ModificationDate as a DELTA in seconds since the element's creation
-    ///   stamp (zero when never modified), so the DTO base must render creation + delta - exactly
-    ///   what AGraphElementModel.GetModificationDate returns. It used to render the delta as if it
-    ///   were absolute, reporting 1970-01-01 for every untouched element.
+    ///   The REST projection of an element's modification stamp, on both the Vertex and the Edge
+    ///   DTO. The engine keeps AGraphElementModel.ModificationDate as a DELTA in seconds since the
+    ///   element's creation stamp (zero when never modified), so the DTO base must render
+    ///   creation + delta - exactly what AGraphElementModel.GetModificationDate returns.
+    ///   <para>History (audit defect B18): the DTO base rendered the delta as if it were absolute,
+    ///   reporting 1970-01-01 for every untouched element.</para>
     /// </summary>
     [TestClass]
-    public class AuditDefectModificationDateTest
+    public class ModificationDateProjectionTest
     {
         /// <summary>The 1970 epoch every stamp in DateHelper is relative to.</summary>
         private static readonly DateTime Epoch = new DateTime(1970, 1, 1, 0, 0, 0, 0);

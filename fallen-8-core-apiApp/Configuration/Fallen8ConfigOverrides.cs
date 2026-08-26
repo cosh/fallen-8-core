@@ -303,10 +303,13 @@ namespace NoSQL.GraphDB.App.Configuration
                     // user profile rather than a file beside the app.
                     return IsUserSecrets(json) ? Fallen8SettingSource.UserSecrets : Fallen8SettingSource.AppSettings;
                 default:
-                    // A memory provider or anything else this build does not recognise. Deliberately
-                    // NOT reported as an authority: arbitration stands down only for the environment
-                    // and the command line, so anything else is a layer an override can beat.
-                    return Fallen8SettingSource.Host;
+                    // A memory provider, or anything else this build does not recognise: a layer an
+                    // override can beat, and therefore a key the write surface offers. Which layers it
+                    // may NOT beat is not decided again here - a provider the authority predicate names
+                    // reports environment-grade, so a type added there can never read as writable.
+                    return Fallen8ConfigOverridesSource.IsAuthority(provider)
+                        ? Fallen8SettingSource.Environment
+                        : Fallen8SettingSource.Host;
             }
         }
 

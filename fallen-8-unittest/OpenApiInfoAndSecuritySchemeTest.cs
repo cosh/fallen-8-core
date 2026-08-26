@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectOpenApiDocumentTest.cs
+// OpenApiInfoAndSecuritySchemeTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -31,17 +31,18 @@ using System.Net;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Pins the two audit-defect fixes in the OpenAPI document transformer (fallen-8-core-apiApp/Program.cs):
-    /// B34 - the info block carried the ASP.NET defaults (title = assembly name, version 1.0.0) instead of
-    /// the product name and the API version every route is served under; B35 - the document described no
-    /// security scheme at all, so neither Scalar nor a generated client had anywhere to put the API key.
+    /// Pins two things the OpenAPI document transformer (fallen-8-core-apiApp/Program.cs) writes
+    /// into the served document: the info block (product title and the API version every route is
+    /// served under) and the API-key security scheme with its document-level requirement, in both
+    /// the served document and the pinned snapshot.
+    /// <para>History: audit defect B34 - the info block carried the ASP.NET defaults (title =
+    /// assembly name, version 1.0.0); audit defect B35 - the document described no security scheme
+    /// at all, so neither Scalar nor a generated client had anywhere to put the API key.</para>
     /// </summary>
     /// <remarks>
     /// The decided contract for B35: the API-key scheme AND a document-level requirement are declared
@@ -52,7 +53,7 @@ namespace NoSQL.GraphDB.Tests
     /// an empty array so they are not misreported as secured.
     /// </remarks>
     [TestClass]
-    public class AuditDefectOpenApiDocumentTest
+    public class OpenApiInfoAndSecuritySchemeTest
     {
         private const String DocumentPath = "/openapi/v0.1.json";
         private const String ExpectedTitle = "Fallen-8 REST API";
@@ -85,23 +86,17 @@ namespace NoSQL.GraphDB.Tests
         /// Boots the real application in Development (only there are /openapi and Scalar mapped) with a
         /// volatile engine, so generating the document writes no checkpoint or WAL.
         /// </summary>
-        private sealed class DocumentFactory : WebApplicationFactory<Program>
+        private sealed class DocumentFactory : VolatileAppFactory
         {
-            private readonly IReadOnlyDictionary<String, String> _settings;
-
-            public DocumentFactory(IReadOnlyDictionary<String, String> settings = null)
+            public DocumentFactory(IDictionary<String, String> settings = null)
+                : base(settings)
             {
-                _settings = settings ?? new Dictionary<String, String>();
             }
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                foreach (var setting in _settings)
-                {
-                    builder.UseSetting(setting.Key, setting.Value);
-                }
             }
         }
 

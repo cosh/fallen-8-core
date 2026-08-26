@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectCreateTypeGuardTest.cs
+// ElementCreatePropertyTypeGuardTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -39,15 +39,18 @@ using NoSQL.GraphDB.Core.Transaction;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   Audit defect B19: the four element-create routes (<c>PUT /vertex</c>, <c>PUT /vertices</c>,
-    ///   <c>PUT /edge</c>, <c>PUT /edges</c>) converted caller-supplied property types without a
-    ///   guard, so an unknown type name or an unconvertible value escaped as a 500 although every
-    ///   one of them documents a 400 for an invalid specification. These tests pin the 400, pin that
-    ///   a rejected request writes nothing (the guard runs before the transaction is enqueued), and
-    ///   pin the valid conversions the guard must keep letting through.
+    ///   The create-time property-type guard on the four element-create routes (<c>PUT /vertex</c>,
+    ///   <c>PUT /vertices</c>, <c>PUT /edge</c>, <c>PUT /edges</c>), and the only coverage of it.
+    ///   These tests pin the 400, pin that a rejected request writes nothing (the guard runs before
+    ///   the transaction is enqueued), and pin the valid conversions the guard must keep letting
+    ///   through.
+    ///
+    ///   <para>History (audit defect B19): the four routes converted caller-supplied property types
+    ///   without a guard, so an unknown type name or an unconvertible value escaped as a 500
+    ///   although every one of them documents a 400 for an invalid specification.</para>
     /// </summary>
     [TestClass]
-    public class AuditDefectCreateTypeGuardTest
+    public class ElementCreatePropertyTypeGuardTest
     {
         private Fallen8 _fallen8;
         private GraphController _controller;

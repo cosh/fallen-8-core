@@ -476,23 +476,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
                 // client does and what the vendor's own curl line does.
                 request.Headers.TryAddWithoutValidation("Accept", "application/json");
 
-                HttpResponseMessage response;
-                try
-                {
-                    response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
-                }
-                catch (HttpRequestException exception)
-                {
-                    // "I could not look" must never become "there is nothing there": a source that did not
-                    // answer fails the run, which withdraws nothing.
-                    throw new ProviderSourceException(String.Format(
-                        "The console did not answer GET {0}: {1}", url, exception.Message), exception);
-                }
-                catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
-                {
-                    throw new ProviderSourceException(String.Format(
-                        "The console did not answer GET {0} in time.", url), exception);
-                }
+                var response = await ProviderRequest
+                    .SendAsync(_http, request, "The console", cancellationToken).ConfigureAwait(false);
 
                 using (response)
                 {

@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiTimeoutError, apiRequest } from "../src/api/client";
+import { ApiTimeoutError, apiRequest, startDeadline } from "../src/api/client";
 import { getStatus } from "../src/api/endpoints";
 import type { InstanceConfig } from "../src/instances/types";
 
@@ -150,5 +150,21 @@ describe("the request deadline", () => {
     const error = await pending;
     expect(error).toBeInstanceOf(ApiTimeoutError);
     expect((error as ApiTimeoutError).timeoutMs).toBeGreaterThan(0);
+  });
+});
+
+describe("startDeadline is exported for reuse by other deadline-bound callers", () => {
+  it("is callable directly, not only reachable through apiRequest", () => {
+    const deadline = startDeadline(undefined, 1000);
+    expect(deadline.signal).toBeInstanceOf(AbortSignal);
+    expect(deadline.expired).toBe(false);
+    deadline.done();
+  });
+
+  it("passes the caller's own signal through untouched when there is no timeout", () => {
+    const controller = new AbortController();
+    const deadline = startDeadline(controller.signal, undefined);
+    expect(deadline.signal).toBe(controller.signal);
+    deadline.done();
   });
 });

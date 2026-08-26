@@ -69,17 +69,6 @@ namespace NoSQL.GraphDB.Tests
             _loggerFactory = TestLoggerFactory.Create();
         }
 
-        private VertexModel[] CreateVertices(Fallen8 fallen8, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (int i = 0; i < count; i++)
-            {
-                tx.AddVertex(1u, "test");
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
-
         /// <summary>
         /// Appends a raw (possibly poisoned/null) in-edge to a vertex through the internal
         /// fault-injection hook, bypassing the read-only public adjacency surface. Reflection is used
@@ -102,7 +91,7 @@ namespace NoSQL.GraphDB.Tests
             // (ASP.NET Core creates a controller per request). A distinctive spec avoids colliding
             // with any other test's cache key.
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 2);
+            var vertices = TestVertices.Create(fallen8, 2, "test");
             var edgeTx = new CreateEdgesTransaction();
             edgeTx.AddEdge(vertices[0].Id, "e", vertices[1].Id, 1u);
             fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
@@ -148,7 +137,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - a hub with two outgoing and one incoming edge (3 distinct incident edges).
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 4);
+            var vertices = TestVertices.Create(fallen8, 4, "test");
             int hub = vertices[0].Id;
             int n1 = vertices[1].Id;
             int n2 = vertices[2].Id;
@@ -179,7 +168,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - a single vertex with a self-loop edge (present in BOTH OutEdges and InEdges).
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 1);
+            var vertices = TestVertices.Create(fallen8, 1, "test");
             int v = vertices[0].Id;
 
             var edgeTx = new CreateEdgesTransaction();
@@ -205,7 +194,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 2);
+            var vertices = TestVertices.Create(fallen8, 2, "test");
             var edgeTx = new CreateEdgesTransaction();
             edgeTx.AddEdge(vertices[0].Id, "e", vertices[1].Id, 1u);
             fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
@@ -232,7 +221,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // Arrange - S --("in")--> V, then poison V's in-edge bucket so removing V faults midway.
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 2);
+            var vertices = TestVertices.Create(fallen8, 2, "test");
             int sourceId = vertices[0].Id;
             int vId = vertices[1].Id;
 
@@ -386,7 +375,7 @@ namespace NoSQL.GraphDB.Tests
         public void RangeIndex_OrderedQueries_StayCorrectAcrossValueAndKeyMutations()
         {
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 5);
+            var vertices = TestVertices.Create(fallen8, 5, "test");
             var index = new RangeIndex();
             index.Initialize(fallen8, null);
 
@@ -436,7 +425,7 @@ namespace NoSQL.GraphDB.Tests
             // Arrange - S and T joined by three DISTINCT equal-length (2-hop) paths S->Mi->T, so BLS
             // finds three shortest paths.
             var fallen8 = new Fallen8(_loggerFactory);
-            var vertices = CreateVertices(fallen8, 5); // 0=S, 1=T, 2=M1, 3=M2, 4=M3
+            var vertices = TestVertices.Create(fallen8, 5, "test"); // 0=S, 1=T, 2=M1, 3=M2, 4=M3
             int s = vertices[0].Id;
             int t = vertices[1].Id;
 

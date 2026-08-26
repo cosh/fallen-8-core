@@ -32,12 +32,10 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Chat;
 using NoSQL.GraphDB.App.Configuration;
 
@@ -68,7 +66,7 @@ namespace NoSQL.GraphDB.Tests
 
         private const String ApiKey = "chat-test-key";
 
-        private sealed class ChatFactory : WebApplicationFactory<Program>
+        private sealed class ChatFactory : VolatileAppFactory
         {
             private readonly Boolean _enabled;
             private readonly IChatBackend _backend;
@@ -88,7 +86,7 @@ namespace NoSQL.GraphDB.Tests
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
+                base.ConfigureWebHost(builder);
                 builder.UseSetting("Fallen8:Chat:Enabled", _enabled ? "true" : "false");
                 builder.UseSetting("Fallen8:Chat:Backend", "Ollama"); // never constructed: the fake replaces it
                 builder.UseSetting("Fallen8:Chat:Ollama:Model", "fake-model");

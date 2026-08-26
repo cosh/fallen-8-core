@@ -160,10 +160,6 @@ namespace NoSQL.GraphDB.Integrations.Run
                 return unavailable;
             }
 
-            // Created here and disposed with the lease below, so a file is readable for exactly as long as a
-            // credential is: across the source read and the graph write, and not one statement longer.
-            var runFiles = _files.Create(normalized.Files);
-
             var cancelled = false;
 
             // Whether control ever entered the apply phase, which is the only thing that decides what may be said
@@ -173,8 +169,13 @@ namespace NoSQL.GraphDB.Integrations.Run
             // frame knows which side of the call it stands on.
             var applyStarted = false;
 
+            // The files are created INSIDE the lease's scope, so a factory that throws cannot leave the
+            // credential held: with no run in flight the active-credential set is empty, and that is what
+            // makes the redaction filter's own bookkeeping trustworthy. They are disposed with the lease, so
+            // a file is readable for exactly as long as a credential is - across the source read and the
+            // graph write, and not one statement longer.
             using (lease)
-            using (runFiles)
+            using (var runFiles = _files.Create(normalized.Files))
             {
                 try
                 {
@@ -214,13 +215,15 @@ namespace NoSQL.GraphDB.Integrations.Run
                         }
                     }
 
+                    // Named BEFORE the validation, not after it: entered afterwards the phase claimed work
+                    // that had already produced its diagnostics.
+                    progress.EnterPhase(RunPhases.Validate);
+
                     var validated = _validator.Validate(snapshot, descriptor);
                     foreach (var diagnostic in validated.Diagnostics)
                     {
                         report.Diagnostics.Add(diagnostic);
                     }
-
-                    progress.EnterPhase(RunPhases.Validate);
 
                     if (!validated.EnvelopeAccepted)
                     {

@@ -26,6 +26,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { getConfig, getStatus } from "../api/endpoints";
 import type { InstanceConfig } from "../instances/types";
+import { STATUS_POLL_MS } from "../lib/pollIntervals";
 
 /**
  * The shared /status cache entry. Same query key as the AppShell health probe, so every
@@ -55,7 +56,7 @@ export function useStatus(instance: InstanceConfig | null, options?: { poll?: bo
     queryKey: [instance?.id, "status"],
     queryFn: ({ signal }) => getStatus(instance!, signal),
     enabled: instance !== null,
-    refetchInterval: options?.poll ? 15_000 : undefined,
+    refetchInterval: options?.poll ? STATUS_POLL_MS : undefined,
     ...(options?.poll ? { retry: 0 } : {}),
   });
 }

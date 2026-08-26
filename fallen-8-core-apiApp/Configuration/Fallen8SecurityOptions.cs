@@ -147,7 +147,7 @@ namespace NoSQL.GraphDB.App.Configuration
         // There is deliberately no AllowRemoteAccess knob. It existed, bound, and was read by no
         // product code while its own documentation admitted it enforced nothing, so it advertised a
         // loopback guarantee the app never had - the same defect class as the removed
-        // MaxSensitiveRequestBodyBytes (see AuditDefectLimitsTest). Off-box reachability is the bind
+        // MaxSensitiveRequestBodyBytes (see SensitiveRequestBodyLimitTest). Off-box reachability is the bind
         // address (ASPNETCORE_URLS / Kestrel) plus an ApiKey. Its absence is pinned by
         // SettingCatalogTest so the knob cannot come back without enforcement.
     }

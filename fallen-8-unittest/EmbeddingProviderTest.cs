@@ -69,6 +69,14 @@ namespace NoSQL.GraphDB.Tests
         /// </summary>
         internal int RefuseFromCall;
 
+        /// <summary>The refusal's wording, which belongs to the backend and is what the provider reads
+        /// to decide whether a failure deserves a pointer at the setting behind it.</summary>
+        internal string RefusalMessage = "the hourly token budget for this key is spent";
+
+        /// <summary>The per-call options the provider passed, so a test sees what the backend was
+        /// actually ASKED to do rather than trusting the wrapper's intent.</summary>
+        internal EmbeddingGenerationOptions LastOptions;
+
         internal FakeEmbeddingGenerator(int dimension)
         {
             _dimension = dimension;
@@ -94,10 +102,11 @@ namespace NoSQL.GraphDB.Tests
         public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(IEnumerable<string> values,
             EmbeddingGenerationOptions options = null, CancellationToken cancellationToken = default)
         {
+            LastOptions = options;
             var call = Interlocked.Increment(ref Calls);
             if (RefuseFromCall > 0 && call >= RefuseFromCall)
             {
-                throw new InvalidOperationException("the hourly token budget for this key is spent");
+                throw new InvalidOperationException(RefusalMessage);
             }
 
             var result = new GeneratedEmbeddings<Embedding<float>>();
@@ -130,7 +139,7 @@ namespace NoSQL.GraphDB.Tests
 
         private const string ApiKey = "embedding-test-key";
 
-        private sealed class ProviderFactory : WebApplicationFactory<Program>
+        private sealed class ProviderFactory : VolatileAppFactory
         {
             private readonly bool _enabled;
             private readonly int _fakeDimension;
@@ -145,7 +154,7 @@ namespace NoSQL.GraphDB.Tests
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
+                base.ConfigureWebHost(builder);
                 builder.UseSetting("Fallen8:Embedding:Enabled", _enabled ? "true" : "false");
                 builder.UseSetting("Fallen8:Embedding:Backend", "Onnx"); // never constructed: the fake replaces it
                 builder.UseSetting("Fallen8:Embedding:ModelName", "fake-model");
@@ -390,13 +399,7 @@ namespace NoSQL.GraphDB.Tests
 
             // Diamond a -> b -> d / a -> c -> d, embedded via the provider: b matches the
             // query text exactly, c does not.
-            var vtx = new CreateVerticesTransaction();
-            for (var i = 0; i < 4; i++)
-            {
-                vtx.AddVertex(1u, "n");
-            }
-            engine.EnqueueTransaction(vtx).WaitUntilFinished();
-            var v = vtx.GetCreatedVertices();
+            var v = TestVertices.Create(engine, 4, "n");
             var edges = new CreateEdgesTransaction();
             edges.AddEdge(v[0].Id, "knows", v[1].Id, 1u, "knows");
             edges.AddEdge(v[1].Id, "knows", v[3].Id, 1u, "knows");
@@ -590,6 +593,83 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task Wrapper_OllamaProtocolBackends_AskTheBackendNotToTruncate()
+        {
+            // The flag defaults to TRUE on both, and a truncated input comes back as a valid-looking
+            // vector that describes only its head - so the request carrying it is the whole mechanism,
+            // and nothing else in the pipeline can notice it went missing.
+            foreach (var backend in new[] { "Ollama", "Nahil" })
+            {
+                var fake = new FakeEmbeddingGenerator(2);
+                await Provider(EmbeddingOptions(backend), fake).EmbedAsync(new[] { "x" }, default);
+
+                Assert.AreEqual(1, fake.Calls, backend);
+                Assert.IsNotNull(fake.LastOptions, backend + ": per-call options must reach the generator");
+                Assert.IsTrue(fake.LastOptions.AdditionalProperties.ContainsKey("truncate"),
+                    backend + ": the option is carried by NAME, which is what OllamaSharp's mapper binds on");
+                Assert.AreEqual((object)false, fake.LastOptions.AdditionalProperties["truncate"],
+                    backend + ": a real boolean false, since that is what reaches the request body");
+            }
+
+            // The in-process backends read none of this: options they ignore would only suggest the
+            // flag governs them too.
+            foreach (var backend in new[] { "Onnx", "LLamaSharp" })
+            {
+                var fake = new FakeEmbeddingGenerator(2);
+                await Provider(EmbeddingOptions(backend), fake).EmbedAsync(new[] { "x" }, default);
+
+                Assert.AreEqual(1, fake.Calls, backend);
+                Assert.IsNull(fake.LastOptions, backend + " truncates on its own configured terms, if at all");
+            }
+        }
+
+        private static Fallen8EmbeddingOptions EmbeddingOptions(string backend)
+        {
+            return new Fallen8EmbeddingOptions
+            {
+                Enabled = true, ModelName = "m", Dimension = 2, Backend = backend
+            };
+        }
+
+        [TestMethod]
+        public async Task Wrapper_AnOverLongRefusal_NamesWhatToChange_AndEveryOtherFailureDoesNot()
+        {
+            // The backend's sentence as it really arrives: unpunctuated, so the hint has to supply the
+            // separator, or the two run together into one unreadable line.
+            var refusing = new FakeEmbeddingGenerator(2)
+            {
+                RefuseFromCall = 1, RefusalMessage = "input length exceeds the context length"
+            };
+            var hinted = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
+                () => Provider(EmbeddingOptions("Ollama"), refusing).EmbedAsync(new[] { "x" }, default));
+            StringAssert.Contains(hinted.Message, "input length exceeds the context length",
+                "the backend's own reason is never replaced by the hint");
+            StringAssert.Contains(hinted.Message, "lower Fallen8:Ingestion:ChunkMaxChars",
+                "a refusal Fallen-8 asked for must name the Fallen-8 setting that produced the input");
+            StringAssert.Contains(hinted.Message, "length. One input exceeds");
+
+            // Same sentence, the backend's casing changed: the wording is not ours to depend on exactly.
+            var shouty = new FakeEmbeddingGenerator(2)
+            {
+                RefuseFromCall = 1, RefusalMessage = "The input EXCEEDS THE CONTEXT LENGTH."
+            };
+            var shoutyHinted = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
+                () => Provider(EmbeddingOptions("Ollama"), shouty).EmbedAsync(new[] { "x" }, default));
+            StringAssert.Contains(shoutyHinted.Message, "One input exceeds the model's per-input token ceiling");
+            Assert.IsFalse(shoutyHinted.Message.Contains(".."),
+                "an already-punctuated reason must not collect a second full stop");
+
+            // Any other failure carries no hint: pointing at a length setting for an unrelated outage
+            // sends the operator to fix the one thing that is not wrong.
+            var down = new FakeEmbeddingGenerator(2) { RefuseFromCall = 1 };
+            var plain = await Assert.ThrowsExceptionAsync<EmbeddingProviderUnavailableException>(
+                () => Provider(EmbeddingOptions("Ollama"), down).EmbedAsync(new[] { "x" }, default));
+            StringAssert.Contains(plain.Message, "the hourly token budget for this key is spent");
+            Assert.IsFalse(plain.Message.Contains("ChunkMaxChars"),
+                "the hint belongs to the over-long refusal alone");
+        }
+
+        [TestMethod]
         public async Task Wrapper_Disabled_ThrowsUnavailable_WithoutTouchingTheBackend()
         {
             var fake = new FakeEmbeddingGenerator(2);
@@ -718,23 +798,18 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(prefixed.Message, "Fallen8:Embedding:Ollama:Endpoint");
         }
 
-        private sealed class RealBackendFactory : WebApplicationFactory<Program>
+        /// <summary>No model paths configured - and no fake: the REAL backend factory runs.</summary>
+        private sealed class RealBackendFactory : VolatileAppFactory
         {
-            private readonly string _backend;
-
             public RealBackendFactory(string backend)
+                : base(new Dictionary<string, string>
+                {
+                    ["Fallen8:Embedding:Enabled"] = "true",
+                    ["Fallen8:Embedding:Backend"] = backend,
+                    ["Fallen8:Embedding:ModelName"] = "m",
+                    ["Fallen8:Embedding:Dimension"] = "2"
+                })
             {
-                _backend = backend;
-            }
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                builder.UseSetting("Fallen8:Embedding:Enabled", "true");
-                builder.UseSetting("Fallen8:Embedding:Backend", _backend);
-                builder.UseSetting("Fallen8:Embedding:ModelName", "m");
-                builder.UseSetting("Fallen8:Embedding:Dimension", "2");
-                // No model paths configured - and no fake: the REAL backend factory runs.
             }
         }
 
@@ -786,36 +861,29 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ModelStamp_RoundTripsThroughTheWal()
         {
-            var tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "f8_stampwal_" + Guid.NewGuid().ToString("N"));
-            System.IO.Directory.CreateDirectory(tempDir);
-            var walPath = System.IO.Path.Combine(tempDir, "stamp.wal");
-            try
+            using var temp = new TempDirectory("f8_stampwal_");
+            var walPath = System.IO.Path.Combine(temp.FullName, "stamp.wal");
+
+            int a;
+            using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
             {
-                int a;
-                using (var writer = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath)))
-                {
-                    var tx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u } };
-                    writer.EnqueueTransaction(tx).WaitUntilFinished();
-                    a = tx.VertexCreated.Id;
-                    writer.EnqueueTransaction(new SetEmbeddingsTransaction()
-                            .SetEmbedding(a, "default", new[] { 1f, 2f }, "fake-model#2#Cosine"))
-                        .WaitUntilFinished();
-                }
-
-                using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
-                Assert.IsTrue(recovered.TryGetGraphElement(out var element, a));
-                Assert.IsTrue(element.TryGetEmbeddingModelStamp(out var stamp));
-                Assert.AreEqual("fake-model#2#Cosine", stamp);
-
-                // A bring-your-own-vector overwrite CLEARS the stamp - it can never lie.
-                recovered.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(a, "default", new[] { 3f, 4f }))
+                var tx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u } };
+                writer.EnqueueTransaction(tx).WaitUntilFinished();
+                a = tx.VertexCreated.Id;
+                writer.EnqueueTransaction(new SetEmbeddingsTransaction()
+                        .SetEmbedding(a, "default", new[] { 1f, 2f }, "fake-model#2#Cosine"))
                     .WaitUntilFinished();
-                Assert.IsFalse(element.TryGetEmbeddingModelStamp(out _));
             }
-            finally
-            {
-                try { System.IO.Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+
+            using var recovered = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+            Assert.IsTrue(recovered.TryGetGraphElement(out var element, a));
+            Assert.IsTrue(element.TryGetEmbeddingModelStamp(out var stamp));
+            Assert.AreEqual("fake-model#2#Cosine", stamp);
+
+            // A bring-your-own-vector overwrite CLEARS the stamp - it can never lie.
+            recovered.EnqueueTransaction(new SetEmbeddingsTransaction().SetEmbedding(a, "default", new[] { 3f, 4f }))
+                .WaitUntilFinished();
+            Assert.IsFalse(element.TryGetEmbeddingModelStamp(out _));
         }
 
         #endregion

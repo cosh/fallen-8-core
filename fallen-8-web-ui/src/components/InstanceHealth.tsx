@@ -26,8 +26,10 @@
 import { useQuery } from "@tanstack/react-query";
 import type { InstanceConfig } from "../instances/types";
 import { isCrossOriginInstance } from "../instances/types";
-import { getStatus, isAuthorized, listNamespaces } from "../api/endpoints";
+import { isAuthorized, listNamespaces } from "../api/endpoints";
 import { ApiError, ApiTimeoutError } from "../api/client";
+import { useStatus } from "../state/status";
+import { STATUS_POLL_MS } from "../lib/pollIntervals";
 import {
   describeDefaultOnly,
   describeTotals,
@@ -55,12 +57,9 @@ import {
  * (see `describeWholeGraph` / `describeDefaultOnly`).
  */
 export function InstanceHealth({ instance }: { instance: InstanceConfig }) {
-  const health = useQuery({
-    queryKey: [instance.id, "status"],
-    queryFn: ({ signal }) => getStatus(instance, signal),
-    refetchInterval: 20_000,
-    retry: 0,
-  });
+  // The shared /status cache row (see state/status.ts): for the active instance this rides the
+  // same query key AppShell polls, rather than opening a second observer with its own interval.
+  const health = useStatus(instance, { poll: true });
   const probe = health.data ?? null;
   // Keyed by the RAW instance id, like every other /ns observer (AppShell, NamespacesPanel): the
   // inventory is Fallen-8-level, so the active instance's row rides their cache entry and adds no
@@ -69,7 +68,7 @@ export function InstanceHealth({ instance }: { instance: InstanceConfig }) {
     queryKey: [instance.id, "namespaces"],
     queryFn: ({ signal }) => listNamespaces(instance, signal),
     enabled: probe !== null && isAuthorized(probe),
-    refetchInterval: 15_000,
+    refetchInterval: STATUS_POLL_MS,
     retry: 0,
   });
 

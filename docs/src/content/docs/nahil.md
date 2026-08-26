@@ -145,22 +145,16 @@ variable to change instead. That is
 ## Waiting for a cold model
 
 The first request for a model that is not yet resident on a worker gets `503` plus a
-`Retry-After`, because Nahil has started a pull that can take minutes. Fallen-8 waits it out
-instead of failing:
+`Retry-After`, because Nahil has started a pull that can take minutes. Fallen-8 waits that out
+instead of failing, so **expect the first call after a quiet period to be slow rather than
+broken**. A spent token budget (`429`) is waited out the same way, and each wait logs one line
+naming the model and the reason, so the delay is visible while it happens.
 
-- `Retry-After` is honoured in both forms, delta-seconds and HTTP-date. Without a usable one,
-  the wait backs off from 2 s, capped at 30 s, with jitter so a fleet of instances does not
-  return in lockstep.
-- Each individual wait is clamped to 60 s, so a broken or hostile `Retry-After` cannot park a
-  request.
-- **The total is bounded by your own budget** - `Fallen8:Chat:TimeoutSeconds` /
-  `Fallen8:Embedding:TimeoutSeconds` - and by nothing else. There is deliberately no separate
-  retry budget: a second deadline could only make the answer arrive at a time no setting
-  explains. When the budget runs out, the error says the model was not available in time, names
-  it, and says how long was spent waiting.
-- `429` is retried the same way, and stays distinguishable from `503` in the logs and in the
-  error, because they call for different actions: wait for a pull, versus wait for a quota.
-- Each retry logs one line, not one per poll.
+**The only knob is your own budget** - `Fallen8:Chat:TimeoutSeconds` /
+`Fallen8:Embedding:TimeoutSeconds`. There is deliberately no separate retry budget, because a
+second deadline could only make the answer arrive at a time no setting explains. When the budget
+runs out, the error says the model was not available in time, names it, and says how long was
+spent waiting.
 
 Fallen-8 never calls `/api/pull`, `/api/create`, `/api/delete` or `/api/copy`. Model residency is
 Nahil's job. (The compose scripts that *do* pull models run against the local sidecar container

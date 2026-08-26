@@ -46,36 +46,25 @@ namespace NoSQL.GraphDB.Tests
     public class WriteAheadLogTest
     {
         private ILoggerFactory _loggerFactory;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_wal_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_wal_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         #region helpers
 
-        private string SavePath => Path.Combine(_tempDir, "savegame.f8s");
-        private string WalPath => Path.Combine(_tempDir, "savegame.f8s.wal");
+        private string SavePath => Path.Combine(_temp.FullName, "savegame.f8s");
+        private string WalPath => Path.Combine(_temp.FullName, "savegame.f8s.wal");
 
         private Fallen8 NewEngineWithWal()
         {
@@ -508,7 +497,7 @@ namespace NoSQL.GraphDB.Tests
             // Same snapshot, addressed via a file-system-equivalent variant: an extra "." segment.
             // Path.GetFullPath canonicalizes this back to SavePath regardless of the current directory
             // (the path is absolute), so the test is deterministic and cross-platform.
-            var variantPath = Path.Combine(_tempDir, ".", "savegame.f8s");
+            var variantPath = Path.Combine(_temp.FullName, ".", "savegame.f8s");
             Assert.AreNotEqual(SavePath, variantPath, "Sanity: the variant is not byte-identical to the save path.");
 
             var recovered = NewEngineWithWal();
@@ -566,7 +555,7 @@ namespace NoSQL.GraphDB.Tests
             source.Dispose();
 
             // A different snapshot B, produced independently (different content + engine id).
-            var otherPath = Path.Combine(_tempDir, "other.f8s");
+            var otherPath = Path.Combine(_temp.FullName, "other.f8s");
             var producer = new Fallen8(_loggerFactory);
             AddVertices(producer, ("robot", "Zed"));                      // id 0 in B
             var actualOther = Save(producer, otherPath);

@@ -1150,7 +1150,7 @@ export interface DelegateValidationResult {
 }
 
 // ---- integrations (feature integrations) ----
-// The runtime is a separate deployable and the API proxies four routes to it, forwarding bodies
+// The runtime is a separate deployable and the API proxies its routes to it, forwarding bodies
 // untouched, so these shapes are the RUNTIME'S contract rather than the API app's. Every field is
 // what the runtime serialises; newer ones stay optional so an instance predating them still parses.
 
@@ -1217,9 +1217,8 @@ export interface IntegrationRunAccepted {
 /**
  * One identity's current or most recent run.
  *
- * Deliberately not a run history: the runtime keeps one slot per identity, superseded by that
- * identity's next run and dropped on restart. It exists because the report used to be unreachable -
- * a real import outlives the connection that would have carried it.
+ * Deliberately not a run history. The runtime's RunTracker states exactly how narrow that is, and
+ * why a report has to be readable after the run at all.
  */
 export interface IntegrationRunState {
   runId: string;

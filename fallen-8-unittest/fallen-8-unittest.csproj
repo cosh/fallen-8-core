@@ -30,6 +30,7 @@
     <ProjectReference Include="..\fallen-8-core\fallen-8-core.csproj" />
     <ProjectReference Include="..\fallen-8-integrations\fallen-8-integrations.csproj" />
     <ProjectReference Include="..\fallen-8-mcp\fallen-8-mcp.csproj" />
+    <ProjectReference Include="..\fallen-8-rest-client\fallen-8-rest-client.csproj" />
   </ItemGroup>
 
 </Project>

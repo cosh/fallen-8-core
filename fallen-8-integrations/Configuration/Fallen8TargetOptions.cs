@@ -30,8 +30,10 @@ namespace NoSQL.GraphDB.Integrations.Configuration
     /// <summary>
     ///   The Fallen-8 this runtime writes into (config section <c>Fallen8Target</c>). Section name and
     ///   shape match <c>fallen-8-mcp</c>'s as a small copied options class: an operator configuring two
-    ///   sidecars should not learn two spellings, and a shared library to save five properties would
-    ///   couple two deployables that must version independently.
+    ///   sidecars should not learn two spellings, while the CONFIGURATION SHAPE stays each deployable's
+    ///   own, so one may gain a knob the other has no use for. What the two do share is the behavioural
+    ///   seam (<c>fallen-8-rest-client</c>), where a divergence would be a difference in what a run
+    ///   reports rather than in what an operator may set.
     ///
     ///   <para>A CALLER'S CREDENTIAL IS NEVER FORWARDED: the runtime authenticates to the graph as
     ///   itself, so a job cannot escalate beyond what this deployable may already do and a graph audit
@@ -61,5 +63,19 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   <see cref="IntegrationsOptions.SelfSignedHosts"/> this feature's single reduction of trust.
         /// </summary>
         public String DefaultNamespace { get; set; } = "default";
+
+        /// <summary>
+        ///   The per-request deadline on every call this runtime makes to the graph. Values below 1 are
+        ///   floored at 1 second, so a stray 0 cannot make every call throw.
+        ///   <para>
+        ///     The default sits deliberately ABOVE the longest budget the apiApp applies to a route this
+        ///     runtime calls, for the reason <c>fallen-8-mcp</c>'s <c>Fallen8TargetOptions.TimeoutSeconds</c>
+        ///     states in full: two competing deadlines make the nearer one report a vague local failure
+        ///     instead of the downstream answer that names what to change. Here the far one is
+        ///     <c>Fallen8:Embedding:TimeoutSeconds</c> (300s), which the embedding write can legitimately
+        ///     spend on model inference and cold-model warm-up.
+        ///   </para>
+        /// </summary>
+        public Int32 TimeoutSeconds { get; set; } = 330;
     }
 }

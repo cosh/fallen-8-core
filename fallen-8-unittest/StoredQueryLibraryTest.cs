@@ -165,72 +165,87 @@ namespace NoSQL.GraphDB.Tests
 
         #region kind/block shape validation
 
-        [TestMethod]
-        public void Register_WithUnknownKind_Returns400()
+        /// <summary>
+        /// The kind is matched LITERALLY against the two names the persisted contract carries, so an
+        /// unknown name, a differently-cased one and an Enum.TryParse-style numeric string are each
+        /// refused rather than guessed at. One row per malformation, naming itself, so a failure says
+        /// which spelling started being accepted.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("VertexFilter", "an unknown kind")]
+        [DataRow("path", "the lower-cased \"path\" (the kind is part of the persisted contract, so it " +
+            "is matched case-sensitively)")]
+        [DataRow("0", "the numeric string \"0\" (only the literal names are valid; Enum.TryParse-style " +
+            "numeric strings are not)")]
+        public void Register_WithAnInvalidKind_Returns400(string kind, string malformation)
         {
             var spec = ValidPathSpecification();
-            spec.Kind = "VertexFilter";
+            spec.Kind = kind;
 
-            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)));
+            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)),
+                "a registration carrying " + malformation + " must be refused with 400");
+            Assert.AreEqual(0, _fallen8.StoredQueries.Count,
+                "the refused registration must have landed nothing: " + malformation);
         }
 
-        [TestMethod]
-        public void Register_KindIsCaseSensitive()
+        /// <summary>
+        /// A specification carries EXACTLY ONE query block, and it must be the one its kind declares:
+        /// a mismatched block, both blocks, no block at all and no specification at all are each
+        /// refused. One row per malformation, naming itself, so a failure says which shape started
+        /// being accepted.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("PathKindWithSubGraphBlock", "a Path kind carrying a SubGraph block")]
+        [DataRow("SubGraphKindWithPathBlock", "a SubGraph kind carrying a Path block")]
+        [DataRow("BothBlocks", "a valid Path query with a SubGraph block added beside it")]
+        [DataRow("NoBlock", "a Path kind carrying no block at all")]
+        [DataRow("NoSpecification", "no specification at all (an absent request body)")]
+        public void Register_WithAMalformedBlockShape_Returns400(string shape, string malformation)
         {
-            // The kind is part of the persisted contract; "path" is not a valid kind.
-            var spec = ValidPathSpecification();
-            spec.Kind = "path";
+            var spec = MalformedSpecification(shape);
 
-            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)));
+            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)),
+                "a registration carrying " + malformation + " must be refused with 400");
+            Assert.AreEqual(0, _fallen8.StoredQueries.Count,
+                "the refused registration must have landed nothing: " + malformation);
         }
 
-        [TestMethod]
-        public void Register_PathKindWithSubGraphBlock_Returns400()
+        /// <summary>
+        /// One malformed specification per row of <c>Register_WithAMalformedBlockShape_Returns400</c>;
+        /// the shapes differ too much to be built from DataRow constants alone.
+        /// </summary>
+        private static StoredQuerySpecification MalformedSpecification(string shape)
         {
-            var spec = new StoredQuerySpecification
+            switch (shape)
             {
-                Name = "mismatched",
-                Kind = "Path",
-                SubGraph = new StoredSubGraphQueryBlock { VertexFilter = "return (v) => true;" }
-            };
-
-            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)));
-        }
-
-        [TestMethod]
-        public void Register_SubGraphKindWithPathBlock_Returns400()
-        {
-            var spec = new StoredQuerySpecification
-            {
-                Name = "mismatched",
-                Kind = "SubGraph",
-                Path = new StoredPathQueryBlock()
-            };
-
-            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)));
-        }
-
-        [TestMethod]
-        public void Register_WithBothBlocks_Returns400()
-        {
-            var spec = ValidPathSpecification();
-            spec.SubGraph = new StoredSubGraphQueryBlock();
-
-            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)));
-        }
-
-        [TestMethod]
-        public void Register_WithNoBlock_Returns400()
-        {
-            var spec = new StoredQuerySpecification { Name = "no-block", Kind = "Path" };
-
-            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)));
-        }
-
-        [TestMethod]
-        public void Register_NullSpecification_Returns400()
-        {
-            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(null)));
+                case "PathKindWithSubGraphBlock":
+                    return new StoredQuerySpecification
+                    {
+                        Name = "mismatched",
+                        Kind = "Path",
+                        SubGraph = new StoredSubGraphQueryBlock { VertexFilter = "return (v) => true;" }
+                    };
+                case "SubGraphKindWithPathBlock":
+                    return new StoredQuerySpecification
+                    {
+                        Name = "mismatched",
+                        Kind = "SubGraph",
+                        Path = new StoredPathQueryBlock()
+                    };
+                case "BothBlocks":
+                    {
+                        var both = ValidPathSpecification();
+                        both.SubGraph = new StoredSubGraphQueryBlock();
+                        return both;
+                    }
+                case "NoBlock":
+                    return new StoredQuerySpecification { Name = "no-block", Kind = "Path" };
+                case "NoSpecification":
+                    return null;
+                default:
+                    throw new AssertFailedException("no malformed specification is registered under '" +
+                        shape + "', so this row would register a well-formed query instead");
+            }
         }
 
         #endregion
@@ -336,16 +351,6 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(_fallen8.StoredQueries.TryGet(out _, "Case-Test"));
             Assert.IsTrue(_fallen8.StoredQueries.TryGet(out _, "case-test"));
             Assert.IsFalse(_fallen8.StoredQueries.TryGet(out _, "CASE-TEST"));
-        }
-
-        [TestMethod]
-        public void Register_NumericKindString_Returns400()
-        {
-            // Only the literal names are valid; Enum.TryParse-style numeric strings are rejected.
-            var spec = ValidPathSpecification("numeric-kind");
-            spec.Kind = "0";
-
-            Assert.AreEqual(400, StatusCodeOf(_controller.RegisterStoredQuery(spec)));
         }
 
         [TestMethod]

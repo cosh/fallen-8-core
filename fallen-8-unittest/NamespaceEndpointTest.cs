@@ -47,9 +47,10 @@ namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     /// Pins the namespace REST contract through the real hosted pipeline (feature
-    /// graph-namespaces, Phase 2): the /ns CRUD status matrix with problem+json bodies, the
-    /// /ns/{ns}/… route twins with bare-URL default aliasing, cross-namespace data isolation,
-    /// and the 404-with-namespace-extension marker Studio keys its recover state on.
+    /// graph-namespaces, Phase 2): the /ns CRUD status matrix with problem+json bodies, PATCH's
+    /// validate-before-mutate atomicity across every field it accepts, the /ns/{ns}/… route twins
+    /// with bare-URL default aliasing, cross-namespace data isolation, and the
+    /// 404-with-namespace-extension marker Studio keys its recover state on.
     /// </summary>
     [TestClass]
     public class NamespaceEndpointTest
@@ -101,33 +102,23 @@ namespace NoSQL.GraphDB.Tests
         /// </summary>
         private NamespaceFactory NotLoadedHost(string name = "archived")
         {
-            _storageDir = Path.Combine(Path.GetTempPath(), "f8_nsx_" + Guid.NewGuid().ToString("N"));
-            _metaDir = Path.Combine(_storageDir, "metadata");
-            Directory.CreateDirectory(_metaDir);
-            File.WriteAllText(Path.Combine(_metaDir, "namespaces.json"),
+            _storage = new TempDirectory("f8_nsx_");
+            var metaDir = Path.Combine(_storage.FullName, "metadata");
+            Directory.CreateDirectory(metaDir);
+            File.WriteAllText(Path.Combine(metaDir, "namespaces.json"),
                 "{\"schemaVersion\":1,\"namespaces\":[{\"id\":\"ns-20260101-000000-abcd\",\"name\":\"" + name +
                 "\",\"createdAt\":\"2026-01-01T00:00:00.000Z\",\"loadOnStartupEnabled\":false}]}");
 
-            return new NamespaceFactory(storageDir: _storageDir, metaDir: _metaDir);
+            return new NamespaceFactory(storageDir: _storage.FullName, metaDir: metaDir);
         }
 
-        private string _storageDir;
-        private string _metaDir;
+        /// <summary>Only the tests that need a catalog have one; the rest leave this null.</summary>
+        private TempDirectory _storage;
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_storageDir != null && Directory.Exists(_storageDir))
-                {
-                    Directory.Delete(_storageDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _storage?.Dispose();
         }
 
         private static StringContent Json(string body)
@@ -175,6 +166,40 @@ namespace NoSQL.GraphDB.Tests
             using var response = await client.GetAsync(prefix + "/vertex/count");
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, "GET " + prefix + "/vertex/count");
             return int.Parse(await response.Content.ReadAsStringAsync());
+        }
+
+        /// <summary>
+        ///   The same problem-shape check as <see cref="AssertProblem"/>, plus the title pinned
+        ///   EXACTLY. The tri-state refusals are all built by concatenating the field name
+        ///   ("Invalid " + field), so the exact title is the only thing that says WHICH field the
+        ///   request was rejected over.
+        /// </summary>
+        private static async Task AssertProblemWithExactTitle(HttpResponseMessage response,
+            HttpStatusCode status, string title)
+        {
+            await AssertProblem(response, status, title);
+            Assert.AreEqual(title, (await ReadJson(response)).GetProperty("title").GetString());
+        }
+
+        /// <summary>The namespace's override as GET /ns/{name} reports it, or "gone" when it 404s.</summary>
+        private static async Task<string> OverrideOf(HttpClient client, string name)
+        {
+            using var response = await client.GetAsync("/ns/" + name);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                return "gone";
+            }
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, "GET /ns/" + name);
+            var value = (await ReadJson(response)).GetProperty("pluginRegistrationEnabled");
+            return value.ValueKind == JsonValueKind.Null ? "inherit" : value.GetBoolean().ToString();
+        }
+
+        private static async Task<List<string>> NamespaceNames(HttpClient client)
+        {
+            using var response = await client.GetAsync("/ns");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, "GET /ns");
+            return (await ReadJson(response)).GetProperty("namespaces").EnumerateArray()
+                .Select(e => e.GetProperty("name").GetString()).ToList();
         }
 
         #endregion
@@ -736,6 +761,45 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   PUT /save addressed at a not-loaded namespace is refused, the third of the spec's data-loss
+        ///   enforcement points: the alternative is a checkpoint of an engine that never loaded, written
+        ///   over the one file that holds that namespace's data. The loaded half of the test is what
+        ///   makes the refusal meaningful rather than a route that saves nothing anywhere.
+        /// </summary>
+        [TestMethod]
+        public async Task Save_AddressingANotLoadedNamespace_Refuses()
+        {
+            using var factory = NotLoadedHost();
+            using var client = factory.CreateClient();
+
+            using (var refused = await client.PutAsync("/ns/archived/save", Json("{}")))
+            {
+                Assert.AreEqual(HttpStatusCode.ServiceUnavailable, refused.StatusCode,
+                    "a save that ran here would checkpoint an engine that never loaded");
+                var problem = await ReadJson(refused);
+                Assert.AreEqual("Namespace not loaded", problem.GetProperty("title").GetString());
+                Assert.AreEqual("archived", problem.GetProperty("namespace").GetString());
+                Assert.AreEqual("notLoaded", problem.GetProperty("namespaceState").GetString());
+            }
+
+            Assert.AreEqual(0, Checkpoints().Length, "the refusal wrote no checkpoint anywhere");
+
+            using (var saved = await client.PutAsync("/save", Json("{}")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, saved.StatusCode, await saved.Content.ReadAsStringAsync());
+            }
+
+            Assert.IsTrue(Checkpoints().Length > 0,
+                "the same route on a loaded namespace does write one, so the count above was a refusal "
+                    + "and not a search that can never find anything");
+        }
+
+        private string[] Checkpoints()
+        {
+            return Directory.GetFiles(_storage.FullName, "*.f8s*", SearchOption.AllDirectories);
+        }
+
+        /// <summary>
         ///   The 404 body is byte-for-byte what it always was. The two refusals must stay
         ///   distinguishable: Studio turns a 404 carrying a string "namespace" extension into its
         ///   recover state, and that state's button recreates the namespace EMPTY.
@@ -828,7 +892,8 @@ namespace NoSQL.GraphDB.Tests
         /// <summary>
         ///   The PATCH round-trip of the new field on a normal, loaded namespace: the tri-state
         ///   vocabulary is the one "pluginRegistration" already ships, both fields can ride one
-        ///   request, and an unrecognized value is rejected by name.
+        ///   request, "inherit" clears either field's override back to the instance-wide default, and
+        ///   an unrecognized value is rejected by name.
         /// </summary>
         [TestMethod]
         public async Task Patch_LoadOnStartup_RoundTripsTheTriState_AndRejectsAnythingElse()
@@ -867,6 +932,22 @@ namespace NoSQL.GraphDB.Tests
                 Assert.IsFalse(body.GetProperty("loadOnStartupEnabled").GetBoolean());
             }
 
+            using (var response = await client.GetAsync("/ns/fl-eu"))
+            {
+                Assert.IsFalse((await ReadJson(response)).GetProperty("pluginRegistrationEnabled").GetBoolean(),
+                    "the override rode along with the rename and is readable on the new address");
+            }
+
+            // "inherit" CLEARS an override already in effect, on this field too: the vocabulary is
+            // shared, so a value that could only ever set something would leave no way back to the
+            // instance-wide default.
+            using (var response = await client.PatchAsync("/ns/fl-eu", Json("{\"pluginRegistration\":\"inherit\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+                Assert.AreEqual(JsonValueKind.Null,
+                    (await ReadJson(response)).GetProperty("pluginRegistrationEnabled").ValueKind);
+            }
+
             // An unrecognized value is refused by its own name, and changes nothing.
             using (var response = await client.PatchAsync("/ns/fl-eu", Json("{\"loadOnStartup\":\"maybe\"}")))
             {
@@ -879,8 +960,11 @@ namespace NoSQL.GraphDB.Tests
             }
             using (var response = await client.GetAsync("/ns/fl-eu"))
             {
-                Assert.IsFalse((await ReadJson(response)).GetProperty("loadOnStartupEnabled").GetBoolean(),
+                var body = await ReadJson(response);
+                Assert.IsFalse(body.GetProperty("loadOnStartupEnabled").GetBoolean(),
                     "a rejected value must not disturb the policy in effect");
+                Assert.AreEqual(JsonValueKind.Null, body.GetProperty("pluginRegistrationEnabled").ValueKind,
+                    "and the override cleared above stayed cleared");
             }
 
             // A rename that rides along with a rejected policy is not applied either (B31's ordering).
@@ -901,6 +985,146 @@ namespace NoSQL.GraphDB.Tests
                 await AssertProblem(response, HttpStatusCode.BadRequest, "Invalid namespace update");
                 StringAssert.Contains((await ReadJson(response)).GetProperty("detail").GetString(), "loadOnStartup");
             }
+        }
+
+        #endregion
+
+        #region PATCH /ns/{name} is all-or-nothing across every field (audit defect B31)
+
+        // Pins PATCH /ns/{name} as all-or-nothing: the rename is written to the namespace catalog and
+        // survives a restart, so every field of the request must be validated before the first
+        // mutation. A rejected PATCH leaves both the name and the plugin-registration override exactly
+        // as they were. These run through the real hosted pipeline because the window only exists in
+        // the ordering of the action's steps.
+
+        /// <summary>
+        /// An unrecognized override on its own (no rename) is still a 400 that keeps the previously
+        /// set value. The accepted vocabulary is exact and case-sensitive.
+        /// </summary>
+        [TestMethod]
+        public async Task Patch_InvalidOverrideAlone_KeepsThePreviousValue()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+            await CreateNamespace(client, "flights");
+
+            using (var enable = await client.PatchAsync("/ns/flights", Json("{\"pluginRegistration\":\"enabled\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, enable.StatusCode);
+                Assert.IsTrue((await ReadJson(enable)).GetProperty("pluginRegistrationEnabled").GetBoolean());
+            }
+
+            using (var wrongCase = await client.PatchAsync("/ns/flights", Json("{\"pluginRegistration\":\"Enabled\"}")))
+            {
+                await AssertProblemWithExactTitle(wrongCase, HttpStatusCode.BadRequest, "Invalid pluginRegistration");
+            }
+
+            // An empty string is a supplied-but-unrecognized value, not an omitted field.
+            using (var empty = await client.PatchAsync("/ns/flights", Json("{\"pluginRegistration\":\"\"}")))
+            {
+                await AssertProblemWithExactTitle(empty, HttpStatusCode.BadRequest, "Invalid pluginRegistration");
+            }
+
+            Assert.AreEqual("True", await OverrideOf(client, "flights"),
+                "a rejected override must not disturb the value already in effect");
+        }
+
+        /// <summary>
+        /// Both fields invalid: validation runs before any mutation, so the override complaint wins
+        /// and neither change is applied. (The empty body's own "supply something" 400 is asserted by
+        /// <see cref="Patch_LoadOnStartup_RoundTripsTheTriState_AndRejectsAnythingElse"/> and by
+        /// <see cref="Rename_MovesTheAddress_AndPinsItsFailureMatrix"/>, so it is not repeated here.)
+        /// </summary>
+        [TestMethod]
+        public async Task Patch_BothFieldsInvalid_ReportsTheOverride_AndChangesNothing()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+            await CreateNamespace(client, "flights");
+
+            var tooLong = new string('a', 64);
+            using (var patch = await client.PatchAsync("/ns/flights",
+                Json("{\"name\":\"" + tooLong + "\",\"pluginRegistration\":\"nope\"}")))
+            {
+                await AssertProblemWithExactTitle(patch, HttpStatusCode.BadRequest, "Invalid pluginRegistration");
+            }
+
+            Assert.AreEqual("inherit", await OverrideOf(client, "flights"));
+            Assert.AreEqual("gone", await OverrideOf(client, tooLong));
+            Assert.AreEqual(2, (await NamespaceNames(client)).Count, "default + flights, nothing else");
+        }
+
+        /// <summary>
+        /// A failing rename also stops the override: renaming the reserved "default" namespace is a
+        /// 409, and the override that rode along in the same request is not applied either (even
+        /// though "default" would accept it on its own).
+        /// </summary>
+        [TestMethod]
+        public async Task Patch_ReservedRenameWithOverride_AppliesNeither()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+
+            using (var patch = await client.PatchAsync("/ns/default",
+                Json("{\"name\":\"renamed\",\"pluginRegistration\":\"disabled\"}")))
+            {
+                await AssertProblemWithExactTitle(patch, HttpStatusCode.Conflict, "Reserved namespace");
+            }
+
+            Assert.AreEqual("inherit", await OverrideOf(client, "default"));
+            Assert.AreEqual("gone", await OverrideOf(client, "renamed"));
+
+            // Without the rename, the reserved namespace DOES take the override.
+            using (var overrideOnly = await client.PatchAsync("/ns/default", Json("{\"pluginRegistration\":\"disabled\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.OK, overrideOnly.StatusCode);
+            }
+            Assert.AreEqual("False", await OverrideOf(client, "default"));
+        }
+
+        /// <summary>
+        /// A conflicting rename carrying a valid override leaves the source namespace and the
+        /// occupied target both untouched.
+        /// </summary>
+        [TestMethod]
+        public async Task Patch_ConflictingRenameWithOverride_AppliesNeither()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+            await CreateNamespace(client, "flights");
+            await CreateNamespace(client, "trains");
+
+            using (var patch = await client.PatchAsync("/ns/flights",
+                Json("{\"name\":\"trains\",\"pluginRegistration\":\"enabled\"}")))
+            {
+                await AssertProblemWithExactTitle(patch, HttpStatusCode.Conflict, "Namespace name in use");
+            }
+
+            Assert.AreEqual("inherit", await OverrideOf(client, "flights"));
+            Assert.AreEqual("inherit", await OverrideOf(client, "trains"),
+                "the occupied target must not absorb the rejected request's override");
+        }
+
+        /// <summary>An override for a namespace that does not exist is a 404 that creates nothing.</summary>
+        [TestMethod]
+        public async Task Patch_UnknownNamespace_Is404_AndCreatesNothing()
+        {
+            using var factory = new NamespaceFactory();
+            using var client = factory.CreateClient();
+
+            using (var patch = await client.PatchAsync("/ns/missing", Json("{\"pluginRegistration\":\"disabled\"}")))
+            {
+                await AssertProblemWithExactTitle(patch, HttpStatusCode.NotFound, "Namespace not found");
+            }
+
+            // An unparseable override on a missing namespace is rejected before the lookup: still 4xx,
+            // and still no namespace.
+            using (var invalid = await client.PatchAsync("/ns/missing", Json("{\"pluginRegistration\":\"maybe\"}")))
+            {
+                await AssertProblemWithExactTitle(invalid, HttpStatusCode.BadRequest, "Invalid pluginRegistration");
+            }
+
+            Assert.AreEqual(1, (await NamespaceNames(client)).Count, "only \"default\" exists");
         }
 
         #endregion

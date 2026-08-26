@@ -148,7 +148,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
             // path that produces embedding text. A job asks for the other half, and both default off. Only
             // shape and coarse state appear: a counter would change between any two runs and make every run a
             // write.
-            EntitySummaryTemplate = "{kind} {unifi.name}, {unifi.model}, state {unifi.state}, {unifi.ipAddress}",
+            EntitySummaryTemplate = "{kind} {unifi.name}, {unifi.model}, {unifi.state}, {unifi.ipAddress}",
         };
 
         /// <inheritdoc />
@@ -226,7 +226,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
                         continue;
                     }
 
-                    entities.Add(BuildDevice(siteId, deviceId, device, details.Uplink?.DeviceId, diagnostics));
+                    entities.Add(BuildDevice(siteId, deviceId, device, details.Uplink?.DeviceId));
                 }
 
                 foreach (var client in await reader.ReadClientsAsync(siteId, cancellationToken)
@@ -261,7 +261,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
                         continue;
                     }
 
-                    entities.Add(BuildClient(client, diagnostics));
+                    entities.Add(BuildClient(client));
                 }
             }
 
@@ -299,40 +299,40 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
         private static EntityDto BuildSite(String siteId, UnifiSite site)
         {
             var entity = new EntityDto { Kind = KindSite };
-            Claim(entity, ClaimSiteId, siteId);
-            Put(entity, PropertyName, site.Name);
+            entity.ClaimIfPresent(ClaimSiteId, siteId);
+            entity.SetIfPresent(PropertyName, site.Name);
             return entity;
         }
 
         private static EntityDto BuildDevice(String siteId, String deviceId, UnifiDevice device,
-            String? uplinkDeviceId, IList<DiagnosticDto> diagnostics)
+            String? uplinkDeviceId)
         {
             var entity = new EntityDto { Kind = KindDevice };
-            Claim(entity, ClaimDeviceId, deviceId);
-            Claim(entity, ClaimMac, device.MacAddress);
+            entity.ClaimIfPresent(ClaimDeviceId, deviceId);
+            entity.ClaimIfPresent(ClaimMac, device.MacAddress);
             ClaimAddress(entity, device.IpAddress);
-            Put(entity, PropertyName, device.Name);
-            Put(entity, PropertyModel, device.Model);
-            Put(entity, PropertyState, device.State);
-            Put(entity, PropertyFirmwareVersion, device.FirmwareVersion);
-            Put(entity, PropertyIpAddress, device.IpAddress);
-            Put(entity, PropertyFeatures, MemberNames(device.Features, false));
-            Put(entity, PropertyInterfaces, MemberNames(device.Interfaces, true));
-            Relate(entity, RelationSite, ClaimSiteId, siteId);
-            Relate(entity, RelationUplink, ClaimDeviceId, uplinkDeviceId);
+            entity.SetIfPresent(PropertyName, device.Name);
+            entity.SetIfPresent(PropertyModel, device.Model);
+            entity.SetIfPresent(PropertyState, device.State);
+            entity.SetIfPresent(PropertyFirmwareVersion, device.FirmwareVersion);
+            entity.SetIfPresent(PropertyIpAddress, device.IpAddress);
+            entity.SetIfPresent(PropertyFeatures, MemberNames(device.Features, false));
+            entity.SetIfPresent(PropertyInterfaces, MemberNames(device.Interfaces, true));
+            entity.RelateIfPresent(RelationSite, ClaimSiteId, siteId);
+            entity.RelateIfPresent(RelationUplink, ClaimDeviceId, uplinkDeviceId);
             return entity;
         }
 
-        private static EntityDto BuildClient(UnifiConnectedClient client, IList<DiagnosticDto> diagnostics)
+        private static EntityDto BuildClient(UnifiConnectedClient client)
         {
             var entity = new EntityDto { Kind = KindClient };
-            Claim(entity, ClaimClientId, client.Id);
-            Claim(entity, ClaimMac, client.MacAddress);
+            entity.ClaimIfPresent(ClaimClientId, client.Id);
+            entity.ClaimIfPresent(ClaimMac, client.MacAddress);
             ClaimAddress(entity, client.IpAddress);
-            Put(entity, PropertyName, client.Name);
-            Put(entity, PropertyClientType, client.Type);
-            Put(entity, PropertyIpAddress, client.IpAddress);
-            Relate(entity, RelationConnectedTo, ClaimDeviceId, client.UplinkDeviceId);
+            entity.SetIfPresent(PropertyName, client.Name);
+            entity.SetIfPresent(PropertyClientType, client.Type);
+            entity.SetIfPresent(PropertyIpAddress, client.IpAddress);
+            entity.RelateIfPresent(RelationConnectedTo, ClaimDeviceId, client.UplinkDeviceId);
             return entity;
         }
 
@@ -356,18 +356,6 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
             return id;
         }
 
-        /// <summary>A claim on the entity, or nothing at all when the source did not answer.</summary>
-        private static void Claim(EntityDto entity, String type, String? value)
-        {
-            if (!String.IsNullOrWhiteSpace(value))
-            {
-                // The value goes in as the SOURCE reported it and DeclaredStrength stays null: the runtime
-                // canonicalises, and a provider that declared its own strength could make an address
-                // resolve and attach this run's data to whichever element last held it.
-                entity.Claims.Add(new IdentityClaimDto { Type = type, Value = value });
-            }
-        }
-
         /// <summary>
         ///   The address claim, passed through exactly as the console reported it.
         ///
@@ -380,31 +368,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
         /// </summary>
         private static void ClaimAddress(EntityDto entity, String? address)
         {
-            Claim(entity, ClaimIpv4, address);
-        }
-
-        /// <summary>A property, or nothing at all: an ABSENT value is absent, never an empty string, because
-        /// writing empty makes the property exist and overwrites what another integration knows.</summary>
-        private static void Put(EntityDto entity, String key, String? value)
-        {
-            if (!String.IsNullOrWhiteSpace(value))
-            {
-                entity.Properties[key] = value;
-            }
-        }
-
-        /// <summary>A relation addressed by CLAIM, or nothing at all when the source named no target. It is
-        /// never addressed by an id this provider resolved, because it resolves nothing.</summary>
-        private static void Relate(EntityDto entity, String relationType, String claimType, String? value)
-        {
-            if (!String.IsNullOrWhiteSpace(value))
-            {
-                entity.Relations.Add(new RelationDto
-                {
-                    Type = relationType,
-                    Target = new ClaimReferenceDto { Type = claimType, Value = value },
-                });
-            }
+            entity.ClaimIfPresent(ClaimIpv4, address);
         }
 
         /// <summary>

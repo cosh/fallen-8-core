@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectDocumentContractTest.cs
+// IngestionDocumentedContractTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -42,9 +42,13 @@ using NoSQL.GraphDB.Mcp.Tools;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   Pins two audit-defect fixes on the document surface.
-    ///   <para>B16 - the two ingest routes declared statuses the ASYNCHRONOUS pipeline can never
-    ///   answer with: a 502 for a bad embedding response, and a 413 naming
+    ///   Pins what the ingestion surface DOCUMENTS, as opposed to what it does: which statuses the
+    ///   two ingest routes may declare, and which entity-type labels the entity filter can actually
+    ///   match (in the OpenAPI parameter description and in the MCP tool schema alike). What was
+    ///   wrong is the DESCRIBED contract, so most assertions are made against the generated
+    ///   document; one behavioural test shows what following the wrong description returned.
+    ///   <para>History, audit defect B16 - the two ingest routes declared statuses the ASYNCHRONOUS
+    ///   pipeline can never answer with: a 502 for a bad embedding response, and a 413 naming
     ///   <c>MaxPages</c>/<c>MaxChunksPerDocument</c>. Those ceilings and every embedding fault are
     ///   enforced on the worker, long after the request answered 202, so they surface as a
     ///   <c>failed</c> document instead. The runtime side is already pinned by IngestionEndpointTest
@@ -52,13 +56,14 @@ namespace NoSQL.GraphDB.Tests
     ///   ProviderDimensionLie_FailsTheDocument_BeforeAnyChunkWrite, Ceiling_PreCheck507_AndPostChunk507);
     ///   what was wrong is the DESCRIBED contract, so it is the served OpenAPI document that is
     ///   asserted here.</para>
-    ///   <para>B17 - the entity-type filter example claimed PER/ORG/LOC, but the shipped English
-    ///   spaCy models (en_core_web_lg / en_core_web_trf) are OntoNotes-trained and emit
-    ///   PERSON/ORG/GPE, and the label is stored and compared verbatim. Following the old example
-    ///   returned an empty page with no hint, which is what the behavioural test below reproduces.</para>
+    ///   <para>Audit defect B17 - the entity-type filter example claimed PER/ORG/LOC, but the
+    ///   shipped English spaCy models (en_core_web_lg / en_core_web_trf) are OntoNotes-trained and
+    ///   emit PERSON/ORG/GPE, and the label is stored and compared verbatim. Following the old
+    ///   example returned an empty page with no hint, which is what the behavioural test below
+    ///   reproduces.</para>
     /// </summary>
     [TestClass]
-    public class AuditDefectDocumentContractTest
+    public class IngestionDocumentedContractTest
     {
         private const String DocumentPath = "/openapi/v0.1.json";
 
@@ -82,15 +87,15 @@ namespace NoSQL.GraphDB.Tests
         };
 
         /// <summary>
-        /// Boots the app in Development (only there are /openapi and Scalar mapped) with a volatile
-        /// engine, so generating the document writes no checkpoint or WAL.
+        /// Boots the app in Development (only there are /openapi and Scalar mapped) on the shared
+        /// volatile host, so generating the document writes no checkpoint or WAL.
         /// </summary>
-        private sealed class DevelopmentApiFactory : WebApplicationFactory<Program>
+        private sealed class DevelopmentApiFactory : VolatileAppFactory
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
 

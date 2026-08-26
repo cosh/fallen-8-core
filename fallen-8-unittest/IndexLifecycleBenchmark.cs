@@ -26,12 +26,9 @@
 using System;
 using System.Diagnostics;
 using System.Globalization;
-using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Index;
-using NoSQL.GraphDB.Core.Model;
-using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -53,17 +50,6 @@ namespace NoSQL.GraphDB.Tests
             Console.WriteLine("[IDXBENCH] " + line);
         }
 
-        private static VertexModel[] CreateVertices(Fallen8 fallen8, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i < count; i++)
-            {
-                tx.AddVertex(1u, "v");
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
-
         [TestMethod]
         [TestCategory("Benchmark")]
         [Ignore("Benchmark harness; opt-in. Not part of the default suite.")]
@@ -74,7 +60,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 var fallen8 = new Fallen8(loggerFactory);
                 // One "extra" vertex under a single key + one filler vertex per distinct key.
-                var vertices = CreateVertices(fallen8, totalKeys + 1);
+                var vertices = TestVertices.Create(fallen8, totalKeys + 1);
 
                 var index = new DictionaryIndex();
                 index.Initialize(fallen8, null);

@@ -28,13 +28,12 @@ using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
-using System.Net;
 using System.Net.Http;
-using System.Net.Http.Json;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using NoSQL.GraphDB.Integrations.Identity;
+using NoSQL.GraphDB.Rest;
 
 namespace NoSQL.GraphDB.Integrations.Graph
 {
@@ -49,6 +48,10 @@ namespace NoSQL.GraphDB.Integrations.Graph
     ///   index automatically. Everything else is batched, because without a batched element read and an atomic
     ///   property replace a run over a few hundred devices is over a thousand round-trips, most producing no
     ///   change.</para>
+    ///
+    ///   <para>Sending, the absent-body convention and the timeout-versus-cancellation classification come from
+    ///   <see cref="RestSeam"/>, shared with the other deployable held to the same REST-only rule; this file
+    ///   names every outcome in the run report's own vocabulary.</para>
     /// </summary>
     public sealed class Fallen8RestTarget : IGraphTarget
     {
@@ -88,12 +91,14 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///
         ///   <para>The second is the client TIMEOUT, and it is why this is 16 rather than 32. A chunk's
         ///   duration is model inference, not graph work: measured against a CPU-backed bge-m3, one element
-        ///   costs ~3.5 s, so 32 elements is ~113 s against this target's 120 s client timeout
-        ///   (<c>GraphTargetFactory</c>) - six percent of headroom. That is not a theoretical margin. A real
+        ///   costs ~3.5 s, so 32 elements is ~113 s - which was six percent of headroom against the fixed
+        ///   120 s this runtime used to hold every call to. That was not a theoretical margin. A real
         ///   many-entity extract embedded exactly many chunks and then died on the 86th, losing two
-        ///   hours of inference and leaving the graph a fifth embedded. 16 halves it to ~56 s, which is
-        ///   twice the headroom, and costs only more round-trips - and those stay cheap because chunks are
-        ///   sequential, so the request RATE never approaches the route's rate limit whatever the backend.</para>
+        ///   hours of inference and leaving the graph a fifth embedded. The deadline is now the operator's
+        ///   (<c>Fallen8Target:TimeoutSeconds</c>, default 330), so the margin is no longer thin - but 16
+        ///   stays, because it also halves the interval between progress ticks on the one phase that runs
+        ///   for hours, and it costs only more round-trips: those stay cheap because chunks are sequential,
+        ///   so the request RATE never approaches the route's rate limit whatever the backend.</para>
         ///
         ///   <para>Revisit by making the size ADAPTIVE (halve on timeout, retry, floor at 4) when a
         ///   deployment appears whose per-element cost is far outside the ~50 ms GPU to ~3.5 s CPU range this
@@ -114,8 +119,6 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
         /// <summary>The equality operator's wire code, from the engine's own operator enum.</summary>
         private const Int32 EqualsOperator = 0;
-
-        private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions(JsonSerializerDefaults.Web);
 
         private readonly HttpClient _client;
         private readonly String _prefix;
@@ -506,75 +509,93 @@ namespace NoSQL.GraphDB.Integrations.Graph
             // independent transactions on the target, so a failure part-way leaves the earlier chunks
             // written - which is correct rather than merely tolerable: an embedding is element state, and
             // the vectors that landed are as valid as if the rest had never been asked for. What is NOT
-            // acceptable is reporting zero for work that happened, so the written count is accumulated and
-            // returned on both the success and the degrade path.
+            // acceptable is reporting zero for work that happened, so the written count is accumulated
+            // OUTSIDE the loop and leaves this method on every path there is: the success, the degrade, and
+            // the failure.
             var written = 0;
 
-            for (var offset = 0; offset < summaries.Count; offset += EmbedBatchSize)
+            try
             {
-                var take = Math.Min(EmbedBatchSize, summaries.Count - offset);
-                var items = new List<Object>(take);
-                for (var i = offset; i < offset + take; i++)
+                for (var offset = 0; offset < summaries.Count; offset += EmbedBatchSize)
                 {
-                    items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
-                }
-
-                using var request = new HttpRequestMessage(HttpMethod.Post, _prefix + "embedding/elements")
-                {
-                    Content = JsonContent.Create(new { name = embeddingName, items }, mediaType: null, JsonOptions),
-                };
-
-                var response = await SendCoreAsync(request, "the embedding write", cancellationToken)
-                    .ConfigureAwait(false);
-
-                using (response)
-                {
-                    if (response.IsSuccessStatusCode)
+                    var take = Math.Min(EmbedBatchSize, summaries.Count - offset);
+                    var items = new List<Object>(take);
+                    for (var i = offset; i < offset + take; i++)
                     {
-                        written += take;
-                        // Per chunk, because that is the only tick this loop has. At ~3 s an element it is a
-                        // visible move roughly every 45 s, which is the difference between "working" and
-                        // "hung" for a phase that runs for hours.
-                        progress?.Advance(written, summaries.Count);
-                        continue;
+                        items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
                     }
 
-                    var status = (Int32)response.StatusCode;
+                    var response = await SendForResponseAsync(HttpMethod.Post, "embedding/elements",
+                        new { name = embeddingName, items }, "the embedding write", cancellationToken)
+                        .ConfigureAwait(false);
 
-                    // 403 is the capability switched off, 502 and 503 are the backend not answering, and 429 is
-                    // the target throttling this runtime. All four DEGRADE TO ABSENT rather than failing a run
-                    // whose whole purpose is the graph write: an embedding is an addition to what landed, never a
-                    // precondition for it. Anything else is a real graph failure and surfaces as one.
-                    //
-                    // 429 is in that set BECAUSE of chunking, and was not reachable before it: the embedding route
-                    // carries the sensitive-endpoint rate limit (one process-wide fixed window), so a large extract
-                    // sent as hundreds of chunks can trip a throttle that one request never could. Failing the run
-                    // for the target's own pacing would make chunking a regression for exactly the large extracts
-                    // it exists to support.
-                    //
-                    // Degrading STOPS the loop instead of trying the remaining chunks: every one of these statuses
-                    // describes the provider or the window rather than this batch, so the next chunk would answer
-                    // the same way and a run over a large extract would spend hundreds of round-trips proving it.
-                    if (status == 403 || status == 429 || status == 502 || status == 503)
+                    using (response)
                     {
-                        var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                        return new EmbeddingWriteOutcome(written, String.Format(CultureInfo.InvariantCulture,
-                            "the target answered {0} to the embedding write ({1})", status,
-                            String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
+                        if (response.IsSuccessStatusCode)
+                        {
+                            written += take;
+                            // Per chunk, because that is the only tick this loop has. At ~3 s an element it is a
+                            // visible move roughly every 45 s, which is the difference between "working" and
+                            // "hung" for a phase that runs for hours.
+                            progress?.Advance(written, summaries.Count);
+                            continue;
+                        }
+
+                        var status = (Int32)response.StatusCode;
+
+                        // 403 is the capability switched off, 502 and 503 are the backend not answering, and 429 is
+                        // the target throttling this runtime. All four DEGRADE TO ABSENT rather than failing a run
+                        // whose whole purpose is the graph write: an embedding is an addition to what landed, never a
+                        // precondition for it. Anything else is a real graph failure and surfaces as one.
+                        //
+                        // 429 is in that set BECAUSE of chunking, and was not reachable before it: the embedding route
+                        // carries the sensitive-endpoint rate limit (one process-wide fixed window), so a large extract
+                        // sent as hundreds of chunks can trip a throttle that one request never could. Failing the run
+                        // for the target's own pacing would make chunking a regression for exactly the large extracts
+                        // it exists to support.
+                        //
+                        // Degrading STOPS the loop instead of trying the remaining chunks: every one of these statuses
+                        // describes the provider or the window rather than this batch, so the next chunk would answer
+                        // the same way and a run over a large extract would spend hundreds of round-trips proving it.
+                        if (status == 403 || status == 429 || status == 502 || status == 503)
+                        {
+                            var detail = await response.Content.ReadAsStringAsync(cancellationToken)
+                                .ConfigureAwait(false);
+                            return new EmbeddingWriteOutcome(written, String.Format(CultureInfo.InvariantCulture,
+                                "the target answered {0} to the embedding write ({1})", status,
+                                String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
+                        }
+
+                        var body = await response.Content.ReadAsStringAsync(cancellationToken)
+                            .ConfigureAwait(false);
+
+                        throw new GraphTargetException(String.Format(CultureInfo.InvariantCulture,
+                            "The graph refused the embedding write with {0}: {1}", status,
+                            String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim()));
                     }
-
-                    var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-                    // The count travels WITH the failure. Earlier chunks put real vectors on real elements, and
-                    // this is the one path that could still report zero for them - which the caller's own contract
-                    // forbids, so it is carried rather than reconstructed.
-                    throw new GraphTargetException(String.Format(CultureInfo.InvariantCulture,
-                        "The graph refused the embedding write with {0}: {1}", status,
-                        String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim()))
-                    {
-                        SummariesWritten = written,
-                    };
                 }
+            }
+            catch (GraphTargetTimeoutException)
+            {
+                // A client-side TIMEOUT joins the degrade set above, and only for this write: the target's own
+                // embedding budget is longer than any other route's, this runtime cannot make a model answer
+                // faster, and an embedding is an addition to what landed rather than a precondition for it -
+                // so pre-empting it must not fail a run whose graph writes are already in. Every other call
+                // this target makes keeps timeout-as-failure. It stops the loop for the reason 503 does: the
+                // next chunk faces the same model. A cancellation the CALLER requested never arrives here,
+                // because the token decides that and not the exception type (see RestSeam).
+                return new EmbeddingWriteOutcome(written,
+                    "the target did not answer the embedding write within this runtime's own timeout " +
+                    "(Fallen8Target:TimeoutSeconds)");
+            }
+            catch (GraphTargetException failure)
+            {
+                // THE one place a failure is given the count, rather than each throw site being trusted to
+                // remember: the chunks that landed are element state, and a connection that died mid extract
+                // used to report zero for them - which is false about vectors a bound index answers searches
+                // over, and sends the operator to a tabula rasa they do not need.
+                failure.SummariesWritten = written;
+                throw;
             }
 
             return new EmbeddingWriteOutcome(written, null);
@@ -591,16 +612,24 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// <summary>
         ///   The route prefix: the bare routes for the reserved default namespace, <c>ns/{name}/</c>
         ///   otherwise. The bare URLs alias the default namespace, so both forms reach the same graph.
+        ///   The name is validated and encoded by <see cref="UrlSafety"/>, which applies Fallen-8's own name
+        ///   rule: a name the platform would refuse fails HERE, before a run writes anything, rather than
+        ///   part way through as a 404 on some route.
         /// </summary>
         private static String BuildPrefix(String? namespaceName)
         {
-            if (String.IsNullOrWhiteSpace(namespaceName) ||
-                String.Equals(namespaceName, "default", StringComparison.OrdinalIgnoreCase))
+            if (UrlSafety.IsDefault(namespaceName))
             {
                 return String.Empty;
             }
 
-            return "ns/" + Uri.EscapeDataString(namespaceName!) + "/";
+            if (!UrlSafety.TryEncodeNamespace(namespaceName, out var encoded, out var error))
+            {
+                throw new GraphTargetException(String.Format(
+                    "The namespace '{0}' cannot address a graph: {1}", namespaceName, error));
+            }
+
+            return "ns/" + encoded + "/";
         }
 
         /// <summary>Which reserved property prefix an index projects, for the add request's key.</summary>
@@ -884,7 +913,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
             try
             {
-                return JsonSerializer.Deserialize<T>(text, JsonOptions);
+                return JsonSerializer.Deserialize<T>(text, RestSeam.JsonOptions);
             }
             catch (JsonException ex)
             {
@@ -914,70 +943,58 @@ namespace NoSQL.GraphDB.Integrations.Graph
             await SendTextAsync(method, suffix, body, cancellationToken).ConfigureAwait(false);
         }
 
-        private async Task<String?> SendTextAsync(HttpMethod method, String suffix, Object? body,
+        private Task<String?> SendTextAsync(HttpMethod method, String suffix, Object? body,
             CancellationToken cancellationToken)
         {
-            using var request = new HttpRequestMessage(method, _prefix + suffix);
-            if (body != null)
-            {
-                request.Content = JsonContent.Create(body, mediaType: null, JsonOptions);
-            }
-
-            var response = await SendCoreAsync(request, String.Format("{0} {1}", method, suffix), cancellationToken)
-                .ConfigureAwait(false);
-
-            using (response)
-            {
-                if (!response.IsSuccessStatusCode)
-                {
-                    var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                    throw new GraphTargetException(String.Format(
-                        "The graph refused {0} {1} with {2}: {3}", method, suffix, (Int32)response.StatusCode,
-                        String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
-                }
-
-                if (response.StatusCode == HttpStatusCode.NoContent)
-                {
-                    return null;
-                }
-
-                var text = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                return String.IsNullOrWhiteSpace(text) || text.Trim() == "null" ? null : text;
-            }
+            return RestSeam.SendForBodyAsync(_client, method, _prefix + suffix, body,
+                Unanswered(String.Format("{0} {1}", method, suffix)),
+                (response, token) => RefusedAsync(method, suffix, response, token),
+                cancellationToken);
         }
 
         /// <summary>
-        ///   The ONE place a transport failure becomes this seam's failure, for every request this target sends,
-        ///   including the embedding write, which reads the status code itself and so cannot go through
-        ///   <see cref="SendTextAsync"/>.
-        ///
-        ///   <para>A client-side timeout arrives as a <c>TaskCanceledException</c>, which IS an
-        ///   <see cref="OperationCanceledException"/>. Letting one escape would present "the target was too slow"
-        ///   to every layer above as "the caller walked away", and those two license opposite statements about
-        ///   what a run wrote. The token is consulted rather than the type, because a cancellation the caller DID
-        ///   request must stay a cancellation.</para>
+        ///   For the embedding write alone, which reads the status code itself in order to decide between a
+        ///   degradation and a failure and so cannot go through <see cref="SendTextAsync"/>.
         /// </summary>
-        /// <param name="request">The prepared request; the caller owns and disposes it.</param>
-        /// <param name="what">How the failure names this call, e.g. "PUT vertices" or "the embedding write".</param>
-        /// <param name="cancellationToken">The caller's token, and the only thing that distinguishes its
-        /// cancellation from a timeout.</param>
-        private async Task<HttpResponseMessage> SendCoreAsync(HttpRequestMessage request, String what,
-            CancellationToken cancellationToken)
+        /// <param name="method">The HTTP method.</param>
+        /// <param name="suffix">The route below this target's namespace prefix.</param>
+        /// <param name="body">The JSON request body, or null.</param>
+        /// <param name="what">How a failure names this call, e.g. "the embedding write".</param>
+        /// <param name="cancellationToken">The caller's token.</param>
+        /// <returns>The response, which the caller owns and disposes.</returns>
+        private Task<HttpResponseMessage> SendForResponseAsync(HttpMethod method, String suffix, Object? body,
+            String what, CancellationToken cancellationToken)
         {
-            try
-            {
-                return await _client.SendAsync(request, cancellationToken).ConfigureAwait(false);
-            }
-            catch (HttpRequestException ex)
-            {
-                throw new GraphTargetException(String.Format(
-                    "The graph did not answer {0}: {1}", what, ex.Message), ex);
-            }
-            catch (TaskCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new GraphTargetException(String.Format(
-                    "The graph did not answer {0} within the request timeout.", what), ex);
-            }
+            return RestSeam.SendAsync(_client, method, _prefix + suffix, body, Unanswered(what), cancellationToken);
+        }
+
+        /// <summary>
+        ///   How this target names an answer that never came (<see cref="RestSeam"/> decides WHICH of the two it
+        ///   was, and a cancellation the caller asked for never arrives here at all).
+        ///
+        ///   <para>A timeout gets its own type so a call site can act on "too slow" without reading a message:
+        ///   the request may well have been applied and nothing here can tell, which is a third fact beside
+        ///   "it refused" and "the caller walked away". Every caller that does not care sees the
+        ///   <see cref="GraphTargetException"/> it always saw.</para>
+        /// </summary>
+        private static RestSendFailureNaming Unanswered(String what)
+        {
+            return (failure, cause) => failure == RestSendFailure.TimedOut
+                ? new GraphTargetTimeoutException(String.Format(
+                    "The graph did not answer {0} within the request timeout " +
+                    "(Fallen8Target:TimeoutSeconds).", what), cause)
+                : new GraphTargetException(String.Format(
+                    "The graph did not answer {0}: {1}", what, cause.Message), cause);
+        }
+
+        /// <summary>How this target names a status the graph refused with.</summary>
+        private static async Task<Exception> RefusedAsync(HttpMethod method, String suffix,
+            HttpResponseMessage response, CancellationToken cancellationToken)
+        {
+            var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            return new GraphTargetException(String.Format(
+                "The graph refused {0} {1} with {2}: {3}", method, suffix, (Int32)response.StatusCode,
+                String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
         }
     }
 }

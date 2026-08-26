@@ -46,29 +46,18 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class SubGraphPersistenceTest
     {
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_subgraph_persist_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_subgraph_persist_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch
-            {
-                // best-effort cleanup
-            }
+            _temp?.Dispose();
         }
 
         private static Fallen8 CreateGraphWithData(bool withCompiler)
@@ -123,7 +112,7 @@ namespace NoSQL.GraphDB.Tests
 
         private string SaveGraph(Fallen8 fallen8)
         {
-            var savePath = Path.Combine(_tempDir, "savegame.f8s");
+            var savePath = Path.Combine(_temp.FullName, "savegame.f8s");
             var saveTx = new SaveTransaction { Path = savePath, SavePartitions = 1 };
             fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
             Assert.IsFalse(String.IsNullOrEmpty(saveTx.ActualPath), "Save should report the actual path");

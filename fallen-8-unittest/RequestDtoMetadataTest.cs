@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectDtoMetadataTest.cs
+// RequestDtoMetadataTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -37,8 +37,10 @@ using NoSQL.GraphDB.Core.Service;
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    /// Pins audit defects B29 and B42, two pieces of request-DTO metadata that lied to every client
-    /// generated from the published schema.
+    /// Pins two pieces of request-DTO metadata that a client generated from the published schema
+    /// believes: the <c>[DefaultValue]</c> a DTO publishes must be the default the server really
+    /// applies when the field is omitted, and the <c>pluginType</c> a DTO advertises must be a name
+    /// the product can resolve. Both lied to such a client once (audit defects B29 and B42).
     /// </summary>
     /// <remarks>
     /// <para>
@@ -59,7 +61,7 @@ namespace NoSQL.GraphDB.Tests
     /// </para>
     /// </remarks>
     [TestClass]
-    public class AuditDefectDtoMetadataTest
+    public class RequestDtoMetadataTest
     {
         /// <summary>
         /// B29 proper: the weight ceiling must publish no schema default, and omitting it must leave

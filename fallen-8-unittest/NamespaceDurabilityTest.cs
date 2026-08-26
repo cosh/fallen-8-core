@@ -56,33 +56,37 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class NamespaceDurabilityTest
     {
-        private string _storageDir;
+        private TempDirectory _storageDir;
+
+        /// <summary>
+        /// A PATH, not a created directory: whether the catalog directory exists yet is part of the
+        /// boot state under test (one test creates it itself), so it stays hand-rolled rather than
+        /// becoming a <see cref="TempDirectory"/> (which would create it).
+        /// </summary>
         private string _metaDir;
 
         [TestInitialize]
         public void TestInitialize()
         {
-            _storageDir = Path.Combine(Path.GetTempPath(), "f8_ns_" + Guid.NewGuid().ToString("N"));
+            _storageDir = new TempDirectory("f8_ns_");
             _metaDir = Path.Combine(Path.GetTempPath(), "f8_ns_meta_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_storageDir);
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            foreach (var dir in new[] { _storageDir, _metaDir })
+            _storageDir?.Dispose();
+
+            try
             {
-                try
+                if (_metaDir != null && Directory.Exists(_metaDir))
                 {
-                    if (dir != null && Directory.Exists(dir))
-                    {
-                        Directory.Delete(dir, true);
-                    }
+                    Directory.Delete(_metaDir, true);
                 }
-                catch
-                {
-                    // best-effort cleanup
-                }
+            }
+            catch
+            {
+                // best-effort cleanup
             }
         }
 
@@ -116,7 +120,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var settings = new Dictionary<string, string>
             {
-                ["Fallen8:Durability:StorageDirectory"] = _storageDir,
+                ["Fallen8:Durability:StorageDirectory"] = _storageDir.FullName,
                 ["Fallen8:Durability:Volatile"] = "false",
                 ["Fallen8:Durability:SaveOnShutdown"] = saveOnShutdown ? "true" : "false",
                 ["Fallen8:Metadata:Directory"] = _metaDir,
@@ -593,28 +597,6 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.IsFalse(CatalogEntries()["aa-archived"].GetProperty("loadOnStartupEnabled").GetBoolean(),
                 "and its persisted policy must be untouched, so the next boot still does what it did");
-        }
-
-        /// <summary>
-        ///   Addressing a not-loaded namespace answers 503 with its own title and a
-        ///   <c>namespaceState</c> extension - never 404, because the Studio client turns a 404
-        ///   carrying a <c>namespace</c> extension into a recover state whose primary action
-        ///   recreates the namespace EMPTY, i.e. destroys the data this refusal is protecting.
-        /// </summary>
-        [TestMethod]
-        public async Task AddressingANotLoadedNamespace_Answers503_NotFound404()
-        {
-            using var host = NewHost(saveOnShutdown: false);
-            using var client = host.CreateClient();
-            AddNotLoadedNamespace(Collection(host), "archived", "ns-archived-fixture");
-
-            using var response = await client.GetAsync("/ns/archived/vertex/count");
-
-            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-            var problem = await ReadJson(response);
-            Assert.AreEqual("Namespace not loaded", problem.GetProperty("title").GetString());
-            Assert.AreEqual("archived", problem.GetProperty("namespace").GetString());
-            Assert.AreEqual("notLoaded", problem.GetProperty("namespaceState").GetString());
         }
 
         /// <summary>
@@ -1216,7 +1198,7 @@ namespace NoSQL.GraphDB.Tests
         public async Task ConcurrentActivation_OfTheSameNamespace_ConstructsExactlyOneEngine()
         {
             await ExcludeAPopulatedNamespace("archived");
-            var walPath = Directory.GetFiles(Path.Combine(_storageDir, "namespaces"), "fallen8.wal*",
+            var walPath = Directory.GetFiles(Path.Combine(_storageDir.FullName, "namespaces"), "fallen8.wal*",
                 SearchOption.AllDirectories).Single();
             var walBefore = File.ReadAllBytes(walPath);
 
@@ -1454,7 +1436,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 var namespaces = Collection(host);
                 var flights = Create(namespaces, "flights");
-                namespaceDir = Path.Combine(_storageDir, "namespaces", flights.Id);
+                namespaceDir = Path.Combine(_storageDir.FullName, "namespaces", flights.Id);
                 AddVertices(flights.Engine, 2);
                 AddVertices(namespaces.Default.Engine, 1);
             }
@@ -1708,7 +1690,7 @@ namespace NoSQL.GraphDB.Tests
             var namespaces = Collection(host);
 
             var flights = Create(namespaces, "flights");
-            var flightsDir = Path.Combine(_storageDir, "namespaces", flights.Id);
+            var flightsDir = Path.Combine(_storageDir.FullName, "namespaces", flights.Id);
             AddVertices(flights.Engine, 1);
             using var saved = await client.PutAsync("/ns/flights/save",
                 new StringContent("{}", System.Text.Encoding.UTF8, "application/json"));
@@ -1801,7 +1783,7 @@ namespace NoSQL.GraphDB.Tests
             }
 
             SetCatalogLoadPolicy("archived", false);
-            var archivedDirectory = Path.Combine(_storageDir, "namespaces", archivedId);
+            var archivedDirectory = Path.Combine(_storageDir.FullName, "namespaces", archivedId);
             Assert.AreEqual(1, Directory.GetFiles(archivedDirectory, "fallen8.wal*").Length,
                 "the not-loaded namespace must have a write-ahead log for the reset to delete");
 

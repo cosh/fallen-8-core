@@ -109,7 +109,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.FroniusSolar
             // The PROVIDER'S half of the embedding opt-in, declarative so no code of this provider's sits on the
             // path that produces embedding text. A job asks for the other half, and both default off. The status
             // word changes at dawn and dusk rather than every second, which is what keeps this embeddable at all.
-            EntitySummaryTemplate = "{kind} {fronius.customName}, status {fronius.status}",
+            EntitySummaryTemplate = "{kind} {fronius.customName}, {fronius.status}",
         };
 
         /// <inheritdoc/>
@@ -283,50 +283,34 @@ namespace NoSQL.GraphDB.Integrations.Providers.FroniusSolar
             String? address)
         {
             var entity = new EntityDto { Kind = InverterKind };
-
-            // A type and never a strength: the vocabulary decides, and a provider that could call its own
-            // identifier strong would make a run attach its data to whichever element last held a value.
-            entity.Claims.Add(new IdentityClaimDto { Type = UniqueIdClaim, Value = uniqueId });
-            if (address != null)
-            {
-                entity.Claims.Add(new IdentityClaimDto { Type = Ipv4Claim, Value = address });
-            }
+            entity.ClaimIfPresent(UniqueIdClaim, uniqueId);
+            entity.ClaimIfPresent(Ipv4Claim, address);
 
             // Decoded once, for both platforms: CustomName arrives as HTML entities on a Datamanager or a
             // Symo Hybrid (the vendor's own example being the run &#80;&#114;&#105;) and as plain text on a
             // GEN24, and decoding is idempotent on plain text, which is what makes one code path correct
             // for both rather than a platform switch nothing could keep true.
-            Record(entity, "fronius.customName", Trimmed(WebUtility.HtmlDecode(device.CustomName)));
+            entity.SetIfPresent("fronius.customName", Trimmed(WebUtility.HtmlDecode(device.CustomName)));
 
             // The NUMBER, never a model name: the document's type table has more than 250 entries, exists
             // only in a PDF, and is wrong anyway on the newest platforms, which it says always report 1.
-            Record(entity, "fronius.deviceType", device.DeviceType);
+            entity.SetIfPresent("fronius.deviceType", device.DeviceType);
 
-            Record(entity, "fronius.status", FroniusInverterStatus.Describe(device.StatusCode));
+            entity.SetIfPresent("fronius.status", FroniusInverterStatus.Describe(device.StatusCode));
 
             // Recorded, NOT obeyed: "do not display this in visualizations" is a dashboard preference, and
             // dropping the inverter would withdraw it from the graph the moment somebody set it.
-            Record(entity, "fronius.show", FroniusValues.Flag(device.Show));
+            entity.SetIfPresent("fronius.show", FroniusValues.Flag(device.Show));
 
             if (device.ErrorCode != null && device.ErrorCode.Value != FroniusInverterStatus.AbsentErrorCode)
             {
-                // -1 is ABSENCE per the document, not an error numbered minus one, and an absent value is
-                // absent rather than recorded as a number somebody will read as a fault.
-                Record(entity, "fronius.errorCode", device.ErrorCode.Value);
+                // -1 is ABSENCE per the document, not an error numbered minus one, so it is not recorded as
+                // a number somebody will read as a fault.
+                entity.SetIfPresent("fronius.errorCode", device.ErrorCode.Value);
             }
 
-            Record(entity, "fronius.pvPower", device.PvPower);
-
-            if (loggerId != null)
-            {
-                // Addressed by CLAIM rather than by an element id, so this provider never needs to know
-                // whether the logging device has been applied yet or in which order the run applies them.
-                entity.Relations.Add(new RelationDto
-                {
-                    Type = LoggedByRelation,
-                    Target = new ClaimReferenceDto { Type = LoggerIdClaim, Value = loggerId },
-                });
-            }
+            entity.SetIfPresent("fronius.pvPower", device.PvPower);
+            entity.RelateIfPresent(LoggedByRelation, LoggerIdClaim, loggerId);
 
             return entity;
         }
@@ -336,33 +320,16 @@ namespace NoSQL.GraphDB.Integrations.Providers.FroniusSolar
         private static EntityDto Datamanager(FroniusLoggerDto logger, String loggerId, String? address)
         {
             var entity = new EntityDto { Kind = DatamanagerKind };
+            entity.ClaimIfPresent(LoggerIdClaim, loggerId);
+            entity.ClaimIfPresent(Ipv4Claim, address);
 
-            entity.Claims.Add(new IdentityClaimDto { Type = LoggerIdClaim, Value = loggerId });
-            if (address != null)
-            {
-                entity.Claims.Add(new IdentityClaimDto { Type = Ipv4Claim, Value = address });
-            }
-
-            Record(entity, "fronius.productId", Trimmed(logger.ProductId));
-            Record(entity, "fronius.platformId", Trimmed(logger.PlatformId));
-            Record(entity, "fronius.hwVersion", Trimmed(logger.HardwareVersion));
-            Record(entity, "fronius.swVersion", Trimmed(logger.SoftwareVersion));
-            Record(entity, "fronius.timezoneLocation", Trimmed(logger.TimezoneLocation));
+            entity.SetIfPresent("fronius.productId", Trimmed(logger.ProductId));
+            entity.SetIfPresent("fronius.platformId", Trimmed(logger.PlatformId));
+            entity.SetIfPresent("fronius.hwVersion", Trimmed(logger.HardwareVersion));
+            entity.SetIfPresent("fronius.swVersion", Trimmed(logger.SoftwareVersion));
+            entity.SetIfPresent("fronius.timezoneLocation", Trimmed(logger.TimezoneLocation));
 
             return entity;
-        }
-
-        /// <summary>
-        ///   Records one property, or nothing at all when the source did not answer. AN ABSENT VALUE IS
-        ///   ABSENT: writing an empty string would make the property exist and overwrite what another
-        ///   integration knows about the same device.
-        /// </summary>
-        private static void Record(EntityDto entity, String key, Object? value)
-        {
-            if (value != null)
-            {
-                entity.Properties[key] = value;
-            }
         }
 
         /// <summary>Trimmed text, or null for text the source left blank, which is the same statement as

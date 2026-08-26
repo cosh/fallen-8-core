@@ -28,10 +28,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -47,27 +44,11 @@ namespace NoSQL.GraphDB.Tests
     {
         private const string Origin = "http://localhost:3000";
 
-        private sealed class CorsFactory : WebApplicationFactory<Program>
-        {
-            private readonly IReadOnlyDictionary<string, string> _settings;
-
-            public CorsFactory(IReadOnlyDictionary<string, string> settings) => _settings = settings;
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                foreach (var kv in _settings)
-                {
-                    builder.UseSetting(kv.Key, kv.Value);
-                }
-            }
-        }
-
-        private static CorsFactory NewHost()
+        private static VolatileAppFactory NewHost()
         {
             // A key is configured (auth is ON) AND the UI origin is allow-listed via the indexed
             // array form the binder requires.
-            return new CorsFactory(new Dictionary<string, string>
+            return new VolatileAppFactory(new Dictionary<string, string>
             {
                 ["Fallen8:Security:ApiKey"] = "test-secret-key",
                 ["Fallen8:Security:AllowedCorsOrigins:0"] = Origin,

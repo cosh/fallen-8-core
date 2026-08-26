@@ -64,15 +64,14 @@ namespace NoSQL.GraphDB.Tests
     {
         private ILoggerFactory _loggerFactory;
         private Fallen8 _fallen8;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
             _fallen8 = new Fallen8(_loggerFactory);
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_hostplugin_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
+            _temp = new TempDirectory("f8_hostplugin_");
 
             // The activation/invocation counters are static (a plugin is constructed by the engine, so
             // a test cannot hold the instance); resetting them here is what keeps every test
@@ -86,22 +85,14 @@ namespace NoSQL.GraphDB.Tests
         public void TestCleanup()
         {
             _fallen8.Dispose();
-
-            try
-            {
-                if (_tempDir != null && Directory.Exists(_tempDir))
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-            }
-            catch { /* best-effort cleanup */ }
+            _temp?.Dispose();
         }
 
         #region helpers
 
-        private string SavePath => Path.Combine(_tempDir, "savegame.f8s");
+        private string SavePath => Path.Combine(_temp.FullName, "savegame.f8s");
 
-        private string WalPath => Path.Combine(_tempDir, "savegame.f8s.wal");
+        private string WalPath => Path.Combine(_temp.FullName, "savegame.f8s.wal");
 
         private Fallen8 NewEngineWithWal()
         {
@@ -113,17 +104,6 @@ namespace NoSQL.GraphDB.Tests
         private Fallen8 NewInlineEngine()
         {
             return new Fallen8(_loggerFactory, transactionExecutionMode: TransactionExecutionMode.Inline);
-        }
-
-        private static VertexModel[] CreateVertices(Fallen8 engine, int count)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i < count; i++)
-            {
-                tx.AddVertex(1u, "v");
-            }
-            engine.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
         }
 
         private static PathAlgorithms.ShortestPathDefinition PathDefinition()
@@ -373,7 +353,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void HostRegisteredIndexType_RehydratesFromACheckpoint_WithItsContent()
         {
-            var vertices = CreateVertices(_fallen8, 3);
+            var vertices = TestVertices.Create(_fallen8, 3);
             _fallen8.RegisterPluginType<HostBucketIndex>().WaitUntilFinished();
             Assert.IsTrue(_fallen8.IndexFactory.TryCreateIndex(out var index, "host-idx", HostBucketIndex.RegisteredName),
                 "the index to be checkpointed must be creatable first");
@@ -465,7 +445,7 @@ namespace NoSQL.GraphDB.Tests
             int[] ids;
             try
             {
-                var vertices = CreateVertices(writer, 2);
+                var vertices = TestVertices.Create(writer, 2);
                 ids = vertices.Select(vertex => vertex.Id).ToArray();
 
                 var registration = writer.RegisterPluginType<HostBucketIndex>();
@@ -732,7 +712,7 @@ namespace NoSQL.GraphDB.Tests
                 Load(target, savePoint);
                 Assert.IsTrue(sink.Contains(LogLevel.Error, "Host-Path", "host registration wins"));
 
-                var second = Save(target, Path.Combine(_tempDir, "after-collision.f8s"));
+                var second = Save(target, Path.Combine(_temp.FullName, "after-collision.f8s"));
 
                 Assert.IsFalse(File.Exists(second + "_plugins"),
                     "the surviving entry is the host's, which has no source: the new checkpoint carries the " +

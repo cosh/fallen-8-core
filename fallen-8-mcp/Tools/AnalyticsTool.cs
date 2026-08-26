@@ -33,6 +33,7 @@ using ModelContextProtocol.Protocol;
 using NoSQL.GraphDB.Mcp.Bridge;
 using NoSQL.GraphDB.Mcp.Bridge.Dto;
 using NoSQL.GraphDB.Mcp.Configuration;
+using NoSQL.GraphDB.Rest;
 
 namespace NoSQL.GraphDB.Mcp.Tools
 {

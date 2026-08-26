@@ -150,86 +150,74 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void WalFailure_FlipsDegradedGauge_CountsNonDurable_AndSaveClearsIt()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_obs_wal_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            var walPath = Path.Combine(tempDir, "graph.f8s.wal");
-            try
+            // Declared first, so it is disposed LAST: the engine releases its WAL handle first.
+            using var temp = new TempDirectory("f8_obs_wal_");
+            var walPath = Path.Combine(temp.FullName, "graph.f8s.wal");
+
+            using var collector = new Collector();
+            using var engine = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+
+            CreateVertex(engine);
+            Assert.IsTrue(collector.Count("fallen8.wal.flush.duration") >= 1,
+                "the group fsync duration is recorded");
+
+            collector.CollectGauges();
+            Assert.AreEqual(0d, collector.Of("fallen8.wal.degraded").Last().Value, "healthy log");
+            Assert.IsTrue(collector.Of("fallen8.wal.size").Last().Value > 0d, "the log holds the commit");
+
+            // Inject a flush failure: the WAL opens the file per flush, so replacing it with
+            // a DIRECTORY makes the next append fail and trips the D1 sticky fence.
+            File.Delete(walPath);
+            Directory.CreateDirectory(walPath);
+
+            var degradedCommit = engine.EnqueueTransaction(new CreateVertexTransaction
             {
-                using var collector = new Collector();
-                using var engine = new Fallen8(TestLoggerFactory.Create(), new WriteAheadLogOptions(walPath));
+                Definition = new VertexDefinition { CreationDate = 1u, Label = "person" }
+            });
+            degradedCommit.WaitUntilFinished();
+            Assert.AreEqual(TransactionState.Finished, degradedCommit.TransactionState,
+                "the commit stays applied in memory");
+            Assert.IsFalse(degradedCommit.Durable, "but it is not durable in the log");
 
-                CreateVertex(engine);
-                Assert.IsTrue(collector.Count("fallen8.wal.flush.duration") >= 1,
-                    "the group fsync duration is recorded");
+            Assert.IsTrue(collector.Sum("fallen8.transaction.nondurable") >= 1d);
+            Assert.IsTrue(collector.Sum("fallen8.wal.flush.failures") >= 1d);
+            collector.CollectGauges();
+            Assert.AreEqual(1d, collector.Of("fallen8.wal.degraded").Last().Value,
+                "the D1 fence is visible without reading a single log line");
 
-                collector.CollectGauges();
-                Assert.AreEqual(0d, collector.Of("fallen8.wal.degraded").Last().Value, "healthy log");
-                Assert.IsTrue(collector.Of("fallen8.wal.size").Last().Value > 0d, "the log holds the commit");
+            // A successful Save re-establishes durability (ResetToSnapshot clears the fence).
+            Directory.Delete(walPath);
+            var save = new SaveTransaction { Path = Path.Combine(temp.FullName, "snap.f8s"), SavePartitions = 1 };
+            engine.EnqueueTransaction(save).WaitUntilFinished();
 
-                // Inject a flush failure: the WAL opens the file per flush, so replacing it with
-                // a DIRECTORY makes the next append fail and trips the D1 sticky fence.
-                File.Delete(walPath);
-                Directory.CreateDirectory(walPath);
-
-                var degradedCommit = engine.EnqueueTransaction(new CreateVertexTransaction
-                {
-                    Definition = new VertexDefinition { CreationDate = 1u, Label = "person" }
-                });
-                degradedCommit.WaitUntilFinished();
-                Assert.AreEqual(TransactionState.Finished, degradedCommit.TransactionState,
-                    "the commit stays applied in memory");
-                Assert.IsFalse(degradedCommit.Durable, "but it is not durable in the log");
-
-                Assert.IsTrue(collector.Sum("fallen8.transaction.nondurable") >= 1d);
-                Assert.IsTrue(collector.Sum("fallen8.wal.flush.failures") >= 1d);
-                collector.CollectGauges();
-                Assert.AreEqual(1d, collector.Of("fallen8.wal.degraded").Last().Value,
-                    "the D1 fence is visible without reading a single log line");
-
-                // A successful Save re-establishes durability (ResetToSnapshot clears the fence).
-                Directory.Delete(walPath);
-                var save = new SaveTransaction { Path = Path.Combine(tempDir, "snap.f8s"), SavePartitions = 1 };
-                engine.EnqueueTransaction(save).WaitUntilFinished();
-
-                collector.CollectGauges();
-                Assert.AreEqual(0d, collector.Of("fallen8.wal.degraded").Last().Value,
-                    "a save returns the gauge to 0");
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            collector.CollectGauges();
+            Assert.AreEqual(0d, collector.Of("fallen8.wal.degraded").Last().Value,
+                "a save returns the gauge to 0");
         }
 
         [TestMethod]
         public void CheckpointSaveAndLoad_RecordDurationsAndBytes()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_obs_ckpt_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                using var collector = new Collector();
-                using var engine = new Fallen8(TestLoggerFactory.Create());
-                CreateVertex(engine);
+            // Declared first, so it is disposed LAST: the engines release their handles first.
+            using var temp = new TempDirectory("f8_obs_ckpt_");
 
-                var save = new SaveTransaction { Path = Path.Combine(tempDir, "snap.f8s"), SavePartitions = 1 };
-                engine.EnqueueTransaction(save).WaitUntilFinished();
+            using var collector = new Collector();
+            using var engine = new Fallen8(TestLoggerFactory.Create());
+            CreateVertex(engine);
 
-                Assert.AreEqual(1, collector.Count("fallen8.checkpoint.save.duration"));
-                Assert.IsTrue(collector.Of("fallen8.checkpoint.save.bytes").Single().Value > 0d,
-                    "the checkpoint's on-disk bytes are measured");
+            var save = new SaveTransaction { Path = Path.Combine(temp.FullName, "snap.f8s"), SavePartitions = 1 };
+            engine.EnqueueTransaction(save).WaitUntilFinished();
 
-                using var restored = new Fallen8(TestLoggerFactory.Create());
-                restored.EnqueueTransaction(new LoadTransaction { Path = save.ActualPath }).WaitUntilFinished();
+            Assert.AreEqual(1, collector.Count("fallen8.checkpoint.save.duration"));
+            Assert.IsTrue(collector.Of("fallen8.checkpoint.save.bytes").Single().Value > 0d,
+                "the checkpoint's on-disk bytes are measured");
 
-                Assert.AreEqual(1, collector.Count("fallen8.checkpoint.load.duration"));
-                Assert.IsTrue(collector.Of("fallen8.checkpoint.load.bytes").Single().Value > 0d);
-                Assert.AreEqual(0, collector.Count("fallen8.checkpoint.failures"));
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            using var restored = new Fallen8(TestLoggerFactory.Create());
+            restored.EnqueueTransaction(new LoadTransaction { Path = save.ActualPath }).WaitUntilFinished();
+
+            Assert.AreEqual(1, collector.Count("fallen8.checkpoint.load.duration"));
+            Assert.IsTrue(collector.Of("fallen8.checkpoint.load.bytes").Single().Value > 0d);
+            Assert.AreEqual(0, collector.Count("fallen8.checkpoint.failures"));
         }
 
         [TestMethod]
@@ -378,53 +366,47 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void MeasureCheckpointBytes_ExcludesTheVersionStampedSiblings_OfALaterSaveToTheSameBasePath()
         {
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_obs_bytes_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                using var engine = new Fallen8(TestLoggerFactory.Create());
-                CreateVertex(engine);
+            // Declared first, so it is disposed LAST: the engine releases its handles first.
+            using var temp = new TempDirectory("f8_obs_bytes_");
 
-                var requestedPath = Path.Combine(tempDir, "snap.f8s");
-                var firstSave = new SaveTransaction { Path = requestedPath, SavePartitions = 1 };
-                engine.EnqueueTransaction(firstSave).WaitUntilFinished();
-                Assert.AreEqual(requestedPath, firstSave.ActualPath, "the first save takes the requested path verbatim");
+            using var engine = new Fallen8(TestLoggerFactory.Create());
+            CreateVertex(engine);
 
-                // With only the first checkpoint on disk, the measurement is the plain sum of every
-                // prefix-sharing file (snapshot + partition/index sidecars).
-                var firstCheckpointBytes = SumOfFilesWithPrefix(tempDir, "snap.f8s");
-                Assert.IsTrue(firstCheckpointBytes > 0L, "the checkpoint wrote measurable files");
-                Assert.AreEqual(firstCheckpointBytes, MeasureCheckpointBytes(firstSave.ActualPath));
+            var requestedPath = Path.Combine(temp.FullName, "snap.f8s");
+            var firstSave = new SaveTransaction { Path = requestedPath, SavePartitions = 1 };
+            engine.EnqueueTransaction(firstSave).WaitUntilFinished();
+            Assert.AreEqual(requestedPath, firstSave.ActualPath, "the first save takes the requested path verbatim");
 
-                // A second save to the SAME base path gets a '#' version stamp instead of
-                // overwriting (PersistencyFactory) - its files SHARE the first checkpoint's prefix.
-                CreateVertex(engine);
-                var secondSave = new SaveTransaction { Path = requestedPath, SavePartitions = 1 };
-                engine.EnqueueTransaction(secondSave).WaitUntilFinished();
-                StringAssert.StartsWith(secondSave.ActualPath, requestedPath + "#",
-                    "a save onto an existing checkpoint version-stamps with '#'");
-                Assert.IsTrue(SumOfFilesWithPrefix(tempDir, "snap.f8s") > firstCheckpointBytes,
-                    "sanity: the sibling checkpoint's files really extend the first checkpoint's prefix");
+            // With only the first checkpoint on disk, the measurement is the plain sum of every
+            // prefix-sharing file (snapshot + partition/index sidecars).
+            var firstCheckpointBytes = SumOfFilesWithPrefix(temp.FullName, "snap.f8s");
+            Assert.IsTrue(firstCheckpointBytes > 0L, "the checkpoint wrote measurable files");
+            Assert.AreEqual(firstCheckpointBytes, MeasureCheckpointBytes(firstSave.ActualPath));
 
-                // THE branch pin: re-measuring the FIRST checkpoint still counts only its own
-                // files - the '#'-stamped sibling is a DIFFERENT checkpoint and is excluded.
-                Assert.AreEqual(firstCheckpointBytes, MeasureCheckpointBytes(firstSave.ActualPath),
-                    "the '#'-stamped sibling checkpoint must not be summed into the first checkpoint's size");
+            // A second save to the SAME base path gets a '#' version stamp instead of
+            // overwriting (PersistencyFactory) - its files SHARE the first checkpoint's prefix.
+            CreateVertex(engine);
+            var secondSave = new SaveTransaction { Path = requestedPath, SavePartitions = 1 };
+            engine.EnqueueTransaction(secondSave).WaitUntilFinished();
+            StringAssert.StartsWith(secondSave.ActualPath, requestedPath + "#",
+                "a save onto an existing checkpoint version-stamps with '#'");
+            Assert.IsTrue(SumOfFilesWithPrefix(temp.FullName, "snap.f8s") > firstCheckpointBytes,
+                "sanity: the sibling checkpoint's files really extend the first checkpoint's prefix");
 
-                // The second checkpoint measures as exactly its own files.
-                var secondPrefix = Path.GetFileName(secondSave.ActualPath);
-                var secondCheckpointBytes = SumOfFilesWithPrefix(tempDir, secondPrefix);
-                Assert.IsTrue(secondCheckpointBytes > 0L);
-                Assert.AreEqual(secondCheckpointBytes, MeasureCheckpointBytes(secondSave.ActualPath));
+            // THE branch pin: re-measuring the FIRST checkpoint still counts only its own
+            // files - the '#'-stamped sibling is a DIFFERENT checkpoint and is excluded.
+            Assert.AreEqual(firstCheckpointBytes, MeasureCheckpointBytes(firstSave.ActualPath),
+                "the '#'-stamped sibling checkpoint must not be summed into the first checkpoint's size");
 
-                // Best-effort contract: an unmeasurable path answers the -1 sentinel, never throws
-                // (a metrics detail must not fault a save/load).
-                Assert.AreEqual(-1L, MeasureCheckpointBytes(Path.Combine(tempDir, "no-such-dir", "x.f8s")));
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { /* best effort */ }
-            }
+            // The second checkpoint measures as exactly its own files.
+            var secondPrefix = Path.GetFileName(secondSave.ActualPath);
+            var secondCheckpointBytes = SumOfFilesWithPrefix(temp.FullName, secondPrefix);
+            Assert.IsTrue(secondCheckpointBytes > 0L);
+            Assert.AreEqual(secondCheckpointBytes, MeasureCheckpointBytes(secondSave.ActualPath));
+
+            // Best-effort contract: an unmeasurable path answers the -1 sentinel, never throws
+            // (a metrics detail must not fault a save/load).
+            Assert.AreEqual(-1L, MeasureCheckpointBytes(Path.Combine(temp.FullName, "no-such-dir", "x.f8s")));
         }
 
         #endregion

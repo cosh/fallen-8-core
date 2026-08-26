@@ -49,7 +49,7 @@ namespace NoSQL.GraphDB.Integrations.Summary
         /// <summary>
         ///   Renders one entity, or null when the template is empty or every hole collapsed.
         /// </summary>
-        /// <param name="template">The descriptor's template, e.g. <c>{unifi.model} {unifi.name} on {unifi.site}</c>.</param>
+        /// <param name="template">The descriptor's template, e.g. <c>{kind} {unifi.name}, {unifi.model}</c>.</param>
         /// <param name="entity">The validated entity, whose rendered property values are the only data used.</param>
         public static String? Render(String? template, ValidatedEntity entity)
         {

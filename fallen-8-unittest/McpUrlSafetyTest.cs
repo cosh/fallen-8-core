@@ -25,7 +25,7 @@
 
 using System;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.Mcp.Bridge;
+using NoSQL.GraphDB.Rest;
 
 namespace NoSQL.GraphDB.Tests
 {

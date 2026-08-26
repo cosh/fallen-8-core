@@ -48,33 +48,37 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class HostedDurabilityLifecycleTest
     {
-        private string _storageDir;
+        private TempDirectory _storageDir;
+
+        /// <summary>
+        /// A PATH the host may create, not a directory this test creates: the registry directory's
+        /// absence is part of the boot state under test, so it stays hand-rolled rather than becoming
+        /// a <see cref="TempDirectory"/> (which would create it).
+        /// </summary>
         private string _metaDir;
 
         [TestInitialize]
         public void TestInitialize()
         {
-            _storageDir = Path.Combine(Path.GetTempPath(), "f8_hosted_" + Guid.NewGuid().ToString("N"));
+            _storageDir = new TempDirectory("f8_hosted_");
             _metaDir = Path.Combine(Path.GetTempPath(), "f8_hosted_meta_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_storageDir);
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
-            foreach (var dir in new[] { _storageDir, _metaDir })
+            _storageDir?.Dispose();
+
+            try
             {
-                try
+                if (_metaDir != null && Directory.Exists(_metaDir))
                 {
-                    if (dir != null && Directory.Exists(dir))
-                    {
-                        Directory.Delete(dir, true);
-                    }
+                    Directory.Delete(_metaDir, true);
                 }
-                catch
-                {
-                    // best-effort cleanup
-                }
+            }
+            catch
+            {
+                // best-effort cleanup
             }
         }
 
@@ -100,7 +104,7 @@ namespace NoSQL.GraphDB.Tests
         {
             return new DurabilityFactory(new Dictionary<string, string>
             {
-                ["Fallen8:Durability:StorageDirectory"] = _storageDir,
+                ["Fallen8:Durability:StorageDirectory"] = _storageDir.FullName,
                 ["Fallen8:Durability:Volatile"] = volatileMode ? "true" : "false",
                 ["Fallen8:Durability:SaveOnShutdown"] = saveOnShutdown ? "true" : "false",
                 // Isolate the save-game registry per test (as storage is isolated), so parallel
@@ -218,7 +222,7 @@ namespace NoSQL.GraphDB.Tests
             }
 
             // No checkpoint or WAL should have been written in volatile mode.
-            Assert.AreEqual(0, Directory.GetFiles(_storageDir).Length,
+            Assert.AreEqual(0, Directory.GetFiles(_storageDir.FullName).Length,
                 "Volatile mode must not write any checkpoint or WAL files.");
         }
     }

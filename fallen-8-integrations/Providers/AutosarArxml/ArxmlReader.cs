@@ -512,6 +512,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 }
             }
 
+            // A secured PDU's PAYLOAD-REF carries DEST="PDU-TRIGGERING", so it resolves the same way.
             var payload = Text(element.Element(Ar + "PAYLOAD-REF"));
             if (payload != null)
             {
@@ -758,7 +759,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 // One signal mapped at several byte positions of one PDU is normal and says nothing new, so
                 // the repeat is dropped silently rather than reported: a diagnostic per repeat would bury
                 // the ones that mean something.
-                if (seen.Add(relation.FromPath + " " + relation.Type + " " + relation.ToPath))
+                if (seen.Add(relation.FromPath + "\0" + relation.Type + "\0" + relation.ToPath))
                 {
                     kept.Add(relation);
                 }
@@ -874,11 +875,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             return element == null ? null : Clean(element.Value);
         }
 
-        /// <summary>
-        ///   Trims, and treats a value that is nothing but whitespace as ABSENT. An absent value must not
-        ///   become an empty property: writing one makes the property exist and overwrites what another
-        ///   integration knows.
-        /// </summary>
+        /// <summary>Trims, and treats a value that is nothing but whitespace as ABSENT: the presence rule
+        /// the snapshot contract's <c>EntityDto</c> owns, applied where the file is read.</summary>
         private static String? Clean(String? value)
         {
             if (value == null)

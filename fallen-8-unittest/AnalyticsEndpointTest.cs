@@ -30,11 +30,8 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.App.Services;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Model;
@@ -51,25 +48,17 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class AnalyticsEndpointTest
     {
-        private sealed class AnalyticsFactory : WebApplicationFactory<Program>
-        {
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-            }
-        }
-
         private static StringContent Json(string body)
         {
             return new StringContent(body, Encoding.UTF8, "application/json");
         }
 
-        private static Fallen8 EngineOf(AnalyticsFactory factory)
+        private static Fallen8 EngineOf(VolatileAppFactory factory)
         {
             return factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
         }
 
-        private static Int32 SeedVertex(AnalyticsFactory factory, string label = "person")
+        private static Int32 SeedVertex(VolatileAppFactory factory, string label = "person")
         {
             var tx = new CreateVertexTransaction
             {
@@ -79,7 +68,7 @@ namespace NoSQL.GraphDB.Tests
             return tx.VertexCreated.Id;
         }
 
-        private static void SeedEdge(AnalyticsFactory factory, Int32 source, Int32 target, string edgePropertyId = "link")
+        private static void SeedEdge(VolatileAppFactory factory, Int32 source, Int32 target, string edgePropertyId = "link")
         {
             var tx = new CreateEdgeTransaction
             {
@@ -97,7 +86,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Algorithms_ListsTheFiveBuiltins()
         {
-            using var factory = new AnalyticsFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             using var response = await client.GetAsync("/analytics/algorithms");
@@ -113,7 +102,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Run_TopK_OrderingAndCeiling_WithStatistics()
         {
-            using var factory = new AnalyticsFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             var hub = SeedVertex(factory);
@@ -142,7 +131,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Run_EveryDocumented400_AndThe404()
         {
-            using var factory = new AnalyticsFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             using (var r = await client.PostAsync("/analytics/NOPE", Json("{}")))
@@ -191,7 +180,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Partitions_Summaries_AndMembershipPaging()
         {
-            using var factory = new AnalyticsFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             // Component 1: a chain of 3; component 2: a pair.
@@ -256,7 +245,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ConcurrentRunSlots_Exhausted_Is429()
         {
-            using var factory = new AnalyticsFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             SeedVertex(factory);
 
@@ -280,7 +269,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task WriteBack_ConventionKeysAndTypes_IdempotentOverwrite()
         {
-            using var factory = new AnalyticsFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             var engine = EngineOf(factory);
 
@@ -325,17 +314,12 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task WriteBack_MultiChunkRun_AppliesAllChunks()
         {
-            using var factory = new AnalyticsFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
             var engine = EngineOf(factory);
 
             // One more vertex than a chunk holds => exactly 2 chunks.
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i < 50_001; i++)
-            {
-                tx.AddVertex(1u, "bulk");
-            }
-            engine.EnqueueTransaction(tx).WaitUntilFinished();
+            TestVertices.Create(engine, 50_001, "bulk");
 
             using var response = await client.PostAsync("/analytics/DEGREE",
                 Json("{\"writeBack\":true,\"maxResults\":1}"));
@@ -356,7 +340,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task OpenApiDocument_ContainsTheAnalyticsOperations()
         {
-            using var factory = new AnalyticsFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             using var response = await client.GetAsync("/openapi/v0.1.json");

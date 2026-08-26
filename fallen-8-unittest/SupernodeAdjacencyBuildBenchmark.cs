@@ -31,7 +31,6 @@ using System.IO;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
-using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
 
 namespace NoSQL.GraphDB.Tests
@@ -76,17 +75,6 @@ namespace NoSQL.GraphDB.Tests
             return new[] { 10_000, 20_000, 40_000, 80_000 };
         }
 
-        private static VertexModel[] SeedHubAndLeaves(Fallen8 fallen8, int degree)
-        {
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i <= degree; i++)
-            {
-                tx.AddVertex(1u, "v");
-            }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
-            return tx.GetCreatedVertices().ToArray();
-        }
-
         private static (double ms, long bytes) Measure(Action action)
         {
             GC.Collect();
@@ -110,7 +98,7 @@ namespace NoSQL.GraphDB.Tests
             foreach (var degree in Degrees())
             {
                 var fallen8 = new Fallen8(loggerFactory);
-                var v = SeedHubAndLeaves(fallen8, degree);
+                var v = TestVertices.Create(fallen8, degree + 1); // the hub plus its leaves
                 var hub = v[0];
 
                 var edgeTx = new CreateEdgesTransaction();
@@ -134,7 +122,7 @@ namespace NoSQL.GraphDB.Tests
             foreach (var degree in Degrees())
             {
                 var fallen8 = new Fallen8(loggerFactory);
-                var v = SeedHubAndLeaves(fallen8, degree);
+                var v = TestVertices.Create(fallen8, degree + 1); // the hub plus its leaves
                 var hub = v[0];
 
                 var (ms, bytes) = Measure(() =>
@@ -157,43 +145,36 @@ namespace NoSQL.GraphDB.Tests
         public void HubLoad_RoundTrip_ScalesLinearly()
         {
             var loggerFactory = TestLoggerFactory.Create();
-            var tempDir = Path.Combine(Path.GetTempPath(), "f8_supernode_bench_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
+            using var temp = new TempDirectory("f8_supernode_bench_");
+
+            foreach (var degree in Degrees())
             {
-                foreach (var degree in Degrees())
+                var fallen8 = new Fallen8(loggerFactory);
+                var v = TestVertices.Create(fallen8, degree + 1); // the hub plus its leaves
+                var hub = v[0];
+
+                var edgeTx = new CreateEdgesTransaction();
+                for (var i = 1; i <= degree; i++)
                 {
-                    var fallen8 = new Fallen8(loggerFactory);
-                    var v = SeedHubAndLeaves(fallen8, degree);
-                    var hub = v[0];
-
-                    var edgeTx = new CreateEdgesTransaction();
-                    for (var i = 1; i <= degree; i++)
-                    {
-                        edgeTx.AddEdge(hub.Id, EdgeKey, v[i].Id, 1u, "e");
-                        edgeTx.AddEdge(v[i].Id, EdgeKey, hub.Id, 1u, "e");
-                    }
-                    fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
-
-                    var savePath = Path.Combine(tempDir, "hub_" + degree + ".f8s");
-                    var saveTx = new SaveTransaction { Path = savePath, SavePartitions = Environment.ProcessorCount };
-                    fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
-                    var actualPath = saveTx.ActualPath;
-                    fallen8.Dispose();
-
-                    Fallen8 loaded = null;
-                    var (ms, bytes) = Measure(() =>
-                    {
-                        loaded = new Fallen8(loggerFactory);
-                        loaded.EnqueueTransaction(new LoadTransaction { Path = actualPath }).WaitUntilFinished();
-                    });
-                    Emit(FormatLine("load", degree, ms, bytes));
-                    loaded?.Dispose();
+                    edgeTx.AddEdge(hub.Id, EdgeKey, v[i].Id, 1u, "e");
+                    edgeTx.AddEdge(v[i].Id, EdgeKey, hub.Id, 1u, "e");
                 }
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, true); } catch { }
+                fallen8.EnqueueTransaction(edgeTx).WaitUntilFinished();
+
+                var savePath = Path.Combine(temp.FullName, "hub_" + degree + ".f8s");
+                var saveTx = new SaveTransaction { Path = savePath, SavePartitions = Environment.ProcessorCount };
+                fallen8.EnqueueTransaction(saveTx).WaitUntilFinished();
+                var actualPath = saveTx.ActualPath;
+                fallen8.Dispose();
+
+                Fallen8 loaded = null;
+                var (ms, bytes) = Measure(() =>
+                {
+                    loaded = new Fallen8(loggerFactory);
+                    loaded.EnqueueTransaction(new LoadTransaction { Path = actualPath }).WaitUntilFinished();
+                });
+                Emit(FormatLine("load", degree, ms, bytes));
+                loaded?.Dispose();
             }
         }
 

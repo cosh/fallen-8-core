@@ -50,7 +50,7 @@ namespace NoSQL.GraphDB.Tests
     ///      <c>Equals</c> fast path keeps returning the index's own retained (copy-on-write) bucket.
     ///
     /// Operator-level IndexScan parity and cross-bucket de-dup are covered by the P4 tests in
-    /// <c>EnginePerformanceFollowupsTest</c>; this file does not duplicate them.
+    /// <c>OrderedIndexScanTest</c>; this file does not duplicate them.
     /// </summary>
     [TestClass]
     public class ScanResultRepresentationTest

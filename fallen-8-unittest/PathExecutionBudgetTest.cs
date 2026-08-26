@@ -1,6 +1,6 @@
 // MIT License
 //
-// AuditDefectPathBudgetTest.cs
+// PathExecutionBudgetTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -53,7 +53,7 @@ namespace NoSQL.GraphDB.Tests
     ///   wall-clock ceiling for the same reason.</para>
     /// </summary>
     [TestClass]
-    public class AuditDefectPathBudgetTest
+    public class PathExecutionBudgetTest
     {
         /// <summary>Every test in this class must finish well inside this; a budget that fails to
         /// stop a traversal must show up as a failed assertion, not as a hanging suite.</summary>

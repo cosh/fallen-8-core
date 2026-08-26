@@ -35,7 +35,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Index.Spatial;
 using NoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry;
@@ -57,13 +56,13 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class HostedRoutingSmokeTest
     {
-        private sealed class RoutingFactory : WebApplicationFactory<Program>
+        /// <summary>The shared volatile host, in Development so the dev-only routes are mapped.</summary>
+        private sealed class RoutingFactory : VolatileAppFactory
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-                // Volatile durability: booting the host writes no checkpoint/WAL into the test bin.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
 

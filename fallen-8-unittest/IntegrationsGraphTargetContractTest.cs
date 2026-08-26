@@ -31,9 +31,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.Integrations.Graph;
 using NoSQL.GraphDB.Integrations.Identity;
 
@@ -447,7 +445,7 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public sealed class Fallen8RestTargetContractTest : IntegrationsGraphTargetContractTest
     {
-        private static WebApplicationFactory<Program> _factory;
+        private static VolatileAppFactory _factory;
         private static Int32 _namespaceCounter;
 
         /// <summary>
@@ -493,14 +491,13 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(response.IsSuccessStatusCode, "the index was dropped: " + response.StatusCode);
         }
 
-        private sealed class HostedApp : WebApplicationFactory<Program>
+        /// <summary>The shared volatile apiApp host, in Development so the dev-only routes are mapped.</summary>
+        private sealed class HostedApp : VolatileAppFactory
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-
-                // Volatile durability: booting the host writes no checkpoint or write-ahead log into the test bin.
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
     }

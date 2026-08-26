@@ -388,21 +388,33 @@ namespace NoSQL.GraphDB.Tests
                 "the graph");
         }
 
+        /// <summary>
+        ///   Two spellings of one printed serial CONVERGE, which is the property no single canonical
+        ///   value can state. That the canonical form of "  st-1234abc  " is exactly "ST-1234ABC" is the
+        ///   serial row of <c>EveryVocabularyEntry_CanonicalisesAValueToTheOneFormItsKeyIsComposedFrom</c>,
+        ///   with the same value through the same call, so it is not re-asserted here.
+        /// </summary>
         [TestMethod]
         public void Serial_IsTrimmedAndUpperCased_SoOneUnitIsOneKey()
         {
             var serial = Type("serial");
 
-            Assert.AreEqual("ST-1234ABC", serial.Canonicalise("  st-1234abc  "),
-                "a serial must be trimmed and upper-cased: a source that pads or lower-cases the value it " +
-                "printed on the unit would otherwise be a second element for the same unit");
             Assert.AreEqual(serial.Canonicalise("st-1234abc"), serial.Canonicalise("ST-1234ABC "),
                 "two spellings of one printed serial must converge, or the run that reads the other spelling " +
                 "resolves to nothing and creates a duplicate");
         }
 
+        /// <summary>
+        ///   A SPACED fifteen-digit IMEI, which is the shape neither generic row covers.
+        ///   <para>The mistyped fourteen-digit form must be REJECTED as a visible diagnostic, never
+        ///   padded, re-checksummed or otherwise reinterpreted: reinterpreting a typo invents a strong
+        ///   identity that some other handset may really have, and a run would then attach this device's
+        ///   data to that element. That rejection is the imei row of
+        ///   <c>EveryVocabularyEntry_AcceptsAValueOfItsOwnShapeAndRejectsOneOfAnother</c>, with the same
+        ///   value through the same call, so it is not re-asserted here.</para>
+        /// </summary>
         [TestMethod]
-        public void AMistyped14DigitImei_IsRejected_RatherThanBeingReinterpreted()
+        public void ASpacedImei_IsAccepted_AndCanonicalisesToItsDigitsAlone()
         {
             var imei = Type("imei");
 
@@ -412,23 +424,20 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("352099001761481", canonical,
                 "an IMEI must canonicalise to its digits alone, or a spaced and an unspaced reading of one " +
                 "handset become two elements");
-            Assert.IsFalse(imei.TryCanonicalise("35209900176148", out _),
-                "a fourteen-digit IMEI must be REJECTED as a visible diagnostic, never padded, re-checksummed " +
-                "or otherwise reinterpreted: reinterpreting a typo invents a strong identity that some other " +
-                "handset may really have, and a run would then attach this device's data to that element");
         }
 
+        /// <summary>
+        ///   An ipv4 claim refuses a value belonging to the OTHER address type, which is the one ipv4
+        ///   rule no generic row covers (the ipv6 row asserts the mirror case). The dotted quad it
+        ///   accepts and the out-of-range octet it refuses are the ipv4 row of
+        ///   <c>EveryVocabularyEntry_AcceptsAValueOfItsOwnShapeAndRejectsOneOfAnother</c>, with the same
+        ///   values through the same call, so they are not re-asserted here.
+        /// </summary>
         [TestMethod]
-        public void Ipv4_AcceptsADottedQuad_AndRejectsAnOutOfRangeOctetOrAnIpv6Value()
+        public void Ipv4_RejectsAnIpv6Value_SoOneAddressSpaceIsNotKeyedByTwoTypes()
         {
             var ipv4 = Type("ipv4");
 
-            Assert.IsTrue(ipv4.TryCanonicalise("192.168.1.10", out _),
-                "a dotted quad must be accepted: the address is the only overlap two providers often have, " +
-                "and a rejected one silently removes that overlap from everybody's query");
-            Assert.IsFalse(ipv4.TryCanonicalise("999.1.1.1", out _),
-                "an octet out of range must be rejected, or the claim index gains a key no real address can " +
-                "match and the overlap it advertises is fiction");
             Assert.IsFalse(ipv4.TryCanonicalise("fe80::1", out _),
                 "an IPv6 value under the ipv4 type must be rejected: two types keying one address space " +
                 "would make the same address two different keys, and the overlap would go missing");
@@ -488,6 +497,14 @@ namespace NoSQL.GraphDB.Tests
                 "from an arbitrary string would let two unrelated things resolve to one element");
         }
 
+        /// <summary>
+        ///   The vendor's own logger-id example is what forces two Fronius entries rather than one.
+        ///   <para>That the inverter type still accepts a short integer UniqueID like '476' (what
+        ///   independent captures actually report) is the fronius-unique-id row of
+        ///   <c>EveryVocabularyEntry_AcceptsAValueOfItsOwnShapeAndRejectsOneOfAnother</c>, with the same
+        ///   value through the same call, and it is implied again below by <c>Compose</c> succeeding on
+        ///   it, so it is not asserted a third time here.</para>
+        /// </summary>
         [TestMethod]
         public void TheFroniusLoggerExampleWithADot_IsRefusedByTheInverterTypeAndAcceptedByTheLoggerType()
         {
@@ -503,9 +520,6 @@ namespace NoSQL.GraphDB.Tests
                 "API has no identity and is created again on every run");
             Assert.AreEqual("240.107620", loggerCanonical,
                 "the logger id is trimmed and upper-cased only, so the vendor's value is the key's value");
-            Assert.IsTrue(inverter.TryCanonicalise("476", out _),
-                "the inverter type must still accept a short integer UniqueID, which is what independent " +
-                "captures actually report");
             Assert.AreEqual(IdentifierScope.Instance, inverter.Scope,
                 "the inverter id is unique only inside one inverter's own API, so instance scope is what " +
                 "stops two installations' different inverters from composing one key");

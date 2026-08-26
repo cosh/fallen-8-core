@@ -14,6 +14,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The REST-client seam shared with fallen-8-mcp: send classification, the absent-body
+         convention, URL safety. It references neither the engine nor the API app, so consuming it
+         keeps this deployable's REST-only rule intact. -->
+    <ProjectReference Include="..\fallen-8-rest-client\fallen-8-rest-client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- OpenTelemetry (feature fleet-observability): OTLP push of metrics + traces + logs, to the
          same collector as the Fallen-8 this runtime feeds. Core pinned at 1.17.0 to match the apiApp
          and the MCP server; exact-version gate: no floating ranges. -->

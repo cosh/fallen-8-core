@@ -37,7 +37,7 @@ using NoSQL.GraphDB.Integrations.Validation;
 namespace NoSQL.GraphDB.Integrations.Hosting
 {
     /// <summary>
-    ///   The runtime's whole HTTP surface: a health probe and the four routes the apiApp proxies. Nothing here is
+    ///   The runtime's whole HTTP surface: a health probe and the six routes the apiApp proxies. Nothing here is
     ///   authenticated, and nothing needs to be: the container's port is not published, so the only way in is
     ///   through the apiApp, which is already the authenticated front door. A second auth story on this container
     ///   would be a second thing to get wrong.
@@ -182,8 +182,8 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                 });
             });
 
-            // What is happening now, and what happened last, per identity. Deliberately not a run log: one
-            // slot per identity, in memory, superseded by that identity's next run (see RunTracker).
+            // What is happening now, and what happened last, per identity. Deliberately not a run log, and
+            // RunTracker states exactly how narrow that is.
             app.MapGet("/integration/run", (RunTracker tracker) => Results.Ok(tracker.All()));
 
             app.MapGet("/integration/run/{instanceId}", (String instanceId, RunTracker tracker) =>

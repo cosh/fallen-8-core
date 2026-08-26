@@ -31,7 +31,6 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -55,14 +54,6 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class SemanticTraversalTest
     {
-        private sealed class SemanticFactory : WebApplicationFactory<Program>
-        {
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-            }
-        }
-
         private static Fallen8 EngineOf(WebApplicationFactory<Program> factory)
             => factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
 
@@ -134,7 +125,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeMinScore_FiltersThePath_WithDynamicCodeOff()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -155,7 +146,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeCostBySimilarity_PrefersTheCloserRoute_WithDynamicCodeOff()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -174,7 +165,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeMinScore_UnderL2_IsADistanceCeiling_FiltersThePath()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -193,7 +184,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeCostBySimilarity_UnderL2_PrefersTheCloserRoute()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -213,7 +204,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeSemantic_400Table()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var (a, _, _, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -235,7 +226,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task DeclarativeSemantic_CarriesNoCode_AndInlineFragmentsRunUnconditionally()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var (a, _, _, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -255,7 +246,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ContextFragment_MatchesTheDeclarativeResult()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -274,7 +265,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task StoredPathQuery_ReadsTheInvocationContext()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var (a, b, c, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -302,7 +293,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task OneOwnerPerSlot_Conflicts_Are400()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var (a, _, _, d) = Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -326,7 +317,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_DeclarativeMinScore_PreFilters_WithDynamicCodeOff()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var (a, b, c, d) = Diamond(engine);
             using var client = factory.CreateClient();
@@ -343,7 +334,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_Semantic400Table()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -370,7 +361,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_SemanticBinding_SurvivesRecalculation_WithoutReEmbedding()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var (a, b, c, d) = Diamond(engine);
             using var client = factory.CreateClient();
@@ -402,7 +393,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_AppliesAtItsStep_WithDynamicCodeOff()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             Diamond(engine);
             using var client = factory.CreateClient();
@@ -426,7 +417,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_MatchesContextFragmentParity()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             Diamond(engine);
             using var client = factory.CreateClient();
@@ -457,7 +448,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_400Table()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -537,7 +528,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_BindingSurvivesRecalculation_WithoutReEmbedding()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var (a, b, c, d) = Diamond(engine);
             using var client = factory.CreateClient();
@@ -571,7 +562,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_UnderL2_IsADistanceCeiling()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             Diamond(engine);
             using var client = factory.CreateClient();
@@ -592,7 +583,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_MissingEmbedding_NeverMatches()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             var (a, b, c, d) = Diamond(engine);
             using var client = factory.CreateClient();
@@ -621,7 +612,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraph_PatternThreshold_MixedOwnershipAcrossSteps()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             var engine = EngineOf(factory);
             Diamond(engine);
             using var client = factory.CreateClient();
@@ -659,7 +650,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraphSummary_EchoesBoundSemanticState_NeverTheVector()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 
@@ -685,7 +676,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task SubGraphSummary_NonSemanticSubgraph_CarriesNoEcho()
         {
-            using var factory = new SemanticFactory();
+            using var factory = new VolatileAppFactory();
             Diamond(EngineOf(factory));
             using var client = factory.CreateClient();
 

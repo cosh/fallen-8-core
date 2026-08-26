@@ -31,6 +31,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
@@ -62,6 +63,20 @@ namespace NoSQL.GraphDB.Tests
             // Clear any previous data
             var tx = new TabulaRasaTransaction();
             _fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+        }
+
+        /// <summary>
+        /// The status code a unit-level action result carries. Success results are not problem+json,
+        /// so <see cref="ProblemAssert"/> does not apply to them.
+        /// </summary>
+        private static int StatusCodeOf(IActionResult result)
+        {
+            var statusResult = result as IStatusCodeActionResult;
+            Assert.IsNotNull(statusResult,
+                "Expected a status-code action result but got " + (result?.GetType().Name ?? "null") + ".");
+            Assert.IsTrue(statusResult.StatusCode.HasValue,
+                "Expected the action result to carry an explicit status code.");
+            return statusResult.StatusCode.Value;
         }
 
         [TestMethod]
@@ -111,6 +126,29 @@ namespace NoSQL.GraphDB.Tests
             var nameProp = vertexProperties.FirstOrDefault(p => p.PropertyId == "name");
             Assert.IsNotNull(nameProp, "Vertex should have a name property");
             Assert.AreEqual("John Doe", nameProp.PropertyValue, "Vertex name property should have correct value");
+        }
+
+        [TestMethod]
+        public async Task AddVertex_WhenWaitingAndTransactionSucceeds_ReturnsSuccess()
+        {
+            // Arrange
+            var fallen8 = new Fallen8(_loggerFactory);
+            var controller = new GraphController(_loggerFactory.CreateLogger<GraphController>(), fallen8);
+
+            var vertexSpec = new VertexSpecification
+            {
+                CreationDate = 1,
+                Label = "person",
+                Properties = new List<PropertySpecification>()
+            };
+
+            // Act
+            var result = await controller.AddVertex(vertexSpec, waitForCompletion: true);
+
+            // Assert
+            Assert.AreEqual(StatusCodes.Status202Accepted, StatusCodeOf(result),
+                "A normal, successful mutation must still be reported as success.");
+            Assert.AreEqual(1, fallen8.VertexCount, "The vertex should have been created.");
         }
 
         [TestMethod]

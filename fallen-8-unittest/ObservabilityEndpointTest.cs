@@ -25,16 +25,15 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Index.Spatial;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Transaction;
 
@@ -43,36 +42,18 @@ namespace NoSQL.GraphDB.Tests
     /// <summary>
     /// Pipeline tests for the observability surfaces (feature observability): the Prometheus
     /// scrape endpoint on/off + auth matrix, health endpoints, the zero-config guarantee, and
-    /// GET /statistics correctness, budget sampling and auth.
+    /// GET /statistics correctness, budget sampling, auth, and the index inventory it must
+    /// report identically to GET /status.
     /// </summary>
     [TestClass]
     public class ObservabilityEndpointTest
     {
-        private sealed class ObservabilityFactory : WebApplicationFactory<Program>
-        {
-            private readonly Dictionary<String, String> _settings;
-
-            public ObservabilityFactory(Dictionary<String, String> settings = null)
-            {
-                _settings = settings ?? new Dictionary<String, String>();
-            }
-
-            protected override void ConfigureWebHost(IWebHostBuilder builder)
-            {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
-                foreach (var pair in _settings)
-                {
-                    builder.UseSetting(pair.Key, pair.Value);
-                }
-            }
-        }
-
-        private static Fallen8 EngineOf(ObservabilityFactory factory)
+        private static Fallen8 EngineOf(VolatileAppFactory factory)
         {
             return factory.Services.GetRequiredService<NoSQL.GraphDB.App.Namespaces.Fallen8Namespaces>().Default.Engine;
         }
 
-        private static Int32 SeedVertex(ObservabilityFactory factory, string label = "person",
+        private static Int32 SeedVertex(VolatileAppFactory factory, string label = "person",
             Dictionary<string, object> properties = null)
         {
             var tx = new CreateVertexTransaction
@@ -83,7 +64,7 @@ namespace NoSQL.GraphDB.Tests
             return tx.VertexCreated.Id;
         }
 
-        private static void SeedEdge(ObservabilityFactory factory, Int32 source, Int32 target,
+        private static void SeedEdge(VolatileAppFactory factory, Int32 source, Int32 target,
             string edgePropertyId = "link", string label = null)
         {
             var tx = new CreateEdgeTransaction
@@ -105,7 +86,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task ZeroConfig_NoMetricsEndpoint_AndNoOtelServices()
         {
-            using var factory = new ObservabilityFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             // No scrape endpoint is mapped. (When a built SPA is present its fallback serves the
@@ -123,7 +104,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task PrometheusEnabled_ServesFallen8Series_AfterRealOperations()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 { "Fallen8:Observability:Prometheus:Enabled", "true" }
             });
@@ -156,7 +137,7 @@ namespace NoSQL.GraphDB.Tests
                 { "Fallen8:Security:ApiKey", "test-key-123" }
             };
 
-            using (var factory = new ObservabilityFactory(withKey))
+            using (var factory = new VolatileAppFactory(withKey))
             using (var client = factory.CreateClient())
             {
                 using var anonymous = await client.GetAsync("/metrics");
@@ -165,7 +146,7 @@ namespace NoSQL.GraphDB.Tests
             }
 
             withKey["Fallen8:Observability:Prometheus:RequireApiKey"] = "true";
-            using (var factory = new ObservabilityFactory(withKey))
+            using (var factory = new VolatileAppFactory(withKey))
             using (var client = factory.CreateClient())
             {
                 using var anonymous = await client.GetAsync("/metrics");
@@ -186,7 +167,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task HealthEndpoints_AnonymousStatusOnly_EvenWithAnApiKey()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 { "Fallen8:Security:ApiKey", "test-key-123" }
             });
@@ -212,7 +193,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_ExactOnAKnownSmallGraph()
         {
-            using var factory = new ObservabilityFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             // A hub with two leaves plus an isolated robot; one property; one index.
@@ -268,18 +249,13 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_AboveTheBudget_SamplesWithAStrideAndSaysSo()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 { "Fallen8:Observability:StatisticsElementBudget", "10" }
             });
             using var client = factory.CreateClient();
 
-            var tx = new CreateVerticesTransaction();
-            for (var i = 0; i < 40; i++)
-            {
-                tx.AddVertex(1u, "bulk");
-            }
-            EngineOf(factory).EnqueueTransaction(tx).WaitUntilFinished();
+            TestVertices.Create(EngineOf(factory), 40, "bulk");
 
             using var response = await client.GetAsync("/statistics");
             var stats = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
@@ -294,7 +270,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_RequiresTheApiKey_UnlikeMetrics()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 { "Fallen8:Security:ApiKey", "test-key-123" }
             });
@@ -315,7 +291,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Statistics_IsRateLimited_UnderTheSensitivePolicy()
         {
-            using var factory = new ObservabilityFactory(new Dictionary<String, String>
+            using var factory = new VolatileAppFactory(new Dictionary<String, String>
             {
                 // A tiny window so the test exhausts it deterministically without hammering.
                 { "Fallen8:Security:SensitiveRateLimitPermitPerWindow", "3" },
@@ -332,6 +308,146 @@ namespace NoSQL.GraphDB.Tests
             using var limited = await client.GetAsync("/statistics");
             Assert.AreEqual((HttpStatusCode)429, limited.StatusCode,
                 "the sensitive fixed-window limiter caps a scrape-loop misconfiguration");
+        }
+
+        // The index inventory that /statistics and /status both report. The engine's spatial
+        // R-Tree answers a NEGATIVE "count not supported" sentinel from CountOfKeys, and
+        // /statistics leaked that raw sentinel as a real key count while /status already
+        // normalised it to null. Both inventories now normalise through
+        // IndexStatsREST.NonNegativeCount, so they cannot disagree; the mapping helper's own
+        // unit lives in AnalyticsPluginVendorContractTest.
+        private const String DictionaryIndexName = "byName";
+        private const String SpatialIndexName = "byLocation";
+
+        /// <summary>
+        /// Arranges the two indices the sentinel contract needs: a DictionaryIndex (counts BOTH keys
+        /// and values honestly) and a SpatialIndex (an R-Tree: CountOfValues is honest,
+        /// CountOfKeys answers the negative "not supported" sentinel). The spatial index is created
+        /// engine-side on purpose - its Initialize needs live CLR objects the REST pluginOptions
+        /// cannot carry (pinned by StatusIndexInventoryTest).
+        /// </summary>
+        private static void SeedTwoIndices(VolatileAppFactory factory)
+        {
+            var engine = EngineOf(factory);
+
+            var created = TestVertices.Create(engine, 2, "person");
+            Assert.AreEqual(2, created.Length, "Arrange failed: the vertices were not created.");
+
+            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out var dictionaryIndex, DictionaryIndexName,
+                "DictionaryIndex"), "Arrange failed: the dictionary index was not created.");
+            dictionaryIndex.AddOrUpdate("alice", created[0]);
+            dictionaryIndex.AddOrUpdate("bob", created[1]);
+
+            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out var spatialIndex, SpatialIndexName,
+                "SpatialIndex", RTreeParameters()), "Arrange failed: the spatial index was not created.");
+            spatialIndex.AddOrUpdate(new Point(1.0f, 1.0f), created[0]);
+            spatialIndex.AddOrUpdate(new Point(2.0f, 2.0f), created[1]);
+
+            Assert.IsTrue(spatialIndex.CountOfKeys() < 0,
+                "Arrange failed: the R-Tree must answer the negative 'count not supported' sentinel " +
+                "- that sentinel is what this defect was about leaking.");
+            Assert.AreEqual(2, spatialIndex.CountOfValues(),
+                "Arrange failed: the R-Tree counts VALUES honestly, so only the key count may null out.");
+        }
+
+        private static IDictionary<String, Object> RTreeParameters()
+        {
+            return new Dictionary<String, Object>
+            {
+                ["IMetric"] = new NoSQL.GraphDB.Core.Index.Spatial.Implementation.Metric.EuclidianMetric(),
+                ["MinCount"] = 2,
+                ["MaxCount"] = 5,
+                ["Space"] = new List<IDimension>
+                {
+                    new NoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry.RealDimension(),
+                    new NoSQL.GraphDB.Core.Index.Spatial.Implementation.Geometry.RealDimension(),
+                }
+            };
+        }
+
+        private static async Task<JsonElement> Get(HttpClient client, String path)
+        {
+            using var response = await client.GetAsync(path);
+            response.EnsureSuccessStatusCode();
+            return JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+        }
+
+        /// <summary>
+        /// The per-index (keys, values) pair of one inventory, keyed by index name. Both fields must
+        /// be PRESENT on the wire - a null count is reported as an explicit null, never omitted, so
+        /// a client can tell "not supported" apart from "field missing".
+        /// </summary>
+        private static Dictionary<String, (Int32? Keys, Int32? Values)> CountsByIndex(
+            JsonElement inventory, String nameProperty)
+        {
+            return inventory.EnumerateArray().ToDictionary(
+                entry => entry.GetProperty(nameProperty).GetString(),
+                entry => (Keys: Count(entry, "keys"), Values: Count(entry, "values")));
+        }
+
+        private static Int32? Count(JsonElement entry, String property)
+        {
+            Assert.IsTrue(entry.TryGetProperty(property, out var value),
+                property + " must be present on every inventory entry (null, never omitted)");
+            return value.ValueKind == JsonValueKind.Null ? (Int32?)null : value.GetInt32();
+        }
+
+        [TestMethod]
+        public async Task Statistics_SpatialKeyCount_IsNull_NotTheNegativeSentinel()
+        {
+            using var factory = new VolatileAppFactory();
+            using var client = factory.CreateClient();
+            SeedTwoIndices(factory);
+
+            var indices = CountsByIndex((await Get(client, "/statistics")).GetProperty("indices"), "name");
+
+            Assert.IsNull(indices[SpatialIndexName].Keys,
+                "the R-Tree's negative 'count not supported' sentinel must surface as null, never as -1");
+            Assert.AreEqual<Int32?>(2, indices[SpatialIndexName].Values,
+                "a count the index DOES support is still reported (only the sentinel nulls out)");
+            Assert.AreEqual<Int32?>(2, indices[DictionaryIndexName].Keys,
+                "an index with real counts is unaffected by the normalisation");
+            Assert.AreEqual<Int32?>(2, indices[DictionaryIndexName].Values);
+        }
+
+        [TestMethod]
+        public async Task Statistics_And_Status_ReportIdenticalIndexCounts()
+        {
+            using var factory = new VolatileAppFactory();
+            using var client = factory.CreateClient();
+            SeedTwoIndices(factory);
+
+            // The agreement assertion is the load-bearing one: it is what stops the two discovery
+            // surfaces drifting apart again (the /statistics field was Int32 and raw, /status
+            // Int32? and normalised).
+            var statistics = CountsByIndex((await Get(client, "/statistics")).GetProperty("indices"), "name");
+            var status = CountsByIndex((await Get(client, "/status")).GetProperty("indices"), "indexId");
+
+            CollectionAssert.AreEquivalent(statistics.Keys.ToList(), status.Keys.ToList(),
+                "both inventories list the same indices");
+            foreach (var name in statistics.Keys)
+            {
+                Assert.AreEqual(status[name].Keys, statistics[name].Keys,
+                    "/statistics and /status must report the same key count for " + name);
+                Assert.AreEqual(status[name].Values, statistics[name].Values,
+                    "/statistics and /status must report the same value count for " + name);
+            }
+        }
+
+        [TestMethod]
+        public async Task Statistics_WithoutAnySpatialIndex_ReportsPlainNumbers()
+        {
+            // The unchanged default: nullable fields do not mean "usually null". Every index that
+            // supports counting still answers a number.
+            using var factory = new VolatileAppFactory();
+            using var client = factory.CreateClient();
+            Assert.IsTrue(EngineOf(factory).IndexFactory.TryCreateIndex(out _, DictionaryIndexName,
+                "DictionaryIndex"), "Arrange failed: the dictionary index was not created.");
+
+            var indices = CountsByIndex((await Get(client, "/statistics")).GetProperty("indices"), "name");
+
+            Assert.AreEqual<Int32?>(0, indices[DictionaryIndexName].Keys, "a fresh index reports zero, not null");
+            Assert.AreEqual<Int32?>(0, indices[DictionaryIndexName].Values);
         }
 
         [TestMethod]
@@ -354,7 +470,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task OpenApiDocument_ContainsTheStatisticsOperation()
         {
-            using var factory = new ObservabilityFactory();
+            using var factory = new VolatileAppFactory();
             using var client = factory.CreateClient();
 
             using var response = await client.GetAsync("/openapi/v0.1.json");

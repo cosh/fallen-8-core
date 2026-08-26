@@ -25,11 +25,14 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using Microsoft.Extensions.Logging.Abstractions;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.Algorithms.Traversal;
+using NoSQL.GraphDB.Core.ChangeFeed;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Index.Fulltext;
 using NoSQL.GraphDB.Core.Index.Vector;
@@ -43,10 +46,11 @@ using NoSQL.GraphDB.Core.Transaction;
 ///   <para>WHY THIS EXISTS AS A COMMITTED HARNESS. Every single-threaded arm in the engine is
 ///   selected by <c>HostCapabilities.SupportsBackgroundWork</c>, which is true on every machine the
 ///   test suite runs on, so the browser halves of the transaction writer, the checkpoint fan-out,
-///   the change-feed teardown and the traversal sweep are executed by NO test. Twice now a review
-///   accepted that gap on the grounds that "the trimmed browser probe is the compensating control",
-///   while the probe itself was a throwaway in a scratchpad that nobody could run. A control nobody
-///   can run is not a control, so this one is in the repository and in CI.</para>
+///   the change-feed teardown and the traversal sweep are executed by NOTHING ELSE: the checks below
+///   are the only place those arms ever run. Twice now a review accepted that gap on the grounds that
+///   "the trimmed browser probe is the compensating control", while the probe itself was a throwaway
+///   in a scratchpad that nobody could run. A control nobody can run is not a control, so this one is
+///   in the repository and in CI.</para>
 ///
 ///   <para>The verdict is the process exit code, so this is a gate and not a log. Each check prints
 ///   one line; a failure prints why and the run ends non-zero.</para>
@@ -165,11 +169,92 @@ internal static class Program
         Check("a host registration survives a Load instead of being wiped by it",
             RegistrationSurvivesALoad);
 
+        // The traversal sweep runs as ONE sequential range here instead of a parallel fan-out over
+        // partitions. Both arms owe the SAME number, so the count is the assertion: a sequential arm
+        // that swept nothing would return just as quietly as one that swept everything.
+        Check("the traversal sweep follows every out-edge on its sequential arm", () =>
+        {
+            using var engine = NewEngine();
+
+            var vertices = new CreateVerticesTransaction();
+            for (var i = 0; i < 64; i++)
+            {
+                vertices.AddVertex(new VertexDefinition { Label = "node", CreationDate = 0 });
+            }
+
+            var created = engine.EnqueueTransaction(vertices);
+            if (created.TransactionState != TransactionState.Finished)
+            {
+                return "the vertices to sweep were not created: " + created.TransactionState + " " + created.Error;
+            }
+
+            // Half the vertices stay isolated, so the sweep also walks over adjacency-free vertices,
+            // and one self-loop is one out-edge like any other.
+            var ids = vertices.GetCreatedVertices();
+            var edges = new CreateEdgesTransaction();
+            for (var i = 0; i < 32; i++)
+            {
+                edges.AddEdge(ids[i].Id, "next", ids[(i + 5) % 64].Id, 0);
+            }
+
+            edges.AddEdge(ids[0].Id, "next", ids[0].Id, 0);
+
+            var wired = engine.EnqueueTransaction(edges);
+            if (wired.TransactionState != TransactionState.Finished)
+            {
+                return "the edges to sweep were not wired: " + wired.TransactionState + " " + wired.Error;
+            }
+
+            var traversed = OutEdgeSweep.Sweep(engine.GetAllVertices());
+            return traversed == 33L
+                ? null
+                : "the sequential sweep followed " + traversed + " out-edges where 33 were wired, so " +
+                    "the arm a browser host takes does not agree with the parallel one";
+        });
+
+        // The change-feed teardown's browser arm (why the dispatch loop is not joined here belongs to
+        // ChangeFeedDispatcher.Dispose). A completed subscriber stream proves the teardown still did
+        // its job, and the elapsed budget makes a regression FAIL instead of hanging: the join it
+        // would reintroduce costs ten seconds on this host, every time.
+        Check("a change-feed engine tears down without joining its dispatch loop", () =>
+        {
+            var engine = new Fallen8(NullLoggerFactory.Instance, new ChangeFeedOptions());
+            if (!engine.ChangeFeed.TrySubscribe(ChangeFeedFilter.MatchAll, null, null, out var subscription))
+            {
+                return "the change feed refused its first subscriber";
+            }
+
+            NewVertex(engine, "watched");
+
+            var teardown = Stopwatch.StartNew();
+            engine.Dispose();
+            teardown.Stop();
+
+            // Drained first because a reader completes only once its queue is closed AND empty, and
+            // whether the dispatcher got as far as delivering that commit depends on an event loop
+            // that does not run while Main does.
+            while (subscription.Reader.TryRead(out _))
+            {
+            }
+
+            if (!subscription.Reader.Completion.IsCompletedSuccessfully)
+            {
+                return "the subscriber stream did not complete on dispose, so a browser client would " +
+                    "keep waiting on a feed that is already gone";
+            }
+
+            return teardown.Elapsed < TimeSpan.FromSeconds(2)
+                ? null
+                : "dispose took " + teardown.ElapsedMilliseconds + " ms, which is a wait for a dispatch " +
+                    "loop that cannot run until dispose returns";
+        });
+
         Console.WriteLine(new String('-', 78));
         if (_failures == 0)
         {
-            Console.WriteLine("PROBE PASSED: the engine builds trimmed, runs on a single-threaded host, and a " +
-                "host-registered index survives a checkpoint round trip");
+            Console.WriteLine("PROBE PASSED: the engine builds trimmed, runs on a single-threaded host, sweeps " +
+                "and tears down on its sequential arms, and a host-registered index survives a " +
+                "checkpoint round trip");
             return 0;
         }
 

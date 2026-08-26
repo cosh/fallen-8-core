@@ -38,6 +38,7 @@ import type { NamespaceEntry, NamespaceTriState } from "../api/types";
 import { ApiError } from "../api/client";
 import { migrateInstanceStore, purgeInstanceStore } from "../state/instanceStore";
 import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
+import { STATUS_POLL_MS } from "../lib/pollIntervals";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 import { isValidNamespaceName } from "../lib/namespaceName";
 import { ABSENT, formatCountOrDash } from "../lib/format";
@@ -122,7 +123,7 @@ export function NamespacesPanel() {
     queryKey: [instance?.id, "namespaces"],
     queryFn: ({ signal }) => listNamespaces(instance!, signal),
     enabled: instance !== null,
-    refetchInterval: 15_000,
+    refetchInterval: STATUS_POLL_MS,
     retry: 0,
   });
 

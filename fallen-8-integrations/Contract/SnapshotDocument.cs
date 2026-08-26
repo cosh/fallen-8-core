@@ -219,12 +219,58 @@ namespace NoSQL.GraphDB.Integrations.Contract
         /// <summary>What it points at, each target addressed by claim rather than by element id.</summary>
         [JsonPropertyName("relations")]
         public IList<RelationDto> Relations { get; set; } = new List<RelationDto>();
+
+        /// <summary>
+        ///   Writes one property, or nothing at all when the source did not answer: null is ABSENT, and so is
+        ///   a string that is empty or nothing but whitespace, because a source answering with blanks did not
+        ///   answer either. What getting that wrong costs is on <see cref="Properties"/>, and this is where
+        ///   the whole snapshot contract decides it, so a provider needs no rule of its own.
+        /// </summary>
+        public void SetIfPresent(String key, Object? value)
+        {
+            if (IsPresent(value))
+            {
+                Properties[key] = value;
+            }
+        }
+
+        /// <summary>Claims one identifier, or nothing at all for a value absent under
+        /// <see cref="SetIfPresent"/>'s rule. What the value and the missing strength mean is on
+        /// <see cref="IdentityClaimDto"/>.</summary>
+        public void ClaimIfPresent(String type, String? value)
+        {
+            if (IsPresent(value))
+            {
+                Claims.Add(new IdentityClaimDto { Type = type, Value = value });
+            }
+        }
+
+        /// <summary>Points at whatever carries one identifier value, or at nothing when the source named no
+        /// target, under the same absence rule. Addressed by claim, per <see cref="ClaimReferenceDto"/>.</summary>
+        public void RelateIfPresent(String relationType, String targetClaimType, String? targetValue)
+        {
+            if (IsPresent(targetValue))
+            {
+                Relations.Add(new RelationDto
+                {
+                    Type = relationType,
+                    Target = new ClaimReferenceDto { Type = targetClaimType, Value = targetValue },
+                });
+            }
+        }
+
+        /// <summary>The one presence test the three writers above share.</summary>
+        private static Boolean IsPresent(Object? value)
+        {
+            return value is String text ? !String.IsNullOrWhiteSpace(text) : value != null;
+        }
     }
 
     /// <summary>
     ///   One statement that a source reported one identifier value for one entity. A provider declares
-    ///   a TYPE and never a strength: a provider able to call its own weak identifier strong makes an
-    ///   address resolve, and the run attaches its data to whichever element last held that address.
+    ///   a TYPE and never a strength: the vocabulary is what says which types resolve, and a provider able
+    ///   to call its own weak identifier strong makes an address resolve, so the run attaches its data to
+    ///   whichever element last held that address.
     /// </summary>
     public sealed class IdentityClaimDto
     {
@@ -232,7 +278,11 @@ namespace NoSQL.GraphDB.Integrations.Contract
         [JsonPropertyName("type")]
         public String? Type { get; set; }
 
-        /// <summary>The value as the source reported it. The runtime canonicalises it.</summary>
+        /// <summary>
+        ///   The value AS THE SOURCE REPORTED IT. The runtime canonicalises it, and a provider that
+        ///   canonicalised first would be the second home of a rule that only works where there is exactly
+        ///   one: what "the same value" means is the vocabulary's fold and nothing else.
+        /// </summary>
         [JsonPropertyName("value")]
         public String? Value { get; set; }
 

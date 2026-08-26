@@ -1,6 +1,6 @@
 // MIT License
 //
-// McpFollowupsEndpointTest.cs
+// BatchCreateEndpointTest.cs
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -32,26 +32,25 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
-    ///   The apiApp side of feature mcp-followups: the batch write endpoints (PUT /vertices,
-    ///   PUT /edges) that create atomically and RETURN the assigned ids. Exercised through the
-    ///   real hosted pipeline.
+    ///   The HTTP layer of the batch write endpoints (PUT /vertices, PUT /edges): they create
+    ///   atomically and RETURN the assigned ids. Exercised through the real hosted pipeline, which
+    ///   is what distinguishes these from the controller-level batch tests. Added by feature
+    ///   mcp-followups.
     /// </summary>
     [TestClass]
-    public class McpFollowupsEndpointTest
+    public class BatchCreateEndpointTest
     {
-        private sealed class Factory : WebApplicationFactory<Program>
+        private sealed class Factory : VolatileAppFactory
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
 
@@ -106,7 +105,7 @@ namespace NoSQL.GraphDB.Tests
 
             var graph = JsonDocument.Parse(await (await client.GetAsync("/graph")).Content.ReadAsStringAsync()).RootElement;
             Assert.AreEqual(1, graph.GetProperty("edges").GetArrayLength(),
-                "the rolled-back batch wired nothing — only the first, successful edge remains");
+                "the rolled-back batch wired nothing: only the first, successful edge remains");
         }
 
         [TestMethod]

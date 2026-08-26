@@ -30,6 +30,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
+using NoSQL.GraphDB.Core.ChangeFeed;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.App.Services;
@@ -55,21 +56,21 @@ namespace NoSQL.GraphDB.Tests
     {
         private ILoggerFactory _loggerFactory;
         private Fallen8 _fallen8;
-        private string _tempDir;
+        private TempDirectory _temp;
 
         [TestInitialize]
         public void TestInitialize()
         {
             _loggerFactory = TestLoggerFactory.Create();
             _fallen8 = new Fallen8(_loggerFactory);
-            _tempDir = Path.Combine(Path.GetTempPath(), "f8_w3_" + Guid.NewGuid().ToString("N"));
+            _temp = new TempDirectory("f8_w3_");
         }
 
         [TestCleanup]
         public void TestCleanup()
         {
             _fallen8?.Dispose();
-            try { if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, true); } catch { }
+            _temp?.Dispose();
         }
 
         private int NewVertex(string label = "device")
@@ -177,8 +178,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // The reverse map is rebuilt from the buckets on load, so the guard must still hold on a
             // reloaded index - otherwise the first re-population after a restart doubles everything.
-            Directory.CreateDirectory(_tempDir);
-            var snapshot = Path.Combine(_tempDir, "snapshot.f8s");
+            var snapshot = Path.Combine(_temp.FullName, "snapshot.f8s");
 
             var index = NewIndex("claims");
             var element = Element(NewVertex());
@@ -578,6 +578,41 @@ namespace NoSQL.GraphDB.Tests
                 "a removed element must never enter an index: the scan filters it, but the id is pinned in " +
                 "the index and survives into the checkpoint");
             Assert.AreEqual(1, index.CountOfKeys(), "the tombstone must not add a key either");
+        }
+
+        [TestMethod]
+        public void RegExIndex_RefusesARemovedElement_ButKeepsLiveOnes()
+        {
+            // The FULLTEXT half of the same per-implementation tombstone guard (feature
+            // unstructured-ingestion C2/E1: the add-after-remove tombstone leak). It stands up its own
+            // engine, with the change feed on as the ingest host has it, rather than the fixture's.
+            using var engine = new Fallen8(TestLoggerFactory.Create(), new ChangeFeedOptions());
+            Assert.IsTrue(engine.IndexFactory.TryCreateIndex(out var index, "ft", "RegExIndex"));
+
+            var liveTx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u, Label = "Chunk" } };
+            engine.EnqueueTransaction(liveTx).WaitUntilFinished();
+            var live = liveTx.VertexCreated;
+
+            var doomedTx = new CreateVertexTransaction { Definition = new VertexDefinition { CreationDate = 1u, Label = "Chunk" } };
+            engine.EnqueueTransaction(doomedTx).WaitUntilFinished();
+            var doomed = doomedTx.VertexCreated;
+
+            // A live element indexes normally (the guard must not break the happy path).
+            index.AddOrUpdate("alpha content", live);
+            Assert.AreEqual(1, index.CountOfValues());
+
+            // Remove the second vertex, then replay a stale add of it - exactly the
+            // add-after-remove race a concurrent DELETE creates during ingest. The guard must
+            // skip it so no tombstone is pinned in the index.
+            engine.EnqueueTransaction(new RemoveGraphElementsTransaction
+            {
+                GraphElementIds = new List<Int32> { doomed.Id }
+            }).WaitUntilFinished();
+            Assert.IsFalse(engine.TryGetVertex(out _, doomed.Id), "precondition: the vertex is removed");
+
+            index.AddOrUpdate("beta content", doomed);
+            Assert.AreEqual(1, index.CountOfValues(), "a removed element must not enter the index");
+            Assert.IsFalse(index.TryGetValue(out _, "beta content"), "its key must be absent");
         }
 
         [TestMethod]

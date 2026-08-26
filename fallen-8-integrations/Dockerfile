@@ -20,6 +20,9 @@ WORKDIR /src
 # version; the release workflow passes it in, local builds keep the honest dev default.
 ARG VERSION=0.0.0-dev
 COPY Directory.Build.props ./
+# The REST-client seam this runtime shares with fallen-8-mcp; a ProjectReference cannot resolve
+# unless its directory is in the build context too.
+COPY fallen-8-rest-client/ fallen-8-rest-client/
 COPY fallen-8-integrations/ fallen-8-integrations/
 RUN dotnet publish fallen-8-integrations -c Release -o /app -p:MinVerVersionOverride=${VERSION}
 

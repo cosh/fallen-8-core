@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NoSQL.GraphDB.Rest</RootNamespace>
+    <AssemblyName>fallen-8-rest-client</AssemblyName>
+    <!-- Only the engine (fallen-8-core) ships as a NuGet package; this library ships inside the
+         two deployables that consume it. -->
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+  </PropertyGroup>
+
+  <!-- Deliberately NO ProjectReference and no PackageReference. Both consumers may reach a
+       Fallen-8 only over its public HTTP contract, so this library must not be able to hand
+       either of them the engine or the API app; everything it needs is in the shared framework.
+       CodeQualityTest.TheRestOnlyDeployables_ReferenceNeitherTheEngineNorTheApiApp enforces it. -->
+
+</Project>

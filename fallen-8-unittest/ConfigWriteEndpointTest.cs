@@ -81,9 +81,8 @@ namespace NoSQL.GraphDB.Tests
         private WebApplicationFactory<Program> CreateFactory(Boolean apiKey = true, Boolean capability = true,
             String metadataDirectory = null, IDictionary<String, String> extra = null)
         {
-            return new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+            return new VolatileAppFactory().WithWebHostBuilder(builder =>
             {
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
                 if (metadataDirectory != null)
                 {
                     builder.UseSetting("Fallen8:Metadata:Directory", metadataDirectory);

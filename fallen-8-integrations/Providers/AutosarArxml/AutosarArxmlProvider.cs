@@ -120,13 +120,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             // signal's name is the identifier an engineer already knows, its two descriptions are the
             // only prose in the file and arrive in either language, and its unit is what connects an
             // odometer whose description says "accumulated distance" to somebody searching for
-            // kilometers.
-            //
-            // Every hole is a HOLE and there is no literal text between them beyond punctuation,
-            // deliberately: hole collapse removes the punctuation around a hole an element cannot
-            // fill, but it cannot remove a word, so a template reading "unit {arxml.unit}" would end
-            // every ECU, frame and PDU summary with a dangling "unit" and embed the shape of the
-            // template instead of the description of the thing.
+            // kilometers. Punctuation and nothing else between them, per the rule the descriptor's own
+            // field states: an ECU, a frame and a PDU fill none of the last three holes.
             EntitySummaryTemplate =
                 "{kind} {arxml.name}, {arxml.descEn}, {arxml.descDe}, {arxml.unit}",
         };
@@ -156,7 +151,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             }
 
             var fileName = context.Required(FileSetting);
-            var text = await ReadAsync(context, fileName, cancellationToken).ConfigureAwait(false);
+            var text = await context.RequireFileTextAsync(FileSetting, cancellationToken)
+                .ConfigureAwait(false);
 
             ArxmlNetwork network;
             try
@@ -208,15 +204,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             foreach (var element in network.Elements)
             {
                 var entity = new EntityDto { Kind = element.Kind };
-
-                // The value goes out as the file wrote it. The runtime canonicalises it, and a provider
-                // that canonicalised first would be the second home of a rule that only works if there
-                // is exactly one.
-                entity.Claims.Add(new IdentityClaimDto { Type = PathClaimType, Value = element.Path });
+                entity.ClaimIfPresent(PathClaimType, element.Path);
 
                 foreach (var property in element.Properties)
                 {
-                    entity.Properties[PropertyPrefix + property.Key] = property.Value;
+                    entity.SetIfPresent(PropertyPrefix + property.Key, property.Value);
                 }
 
                 entityByPath[element.Path] = entity;
@@ -231,15 +223,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 // report cannot show.
                 if (entityByPath.TryGetValue(relation.FromPath, out var owner))
                 {
-                    owner.Relations.Add(new RelationDto
-                    {
-                        Type = relation.Type,
-                        Target = new ClaimReferenceDto
-                        {
-                            Type = PathClaimType,
-                            Value = relation.ToPath,
-                        },
-                    });
+                    owner.RelateIfPresent(relation.Type, PathClaimType, relation.ToPath);
                 }
             }
 
@@ -272,30 +256,6 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     throw new ArgumentOutOfRangeException(nameof(kind), kind,
                         "Every reader diagnostic kind needs a wire code, or a report would carry one " +
                         "nobody can group by.");
-            }
-        }
-
-        /// <summary>
-        ///   Reads the file the setting names, turning anything that went wrong into a SOURCE failure
-        ///   that names the setting. A configuration failure and a cancellation pass through untouched,
-        ///   because both already name the right system.
-        /// </summary>
-        private static async Task<String> ReadAsync(ProviderContext context, String fileName,
-            CancellationToken cancellationToken)
-        {
-            try
-            {
-                return await context.ReadFileAsync(FileSetting, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception failure) when (failure is not OperationCanceledException
-                                            && failure is not ProviderConfigurationException
-                                            && failure is not ProviderSourceException)
-            {
-                throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
-                    "The file '{0}', named by setting '{1}', could not be read: {2}. The run fails and " +
-                    "withdraws nothing: reporting an empty network would withdraw every element this " +
-                    "identity claimed, because \"I could not look\" must never become \"there is nothing " +
-                    "there\".", fileName, FileSetting, failure.Message), failure);
             }
         }
     }

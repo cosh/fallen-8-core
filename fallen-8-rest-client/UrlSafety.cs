@@ -25,16 +25,15 @@
 
 using System;
 
-namespace NoSQL.GraphDB.Mcp.Bridge
+namespace NoSQL.GraphDB.Rest
 {
     /// <summary>
-    ///   URL-construction integrity is the security boundary (spec §3.9): tier gating is
-    ///   enforced purely by <em>which routes the bridge builds</em>, and the downstream key is
-    ///   full-authority, so a caller-supplied string must never be able to inject an extra path
-    ///   segment, a query, or a fragment into a downstream URL. Every caller value that becomes
-    ///   part of a URL passes through here first. Fallen-8 namespace names are deliberately
-    ///   permissive (spaces, punctuation incl. <c>?</c>/<c>#</c>/<c>%</c>, Unicode), so encoding
-    ///   is mandatory, not cosmetic.
+    ///   URL-construction integrity is the security boundary for a deployable that holds a full-authority
+    ///   downstream key: which routes it BUILDS is what bounds what it can do, so a caller-supplied string
+    ///   must never be able to inject an extra path segment, a query, or a fragment into a downstream URL.
+    ///   Every caller value that becomes part of a URL passes through here first. Fallen-8 namespace names
+    ///   are deliberately permissive (spaces, punctuation incl. <c>?</c>/<c>#</c>/<c>%</c>, Unicode), so
+    ///   encoding is mandatory, not cosmetic.
     /// </summary>
     public static class UrlSafety
     {
@@ -51,11 +50,11 @@ namespace NoSQL.GraphDB.Mcp.Bridge
         }
 
         /// <summary>
-        ///   Validates a namespace against Fallen-8's own name rule BEFORE it is used, and
-        ///   returns the encoded segment. Rejects the cases Fallen-8 rejects (empty/whitespace,
-        ///   too long, "."/"..", '/'/'\'/control chars) so the bridge fails fast with a clear
-        ///   tool error rather than issuing a request that Fallen-8 will 400/404 — and so a
-        ///   traversal-shaped name never reaches the wire even encoded.
+        ///   Validates a namespace against Fallen-8's own name rule BEFORE it is used, and returns the
+        ///   encoded segment. Rejects the cases Fallen-8 rejects (empty/whitespace, too long, "."/"..",
+        ///   '/'/'\'/control chars) so a caller fails fast with a clear reason rather than issuing a
+        ///   request that Fallen-8 will 400/404, and so a traversal-shaped name never reaches the wire
+        ///   even encoded.
         /// </summary>
         public static Boolean TryEncodeNamespace(String? name, out String encoded, out String error)
         {
@@ -103,8 +102,10 @@ namespace NoSQL.GraphDB.Mcp.Bridge
         public const String DefaultNamespace = "default";
 
         /// <summary>
-        ///   Whether a namespace addresses the reserved default (null/empty/"default") — in which
-        ///   case the bridge uses the bare route rather than a <c>/ns/{ns}</c> twin.
+        ///   Whether a namespace addresses the reserved default (null/empty/"default"), in which case the
+        ///   bare route is used rather than its <c>/ns/{ns}</c> twin. Ordinal, because Fallen-8 compares
+        ///   namespace names ordinally: a name differing only in case is a DIFFERENT graph, so matching the
+        ///   alias loosely would send writes to the wrong one.
         /// </summary>
         public static Boolean IsDefault(String? name)
         {

@@ -33,7 +33,7 @@ npm run env:up
 # f8-integrations is on the compose network; you reach it through the API.
 ```
 
-`F8_INTEGRATIONS=false` skips the sidecar, and the API's four routes then refuse the capability:
+`F8_INTEGRATIONS=false` skips the sidecar, and the API's `/integrations` routes then refuse the capability:
 a 403 on an instance with an API key configured, a 401 on an open one.
 
 A **job** is the whole configuration of one run: the integration, the identity it asserts as, the
@@ -79,10 +79,9 @@ Add `?wait=true` to the job call for the old synchronous shape, which returns th
 is for a small source and a script: the API's proxy holds a connection for a bounded time, so a real
 import will outlast it.
 
-What is remembered is deliberately narrow: **one slot per identity**, superseded by that identity's
-next run, held in memory and dropped on restart, capped so a caller inventing an identity per run
-cannot grow it without bound. There is still no run history, no schedule and no list of past runs -
-only what is happening now and what happened last.
+What is remembered is deliberately narrow: **the current and the last run of each identity**, in
+memory, lost on a restart of the runtime, and bounded in number. There is no run history, no
+schedule and no list of past runs.
 
 Ask `GET /integrations/providers` what each integration's settings are; every one carries a
 label, a kind and a sentence saying where to find the value in the source system. That is
@@ -116,10 +115,9 @@ it is refused with both numbers named. That default is sized for the real thing:
 extract for one vehicle platform runs to tens of megabytes, and a 100 MiB device list or extract goes
 through in one run.
 
-Above it sits a fixed 192 MiB bound on the request body itself, at the API's proxy - base64 costs a
-third, so a maximal legal job arrives at about 171 MiB and never meets it. It is deliberately not
-configurable, which has one consequence worth stating: raising `Integrations:MaxFileBytes` past about
-144 MiB has no effect, because the proxy is the only way in (the runtime publishes no port).
+Above it sits a fixed 192 MiB bound on the request body itself, at the API's proxy, which no legal job
+reaches. It is deliberately not configurable, so about **144 MiB is the effective ceiling**: raising
+`Integrations:MaxFileBytes` past it has no effect, because the proxy is the only way in.
 
 A file that size is not free. It arrives base64, is decoded to bytes, and is decoded again to text for
 the integration - two bytes per character for XML - so a run over a maximal extract peaks in the high
@@ -378,9 +376,9 @@ from a sending ECU to a receiving one never traverses an edge backwards, while `
 
 Identity is the element's **AUTOSAR reference path**, which the standard already makes both its
 identity and the way every cross-reference in the file addresses it. Nothing is matched by name
-or similarity. Because an extract is by construction the complete description of its network,
-running the next release into the same namespace withdraws exactly what the release removed, so
-the [change feed](/change-feed/) becomes the release diff without anything extra.
+or similarity. Run the next release into the same namespace and what that release removed is
+withdrawn, which leaves the [change feed](/change-feed/) as the release diff with nothing extra to
+set up.
 
 Two limits worth knowing up front. This version reads **FlexRay** clusters, and a readable
 extract carrying none fails the run rather than reporting an empty network, because an empty

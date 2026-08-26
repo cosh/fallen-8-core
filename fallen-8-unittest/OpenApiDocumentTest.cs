@@ -33,7 +33,6 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using NoSQL.GraphDB.App;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -71,15 +70,12 @@ namespace NoSQL.GraphDB.Tests
         /// Boots the app in the Development environment (the OpenAPI + Scalar endpoints are only
         /// mapped there) and keeps every other part of the real pipeline intact.
         /// </summary>
-        private sealed class DevelopmentApiFactory : WebApplicationFactory<Program>
+        private sealed class DevelopmentApiFactory : VolatileAppFactory
         {
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
+                base.ConfigureWebHost(builder);
                 builder.UseEnvironment("Development");
-                // This test is about the OpenAPI document, not durability: run the engine in volatile
-                // mode so booting the host does not read/write a checkpoint or WAL in the test bin
-                // directory (feature hosted-durability-lifecycle made durable the default).
-                builder.UseSetting("Fallen8:Durability:Volatile", "true");
             }
         }
 

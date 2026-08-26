@@ -48,24 +48,27 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class SaveGamesEndpointTest
     {
-        private string _storageDir;
+        private TempDirectory _storageDir;
+
+        /// <summary>
+        /// The metadata directory is a PATH, not a created directory: the registry-driven boot tests
+        /// hand a host a directory that does not exist yet, so this one stays hand-rolled rather than
+        /// becoming a <see cref="TempDirectory"/> (which would create it).
+        /// </summary>
         private string _metaDir;
 
         [TestInitialize]
         public void Init()
         {
-            _storageDir = Path.Combine(Path.GetTempPath(), "f8sg_store_" + Guid.NewGuid().ToString("N"));
+            _storageDir = new TempDirectory("f8sg_store_");
             _metaDir = Path.Combine(Path.GetTempPath(), "f8sg_meta_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_storageDir);
         }
 
         [TestCleanup]
         public void Cleanup()
         {
-            foreach (var dir in new[] { _storageDir, _metaDir })
-            {
-                try { if (dir != null && Directory.Exists(dir)) Directory.Delete(dir, true); } catch { }
-            }
+            _storageDir?.Dispose();
+            try { if (_metaDir != null && Directory.Exists(_metaDir)) Directory.Delete(_metaDir, true); } catch { }
         }
 
         private sealed class Factory : WebApplicationFactory<Program>
@@ -119,7 +122,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Save_RegistersEntry_ListedAndFetchable()
         {
-            using var factory = new Factory(_storageDir, _metaDir, isVolatile: false);
+            using var factory = new Factory(_storageDir.FullName, _metaDir, isVolatile: false);
             using var client = factory.CreateClient();
 
             // Create a vertex so the checkpoint is non-trivial.
@@ -127,7 +130,7 @@ namespace NoSQL.GraphDB.Tests
                 new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
             Assert.AreEqual(HttpStatusCode.Accepted, v.StatusCode);
 
-            var savePath = Path.Combine(_storageDir, "database.f8s");
+            var savePath = Path.Combine(_storageDir.FullName, "database.f8s");
             var save = await client.PutAsync("/save?waitForCompletion=true",
                 new StringContent("{\"saveGameLocation\":\"" + savePath.Replace("\\", "\\\\") + "\"}", Encoding.UTF8, "application/json"));
             Assert.AreEqual(HttpStatusCode.OK, save.StatusCode);
@@ -155,7 +158,7 @@ namespace NoSQL.GraphDB.Tests
             // the same place the durability lifecycle saves and loads - not the app's binary directory,
             // so an interactive save in a container is written to the mounted data volume and survives a
             // container recreation (and stays consistent with registry-driven boot).
-            using var factory = new Factory(_storageDir, _metaDir, isVolatile: false);
+            using var factory = new Factory(_storageDir.FullName, _metaDir, isVolatile: false);
             using var client = factory.CreateClient();
 
             await client.PutAsync("/vertex?waitForCompletion=true",
@@ -169,7 +172,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(String.IsNullOrWhiteSpace(entry.Location), "The save entry must report where it was written.");
 
             var savedDir = Path.GetDirectoryName(Path.GetFullPath(entry.Location));
-            Assert.AreEqual(Path.GetFullPath(_storageDir), savedDir,
+            Assert.AreEqual(Path.GetFullPath(_storageDir.FullName), savedDir,
                 "A default save must be written into the configured StorageDirectory, not the app base directory.");
             Assert.IsTrue(File.Exists(entry.Location), "The checkpoint file should exist at the reported location.");
         }
@@ -179,13 +182,13 @@ namespace NoSQL.GraphDB.Tests
         {
             // First host: create + save a checkpoint, capture its path.
             string checkpointPath;
-            using (var factory = new Factory(_storageDir, _metaDir, isVolatile: false))
+            using (var factory = new Factory(_storageDir.FullName, _metaDir, isVolatile: false))
             using (var client = factory.CreateClient())
             {
                 await client.PutAsync("/vertex?waitForCompletion=true",
                     new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
                 var save = await client.PutAsync("/save?waitForCompletion=true",
-                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir.FullName, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                         Encoding.UTF8, "application/json"));
                 var entry = JsonSerializer.Deserialize<SaveGameDto>(await save.Content.ReadAsStringAsync(), _json);
                 checkpointPath = entry.Location;
@@ -195,7 +198,7 @@ namespace NoSQL.GraphDB.Tests
             var freshMeta = Path.Combine(Path.GetTempPath(), "f8sg_meta2_" + Guid.NewGuid().ToString("N"));
             try
             {
-                using var factory = new Factory(_storageDir, freshMeta, isVolatile: false);
+                using var factory = new Factory(_storageDir.FullName, freshMeta, isVolatile: false);
                 using var client = factory.CreateClient();
 
                 Assert.AreEqual(0, JsonSerializer.Deserialize<List<SaveGameDto>>(
@@ -225,13 +228,13 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Delete_RemovesEntry()
         {
-            using var factory = new Factory(_storageDir, _metaDir, isVolatile: false);
+            using var factory = new Factory(_storageDir.FullName, _metaDir, isVolatile: false);
             using var client = factory.CreateClient();
 
             await client.PutAsync("/vertex?waitForCompletion=true",
                 new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
             var save = await client.PutAsync("/save?waitForCompletion=true",
-                new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
+                new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir.FullName, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                     Encoding.UTF8, "application/json"));
             var entry = JsonSerializer.Deserialize<SaveGameDto>(await save.Content.ReadAsStringAsync(), _json);
 
@@ -247,24 +250,24 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task Startup_EmptyRegistry_StartsEmpty_EvenWithCheckpointOnDisk()
         {
-            // Host A: save a graph with a vertex, leaving checkpoint files in _storageDir.
-            using (var a = new Factory(_storageDir, _metaDir, isVolatile: false))
+            // Host A: save a graph with a vertex, leaving checkpoint files in the storage directory.
+            using (var a = new Factory(_storageDir.FullName, _metaDir, isVolatile: false))
             using (var ca = a.CreateClient())
             {
                 await ca.PutAsync("/vertex?waitForCompletion=true",
                     new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
                 await ca.PutAsync("/save?waitForCompletion=true",
-                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir.FullName, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                         Encoding.UTF8, "application/json"));
             }
-            Assert.IsTrue(Directory.GetFiles(_storageDir).Length > 0, "Checkpoint files exist on disk.");
+            Assert.IsTrue(Directory.GetFiles(_storageDir.FullName).Length > 0, "Checkpoint files exist on disk.");
 
             // Host B: SAME storage dir, but a FRESH empty metadata dir -> registry-driven boot must
             // start EMPTY, not auto-load the orphan checkpoint (FR-8).
             var freshMeta = Path.Combine(Path.GetTempPath(), "f8sg_meta3_" + Guid.NewGuid().ToString("N"));
             try
             {
-                using var b = new Factory(_storageDir, freshMeta, isVolatile: false);
+                using var b = new Factory(_storageDir.FullName, freshMeta, isVolatile: false);
                 using var cb = b.CreateClient();
                 var count = await cb.GetStringAsync("/vertex/count");
                 Assert.AreEqual("0", count.Trim(), "An empty registry starts empty despite a checkpoint on disk.");
@@ -283,13 +286,13 @@ namespace NoSQL.GraphDB.Tests
             // files. The registry's newest is now the older/smaller save, but a newer checkpoint sits
             // on disk. Boot must adopt the newer on-disk checkpoint, not revert to the stale entry.
             string olderId;
-            using (var a = new Factory(_storageDir, _metaDir, isVolatile: false))
+            using (var a = new Factory(_storageDir.FullName, _metaDir, isVolatile: false))
             using (var ca = a.CreateClient())
             {
                 await ca.PutAsync("/vertex?waitForCompletion=true",
                     new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
                 var save1 = await ca.PutAsync("/save?waitForCompletion=true",
-                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir.FullName, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                         Encoding.UTF8, "application/json"));
                 olderId = JsonSerializer.Deserialize<SaveGameDto>(await save1.Content.ReadAsStringAsync(), _json).Id;
 
@@ -298,7 +301,7 @@ namespace NoSQL.GraphDB.Tests
                 await ca.PutAsync("/vertex?waitForCompletion=true",
                     new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
                 var save2 = await ca.PutAsync("/save?waitForCompletion=true",
-                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir.FullName, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                         Encoding.UTF8, "application/json"));
                 var newerId = JsonSerializer.Deserialize<SaveGameDto>(await save2.Content.ReadAsStringAsync(), _json).Id;
 
@@ -307,7 +310,7 @@ namespace NoSQL.GraphDB.Tests
                 Assert.AreEqual(HttpStatusCode.NoContent, del.StatusCode);
             }
 
-            using var b = new Factory(_storageDir, _metaDir, isVolatile: false);
+            using var b = new Factory(_storageDir.FullName, _metaDir, isVolatile: false);
             using var cb = b.CreateClient();
             var count = (await cb.GetStringAsync("/vertex/count")).Trim();
             Assert.AreEqual("2", count,
@@ -323,18 +326,18 @@ namespace NoSQL.GraphDB.Tests
         public async Task Startup_WithRegistry_LoadsNewest()
         {
             // Host A: create 1 vertex, save (registered). Registry + checkpoint now describe 1 vertex.
-            using (var a = new Factory(_storageDir, _metaDir, isVolatile: false))
+            using (var a = new Factory(_storageDir.FullName, _metaDir, isVolatile: false))
             using (var ca = a.CreateClient())
             {
                 await ca.PutAsync("/vertex?waitForCompletion=true",
                     new StringContent("{\"label\":\"person\",\"creationDate\":0}", Encoding.UTF8, "application/json"));
                 await ca.PutAsync("/save?waitForCompletion=true",
-                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
+                    new StringContent("{\"saveGameLocation\":\"" + Path.Combine(_storageDir.FullName, "Temp.f8s").Replace("\\", "\\\\") + "\"}",
                         Encoding.UTF8, "application/json"));
             }
 
             // Host B: SAME storage + metadata dir -> boots from the newest registered save game.
-            using var b = new Factory(_storageDir, _metaDir, isVolatile: false);
+            using var b = new Factory(_storageDir.FullName, _metaDir, isVolatile: false);
             using var cb = b.CreateClient();
             var count = await cb.GetStringAsync("/vertex/count");
             Assert.AreEqual("1", count.Trim(), "The newest registered save game is loaded on boot.");
