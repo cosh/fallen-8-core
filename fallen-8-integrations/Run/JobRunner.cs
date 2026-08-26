@@ -163,7 +163,8 @@ namespace NoSQL.GraphDB.Integrations.Run
             IRunJournal? journal = null;
             if (_spool.Enabled)
             {
-                var spooling = new SpooledRunJournal(progress, _spool, instanceId, resume?.Progress);
+                var spooling = new SpooledRunJournal(progress, _spool, instanceId, resume?.Progress,
+                    isResume: resume != null);
                 journal = spooling;
                 progress = spooling;
             }

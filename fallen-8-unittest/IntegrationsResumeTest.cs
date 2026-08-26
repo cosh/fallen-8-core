@@ -183,6 +183,40 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task AResumedRunWhoseJournalIsGone_EmbedsEverythingRatherThanNothing()
+        {
+            // The one way the journal-ahead invariant can still be broken: a spool that took the entry and
+            // then refused the small file beside it, which is what a full volume looks like. Recomputing the
+            // plan then gives an EMPTY one, because the elements are already written and nothing compares
+            // different, and every summary the interrupted attempt had not reached would be stranded for
+            // good. Over-embedding is an idempotent overwrite of the same vectors; under-embedding is the
+            // loss this whole feature exists to prevent, so the run embeds the lot.
+            var graph = new InMemoryGraphTarget();
+
+            using (var first = new Runtime(_spool, graph, stopAfterChunks: 1))
+            {
+                await Assert.ThrowsExceptionAsync<RunInterruptedException>(() => first.RunAsync());
+            }
+
+            Assert.AreEqual(2, graph.EmbeddedSummaries.Count, "the fixture stopped after one chunk");
+            graph.EmbeddedSummaries.Clear();
+
+            var journal = SpoolFiles().Single(path =>
+                path.EndsWith(".progress.json", StringComparison.Ordinal));
+            File.Delete(journal);
+
+            using (var second = new Runtime(_spool, graph))
+            {
+                var resumed = await second.ResumeAllAsync();
+                Assert.IsFalse(resumed[0].Failed, resumed[0].Error);
+            }
+
+            Assert.AreEqual(Entities, graph.EmbeddedSummaries.Count,
+                "with no journal to go on, a resumed run that recomputed its plan would embed NOTHING: " +
+                "every element it wrote now compares equal. It has to embed the whole snapshot instead");
+        }
+
+        [TestMethod]
         public async Task AResumedRun_ReconcilesAtTheTrueEnd()
         {
             // Reconciliation is skipped by an interrupted run for the same reason a cancelled one skips it,

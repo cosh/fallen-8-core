@@ -315,9 +315,19 @@ namespace NoSQL.GraphDB.Integrations.Run
             IReadOnlyList<Int32> embedPlan = Array.Empty<Int32>();
             if (summary != null)
             {
-                embedPlan = journal?.ResumedEmbeds ?? PlanSummaries(summaryDirty, createdEntityIndex);
-                if (journal?.ResumedEmbeds == null)
+                if (journal?.IsResume == true)
                 {
+                    // A resumed run with NO journal has LOST it, which one thing does: a spool that took the
+                    // entry and then refused the small file beside it, meaning a full volume. Recomputing
+                    // would give an EMPTY plan - the elements are already written, so nothing compares
+                    // different - and strand every summary the interrupted attempt had not reached. So it
+                    // embeds the whole snapshot instead: over-embedding is an idempotent overwrite of the
+                    // same vectors, and under-embedding is the unrecoverable loss.
+                    embedPlan = journal.ResumedEmbeds ?? AllEntities(snapshot);
+                }
+                else
+                {
+                    embedPlan = PlanSummaries(summaryDirty, createdEntityIndex);
                     journal?.RecordEmbedPlan(embedPlan);
                 }
             }
@@ -456,6 +466,18 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   iteration order would not be the same order at all, so the cursor would point somewhere else and
         ///   an arbitrary set of summaries would be skipped.</para>
         /// </summary>
+        /// <summary>Every entity in the snapshot, for a resumed run whose journal is gone.</summary>
+        private static IReadOnlyList<Int32> AllEntities(ValidatedSnapshot snapshot)
+        {
+            var all = new Int32[snapshot.Entities.Length];
+            for (var i = 0; i < all.Length; i++)
+            {
+                all[i] = i;
+            }
+
+            return all;
+        }
+
         private static IReadOnlyList<Int32> PlanSummaries(HashSet<Int32> changed,
             IReadOnlyList<Int32> created)
         {

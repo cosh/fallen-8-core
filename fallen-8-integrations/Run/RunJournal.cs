@@ -41,8 +41,15 @@ namespace NoSQL.GraphDB.Integrations.Run
     public interface IRunJournal
     {
         /// <summary>
-        ///   The entities a RESUMED run still has to embed, in journal order, or null when this is not a
-        ///   resumed run. Non-null and EMPTY is meaningful and different from null: it says the previous
+        ///   Whether this run is being PICKED UP rather than started. It is asked separately from
+        ///   <see cref="ResumedEmbeds" /> because the two answers together carry a third case: a resumed run
+        ///   with NO journal has LOST it, and recomputing its plan would give an empty one.
+        /// </summary>
+        Boolean IsResume { get; }
+
+        /// <summary>
+        ///   The entities a RESUMED run still has to embed, in journal order, or null when there is no
+        ///   journal to go on. Non-null and EMPTY is meaningful and different from null: it says the previous
         ///   attempt finished embedding, so there is nothing left to do.
         /// </summary>
         IReadOnlyList<Int32>? ResumedEmbeds { get; }
@@ -81,13 +88,16 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <param name="inner">The sink this decorates, which is the tracker's own handle.</param>
         /// <param name="spool">Where the journal is written.</param>
         /// <param name="instanceId">The identity whose entry this is.</param>
-        /// <param name="resumed">The journal an earlier attempt left, or null for a fresh run.</param>
+        /// <param name="resumed">The journal an earlier attempt left, or null when there is none.</param>
+        /// <param name="isResume">Whether this run is being picked up rather than started. Distinct from
+        /// <paramref name="resumed" /> being null, which a resumed run whose journal was LOST also is.</param>
         public SpooledRunJournal(IRunProgress inner, RunSpool spool, String instanceId,
-            SpooledProgress? resumed)
+            SpooledProgress? resumed, Boolean isResume = false)
         {
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
             _spool = spool ?? throw new ArgumentNullException(nameof(spool));
             _instanceId = instanceId ?? throw new ArgumentNullException(nameof(instanceId));
+            IsResume = isResume;
 
             if (resumed != null)
             {
@@ -99,12 +109,15 @@ namespace NoSQL.GraphDB.Integrations.Run
         }
 
         /// <inheritdoc />
+        public Boolean IsResume { get; }
+
+        /// <inheritdoc />
         public IReadOnlyList<Int32>? ResumedEmbeds { get; }
 
         /// <inheritdoc />
         public void RecordEmbedPlan(IReadOnlyList<Int32> entityIndices)
         {
-            if (ResumedEmbeds != null)
+            if (IsResume)
             {
                 // A resumed run's plan is the one on disk. Recomputing it here would produce an empty set -
                 // every element it wrote now compares equal - and writing THAT would strand every summary the
