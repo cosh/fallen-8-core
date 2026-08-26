@@ -759,7 +759,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 // One signal mapped at several byte positions of one PDU is normal and says nothing new, so
                 // the repeat is dropped silently rather than reported: a diagnostic per repeat would bury
                 // the ones that mean something.
-                if (seen.Add(relation.FromPath + " " + relation.Type + " " + relation.ToPath))
+                if (seen.Add(relation.FromPath + "\0" + relation.Type + "\0" + relation.ToPath))
                 {
                     kept.Add(relation);
                 }

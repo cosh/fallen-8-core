@@ -304,15 +304,21 @@ showed breadth, not padding.
 - `nahil.md` / README simple diagram: the simple view says "remote gateway" where the full
   view names Nahil; changed deliberately by the Nahil commit itself, so optional.
 
-Found during implementation, both pre-existing and outside this plan's scope (recorded so
-they are not re-found):
+Found during implementation, both pre-existing, and both FIXED on 2026-08-26 after the
+plan's phases closed:
 
-- `fallen-8-integrations/Providers/AutosarArxml/ArxmlReader.cs` contains a RAW NUL byte
-  inside a string literal used as a composite-key separator (an actual 0x00 byte where
-  `"\0"` was meant). It compiles and behaves correctly, but it makes ripgrep and grep treat
-  the whole file as binary, so the file is invisible to content search - which is how a
-  reviewer finds anything. Worth replacing with the escape.
-- UniFi's `BuildDevice`/`BuildClient` take a `diagnostics` parameter neither uses.
+- [x] `fallen-8-integrations/Providers/AutosarArxml/ArxmlReader.cs` contained two RAW NUL
+  bytes inside string literals used as a composite-key separator (actual 0x00 bytes where
+  `"\0"` was meant). It compiled and behaved correctly, but it made ripgrep and grep treat
+  the whole file as binary, so a 47 KB reader was invisible to content search - which is how
+  a reviewer finds anything. Replaced with the two-character escape, byte-for-byte otherwise
+  unchanged; the dedup it keys is already pinned by
+  `IntegrationsArxmlReaderTest.OneSignalMappedTwiceInOnePdu_IsOneEdge_AndNotADiagnostic`. A
+  sweep of every `.cs` file in the repo found no other occurrence.
+- [x] UniFi's `BuildDevice`/`BuildClient` took a `diagnostics` parameter neither used (and
+  which their sibling `BuildSite` does not take). Removed from both signatures and both call
+  sites; the caller's own `diagnostics` list is still used at four other sites, so nothing
+  became dead.
 
 ## What held up (recorded so the review's coverage is auditable)
 

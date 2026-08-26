@@ -226,7 +226,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
                         continue;
                     }
 
-                    entities.Add(BuildDevice(siteId, deviceId, device, details.Uplink?.DeviceId, diagnostics));
+                    entities.Add(BuildDevice(siteId, deviceId, device, details.Uplink?.DeviceId));
                 }
 
                 foreach (var client in await reader.ReadClientsAsync(siteId, cancellationToken)
@@ -261,7 +261,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
                         continue;
                     }
 
-                    entities.Add(BuildClient(client, diagnostics));
+                    entities.Add(BuildClient(client));
                 }
             }
 
@@ -305,7 +305,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
         }
 
         private static EntityDto BuildDevice(String siteId, String deviceId, UnifiDevice device,
-            String? uplinkDeviceId, IList<DiagnosticDto> diagnostics)
+            String? uplinkDeviceId)
         {
             var entity = new EntityDto { Kind = KindDevice };
             entity.ClaimIfPresent(ClaimDeviceId, deviceId);
@@ -323,7 +323,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
             return entity;
         }
 
-        private static EntityDto BuildClient(UnifiConnectedClient client, IList<DiagnosticDto> diagnostics)
+        private static EntityDto BuildClient(UnifiConnectedClient client)
         {
             var entity = new EntityDto { Kind = KindClient };
             entity.ClaimIfPresent(ClaimClientId, client.Id);
