@@ -35,12 +35,30 @@
 #
 # It does NOT retrain and does NOT change ":latest" - it adds a second name for the same bytes.
 #
+# ONE VERSION TAG PER DISTINCT BUILD, not per release. Publishing (run.sh publish, on a retrain) and
+# releasing (a vX.Y.Z tag push) move on unrelated schedules, so most releases carry no new weights,
+# and naively snapshotting ":latest" every time mints a fresh name for bytes that already have one.
+# That is not harmless: ollama.com badges every version-shaped tag sharing ":latest"'s digest as
+# "latest", so N releases without a retrain leave N tags all presenting as current and the model
+# page stops answering "which build is this". So before tagging, this compares ":latest" against the
+# version tags this repository already knows about, and does nothing when the bytes are already
+# named. A release may therefore legitimately have NO model tag - and "one tag per release" never
+# held anyway: v0.0.30-v0.0.34 carry none (this mechanism landed 2026-08-23, v0.0.35 was the first
+# release to use it), which is why nothing may assume a release version resolves as a model tag.
+#
 # Usage:
 #   scripts/tag-models.sh v1.2.3
 #   F8_TAG_MODELS="ns/phi4-f8-mini ns/phi4-f8" scripts/tag-models.sh v1.2.3
+#   F8_TAG_FORCE=1 scripts/tag-models.sh v1.2.3   # tag even if those bytes already have a version
 #
 # Env:
 #   F8_TAG_MODELS         space-separated repos to tag. Default: both published variants.
+#   F8_TAG_FORCE          1 = mint :VERSION even when an existing version tag already carries
+#                         ":latest"'s bytes. The manual "Tag models" workflow needs this:
+#                         backfilling a version whose bytes a LATER tag already names is exactly
+#                         what the check above otherwise skips.
+#   F8_TAG_BASELINE_LIMIT how many known version tags to compare ":latest" against, newest first.
+#                         Default 20. Each comparison is one ~700-byte manifest GET per repo.
 #   OLLAMA_SIGNING_KEY    the private key CONTENTS (for CI). Otherwise OLLAMA_KEY_FILE is used.
 #   OLLAMA_KEY_FILE       default ~/.ollama/id_ed25519
 #   REGISTRY              default https://registry.ollama.ai
@@ -53,22 +71,44 @@ set -euo pipefail
 
 VERSION="${1:-}"
 [ -n "$VERSION" ] || { echo "usage: $0 <version-tag>   e.g. $0 v1.2.3" >&2; exit 2; }
-case "$VERSION" in
-  v[0-9]*.[0-9]*.[0-9]*) ;;
-  *) echo "ERROR: '$VERSION' is not a vX.Y.Z tag. The release workflow only fires on those, so a" >&2
-     echo "       different shape here would produce a model tag no release refers to." >&2
-     exit 2 ;;
-esac
+# Anchored regex, not a glob: `v[0-9]*.[0-9]*.[0-9]*` also matched `v1.2.3-rc1`, the exact shape
+# the message below claims to reject, and on the workflow_dispatch path this is the ONLY validation.
+if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "ERROR: '$VERSION' is not a vX.Y.Z tag. The release workflow only fires on those (stable" >&2
+  echo "       versions, no pre-release suffix), so a different shape here would produce a model" >&2
+  echo "       tag no release refers to." >&2
+  exit 2
+fi
 
 MODELS="${F8_TAG_MODELS:-stoic_hellman_728/phi4-f8-mini stoic_hellman_728/phi4-f8}"
 REGISTRY="${REGISTRY:-https://registry.ollama.ai}"
 OLLAMA_KEY_FILE="${OLLAMA_KEY_FILE:-$HOME/.ollama/id_ed25519}"
 DRY="${F8_TAG_DRY_RUN:-0}"
+BASELINE_LIMIT="${F8_TAG_BASELINE_LIMIT:-20}"
+# A workflow_dispatch boolean reaches an env var as the STRING "true"/"false", which is a documented
+# Actions trap: "false" is a non-empty string, so anything treating it as truthy forces every run.
+# Normalising here means the workflow can pass the input through verbatim and be right either way.
+case "${F8_TAG_FORCE:-0}" in
+  1|true|TRUE|True|yes|on) FORCE=1 ;;
+  *) FORCE=0 ;;
+esac
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 log(){ echo "[tag-models] $*"; }
 die(){ echo "[tag-models] ERROR: $*" >&2; exit 1; }
+# GitHub renders these in the run summary; locally they are noise, so only under Actions. This is
+# what makes "this release minted no model tag" readable in the release log, and tells it apart from
+# the OTHER reason this job produces nothing (no signing key, which the workflow reports itself).
+notice(){ [ -z "${GITHUB_ACTIONS:-}" ] || echo "::notice title=$1::$2"; }
 
-command -v ollama >/dev/null 2>&1 || die "ollama is not installed; this script pulls and re-pushes real model blobs."
+# Checked, not assumed: a non-numeric bound makes every `[ n -ge $BASELINE_LIMIT ]` fail, which
+# reads as "not reached yet" and removes the bound instead of reporting a bad setting.
+[[ "$BASELINE_LIMIT" =~ ^[0-9]+$ ]] || die "F8_TAG_BASELINE_LIMIT must be a whole number, got '$BASELINE_LIMIT'."
+
+# A dry run reads the registry and hashes manifests, it never pulls or pushes, so it must not demand
+# the daemon on a box that only wants to know what a release WOULD do. Same reasoning as the signing
+# key further down.
+[ "$DRY" = "1" ] || command -v ollama >/dev/null 2>&1 || die "ollama is not installed; this script pulls and re-pushes real model blobs."
 command -v sha256sum >/dev/null 2>&1 || die "sha256sum is required to verify the tag points at the same bytes."
 
 # The DAEMON signs pushes, not this shell, and it runs as its own user with its own ~/.ollama. The
@@ -153,11 +193,67 @@ install_signing_key() {
 
 # The 12 hex ollama reports for a model is the leading half of the sha256 of its registry
 # manifest, so this compares like with like against a local `ollama list` id.
-remote_digest() { # <repo> <tag> -> 12 hex, or empty when the tag does not exist
-  curl -sf --connect-timeout 15 --max-time 120 "$REGISTRY/v2/$1/manifests/$2" 2>/dev/null | sha256sum | cut -c1-12
+#
+# Deliberately not `curl | sha256sum`: a failed fetch pipes NOTHING, and the sha256 of nothing is a
+# perfectly valid-looking digest (e3b0c44298fc...) that every missing tag produces. That made the
+# ":latest is missing" guard below unreachable, and it would make two nonexistent tags compare
+# EQUAL - a repo with nothing published would report that its bytes already carry a version. So the
+# fetch goes to a file and only a non-empty one is hashed, which keeps a miss reportable as a miss.
+# It stays a file rather than a variable because a command substitution eats the trailing newline,
+# and the digest has to be over exactly the bytes the registry sent or it matches nothing ollama
+# ever shows.
+remote_digest() { # <repo> <tag> -> 12 hex, or EMPTY when the tag does not exist
+  local body status=0
+  body="$(mktemp)"
+  curl -sf --connect-timeout 15 --max-time 120 "$REGISTRY/v2/$1/manifests/$2" -o "$body" 2>/dev/null || status=$?
+  if [ "$status" -eq 0 ] && [ -s "$body" ]; then
+    sha256sum < "$body" | cut -c1-12
+  fi
+  rm -f "$body"
 }
 remote_exists() { # <repo> <tag>
   [ "$(curl -sSL --connect-timeout 15 --max-time 60 -o /dev/null -w '%{http_code}' "$REGISTRY/v2/$1/manifests/$2" 2>/dev/null || echo 000)" = "200" ]
+}
+
+# The version tags to compare ":latest" against. registry.ollama.ai implements no
+# /v2/<repo>/tags/list (it 404s with the Go router's plain-text body, not the registry's own JSON
+# error), so what is already published cannot be READ back; it has to come from this repository.
+# Two sources, both cheap and both offline:
+#   - `git tag`, which IS the release history, newest version first;
+#   - the pinned default in docker-compose.yml, which names a version that certainly got published.
+# The pin is appended rather than kept as a fallback because a SHALLOW checkout carries only the tag
+# being released, and a git list that quietly comes back holding just $VERSION would defeat this
+# check without saying so. Both workflows therefore ask for fetch-depth: 0, and the pin is the belt
+# to that braces. Pre-release shapes are filtered out: they never fire a release, so they can never
+# have produced a model tag.
+KNOWN_VERSIONS="$(
+  {
+    git -C "$REPO_ROOT" tag --list 'v[0-9]*' --sort=-v:refname 2>/dev/null || true
+    grep -hoE '\$\{(F8_DELEGATE_REPO|F8_PHI4F8_REPO):-[^}]+\}' "$REPO_ROOT/docker-compose.yml" 2>/dev/null |
+      grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true
+  } | grep -xE 'v[0-9]+\.[0-9]+\.[0-9]+' | grep -vxF "$VERSION" | awk '!seen[$0]++' || true
+)"
+
+# Does some existing version tag already name these bytes? Prints the first one that does.
+# Logs to stderr, because the caller reads its stdout.
+already_named() { # <repo> <12-hex digest of :latest> -> prints a version tag, or fails
+  local repo="$1" digest="$2" cand probed=0 d
+  for cand in $KNOWN_VERSIONS; do
+    if [ "$probed" -ge "$BASELINE_LIMIT" ]; then
+      log "  compared the $probed newest version tags and stopped there; raise F8_TAG_BASELINE_LIMIT to look further back." >&2
+      break
+    fi
+    probed=$((probed + 1))
+    d="$(remote_digest "$repo" "$cand" || true)"
+    # A tag that does not exist yields empty, and the caller's digest is never empty (it is guarded
+    # above), so a miss cannot match. Checked anyway: this is the comparison the whole gate rests on.
+    [ -n "$d" ] || continue
+    [ "$d" = "$digest" ] || continue
+    printf '%s
+' "$cand"
+    return 0
+  done
+  return 1
 }
 
 require_disk() { # <gigabytes>
@@ -191,9 +287,12 @@ fi
 
 count=0
 skipped=""
+unchanged=""
 for repo in $MODELS; do
   log "=== $repo ==="
-  latest="$(remote_digest "$repo" latest)"
+  # `|| true`: pipefail would otherwise abort the script on curl's exit code and never reach the
+  # message below, which is the one an operator actually needs.
+  latest="$(remote_digest "$repo" latest || true)"
   [ -n "$latest" ] || die "$repo has no published ':latest' to tag. Publish it first (nl-assist-finetune/run.sh publish)."
   log "  :latest is $latest"
 
@@ -205,6 +304,16 @@ for repo in $MODELS; do
       continue
     fi
     die ":$VERSION already exists for $repo with a DIFFERENT digest ($existing vs $latest). Refusing to move a released tag; cut a new version instead."
+  fi
+
+  # One tag per distinct BUILD (the header explains why). Deliberately AFTER the check above, so a
+  # :$VERSION that exists pointing somewhere else still fails loudly instead of being skipped.
+  if [ "$FORCE" != "1" ] && dup="$(already_named "$repo" "$latest")"; then
+    log "  :latest ($latest) is already published as :$dup - not adding :$VERSION as a second name for the same bytes."
+    log "  A release with no retrain since :$dup is expected to mint nothing. F8_TAG_FORCE=1 overrides."
+    notice "No model tag for $VERSION" "$repo:latest already carries the version :$dup (digest $latest), so $VERSION would be a duplicate name for bytes that already have one. Nothing was pushed. Retrain and publish to move :latest, or re-run the Tag models workflow with force."
+    unchanged="$unchanged $repo:$dup"
+    continue
   fi
 
   if [ "$DRY" = "1" ]; then
@@ -237,6 +346,15 @@ for repo in $MODELS; do
 done
 
 log "done: $count model(s) carry the tag $VERSION."
-[ -n "$skipped" ] && log "DRY RUN, nothing was pushed for:$skipped"
-log "Consumers can now pin a build instead of tracking :latest, e.g."
-log "  F8_DELEGATE_REPO=<ns>/phi4-f8-mini:$VERSION"
+if [ -n "$unchanged" ]; then
+  log "not tagged, the bytes already have a version name:$unchanged"
+  log "Nothing is wrong with that: the pin keeps naming the build it names, and the model page keeps"
+  log "one current version instead of collecting synonyms."
+fi
+if [ -n "$skipped" ]; then
+  log "DRY RUN, nothing was pushed for:$skipped"
+fi
+if [ "$count" -gt 0 ]; then
+  log "Consumers can now pin a build instead of tracking :latest, e.g."
+  log "  F8_DELEGATE_REPO=<ns>/phi4-f8-mini:$VERSION"
+fi

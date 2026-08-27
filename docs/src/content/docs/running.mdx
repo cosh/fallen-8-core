@@ -109,13 +109,14 @@ fine-tune pipeline republishes over `:latest`, so an unpinned default would make
 follow whatever was published last, under an identical model name, with nothing reporting the
 change. Pinned, a given checkout always serves the same weights, and moving is a decision. Those
 version tags come from the release that created them: tagging the repository `vX.Y.Z` also tags the
-published models.
+published models, if that build has no version yet. A build is named once, so a release that ships
+no retrained model adds no tag, and the newest model version can be older than the newest release.
 
 To use something else, override either variable - a line in a `.env` beside the compose file, or an
 exported variable:
 
 ```bash
-F8_DELEGATE_REPO=stoic_hellman_728/phi4-f8-mini:v0.0.34   # an older release
+F8_DELEGATE_REPO=stoic_hellman_728/phi4-f8-mini:v0.0.36   # another published version
 F8_DELEGATE_REPO=stoic_hellman_728/phi4-f8-mini           # follow :latest, whatever it becomes
 F8_DELEGATE_REPO=my-namespace/my-finetune:v1              # your own
 ```
