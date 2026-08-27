@@ -288,12 +288,17 @@ jobs:
         run: npm publish
 
   models:
-    name: "Ollama model tags: <ns>/phi4-f8*:vX.Y.Z"
+    name: "Ollama model tags: <ns>/phi4-f8*:vX.Y.Z (a build that has no version yet)"
     runs-on: ubuntu-latest
     needs: [test]
     # Tagging the repository tags the published MODELS too, so a release names a specific build
     # instead of whatever ":latest" happens to be. It does not retrain and does not move
     # ":latest" - it adds a second name for the same bytes (scripts/tag-models.sh).
+    #
+    # ONE VERSION PER DISTINCT BUILD, so a release with no retrain behind it mints nothing and says
+    # so with a ::notice. That is expected, not a failure: publishing and releasing move on
+    # unrelated schedules, and a second version name for bytes that already have one makes every
+    # such tag present as current on ollama.com. scripts/tag-models.sh owns that reasoning.
     #
     # SKIPS CLEANLY without the signing key. Publishing weights is the operator's opt-in channel
     # (nl-assist-finetune spec FT-5/FL-4): core ships none, a fork has no key, and neither should
@@ -310,6 +315,11 @@ jobs:
     permissions: {}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The script compares ":latest" against the version tags that already exist, and the git
+          # tag list is where it learns them. A shallow checkout carries only the tag being
+          # released, which would make every release look like a new build.
+          fetch-depth: 0
       - name: Is a signing key configured?
         id: key
         env:

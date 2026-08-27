@@ -44,6 +44,11 @@ namespace NoSQL.GraphDB.Tests
     /// from a shared file, so a single literal home is not available. Bumping two of three would
     /// pin inconsistent models depending on how the stack was started, which is exactly the class
     /// of drift the pin exists to prevent. So the drift is asserted away instead.
+    ///
+    /// The pin may legitimately name an OLDER version than the newest release:
+    /// scripts/tag-models.sh gives one version per distinct build, so a release that ships no
+    /// retrained model mints no model tag at all. These assertions are deliberately offline, so a
+    /// pin naming a version that was never published passes here and fails at pull time instead.
     /// </summary>
     [TestClass]
     public class ModelPinTest

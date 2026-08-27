@@ -6,6 +6,10 @@
 # this mechanism existed, or simply re-running it after correcting the signing key.
 #
 # It changes no code and moves no ":latest" - it gives existing published bytes a second name.
+#
+# "force" is what lets this workflow do its job. The script gives one version per distinct BUILD, so
+# it normally declines to add a name to bytes that already have one - and backfilling a version
+# whose bytes a LATER tag already names is exactly that case.
 name: Tag models
 
 on:
@@ -15,6 +19,11 @@ on:
         description: "Version tag to apply to the published models, e.g. v0.0.34"
         required: true
         type: string
+      force:
+        description: "Tag even if an existing version tag already names these exact bytes"
+        required: false
+        default: false
+        type: boolean
 
 permissions: {}
 
@@ -24,6 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Same reason as the release workflow: the existing version tags come from the git tag
+          # list, and a shallow checkout has only one of them.
+          fetch-depth: 0
       - name: Is a signing key configured?
         id: key
         env:
@@ -44,4 +57,8 @@ jobs:
         env:
           OLLAMA_SIGNING_KEY: ${{ secrets.OLLAMA_SIGNING_KEY }}
           F8_TAG_MODELS: ${{ vars.F8_TAG_MODELS }}
+          # Passed through verbatim on purpose: a workflow_dispatch boolean can arrive as the
+          # string "false", and `inputs.force && '1' || '0'` would then evaluate to '1' because a
+          # non-empty string is truthy. The script normalises both spellings.
+          F8_TAG_FORCE: ${{ inputs.force }}
         run: scripts/tag-models.sh "${{ inputs.version }}"

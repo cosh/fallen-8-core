@@ -77,7 +77,7 @@ infra/         provision a throwaway cloud GPU: train both variants, or evaluate
 | Train        | Linux or WSL2 with an NVIDIA GPU, Python 3.13, CUDA torch  | `./run.sh all` (add `VARIANT=phi4-f8` for the 14B)                   |
 | Evaluate     | A model backend plus the apiApp; a GPU in practice         | `npx tsx nl-assist-finetune/eval/baseline.ts --semantic`             |
 | Publish      | An ollama.com account                                      | `PUBLISH_REPO=<ns>/phi4-f8-mini ./run.sh publish`                    |
-| Version      | A repository tag                                           | tagging `vX.Y.Z` also tags the published models (`scripts/tag-models.sh`) |
+| Version      | A repository tag                                           | tagging `vX.Y.Z` names the published build, if it has no version yet (`scripts/tag-models.sh`) |
 
 The dataset stage is deterministic, so a GPU-only box can copy `dataset/train.jsonl` from wherever it was
 generated and skip Node and the apiApp entirely. `./run.sh all` emits an Ollama model plus a
@@ -86,9 +86,15 @@ hash, so the licence position travels with the artifact. Point Studio at the res
 assist `model` field: no Fallen-8 code changes.
 
 Publishing always overwrites `:latest`, so a running deployment would otherwise have no way to say
-which build it holds. Tagging the repository `vX.Y.Z` therefore also tags the published models with
-that version - the same bytes under a second name - and a deployment can pin
+which build it holds. Tagging the repository `vX.Y.Z` therefore gives the published models that
+version too - the same bytes under a second name - so a deployment can pin
 `F8_DELEGATE_REPO=<ns>/phi4-f8-mini:vX.Y.Z` instead of tracking a moving tag.
+
+One version per distinct build, though, not one per release. Publishing happens on a retrain and
+releasing on a tag push, so most releases carry no new weights, and a release whose `:latest`
+already answers to an earlier version adds nothing and says so in its log. The newest release
+number is therefore not always a model tag: pin the version the model actually carries, which the
+tags list on ollama.com and the startup log both name.
 
 Evaluation needs no GPU to *start*, but on a CPU these models generate at roughly 14 seconds per token,
 which makes a full run impractical rather than merely slow. So the evaluation has the same cloud path as
