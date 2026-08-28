@@ -173,6 +173,26 @@ export interface ResultSet {
 /** Where a path/subgraph run takes its fragments from (concept spec §5.1). */
 export type FilterSource = "inline" | "stored";
 
+/**
+ * The tabs of the merged Traverse screen (feature studio-traverse-merge), in strip order.
+ * ONE home for the ids: the tab strip renders them, the route validates `?tab=` against them,
+ * and the persisted `traverseTab` remembers the last one per instance-and-namespace.
+ */
+export const TRAVERSE_TABS = ["path", "subgraph", "stored"] as const;
+
+export type TraverseTab = (typeof TRAVERSE_TABS)[number];
+
+/** The tab a fresh workspace opens on: path finding is the more frequent scenario. */
+export const DEFAULT_TRAVERSE_TAB: TraverseTab = "path";
+
+/** Guard for the two untrusted sources of a tab id: the `?tab=` search param and storage. */
+export const isTraverseTab = (value: unknown): value is TraverseTab =>
+  typeof value === "string" && (TRAVERSE_TABS as readonly string[]).includes(value);
+
+/** The scenario tab a stored query of this kind belongs to (its `kind` is `string | null`). */
+export const traverseTabForKind = (kind: string | null | undefined): TraverseTab =>
+  kind === "SubGraph" ? "subgraph" : "path";
+
 export interface PathDraft {
   from: string;
   to: string;
@@ -445,6 +465,13 @@ export interface WorkspaceState {
   browserDraft: BrowserDraft;
   analyticsDraft: AnalyticsDraft;
   canvasToolsDraft: CanvasToolsDraft;
+  /**
+   * The Traverse tab last left open (feature studio-traverse-merge). Persisted rather than
+   * URL-only because switching namespace or instance rewrites the leaf WITHOUT the search
+   * param (see app/scopedRoute.ts), and being dumped on another tab by a context switch is
+   * the same "lose what you were looking at" the switchers exist to avoid.
+   */
+  traverseTab: TraverseTab;
   scanPrefill: ScanPrefill | null;
 
   mergeIntoCanvas: (vertices: VertexREST[], edges: EdgeREST[]) => void;
@@ -466,6 +493,7 @@ export interface WorkspaceState {
   setAnalyticsDraft: (patch: Partial<AnalyticsDraft>) => void;
   resetAnalyticsDraft: () => void;
   setCanvasToolsDraft: (patch: Partial<CanvasToolsDraft>) => void;
+  setTraverseTab: (tab: TraverseTab) => void;
   setScanPrefill: (prefill: ScanPrefill | null) => void;
   setFeedFilter: (patch: Partial<FeedFilterDraft>) => void;
   setInspectPrefill: (id: number | null) => void;
@@ -488,6 +516,7 @@ function createWorkspaceStore(instanceId: string) {
         browserDraft: { ...DEFAULT_BROWSER_DRAFT },
         analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT },
         canvasToolsDraft: { ...DEFAULT_CANVAS_TOOLS_DRAFT },
+        traverseTab: DEFAULT_TRAVERSE_TAB,
         scanPrefill: null,
         feedFilter: { ...DEFAULT_FEED_FILTER },
         inspectPrefill: null,
@@ -578,6 +607,8 @@ function createWorkspaceStore(instanceId: string) {
         setCanvasToolsDraft: (patch) =>
           set((s) => ({ canvasToolsDraft: { ...s.canvasToolsDraft, ...patch } })),
 
+        setTraverseTab: (traverseTab) => set({ traverseTab }),
+
         setScanPrefill: (scanPrefill) => set({ scanPrefill }),
 
         setFeedFilter: (patch) =>
@@ -624,6 +655,9 @@ function createWorkspaceStore(instanceId: string) {
             browserDraft: { ...DEFAULT_BROWSER_DRAFT, ...(p.browserDraft ?? {}) },
             analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT, ...(p.analyticsDraft ?? {}) },
             canvasToolsDraft: { ...DEFAULT_CANVAS_TOOLS_DRAFT, ...(p.canvasToolsDraft ?? {}) },
+            // Normalized, not trusted: a tab id this build does not know (hand-edited storage,
+            // a renamed tab) would leave the Traverse screen with every panel hidden.
+            traverseTab: isTraverseTab(p.traverseTab) ? p.traverseTab : DEFAULT_TRAVERSE_TAB,
             styleConfig: { ...DEFAULT_STYLE_CONFIG, ...(p.styleConfig ?? {}) },
             feedFilter: { ...DEFAULT_FEED_FILTER, ...(p.feedFilter ?? {}) },
             // One-shots never rehydrate (see partialize); this also drops values

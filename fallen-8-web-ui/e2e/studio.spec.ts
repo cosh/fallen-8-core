@@ -247,7 +247,11 @@ test("scenario 5: delegate editor validates, blocks, then passes and the path ru
     await expect(page.getByTestId("mutation-message")).toContainText("Edge");
   }
 
-  await page.goto("/path");
+  // The path form is the Traverse screen's first tab now (feature studio-traverse-merge). This
+  // scenario is about the editor and the run, so it enters through that tab's own URL; the two
+  // retired flat URLs are covered by scenario 7 (/subgraphs) and the section-help scenario at
+  // the foot of this file (/path).
+  await page.goto("/q/default/traverse?tab=path");
   await page.getByTestId("path-from").fill(String(a));
   await page.getByTestId("path-to").fill(String(c));
   await page.getByTestId("toggle-advanced").click();
@@ -275,7 +279,13 @@ test("scenario 5: delegate editor validates, blocks, then passes and the path ru
 
 test("scenario 7: subgraph lifecycle with empty-as-valid", async ({ page }) => {
   await registerSecuredInstance(page);
+  // Entered through the RETIRED flat URL on purpose: this is the scenario that keeps the
+  // /subgraphs -> Traverse "Subgraph builder" tab redirect covered (feature
+  // studio-traverse-merge). The sibling /path redirect is covered by the section-help scenario
+  // at the foot of this file.
   await page.goto("/subgraphs");
+  await expect(page).toHaveURL(/\/q\/default\/traverse\?tab=subgraph$/);
+  await expect(page.getByTestId("traverse-tab-subgraph")).toHaveAttribute("aria-selected", "true");
 
   await page.getByTestId("sg-name").fill("e2e-sub");
   // Alternation guard: two vertex steps in a row must block creation client-side.
@@ -294,7 +304,28 @@ test("scenario 7: subgraph lifecycle with empty-as-valid", async ({ page }) => {
   });
 
   await page.getByRole("button", { name: "Delete" }).first().click();
-  await expect(page.getByTestId("subgraph-message")).toContainText("Deleted");
+  const message = page.getByTestId("subgraph-message");
+  await expect(message).toContainText("Deleted");
+
+  // The third tab is the ONE /storedquery library both scenarios share, which the Studio used to
+  // render as two kind-scoped panels. Its structural tell is the "kind" column the kind-scoped
+  // view has no need for; the tab label carries the live entry count.
+  await page.getByTestId("traverse-tab-stored").click();
+  const library = page.getByTestId("stored-queries-all");
+  await expect(library).toBeVisible();
+  await expect(library.getByRole("columnheader", { name: "kind" })).toBeVisible();
+  // Label and count sit in one button with no separator between them, hence the run-together text.
+  await expect(page.getByTestId("traverse-tab-stored")).toHaveText(/^Stored queries\s*\d+$/);
+
+  // Tabs HIDE their panels instead of unmounting them: the message is out of view here yet still
+  // carries its text, and it is intact again on the way back. It is `useState` inside the builder,
+  // not a persisted draft, so an unmounting tab strip would lose it - and nothing else in this
+  // suite would notice.
+  await expect(message).toBeHidden();
+  await expect(message).toContainText("Deleted");
+  await page.getByTestId("traverse-tab-subgraph").click();
+  await expect(message).toBeVisible();
+  await expect(message).toContainText("Deleted");
 });
 
 test("save games: save now registers a row; load and delete demand typed confirmation", async ({
@@ -381,7 +412,7 @@ test("scenario 10 (instance default): assist is usable with zero config; editor 
   page,
 }) => {
   await registerSecuredInstance(page);
-  await page.goto("/path");
+  await page.goto("/q/default/traverse?tab=path");
   await page.getByTestId("toggle-advanced").click();
   await page.getByTestId("slot-filter-vertexfilter").click();
 
@@ -568,25 +599,32 @@ test("scenario 11: nav stays locked until the active instance is connected AND a
 test("per-section help opens the docs for the current screen", async ({ page }) => {
   await registerSecuredInstance(page);
 
-  // Land on a scoped screen; the shell resolves the legacy path to /q/{ns}/path.
+  // Land on a scoped screen through the RETIRED flat URL: /path resolves to the Traverse
+  // screen's Path finding tab (feature studio-traverse-merge), so this is also the scenario that
+  // keeps the /path redirect covered (scenario 7 covers /subgraphs). Help is keyed to the
+  // PATHNAME, so all three tabs answer with the one traverse entry.
   await page.goto("/path");
-  await expect(page).toHaveURL(/\/q\/[^/]+\/path$/);
+  await expect(page).toHaveURL(/\/q\/[^/]+\/traverse\?tab=path$/);
 
   // The per-section help button sits in the top bar next to the docs pill and is keyed to the
   // active section (feature studio-section-help).
   const help = page.getByTestId("section-help");
   await expect(help).toBeVisible();
-  await expect(help).toHaveAttribute("title", "How path finding works");
+  await expect(help).toHaveAttribute("title", "How traversal works");
 
   await help.click();
   const popover = page.getByTestId("section-help-popover");
   await expect(popover).toBeVisible();
-  const firstLink = page.getByTestId("section-help-link").first();
-  await expect(firstLink).toHaveAttribute(
+  // One entry, three pages: the two scenarios plus the library they share.
+  const links = page.getByTestId("section-help-link");
+  await expect(links).toHaveCount(3);
+  await expect(links.nth(0)).toHaveAttribute(
     "href",
     "https://docs.fallen-8.com/path-finding/",
   );
-  await expect(firstLink).toHaveAttribute("target", "_blank");
+  await expect(links.nth(1)).toHaveAttribute("href", "https://docs.fallen-8.com/subgraphs/");
+  await expect(links.nth(2)).toHaveAttribute("href", "https://docs.fallen-8.com/stored-queries/");
+  await expect(links.nth(0)).toHaveAttribute("target", "_blank");
 
   // Escape closes it without leaving the app.
   await page.keyboard.press("Escape");

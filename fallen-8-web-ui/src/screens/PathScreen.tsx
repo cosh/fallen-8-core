@@ -33,6 +33,7 @@ import {
   buildPathSpecification,
   hasAnyPathFragment,
   pathBlockFromDraft,
+  selectStoredQuery,
 } from "../lib/storedQueries";
 import { synthesizeEdges } from "../lib/connectPaths";
 import {
@@ -50,7 +51,6 @@ import {
   SaveAsStoredQuery,
   StoredQueryPicker,
 } from "../components/StoredQueryControls";
-import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { Truncated } from "../components/Truncated";
@@ -63,6 +63,9 @@ import { DISPLAY_CAP } from "../lib/truncate";
  * editor - /path swallows compile errors, so an empty result here is "no paths found",
  * never an error (FR-13). Filters come from inline fragments or a stored query — the
  * source toggle keeps the two mutually exclusive (concept spec §5.1).
+ *
+ * Rendered as the "Path finding" tab of the Traverse screen (feature studio-traverse-merge),
+ * which also owns the stored-query library this screen used to host at its foot.
  */
 export function PathScreen() {
   const { instance, store } = useInstanceStore();
@@ -370,9 +373,7 @@ export function PathScreen() {
                 buildBlock={() => pathBlockFromDraft(draft)}
                 disabled={!hasAnyPathFragment(draft)}
                 disabledReason="commit at least one fragment first"
-                onSaved={(name) =>
-                  setDraft({ filterSource: "stored", storedQuery: name })
-                }
+                onSaved={(name) => setDraft(selectStoredQuery(name))}
               />
             </div>
           )}
@@ -440,13 +441,6 @@ export function PathScreen() {
         </section>
       )}
 
-      {/* Scenario-scoped stored-query home: only Path entries; Use selects one into the
-          picker above (concept spec §5.3). Capture is the "Save as stored query…" button
-          in the inline advanced tier. */}
-      <StoredQueriesPanel
-        kind="Path"
-        onUse={(name) => setDraft({ filterSource: "stored", storedQuery: name })}
-      />
     </div>
   );
 }

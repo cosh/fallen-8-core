@@ -90,8 +90,10 @@ test("capture the delegate editor with IntelliSense open on a VertexFilter slot"
 
   await registerSecuredInstance(page);
 
-  // The slots live behind the advanced toggle, which is collapsed for an empty draft.
-  await page.goto("/path");
+  // The slots live behind the advanced toggle, which is collapsed for an empty draft. They sit on
+  // the Traverse screen's Path finding tab (feature studio-traverse-merge), entered by deep link
+  // so the frame never depends on a remembered tab.
+  await page.goto("/q/default/traverse?tab=path");
   await page.getByTestId("path-from").fill("1");
   await page.getByTestId("path-to").fill("42");
   await page.getByTestId("toggle-advanced").click();
@@ -125,8 +127,8 @@ test("capture the delegate editor with IntelliSense open on a VertexFilter slot"
   await expect(page.getByTestId("validation-valid")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByTestId("commit-fragment")).toBeEnabled();
 
-  // Crop to the top bar plus the modal. Left uncropped, a 700px frame lets the Path screen's
-  // stored-query table peek out below the modal half-cut, which reads as a rendering glitch; a
+  // Crop to the top bar plus the modal. Left uncropped, a 700px frame lets a half-cut slice of
+  // the Path finding tab underneath peek out below the modal, which reads as a rendering glitch; a
   // taller frame hides it behind the modal but pays for that with an empty editor pane. `clip` is
   // a viewport crop, so the suggest widget (which lives in a body-level overflow container) is
   // still in the shot, unlike an element screenshot.

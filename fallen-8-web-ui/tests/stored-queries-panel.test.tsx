@@ -32,10 +32,15 @@ import type { StoredQueryDetailREST, StoredQuerySummaryREST } from "../src/api/t
 import { resetInstanceStoresForTests } from "../src/state/instanceStore";
 
 /**
- * Kind-scoped stored-query management (feature stored-query-scenario-scoped-ux): a stored
- * query is unique to its scenario, so each screen's panel shows ONLY its own kind, and the
- * "Use" action feeds the entry back to the host screen instead of navigating away. Pinned
- * here rather than trusted to the two screens that mount it.
+ * Stored-query management over ONE server library (feature studio-traverse-merge): the panel
+ * renders the WHOLE `/storedquery` collection of the namespace in one table, with a kind
+ * column naming each entry's scenario. It used to take a `kind` prop and show one scenario's
+ * entries per screen; the merge left that mode without a caller, so there is exactly one shape
+ * now and no client-side filtering at all - whatever the route returns is listed.
+ *
+ * Pinned here rather than trusted to the Traverse screen that mounts it: the column set, the
+ * empty-state prose, and the Use/Delete affordances are this component's contract. "Use" hands
+ * the WHOLE entry back instead of navigating, because the host routes it by kind.
  */
 
 let storedList: StoredQuerySummaryREST[] = [];
@@ -70,14 +75,17 @@ function summary(
   return { name, kind, description: null, createdAt: "", compileState };
 }
 
+/** The glyph the table renders for a field the server left null, quoted from the component. */
+const PLACEHOLDER = "—";
+
+/** One shape only: the whole library, with the host deciding what "Use" means. */
 function renderPanel(
-  kind: "Path" | "SubGraph",
-  onUse: (name: string) => void = () => {},
+  props: { onUse?: (entry: StoredQuerySummaryREST) => void } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <StoredQueriesPanel kind={kind} onUse={onUse} />
+      <StoredQueriesPanel onUse={props.onUse ?? (() => {})} />
     </QueryClientProvider>,
   );
 }
@@ -89,52 +97,109 @@ beforeEach(() => {
   deleteMock.mockReset().mockResolvedValue(undefined);
 });
 
-describe("StoredQueriesPanel (kind-scoped)", () => {
-  it("lists only entries of its own kind and titles itself accordingly", async () => {
+describe("StoredQueriesPanel (the whole library)", () => {
+  it("lists BOTH kinds in one table, names each entry's kind, and titles itself for neither", async () => {
     storedList = [summary("adults", "Path"), summary("triangle", "SubGraph")];
-    renderPanel("Path");
+    renderPanel();
 
-    expect(await screen.findByText("Stored path queries")).toBeInTheDocument();
+    expect(await screen.findByText("Stored queries")).toBeInTheDocument();
+    expect(screen.getByTestId("stored-queries-all")).toBeInTheDocument();
+    // The kind-scoped panel's testid is gone with the mode: a host still passing `kind` would
+    // silently get the whole library, so the old handle must not resolve either.
+    expect(screen.queryByTestId("stored-queries-Path")).not.toBeInTheDocument();
+
+    // Five columns, in strip order: the kind one is the whole reason a single table over both
+    // scenarios reads at all - without it their entries are indistinguishable rows sharing a
+    // name space.
+    expect(screen.getAllByRole("columnheader").map((th) => th.textContent)).toEqual([
+      "name",
+      "kind",
+      "state",
+      "registered",
+      "actions",
+    ]);
+
     expect(await screen.findByText("adults")).toBeInTheDocument();
-    // The other kind's entry never leaks onto a Path screen.
-    expect(screen.queryByText("triangle")).not.toBeInTheDocument();
+    expect(screen.getByText("triangle")).toBeInTheDocument();
+    expect(screen.getByTestId("stored-query-kind-adults")).toHaveTextContent("Path");
+    expect(screen.getByTestId("stored-query-kind-triangle")).toHaveTextContent("SubGraph");
   });
 
-  it("shows a kind-named empty state when no entry of that kind exists", async () => {
-    storedList = [summary("adults", "Path")]; // a Path entry, but we render the SubGraph panel
-    renderPanel("SubGraph");
+  it("lists an entry the server gave NO kind, with a placeholder instead of a crash", async () => {
+    // `kind` is nullable on the wire, and the panel no longer filters on it: a kind-less entry
+    // would have been dropped by the scoped mode, so the only view that can show it at all is
+    // this one - and it must render the row rather than throw the tab away with it.
+    storedList = [summary("orphan", null), summary("adults", "Path")];
+    renderPanel();
 
-    expect(
-      await screen.findByText(/no stored subgraph queries on this instance/i),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("adults")).not.toBeInTheDocument();
+    expect(await screen.findByText("orphan")).toBeInTheDocument();
+    const cell = screen.getByTestId("stored-query-kind-orphan");
+    expect(cell).toHaveTextContent(PLACEHOLDER);
+    // The placeholder is a dash, never the raw value leaking through as text.
+    expect(cell).not.toHaveTextContent(/null|undefined/);
+    // It stays invocable (its kind decides only which scenario the HOST opens), and the
+    // well-formed entry beside it is untouched.
+    expect(screen.getByTestId("stored-query-use-orphan")).toBeEnabled();
+    expect(screen.getByTestId("stored-query-kind-adults")).toHaveTextContent("Path");
   });
 
-  it("Use hands the entry name back to the host screen (no navigation)", async () => {
+  it("names both scenarios in the empty state, and spans every column", async () => {
+    storedList = [];
+    renderPanel();
+
+    const cell = await screen.findByText(/no stored queries on this instance/i);
+    // Neither kind's word appears, and the way to register one is where the fragments are.
+    expect(cell).toHaveTextContent(/Path finding or Subgraph builder tab/);
+    expect(cell).toHaveTextContent(/Save as stored query/);
+    // A short span would leave the sentence squeezed under the name column.
+    expect(cell).toHaveAttribute("colspan", "5");
+  });
+
+  it("Use hands back the WHOLE entry, so the host can route it by kind", async () => {
     const user = userEvent.setup();
     const onUse = vi.fn();
-    storedList = [summary("adults", "Path")];
-    renderPanel("Path", onUse);
+    storedList = [summary("adults", "Path"), summary("triangle", "SubGraph")];
+    renderPanel({ onUse });
 
-    await user.click(await screen.findByTestId("stored-query-use-adults"));
+    const use = await screen.findByTestId("stored-query-use-triangle");
+    // The affordance says what Use does, and says it in scenario terms rather than naming one
+    // screen: the entry decides where it opens.
+    expect(use).toHaveAttribute("title", "select it into its scenario's filter picker");
+
+    await user.click(use);
     expect(onUse).toHaveBeenCalledTimes(1);
-    expect(onUse).toHaveBeenCalledWith("adults");
+    // Only the name would leave the host guessing which scenario to open the entry in.
+    expect(onUse).toHaveBeenCalledWith(storedList[1]);
+    expect(onUse.mock.calls[0][0].kind).toBe("SubGraph");
   });
 
-  it("a Failed entry cannot be Used (recompile-broken artifacts are not invocable)", async () => {
-    storedList = [summary("broken", "Path", "Failed")];
-    renderPanel("Path");
+  it("still refuses to Use a Failed entry, of either kind, beside usable ones", async () => {
+    const user = userEvent.setup();
+    const onUse = vi.fn();
+    storedList = [summary("broken", "SubGraph", "Failed"), summary("adults", "Path")];
+    renderPanel({ onUse });
 
-    expect(await screen.findByTestId("stored-query-use-broken")).toBeDisabled();
+    const broken = await screen.findByTestId("stored-query-use-broken");
+    expect(broken).toBeDisabled();
+    // Disabled with the reason on it: a recompile-broken artifact is not invocable, and the
+    // way out is delete plus re-register (entries are immutable).
+    expect(broken.title).toContain("recompile failed on this instance");
+    expect(broken.title).toContain("delete and re-register");
+    await user.click(broken);
+    expect(onUse).not.toHaveBeenCalled();
+
+    // One unusable artifact must not cost the library: the rest stay invocable.
+    expect(screen.getByTestId("stored-query-use-adults")).toBeEnabled();
   });
 
   it("Delete runs through the typed confirmation and calls the endpoint", async () => {
     const user = userEvent.setup();
     storedList = [summary("adults", "Path")];
-    renderPanel("Path");
+    renderPanel();
 
     await user.click(await screen.findByRole("button", { name: "Delete…" }));
     // The gate is the active instance name ("local" same-origin default).
+    expect(screen.getByTestId("confirm-action")).toBeDisabled();
     await user.type(await screen.findByTestId("confirm-typed"), "local");
     await user.click(screen.getByTestId("confirm-action"));
 

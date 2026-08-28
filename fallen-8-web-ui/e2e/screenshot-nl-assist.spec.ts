@@ -120,8 +120,10 @@ test("capture NL assist with drafted, server-validated fragments", async ({ page
 
   await registerSecuredInstance(page);
 
-  // The NL panel lives in the delegate editor, which opens from a fragment slot on Path.
-  await page.goto("/path");
+  // The NL panel lives in the delegate editor, which opens from a fragment slot on the Traverse
+  // screen's Path finding tab (feature studio-traverse-merge). Entered by deep link, so the frame
+  // never depends on a remembered tab.
+  await page.goto("/q/default/traverse?tab=path");
   // The modal header echoes the endpoints as "Path finder · 1 → 42"; unset they render as "? → ?".
   await page.getByTestId("path-from").fill("1");
   await page.getByTestId("path-to").fill("42");

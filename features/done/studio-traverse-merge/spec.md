@@ -1,7 +1,13 @@
 # Studio: merge Path + Subgraph into one Traverse screen
 
-Status: spec and plan only; not implemented. Implementation goes to
-`feature/studio-traverse-merge` (branch + review gate), never directly to `main`.
+Status: implemented on `feature/studio-traverse-merge`; adversarially reviewed, all gates green.
+
+Delivered beyond this spec, after review found them: the tab is rendered from the persisted
+store with the URL as an input (not a rival source), because the shell remounts the screen on a
+context switch BEFORE the router commits, so reading the match's search adopted the previous
+namespace's tab and clobbered the new one; the panel's kind-scoped mode was deleted rather than
+kept, since the merge left it with no production caller; and the tab strip is boxed to the
+widest tab panel, because full-bleed it ran far past the centered path form.
 
 Source: the Studio navigation redesign exploration, direction **1d** ("the Traverse
 merge"). Of the merges considered there, this is the only one recommended;

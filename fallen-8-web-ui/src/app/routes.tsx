@@ -41,8 +41,8 @@ import { SaveGamesScreen } from "../screens/SaveGamesScreen";
 import { BrowserScreen } from "../screens/BrowserScreen";
 import { QueryScreen } from "../screens/QueryScreen";
 import { IndexesScreen } from "../screens/IndexesScreen";
-import { PathScreen } from "../screens/PathScreen";
-import { SubgraphScreen } from "../screens/SubgraphScreen";
+import { TraverseScreen } from "../screens/TraverseScreen";
+import { isTraverseTab, type TraverseTab } from "../state/instanceStore";
 import { AnalyticsScreen } from "../screens/AnalyticsScreen";
 import { PluginsScreen } from "../screens/PluginsScreen";
 import { CanvasScreen } from "../screens/CanvasScreen";
@@ -147,16 +147,45 @@ const indexesRoute = createRoute({
   component: IndexesScreen,
 });
 
-const pathRoute = createRoute({
+/**
+ * Path finding + the subgraph builder + the library they share, on one screen (feature
+ * studio-traverse-merge). `?tab=` makes each half deep-linkable, and the two former leaves
+ * redirect onto it, so every existing bookmark still lands on the right form. "traverse"
+ * collides with no API route, so the SPA fallback serves a full-page load of it.
+ */
+const traverseRoute = createRoute({
   getParentRoute: () => namespaceRoute,
-  path: "path",
-  component: PathScreen,
+  path: "traverse",
+  validateSearch: (search: Record<string, unknown>): { tab?: TraverseTab } =>
+    isTraverseTab(search.tab) ? { tab: search.tab } : {},
+  component: TraverseScreen,
 });
 
-const subgraphRoute = createRoute({
+// Continuity for the two screens Traverse absorbed: each lands on its own tab, in the SAME
+// namespace. Both redirects stay covered by e2e: studio.spec.ts scenario 7 enters /subgraphs,
+// and the section-help scenario enters /path.
+const pathLegacyRoute = createRoute({
+  getParentRoute: () => namespaceRoute,
+  path: "path",
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/q/$ns/traverse",
+      params: { ns: (params as { ns: string }).ns },
+      search: { tab: "path" },
+    });
+  },
+});
+
+const subgraphLegacyRoute = createRoute({
   getParentRoute: () => namespaceRoute,
   path: "subgraphs",
-  component: SubgraphScreen,
+  beforeLoad: ({ params }) => {
+    throw redirect({
+      to: "/q/$ns/traverse",
+      params: { ns: (params as { ns: string }).ns },
+      search: { tab: "subgraph" },
+    });
+  },
 });
 
 const analyticsRoute = createRoute({
@@ -214,8 +243,7 @@ const LEGACY_SCOPED_PATHS = [
   "/browser",
   "/query",
   "/indexes",
-  "/path",
-  "/subgraphs",
+  "/traverse",
   "/analytics",
   "/canvas",
   "/benchmarks",
@@ -227,6 +255,30 @@ const legacyRedirectRoutes = LEGACY_SCOPED_PATHS.map((path) =>
     path,
     beforeLoad: () => {
       throw redirect({ to: `/q/$ns${path}`, params: { ns: activeNamespace() } });
+    },
+  }),
+);
+
+/**
+ * The flat bookmarks of the two screens Traverse absorbed. They are NOT in the list above
+ * because they carry a tab: routing them through their scoped leaves would land correctly but
+ * spend two redirects where one does.
+ */
+const LEGACY_TRAVERSE_PATHS = [
+  ["/path", "path"],
+  ["/subgraphs", "subgraph"],
+] as const satisfies readonly (readonly [string, TraverseTab])[];
+
+const legacyTraverseRoutes = LEGACY_TRAVERSE_PATHS.map(([path, tab]) =>
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path,
+    beforeLoad: () => {
+      throw redirect({
+        to: "/q/$ns/traverse",
+        params: { ns: activeNamespace() },
+        search: { tab },
+      });
     },
   }),
 );
@@ -251,14 +303,16 @@ const routeTree = rootRoute.addChildren([
     knowledgeLegacyRoute,
     queryRoute,
     indexesRoute,
-    pathRoute,
-    subgraphRoute,
+    traverseRoute,
+    pathLegacyRoute,
+    subgraphLegacyRoute,
     analyticsRoute,
     pluginsRoute,
     canvasRoute,
     benchmarkRoute,
   ]),
   ...legacyRedirectRoutes,
+  ...legacyTraverseRoutes,
 ]);
 
 /**

@@ -720,14 +720,14 @@ describe("NamespaceScope branches", () => {
   it("recovers to the default namespace ON THE SAME SCREEN, not onto some overview", async () => {
     const user = userEvent.setup();
     scopeParams = { ns: "ghost" };
-    scopePathname = "/q/ghost/subgraphs";
+    scopePathname = "/q/ghost/traverse";
     renderScope();
     await waitFor(() => expect(screen.getByTestId("namespace-recover")).toBeInTheDocument());
 
     await user.click(screen.getByTestId("namespace-recover-switch"));
 
     expect(navigateMock).toHaveBeenCalledWith({
-      to: "/q/$ns/subgraphs",
+      to: "/q/$ns/traverse",
       params: { ns: DEFAULT_NAMESPACE },
     });
   });

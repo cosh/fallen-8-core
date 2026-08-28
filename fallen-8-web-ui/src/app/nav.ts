@@ -40,8 +40,11 @@ export const NAV = [
   { leaf: "browser", label: "Browser", icon: "☰", scoped: true },
   { leaf: "query", label: "Query", icon: "∴", scoped: true },
   { leaf: "indexes", label: "Indexes", icon: "⌗", scoped: true },
-  { leaf: "path", label: "Path", icon: "↝", scoped: true },
-  { leaf: "subgraphs", label: "Subgraph", icon: "◫", scoped: true },
+  // Traverse (feature studio-traverse-merge): path finding and the subgraph builder were
+  // near-twin screens sharing the delegate editor and ONE stored-query library rendered as
+  // two panels. They are one entry with three tabs; /q/{ns}/path and /q/{ns}/subgraphs
+  // redirect onto the matching tab, so the old rail slots keep answering their bookmarks.
+  { leaf: "traverse", label: "Traverse", icon: "↝", scoped: true },
   { leaf: "analytics", label: "Analytics", icon: "∑", scoped: true },
   { leaf: "plugins", label: "Plugins", icon: "⧉", scoped: true },
   { leaf: "canvas", label: "Canvas", icon: "❉", scoped: true },

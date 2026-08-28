@@ -98,11 +98,11 @@ describe("SectionHelp component", () => {
   });
 
   it("labels the button by the active section and hides the popover until clicked", () => {
-    render(<SectionHelp sectionKey="path" />);
+    render(<SectionHelp sectionKey="traverse" />);
     const button = screen.getByTestId("section-help");
     // The visible text is the accessible name (WCAG 2.5.3); the section is conveyed by the title.
     expect(button).toHaveTextContent("How does this work?");
-    expect(button).toHaveAttribute("title", "How path finding works");
+    expect(button).toHaveAttribute("title", "How traversal works");
     expect(button).not.toHaveAttribute("aria-label");
     expect(button).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByTestId("section-help-popover")).not.toBeInTheDocument();
@@ -110,14 +110,14 @@ describe("SectionHelp component", () => {
 
   it("opens a popover listing the section's doc links, each opening a new tab safely", async () => {
     const user = userEvent.setup();
-    render(<SectionHelp sectionKey="path" />);
+    render(<SectionHelp sectionKey="traverse" />);
 
     await user.click(screen.getByTestId("section-help"));
 
     const popover = screen.getByTestId("section-help-popover");
-    expect(popover).toHaveTextContent("How path finding works");
+    expect(popover).toHaveTextContent("How traversal works");
     const links = screen.getAllByTestId("section-help-link");
-    expect(links).toHaveLength(SECTION_HELP.path.links.length);
+    expect(links).toHaveLength(SECTION_HELP.traverse.links.length);
 
     const first = links[0];
     expect(first).toHaveAttribute("href", `${DOCS_BASE}path-finding/`);
@@ -131,7 +131,7 @@ describe("SectionHelp component", () => {
 
   it("closes the popover on Escape and returns focus to the button", async () => {
     const user = userEvent.setup();
-    render(<SectionHelp sectionKey="subgraphs" />);
+    render(<SectionHelp sectionKey="traverse" />);
     await user.click(screen.getByTestId("section-help"));
     expect(screen.getByTestId("section-help-popover")).toBeInTheDocument();
 
