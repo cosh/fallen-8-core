@@ -28,7 +28,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import { deleteStoredQuery, getStoredQuery, listStoredQueries } from "../api/endpoints";
-import type { StoredQueryKind } from "../api/types";
+import type { StoredQuerySummaryREST } from "../api/types";
 import { describeStoredSpecification } from "../lib/storedQueries";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ErrorBox } from "./ErrorBox";
@@ -37,27 +37,33 @@ import { Truncated } from "./Truncated";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 
+/** Columns of the library table, for the empty row's span. */
+const COLUMN_COUNT = 5;
+
 /**
- * Kind-scoped stored-query management (concept spec §5.3): a stored query is unique to its
- * scenario — Path or SubGraph — so its management home lives on that scenario's screen, next
- * to the fragments it captures. The panel lists ONLY entries of `kind`, with read-only source,
- * recompile diagnostics, delete (immutable entries: delete + re-register is the edit flow),
- * and a **Use** action that selects the entry into this screen's own filter picker. Capture
- * ("Save as stored query…") lives in the inline advanced tier of the same screen.
+ * The stored-query library (concept spec §5.3): the WHOLE `/storedquery` collection of the
+ * namespace in one table, with a **kind** column naming each entry's scenario. It was always
+ * one server-side collection; until feature studio-traverse-merge the Studio rendered it as
+ * two kind-scoped panels, one per scenario screen, which hid that fact and split the view.
+ *
+ * Read-only source, recompile diagnostics, delete (entries are immutable, so delete plus
+ * re-register is the edit flow), and a **Use** action that hands the entry back to the host,
+ * which selects it into the matching scenario's filter picker. Capture ("Save as stored
+ * query…") stays in each scenario's inline advanced tier, next to the fragments it captures.
  */
 export function StoredQueriesPanel({
-  kind,
   onUse,
 }: {
-  kind: StoredQueryKind;
-  /** Select this entry into the host screen's filter picker (stored source + name). */
-  onUse: (name: string) => void;
+  /**
+   * Select this entry into its scenario's filter picker (stored source + name). The whole
+   * entry is handed over, not just the name, because the host has to route it by `kind`.
+   */
+  onUse: (entry: StoredQuerySummaryREST) => void;
 }) {
   const { instance } = useInstanceStore();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
-  const label = kind === "Path" ? "path" : "subgraph";
 
   const list = useQuery({
     queryKey: [instance.id, "storedqueries"],
@@ -77,20 +83,18 @@ export function StoredQueriesPanel({
     },
   });
 
-  // One shared library, scenario-scoped view: keep only this screen's kind.
-  const entries = (list.data ?? []).filter((entry) => entry.kind === kind);
-  const shownEntries = capList(entries);
+  const shownEntries = capList(list.data ?? []);
   const preview =
     expanded && detail.data
       ? describeStoredSpecification(detail.data.kind, detail.data.specificationJson)
       : null;
 
   return (
-    <section className="panel" data-testid={`stored-queries-${kind}`}>
+    <section className="panel" data-testid="stored-queries-all">
       <div className="panel-title">
-        Stored {label} queries
+        Stored queries
         <span className="text-fg-faint normal-case">
-          registered here via “Save as stored query…”
+          registered via “Save as stored query…”
         </span>
       </div>
       {list.isError && (
@@ -103,6 +107,7 @@ export function StoredQueriesPanel({
         <thead>
           <tr className="text-fg-faint">
             <th className="table-cell">name</th>
+            <th className="table-cell">kind</th>
             <th className="table-cell">state</th>
             <th className="table-cell">registered</th>
             <th className="table-cell w-64">actions</th>
@@ -113,6 +118,12 @@ export function StoredQueriesPanel({
             <tr key={entry.name ?? "—"}>
               <td className="table-cell font-semibold">
                 <Truncated text={entry.name ?? "—"} max={DISPLAY_CAP.name} />
+              </td>
+              <td
+                className="table-cell text-fg-dim"
+                data-testid={`stored-query-kind-${entry.name}`}
+              >
+                {entry.kind ?? "—"}
               </td>
               <td
                 className={`table-cell ${
@@ -143,9 +154,9 @@ export function StoredQueriesPanel({
                     title={
                       entry.compileState === "Failed"
                         ? "recompile failed on this instance — delete and re-register"
-                        : "select into the filter picker above"
+                        : "select it into its scenario's filter picker"
                     }
-                    onClick={() => onUse(entry.name!)}
+                    onClick={() => onUse(entry)}
                   >
                     Use
                   </button>
@@ -162,9 +173,9 @@ export function StoredQueriesPanel({
           ))}
           {shownEntries.total === 0 && !list.isError && (
             <tr>
-              <td className="table-cell text-fg-faint" colSpan={4}>
-                no stored {label} queries on this instance — author fragments above, then
-                “Save as stored query…”
+              <td className="table-cell text-fg-faint" colSpan={COLUMN_COUNT}>
+                no stored queries on this instance: author fragments on the Path finding or
+                Subgraph builder tab, then “Save as stored query…”
               </td>
             </tr>
           )}

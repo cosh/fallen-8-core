@@ -56,8 +56,8 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
     ...original,
     findPaths: (i: InstanceConfig, from: number, to: number, spec: PathSpecification) =>
       findPathsMock(i, from, to, spec),
-    // The Path screen now hosts the kind-scoped stored-query panel; keep it empty so its
-    // list fetch never reaches the network under jsdom.
+    // The screen's stored-mode picker lists the library; kept empty so no path through this
+    // file can reach the network under jsdom.
     listStoredQueries: async () => [],
   };
 });

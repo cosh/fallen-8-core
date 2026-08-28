@@ -252,9 +252,9 @@ The mechanics (element embeddings, bound indices, the model-identity contract) a
 
 ### An interesting path
 
-The **Path** screen finds routes between two elements. On a weighted sample (air routes by
-`km`, the attack surface by `exploitCost`) a Dijkstra run returns the genuinely cheapest
-route; the default BLS finds fewest-hop paths.
+The **Traverse** screen's **Path finding** tab finds routes between two elements. On a
+weighted sample (air routes by `km`, the attack surface by `exploitCost`) a Dijkstra run
+returns the genuinely cheapest route; the default BLS finds fewest-hop paths.
 
 ![A BLS path result on the karate club: two hops from Mr. Hi to the Officer, with totalWeight 0 because BLS ignores costs.](../../assets/images/path-result.png)
 
@@ -263,8 +263,8 @@ Filters and cost functions are C# [delegates](/delegates/); the full path contra
 
 ### A subgraph
 
-The **Subgraph** screen builds an alternating vertex, edge pattern and extracts everything on a
-matching path into a new standalone graph.
+The same screen's **Subgraph builder** tab builds an alternating vertex, edge pattern and extracts
+everything on a matching path into a new standalone graph.
 
 ![The subgraph pattern builder.](../../assets/images/screen-subgraph-builder.png)
 

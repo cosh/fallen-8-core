@@ -1,5 +1,9 @@
 # Stored-query UX: scenario-scoped
 
+Status: implemented, then partly superseded by `features/*/studio-traverse-merge/` - the library
+*view* is one kind-columned table again on the Traverse screen's Stored queries tab, while the
+kind-scoped pickers and "registration lives next to the fragments" decided here survive unchanged.
+
 ## Problem
 
 Stored queries come in exactly two kinds — `Path` and `SubGraph` (`StoredQueryKind`) —

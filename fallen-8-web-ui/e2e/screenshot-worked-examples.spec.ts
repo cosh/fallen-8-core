@@ -36,7 +36,7 @@ import { closeIntroIfOpen } from "./firstRun";
  *
  * WHY THIS SPEC EXISTS: both images were published by hand in 2026-07 and no spec produced them, so
  * every later recapture pass silently skipped them and they went stale by six UI features: an
- * 11-entry nav rail against today's 14, no help button, no events bell, and copy that has since
+ * 11-entry nav rail against today's 13, no help button, no events bell, and copy that has since
  * changed. The ids in them were always right, though: the engine assigns ids at import rather than
  * taking them from the sample file, so the loaded karate club is 0..33 no matter what
  * karate-club.jsonl numbers its rows, and 0 -> 33 (Mr. Hi to the Officer) is the pair the sample's
@@ -91,8 +91,20 @@ test("capture a path result and a created subgraph on the karate club", async ({
   // The top bar must carry the real counts before either shot, or the frame photographs 0 v.
   await expect(page.getByTestId("namespace-switcher")).toContainText("34 v", { timeout: 30_000 });
 
+  // Subgraphs OUTLIVE the sample reload that wipes the graph, so on a second run the create below
+  // would be rejected as a duplicate and no message would ever render. Clear it over REST rather
+  // than through the table: while the list loads, the table shows "no subgraphs yet", so a UI
+  // branch reads whichever state it happened to catch. Done BEFORE the screen loads, because the
+  // two tabs mount together (feature studio-traverse-merge): the subgraph list is fetched the
+  // moment the path form appears, so a later delete would leave a stale row in the second frame.
+  await page.request.delete("/subgraph/people-net", {
+    headers: { Authorization: `Bearer ${API_KEY}` },
+  });
+
   // ---- path-result.png ---------------------------------------------------------------------
-  await page.goto("/path");
+  // The path form is the Traverse screen's first tab; the tab's deep link is the entry point, so
+  // the frame is not at the mercy of a remembered tab.
+  await page.goto("/q/default/traverse?tab=path");
   await page.getByTestId("path-from").fill("0"); // Mr. Hi
   await page.getByTestId("path-to").fill("33"); // the Officer
   // BLS / 7 / 1 are the draft defaults. Assert them rather than retyping, so a default change
@@ -111,14 +123,9 @@ test("capture a path result and a created subgraph on the karate club", async ({
   await page.screenshot({ path: "../docs/src/assets/images/path-result.png" });
 
   // ---- subgraph-result.png -----------------------------------------------------------------
-  // Subgraphs OUTLIVE the sample reload that wipes the graph, so on a second run the create would
-  // be rejected as a duplicate and no message would ever render. Clear it over REST rather than
-  // through the table: while the list loads, the table shows "no subgraphs yet", so a UI branch
-  // reads whichever state it happened to catch.
-  await page.request.delete("/subgraph/people-net", {
-    headers: { Authorization: `Bearer ${API_KEY}` },
-  });
-  await page.goto("/subgraphs");
+  // Sibling tab of the path form above; switched by clicking the strip, which is also what the
+  // reader does after the path shot.
+  await page.getByTestId("traverse-tab-subgraph").click();
   await page.getByTestId("sg-name").fill("people-net");
   // The alternating vertex, edge, vertex pattern the prose describes. Every filter slot stays on
   // its "match everything" default, so the whole club is extracted.

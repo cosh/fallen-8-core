@@ -109,20 +109,15 @@ export const SECTION_HELP: Record<string, SectionHelpEntry> = {
       { slug: "vector-search", title: "Vector search", blurb: "Exact k-nearest-neighbour over float[] embeddings." },
     ],
   },
-  path: {
-    heading: "How path finding works",
+  // One entry for the merged screen (feature studio-traverse-merge). The mapping allows at
+  // most three links, so the two scenarios' primary pages plus the library they share win;
+  // delegates and semantic traversal are one hop away from all three.
+  traverse: {
+    heading: "How traversal works",
     links: [
       { slug: "path-finding", title: "Path finding", blurb: "Shortest and weighted paths with the BLS and Dijkstra algorithms." },
-      { slug: "delegates", title: "Delegates", blurb: "Filter and cost functions are runtime-compiled C# fragments." },
-      { slug: "semantic-traversal", title: "Semantic traversal", blurb: "Steer paths by similarity with a code-free semantic block." },
-    ],
-  },
-  subgraphs: {
-    heading: "How subgraphs work",
-    links: [
       { slug: "subgraphs", title: "Subgraphs", blurb: "Extract a pattern-matched subset as a standalone graph." },
-      { slug: "delegates", title: "Delegates", blurb: "Subgraph pattern filters are compiled C# fragments." },
-      { slug: "semantic-traversal", title: "Semantic traversal", blurb: "Grow subgraphs by vector similarity to a query." },
+      { slug: "stored-queries", title: "Stored queries", blurb: "Register a vetted, compiled filter set once and invoke it by name." },
     ],
   },
   analytics: {

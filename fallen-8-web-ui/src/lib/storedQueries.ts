@@ -46,6 +46,15 @@ import { parseThreshold } from "./semantic";
 export const STORED_QUERY_NAME = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
+ * The draft patch that points a scenario at a stored entry. Every gesture that hands a name
+ * back ("Save as stored query…" succeeding, "Use" in the library) means the same two things:
+ * switch the source to stored, and select this name. Both path and subgraph drafts carry
+ * those two fields, so one home instead of a copy per call site.
+ */
+export const selectStoredQuery = (name: string) =>
+  ({ filterSource: "stored", storedQuery: name }) as const;
+
+/**
  * The whole spec from a draft — stored and inline fragments never travel together. The
  * semantic block (feature element-embeddings) attaches regardless of the filter source
  * (it supplies the query vector to declarative closures, inline fragments, or a stored

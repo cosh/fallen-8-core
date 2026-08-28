@@ -41,7 +41,7 @@ import type {
 } from "../api/types";
 import { ApiError } from "../api/client";
 import { validatePatternSequence } from "../lib/patternValidation";
-import { normalizePatterns, subGraphBlock } from "../lib/storedQueries";
+import { normalizePatterns, selectStoredQuery, subGraphBlock } from "../lib/storedQueries";
 import {
   buildSemanticQuery,
   describeSemanticSummary,
@@ -57,7 +57,6 @@ import {
   SaveAsStoredQuery,
   StoredQueryPicker,
 } from "../components/StoredQueryControls";
-import { StoredQueriesPanel } from "../components/StoredQueriesPanel";
 import { ErrorBox } from "../components/ErrorBox";
 import { Field } from "../components/Field";
 import { Truncated } from "../components/Truncated";
@@ -70,6 +69,9 @@ import { type SubgraphPatternDraft } from "../state/instanceStore";
  * 400. Status codes map to distinct, actionable messages; an EMPTY subgraph is a valid
  * 201 outcome, not an error. Filters/patterns come inline or from a stored query of
  * kind SubGraph — the source toggle keeps the two mutually exclusive (concept spec §5.1).
+ *
+ * Rendered as the "Subgraph builder" tab of the Traverse screen (feature
+ * studio-traverse-merge), which also owns the stored-query library this screen used to host.
  */
 
 function newPattern(type: PatternSpecification["type"]): SubgraphPatternDraft {
@@ -693,9 +695,7 @@ export function SubgraphScreen() {
                 ? "semantic thresholds cannot ride a stored template — it has no query to bind"
                 : "add a filter or a pattern step first"
             }
-            onSaved={(savedName) => {
-              setSubgraphDraft({ filterSource: "stored", storedQuery: savedName });
-            }}
+            onSaved={(savedName) => setSubgraphDraft(selectStoredQuery(savedName))}
           />
           </>
           )}
@@ -737,15 +737,6 @@ export function SubgraphScreen() {
         )}
       </section>
 
-      {/* Scenario-scoped stored-query home: only SubGraph templates; Use selects one into the
-          picker above (concept spec §5.3). Capture is the "Save as stored query…" button in
-          the inline builder. */}
-      <StoredQueriesPanel
-        kind="SubGraph"
-        onUse={(name) =>
-          setSubgraphDraft({ filterSource: "stored", storedQuery: name })
-        }
-      />
     </div>
   );
 }

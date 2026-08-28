@@ -33,8 +33,7 @@ Every screen also carries a **How does this work?** button in the top bar, next 
 | Browser | namespace | Look up an element, inspect properties/embeddings, adjacency, bulk view, mutations |
 | Query | namespace | Property scans (one named key, or a contains search across all properties) and index queries (equality/range/fulltext/spatial/vector) |
 | Indexes | namespace | Create and manage indexes and their content |
-| Path | namespace | Route finding (BLS / Dijkstra) with filters, costs, semantic scoring |
-| Subgraph | namespace | Subgraph lifecycle + pattern builder |
+| Traverse | namespace | Three tabs: route finding (BLS / Dijkstra) with filters, costs, semantic scoring; subgraph lifecycle + pattern builder; the stored-query library both share |
 | Analytics | namespace | Graph shape + run algorithms with write-back |
 | Plugins | namespace | Built-in plugin families + the runtime-authored plugin registry |
 | Canvas | namespace | 2D/3D visualization of whatever you send to it |
@@ -110,11 +109,11 @@ The screen is present only when the instance has an integrations runtime behind 
 
 Two modes. A **property scan** has two scopes, both taking a result type (Vertices / Edges / Both): **specific key** takes a property id, a comparison operator, and a typed literal; **any property** takes a single search term and an optional label restrictor, and returns the elements any of whose property values contains the term (case-insensitive, values compared as text so numbers and dates match too). It is a cold, un-indexed full-graph scan meant for discovery; index a property for repeated or large-graph lookups. **Ask an index** picks from the live inventory and offers only the forms the index answers: equality/operator, range, fulltext, spatial, or vector (kNN). A vector query is entered as a pasted vector or as text embedded server-side by the provider, with `k`, an element-kind filter, and a label constraint. Results report the id count, a vector metric legend (higher/lower is better), fulltext highlights, and a scored table; send the whole result set to the canvas, or add a single row's element with its per-row canvas action. Index semantics live in [indexes.md](/indexes/) and [vector-search.md](/vector-search/).
 
-Stored queries are not managed here: a stored query is unique to its scenario (`Path` or `SubGraph`), so it is registered and managed on the **Path** and **Subgraph** screens ([stored-queries.md](/stored-queries/)).
+Stored queries are not managed here: a stored query is unique to its scenario (`Path` or `SubGraph`), so it is registered on the **Traverse** screen's two scenario tabs, next to the fragments it captures, and managed on that screen's **Stored queries** tab ([stored-queries.md](/stored-queries/)).
 
 ## Canvas
 
-Renders exactly what you send from the Browser, Query, Path, Subgraph, Analytics, Knowledge, or Samples screens; it never loads anything on its own. Two toolbar actions control that working set, both view-only (the database is never touched). **Show whole graph** is the one explicit way to put everything on the canvas in a single click: it merges up to 20,000 vertices and 20,000 edges into the view, and when the namespace is bigger an honest "showing the first X of Y" notice appears next to the element count instead of silently pretending the graph is complete. **Clear view** empties the working set entirely: nodes, edges, the path overlay, and the current selection; your style configuration and the other screens' state survive.
+Renders exactly what you send from the Browser, Query, Traverse, Analytics, Knowledge, or Samples screens; it never loads anything on its own. Two toolbar actions control that working set, both view-only (the database is never touched). **Show whole graph** is the one explicit way to put everything on the canvas in a single click: it merges up to 20,000 vertices and 20,000 edges into the view, and when the namespace is bigger an honest "showing the first X of Y" notice appears next to the element count instead of silently pretending the graph is complete. **Clear view** empties the working set entirely: nodes, edges, the path overlay, and the current selection; your style configuration and the other screens' state survive.
 
 The right-hand panel is a tool strip with three tabs (**Style**, **Find**, and **Connect**) over a shared **detail** panel that always shows whatever node or edge you have selected. Style, the default tab, is sectioned:
 
@@ -137,21 +136,35 @@ When you switch **color by** or **size by** (and the edge equivalents) to **prop
 
 ![Canvas Connect tab: a picked set of canvas vertices, the pair budget, and the found-connection summary over the rendered graph](../../assets/images/screen-canvas-connect.png)
 
-A legend (categorical or gradient) reflects the active color mode. Selecting a node or edge (on the canvas, or from a Find result) opens the detail panel with its properties; **Expand neighbors** merges a vertex's 1-hop neighborhood, and **Remove from view** affects only the canvas: it never deletes from the database. A path found on the Path screen arrives as a highlighted overlay.
+A legend (categorical or gradient) reflects the active color mode. Selecting a node or edge (on the canvas, or from a Find result) opens the detail panel with its properties; **Expand neighbors** merges a vertex's 1-hop neighborhood, and **Remove from view** affects only the canvas: it never deletes from the database. A path found on the Traverse screen arrives as a highlighted overlay.
 
-## Path
+## Traverse
 
-![Path screen](../../assets/images/screen-path.png)
+One screen for the two ways of walking a graph, in three tabs: **Path finding**, **Subgraph builder**, and **Stored queries** (whose label carries the entry count). The two scenarios were near-twins already, wiring the same filter-source toggle, the same delegate slots and the same editor over one stored-query library, so they share a screen instead of a rail entry each.
 
-From/to vertex ids, algorithm **BLS** (hop count) or **Dijkstra** (weighted), `maxDepth`, `maxResults` (the K for Dijkstra's K-shortest-paths), and `maxPathWeight` (Dijkstra only; BLS ignores costs). The algorithm picker also lists this namespace's runtime-registered path plugins, marked `(registered)`, so a plugin authored on the **Plugins** screen becomes usable here. Filters and costs come from **inline fragments or a stored query**, kept mutually exclusive by a source toggle. The inline advanced tier exposes five delegate slots (`filter.vertexFilter`, `filter.edgeFilter`, `filter.edgePropertyFilter`, `cost.vertexCost`, `cost.edgeCost`) each authored in the delegate editor, and the set can be saved as a stored query. A **semantic scoring** block (query vector + `minScore` filter + `costBySimilarity`) is pure data and compiles no C#. Results list each path's hops and total weight with "Overlay on canvas". A **Stored path queries** panel below manages this instance's `Path` entries: read-only source, recompile diagnostics, delete, and a **Use** action that loads one back into the filter picker.
+Switching tabs hides the inactive ones rather than discarding them: a path result, an open advanced tier, or the builder's message line survives a tab switch exactly as the form drafts do. Only an instance or namespace switch resets them, as everywhere else. The active tab rides the URL as `?tab=path`, `?tab=subgraph` or `?tab=stored`, so any tab is deep-linkable; without the parameter you land on the tab you last left, remembered per instance and namespace. Bookmarks to the two screens this one absorbed keep working: `/q/{ns}/path` and `/q/{ns}/subgraphs` (and the flat `/path` and `/subgraphs`) redirect onto the matching tab in the same namespace.
+
+### Path finding
+
+![The Traverse screen's Path finding tab, its tab strip above the path query panel](../../assets/images/screen-path.png)
+
+From/to vertex ids, algorithm **BLS** (hop count) or **Dijkstra** (weighted), `maxDepth`, `maxResults` (the K for Dijkstra's K-shortest-paths), and `maxPathWeight` (Dijkstra only; BLS ignores costs). The algorithm picker also lists this namespace's runtime-registered path plugins, marked `(registered)`, so a plugin authored on the **Plugins** screen becomes usable here. Filters and costs come from **inline fragments or a stored query**, kept mutually exclusive by a source toggle. The inline advanced tier exposes five delegate slots (`filter.vertexFilter`, `filter.edgeFilter`, `filter.edgePropertyFilter`, `cost.vertexCost`, `cost.edgeCost`) each authored in the delegate editor, and the set can be saved as a stored query. A **semantic scoring** block (query vector + `minScore` filter + `costBySimilarity`) is pure data and compiles no C#. Results list each path's hops and total weight with "Overlay on canvas".
 
 Because fragments are validated in the editor before the query runs, an empty result here is a genuine "no paths found" rather than a swallowed compile error. Inline fragments always run (dynamic code execution is always on); on a key-protected instance they need the API key like any other request. Algorithm behavior: [path-finding.md](/path-finding/); semantic scoring: [semantic-traversal.md](/semantic-traversal/).
 
-## Subgraph
+### Subgraph builder
 
-![Subgraph builder](../../assets/images/screen-subgraph-builder.png)
+![The Traverse screen's Subgraph builder tab, its tab strip above the pattern sequence builder](../../assets/images/screen-subgraph-builder.png)
 
-A table lists existing subgraphs (with a badge for semantic ones) offering To canvas / Recalculate / Delete. The create form takes a name and an optional `fromSubGraph` for nesting, an inline-or-stored source toggle, a top-level `vertexFilter` (fragment or semantic mode) and `edgeFilter`, and a **pattern sequence builder**: add Vertex, Edge, or Variable-length edge steps with type, name, direction, and min/max length. Vertex↔edge alternation is validated as you build. A **semantic query** section appears when any vertex slot is in semantic mode (one query per request, bound at creation), and the whole specification can be saved as a stored query. A **Stored subgraph queries** panel below manages this instance's `SubGraph` templates: read-only source, recompile diagnostics, delete, and a **Use** action that loads one into the picker. Concept and rules: [subgraphs.md](/subgraphs/).
+A table lists existing subgraphs (with a badge for semantic ones) offering To canvas / Recalculate / Delete. The create form takes a name and an optional `fromSubGraph` for nesting, an inline-or-stored source toggle, a top-level `vertexFilter` (fragment or semantic mode) and `edgeFilter`, and a **pattern sequence builder**: add Vertex, Edge, or Variable-length edge steps with type, name, direction, and min/max length. Vertex↔edge alternation is validated as you build. A **semantic query** section appears when any vertex slot is in semantic mode (one query per request, bound at creation), and the whole specification can be saved as a stored query. Concept and rules: [subgraphs.md](/subgraphs/).
+
+### Stored queries
+
+![The Traverse screen's Stored queries tab: one table over both kinds, with the kind column naming each entry's scenario](../../assets/images/screen-stored-queries.png)
+
+One table over this namespace's whole stored-query library, both kinds together, with a **kind** column naming each entry's scenario (`Path` or `SubGraph`). Per row: read-only source with recompile diagnostics, Delete behind a typed confirm (entries are immutable, so delete and re-register is the edit flow), and **Use**, which switches to that entry's own scenario tab and selects it there in stored mode. An entry whose recompile failed cannot be used and says why.
+
+Registration is not here, because it belongs where the fragments are: **Save as stored query…** sits in each scenario tab's inline advanced tier, next to the slots it captures, and on success flips that tab to stored mode rather than sending you to the library. The wire model, limits, and durability: [stored-queries.md](/stored-queries/).
 
 ## Analytics
 
@@ -189,7 +202,7 @@ Namespace-scoped: both panels act on the namespace in the top bar, and the heade
 
 ![The delegate editor on a VertexFilter slot: IntelliSense open after typing v., listing the VertexModel members with the focused one's signature](../../assets/images/screen-delegate-editor.png)
 
-Opened from every fragment slot on the Path and Subgraph screens (the Query screen uses no fragments). It is a Monaco C# editor with per-kind snippets for the five slot types, `VertexFilter`, `EdgeFilter`, `EdgePropertyFilter`, `VertexCost`, `EdgeCost`. It validates as you type against the server (`POST /delegates/validate`) and renders diagnostics inline at the returned positions; **Use fragment** is blocked until the exact text on screen has passed validation (an empty fragment means "match everything"). Validation and inline fragment execution are always available; they only need the instance's API key when one is configured ([security.md](/security/)). The compilation model is owned by [delegates.md](/delegates/).
+Opened from every fragment slot on the Traverse screen's two scenario tabs (the Query screen uses no fragments). It is a Monaco C# editor with per-kind snippets for the five slot types, `VertexFilter`, `EdgeFilter`, `EdgePropertyFilter`, `VertexCost`, `EdgeCost`. It validates as you type against the server (`POST /delegates/validate`) and renders diagnostics inline at the returned positions; **Use fragment** is blocked until the exact text on screen has passed validation (an empty fragment means "match everything"). Validation and inline fragment execution are always available; they only need the instance's API key when one is configured ([security.md](/security/)). The compilation model is owned by [delegates.md](/delegates/).
 
 Completions, hovers and signature help come from a static type model that ships inside Studio rather than from a language server, and they are scoped to the slot: after `v.` a `VertexFilter` offers the `VertexModel` surface, after `e.` an `EdgeFilter` offers the edge surface, and an `EdgePropertyFilter`, whose parameter is a plain `string`, offers string members and no graph model at all. Only the slot's own parameter completes; any other identifier gets nothing. Away from a member access the list is the parameter itself plus the same per-kind snippets the **snippets** panel offers as buttons, so an empty slot can reach a working fragment without leaving the editor. Typing `(` opens signature help, which is how the `TryGetProperty(out T result, string propertyId)` idiom most fragments need becomes discoverable instead of something you have to be told. The model is a reading aid and `POST /delegates/validate` stays the only compile authority, so a member can be offered here and still be out of reach in a fragment: that surface, and the members the narrow compile environment cannot reference, are owned by [delegates.md](/delegates/#accessor-surface). The plugin authoring editor shares the C# colorization and the NL panel but has no member completions, because a whole plugin type is not one typed lambda.
 
@@ -221,7 +234,7 @@ Studio degrades gracefully when a capability is off, but these features need ser
 | Text-in embedding, semantic search, text query vectors | Embedding provider enabled | [semantic-traversal.md](/semantic-traversal/) |
 | The whole Knowledge screen (document ingest, chunk search, entities) | Ingestion enabled (`Fallen8:Ingestion:Enabled` / `F8_INGESTION`), plus the docling sidecar for pdf/docx/xlsx/pptx/html; without it, txt/md only | [unstructured-ingestion.md](/unstructured-ingestion/) |
 | The entity network over ingested documents | The NLP sidecar (`Fallen8:Nlp:Enabled` / `F8_NLP`); enrichment is additive, so ingestion still succeeds without it | [unstructured-ingestion.md](/unstructured-ingestion/) |
-| Stored-query invocation (Path / Subgraph) | The API key when one is configured (no capability gate on top of it) | [stored-queries.md](/stored-queries/) |
+| Stored-query invocation (kind `Path` / `SubGraph`) | The API key when one is configured (no capability gate on top of it) | [stored-queries.md](/stored-queries/) |
 | Live chip, push refreshes, the Events panel | Change feed enabled | [change-feed.md](/change-feed/) |
 | "Any GitHub repo" sample card | Internet access to GitHub's dependency graph | [samples.md](/samples/) |
 

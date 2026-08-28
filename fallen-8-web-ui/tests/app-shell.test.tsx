@@ -131,8 +131,8 @@ const GATED = [
   "nav-save-games",
   "nav-browser",
   "nav-query",
-  "nav-path",
-  "nav-subgraph",
+  // One entry for path finding and the subgraph builder (feature studio-traverse-merge).
+  "nav-traverse",
   "nav-analytics",
   "nav-plugins",
   "nav-canvas",
@@ -392,13 +392,16 @@ describe("switching namespace keeps the screen", () => {
 
   it("swaps only the namespace in the URL on a scoped route", async () => {
     statusMock.mockResolvedValue(STATUS);
-    renderShell(<div data-testid="screen" />, "/q/default/subgraphs");
+    renderShell(<div data-testid="screen" />, "/q/default/traverse");
 
     await switchToFlights();
 
     expect(useRegistry.getState().activeNamespaces[SAME_ORIGIN_INSTANCE.id]).toBe("flights");
+    // The leaf survives, the ?tab= does not: the workspace store remembers the tab per
+    // instance-and-namespace, so the Traverse screen reopens on it (feature
+    // studio-traverse-merge).
     expect(navigateMock).toHaveBeenCalledWith({
-      to: "/q/$ns/subgraphs",
+      to: "/q/$ns/traverse",
       params: { ns: "flights" },
     });
   });

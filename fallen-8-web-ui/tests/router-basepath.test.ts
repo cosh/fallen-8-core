@@ -147,4 +147,37 @@ describe("createStudioRouter basepath", () => {
       expect(flat.state.matches.at(-1)?.routeId).toBe("/q/$ns/browser");
     });
   });
+
+  /**
+   * The four URLs the two screens Traverse absorbed leave behind (feature
+   * studio-traverse-merge). Landing on the merged screen is not enough: each has to land on the
+   * TAB it named, or a three-year-old bookmark to the subgraph builder opens the path finder.
+   */
+  describe("the absorbed Path and Subgraph bookmarks", () => {
+    it.each([
+      ["/q/$ns/path", "path"],
+      ["/q/$ns/subgraphs", "subgraph"],
+    ] as const)("forwards the scoped %s onto its tab, keeping the namespace", async (from, tab) => {
+      const scoped = createStudioRouter({ history: "memory" });
+      await scoped.load();
+      await scoped.navigate({ to: from as "/q/$ns/traverse", params: { ns: "ops" } });
+
+      expect(scoped.state.location.pathname).toBe("/q/ops/traverse");
+      expect(scoped.state.location.search).toEqual({ tab });
+      expect(scoped.state.matches.at(-1)?.routeId).toBe("/q/$ns/traverse");
+    });
+
+    it.each([
+      ["/path", "path"],
+      ["/subgraphs", "subgraph"],
+    ] as const)("forwards the flat %s onto the active namespace's tab in ONE hop", async (from, tab) => {
+      const flat = createStudioRouter({ history: "memory" });
+      await flat.load();
+      await flat.navigate({ to: from as "/canvas" });
+
+      expect(flat.state.location.pathname).toMatch(/^\/q\/[^/]+\/traverse$/);
+      expect(flat.state.location.search).toEqual({ tab });
+      expect(flat.state.matches.at(-1)?.routeId).toBe("/q/$ns/traverse");
+    });
+  });
 });

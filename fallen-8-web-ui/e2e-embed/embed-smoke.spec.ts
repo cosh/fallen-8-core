@@ -125,15 +125,18 @@ test("the artifact mounts, scopes its styles, and runs monaco and sigma", async 
   await expect(logo).toBeVisible();
   expect(await logo.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
 
-  // 6. Monaco boots from the artifact: the Path screen's vertex-filter slot opens the
-  //    delegate editor, whose worker is inlined by the lib build (vite cannot emit a
-  //    separately served worker asset there). The WORKER itself is asserted - editor DOM
-  //    alone proves nothing about the worker, and a failed worker-script fetch would hide
-  //    inside the resource-noise filter above. A DELTA, not a count: the canvas already runs
-  //    a graphology-layout worker at load, so a bare "more than zero" would pass with
-  //    monaco's worker missing entirely. Typing is what a real user does and gets the lazy
-  //    worker started soonest.
-  await page.getByTestId("nav-path").click();
+  // 6. Monaco boots from the artifact: the vertex-filter slot opens the delegate editor, whose
+  //    worker is inlined by the lib build (vite cannot emit a separately served worker asset
+  //    there). The WORKER itself is asserted - editor DOM alone proves nothing about the worker,
+  //    and a failed worker-script fetch would hide inside the resource-noise filter above. A
+  //    DELTA, not a count: the canvas already runs a graphology-layout worker at load, so a bare
+  //    "more than zero" would pass with monaco's worker missing entirely. Typing is what a real
+  //    user does and gets the lazy worker started soonest.
+  //
+  //    The rail entry is Traverse now (feature studio-traverse-merge), and the slots are on its
+  //    Path finding tab. No tab click follows: the rail links the bare /q/{ns}/traverse, where the
+  //    tab comes from the workspace store, and a fresh embed profile has it at its "path" default.
+  await page.getByTestId("nav-traverse").click();
 
   // Landing on a namespace-scoped screen is the last precondition the first-run walkthrough's
   // auto path waits for (connected + arrived at an empty graph + never dismissed), and the

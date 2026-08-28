@@ -280,7 +280,7 @@ export function CanvasScreen() {
             {!selected && (
               <div className="text-fg-faint">
                 Select a node or edge. Empty canvas? Send elements here from the browser,
-                query, path, or subgraph screens, or show the whole graph.
+                query, or traverse screens, or show the whole graph.
               </div>
             )}
             {selected && detail.isPending && <div className="text-fg-faint">loading…</div>}
