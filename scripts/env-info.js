@@ -31,9 +31,9 @@
 // Otherwise it is resolved the way docker compose resolves it: the process
 // environment, then a root .env file, then the default 8080.
 
-const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const { parseDotEnv } = require('./env-file');
 
 function portFromRunningContainer() {
   try {
@@ -48,21 +48,13 @@ function portFromRunningContainer() {
   }
 }
 
-function portFromDotEnv() {
-  try {
-    const content = fs.readFileSync(path.join(__dirname, '..', '.env'), 'utf8');
-    const match = content.match(/^\s*F8_PORT\s*=\s*(\S+)/m);
-    return match ? match[1] : undefined;
-  } catch {
-    return undefined;
-  }
-}
+const dotEnv = parseDotEnv();
 
 const f8Port =
-  portFromRunningContainer() || process.env.F8_PORT || portFromDotEnv() || '8080';
+  portFromRunningContainer() || process.env.F8_PORT || dotEnv.F8_PORT || '8080';
 
-const grafanaPort = process.env.F8_GRAFANA_PORT || '3000';
-const uiPort = process.env.F8_UI_PORT || '8081';
+const grafanaPort = process.env.F8_GRAFANA_PORT || dotEnv.F8_GRAFANA_PORT || '3000';
+const uiPort = process.env.F8_UI_PORT || dotEnv.F8_UI_PORT || '8081';
 
 console.log('');
 console.log('Services:');
@@ -78,13 +70,18 @@ console.log(`  Observability: http://localhost:${grafanaPort}  (Grafana; fleet +
 console.log('  OTLP ingest:   localhost:4317 (gRPC) / :4318 (HTTP)  (point external Fallen-8 instances here)');
 console.log('');
 
-// A stray F8_API_KEY in the shell silently secures the data plane, which reads as an
-// "unauthorized" instance in Studio. Surface it here (env-info runs on env:up AND env:status)
-// so the cause is never a mystery. The key stays fully opt-in; env:up itself is unchanged.
+// A stray F8_API_KEY - in the shell or forgotten in the root .env file - silently secures the
+// data plane, which reads as an "unauthorized" instance in Studio. Surface it here (env-info
+// runs on env:up AND env:status) so the cause is never a mystery, naming the source since the
+// remedy differs. The key stays fully opt-in; env:up itself is unchanged.
 if (process.env.F8_API_KEY) {
   console.log('! F8_API_KEY is set in this shell, so the data plane REQUIRES that key.');
   console.log('  For an OPEN demo, run env:up from a shell without it, or clear it:');
   console.log('    PowerShell:  Remove-Item Env:F8_API_KEY');
   console.log('    bash:        unset F8_API_KEY');
+  console.log('');
+} else if (dotEnv.F8_API_KEY) {
+  console.log('! F8_API_KEY is set in the root .env file, so the data plane REQUIRES that key.');
+  console.log('  For an OPEN demo, remove that line from .env and run env:up again.');
   console.log('');
 }
