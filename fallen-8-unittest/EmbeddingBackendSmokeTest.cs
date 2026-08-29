@@ -30,6 +30,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Embedding;
+using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core.Index.Vector;
 
 namespace NoSQL.GraphDB.Tests
@@ -45,6 +46,7 @@ namespace NoSQL.GraphDB.Tests
     ///     F8_TEST_ONNX_MODEL / F8_TEST_ONNX_VOCAB / F8_TEST_ONNX_DIM   (bge-family export)
     ///     F8_TEST_GGUF_MODEL / F8_TEST_GGUF_DIM                        (embedding-capable GGUF)
     ///     F8_TEST_OLLAMA_ENDPOINT / F8_TEST_OLLAMA_MODEL / F8_TEST_OLLAMA_DIM
+    ///     F8_TEST_NAHIL_API_KEY / F8_TEST_NAHIL_ENDPOINT / F8_TEST_NAHIL_EMBED_MODEL (Nahil)
     /// </summary>
     [TestClass]
     public class EmbeddingBackendSmokeTest
@@ -118,6 +120,28 @@ namespace NoSQL.GraphDB.Tests
 
             using var generator = EmbeddingBackendFactoryAccessor.CreateOllama(endpoint, Env("F8_TEST_OLLAMA_MODEL") ?? "bge-m3");
             await AssertBackendContract(generator, Int32.Parse(Env("F8_TEST_OLLAMA_DIM") ?? "1024"));
+        }
+
+        [TestMethod]
+        [Ignore("Live-endpoint smoke: set F8_TEST_NAHIL_API_KEY and remove [Ignore] to run.")]
+        [TestCategory("LiveModel")]
+        public async Task Nahil_Bge_EmbedsRealText()
+        {
+            var apiKey = Env("F8_TEST_NAHIL_API_KEY");
+            if (String.IsNullOrEmpty(apiKey))
+            {
+                Assert.Inconclusive("F8_TEST_NAHIL_API_KEY not set.");
+            }
+
+            var endpoint = Env("F8_TEST_NAHIL_ENDPOINT") ?? "https://api.nahil.dev";
+            var model = Env("F8_TEST_NAHIL_EMBED_MODEL") ?? "bge-m3:latest";
+            var dimension = Int32.Parse(Env("F8_TEST_NAHIL_EMBED_DIM") ?? "1024");
+
+            var connection = OllamaConnection.Nahil("Fallen8:Embedding:Nahil", endpoint, model, apiKey);
+            using var generator = new OllamaSharp.OllamaApiClient(
+                OllamaHttpClientFactory.CreateForProvider(connection, logger: null),
+                connection.Model);
+            await AssertBackendContract(generator, dimension);
         }
 
         /// <summary>Reaches the internal factory's Ollama branch without widening its visibility.</summary>

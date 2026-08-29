@@ -358,5 +358,39 @@ namespace NoSQL.GraphDB.Tests
                 () => backend.ChatAsync(Turns(), null, cancelled.Token),
                 "a cancelled call must not be reported as the backend truncating its answer");
         }
+
+        #region live nahil smoke
+
+        /// <summary>
+        ///   OPT-IN live smoke against the real Nahil endpoint. Remove [Ignore] and set
+        ///   F8_TEST_NAHIL_API_KEY to run. Asserts a non-empty reply arrives and that the model
+        ///   name echoed back matches the one sent - the verbatim-model contract on a real wire.
+        /// </summary>
+        [TestMethod]
+        [Ignore("Live-endpoint smoke: set F8_TEST_NAHIL_API_KEY and remove [Ignore] to run.")]
+        [TestCategory("LiveModel")]
+        public async Task Nahil_Chat_AnswersAPrompt()
+        {
+            var apiKey = Environment.GetEnvironmentVariable("F8_TEST_NAHIL_API_KEY");
+            if (String.IsNullOrEmpty(apiKey))
+            {
+                Assert.Inconclusive("F8_TEST_NAHIL_API_KEY not set.");
+            }
+
+            var endpoint = Environment.GetEnvironmentVariable("F8_TEST_NAHIL_ENDPOINT") ?? "https://api.nahil.dev";
+            var model = Environment.GetEnvironmentVariable("F8_TEST_NAHIL_CHAT_MODEL") ?? "phi4-f8-mini:latest";
+
+            var connection = OllamaConnection.Nahil("Fallen8:Chat:Nahil", endpoint, model, apiKey);
+            using var backend = new OllamaChatBackend(connection, stream: true, logger: null);
+            var result = await backend.ChatAsync(
+                new[] { new ChatTurn("user", "Reply with exactly one word: hello.") },
+                new ChatBackendOptions(),
+                CancellationToken.None);
+
+            Assert.IsFalse(String.IsNullOrWhiteSpace(result.Content), "expected a non-empty reply");
+            Assert.AreEqual(model, result.Model, "backend must echo the model name sent verbatim");
+        }
+
+        #endregion
     }
 }
