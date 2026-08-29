@@ -155,7 +155,9 @@ per line. That is the standard compose mechanism, and the helper scripts read th
 it also drives what `env:up` *decides* - which overlays apply, which profiles start. A variable
 set in the shell wins over the file. `.env` is gitignored, which makes it the home for values you
 set once and keep - credentials included; [Nahil](/nahil/)'s `F8_NAHIL_API_KEY` is the canonical
-case.
+case. To start one, copy
+[`.env.example`](https://github.com/cosh/fallen-8-core/blob/main/.env.example) from the repo root
+to `.env` and uncomment what you need.
 
 | Variable                                                   | Default                          | Effect                                                                                                                                                    |
 | ---------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |

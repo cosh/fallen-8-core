@@ -64,8 +64,9 @@ F8_NAHIL_API_KEY=your-key
 ```
 
 in a [`.env` file beside `docker-compose.yml`](/running/#environment-variables-compose) - it is
-gitignored - and a plain `npm run env:up` selects Nahil from then on. A variable set in the shell
-still wins over the file.
+gitignored, and copying [`.env.example`](https://github.com/cosh/fallen-8-core/blob/main/.env.example)
+is the quick way to one - and a plain `npm run env:up` selects Nahil from then on. A variable set
+in the shell still wins over the file.
 
 The local Ollama sidecar is **not started** and nothing is pulled onto the machine. Without the
 helper script, the overlay is a normal compose file:
