@@ -150,6 +150,15 @@ crash-loop); fix the network and re-run. The 404-in-Studio case is in
 Set these before `npm run env:up`. In PowerShell use `$env:NAME = "value"; …` (it stays set
 for the session; `Remove-Item Env:NAME` clears it) and chain with `;`, not `&&`.
 
+Any of them can instead live in a **`.env` file beside `docker-compose.yml`**, one `NAME=value`
+per line. That is the standard compose mechanism, and the helper scripts read the same file, so
+it also drives what `env:up` *decides* - which overlays apply, which profiles start. A variable
+set in the shell wins over the file. `.env` is gitignored, which makes it the home for values you
+set once and keep - credentials included; [Nahil](/nahil/)'s `F8_NAHIL_API_KEY` is the canonical
+case. To start one, copy
+[`.env.example`](https://github.com/cosh/fallen-8-core/blob/main/.env.example) from the repo root
+to `.env` and uncomment what you need.
+
 | Variable                                                   | Default                          | Effect                                                                                                                                                    |
 | ---------------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `F8_PORT`                                                  | `8080`                           | Host port for the REST API, the data plane (the container always listens on 8080)                                                                          |

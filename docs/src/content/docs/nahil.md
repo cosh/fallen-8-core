@@ -57,6 +57,17 @@ The key is the whole switch: setting it selects the overlay, and `F8_NAHIL_URL` 
 that appears from nowhere is a credential nobody can rotate - so the overlay fails closed, naming
 the variable, if it is unset.
 
+To set it **once instead of per shell**, put the line
+
+```
+F8_NAHIL_API_KEY=your-key
+```
+
+in a [`.env` file beside `docker-compose.yml`](/running/#environment-variables-compose) - it is
+gitignored, and copying [`.env.example`](https://github.com/cosh/fallen-8-core/blob/main/.env.example)
+is the quick way to one - and a plain `npm run env:up` selects Nahil from then on. A variable set
+in the shell still wins over the file.
+
 The local Ollama sidecar is **not started** and nothing is pulled onto the machine. Without the
 helper script, the overlay is a normal compose file:
 
@@ -103,6 +114,13 @@ Fallen8__Embedding__IntendedMetric=Cosine
 
 The two capabilities are independent: embeddings can run on Nahil while chat stays on a local
 sidecar, or the other way round.
+
+For a bare `dotnet run --project fallen-8-core-apiApp` - which reads neither the overlay nor
+`.env` - the set-once home for these keys is
+[.NET user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets): the project
+already carries a `UserSecretsId`, so
+`dotnet user-secrets set "Fallen8:Chat:Nahil:ApiKey" "your-key" --project fallen-8-core-apiApp`
+works as-is and keeps the credential outside the repository.
 
 `Fallen8:Embedding:ModelName` is in that list **only to say it does not change**. It is the
 identity stamp written beside every vector you have stored, not a request identifier, and it stays

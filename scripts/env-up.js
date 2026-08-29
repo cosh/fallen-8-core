@@ -36,6 +36,7 @@
 
 const path = require('path');
 const { execSync, spawnSync } = require('child_process');
+const { applyDotEnv } = require('./env-file');
 
 function hostHasNvidiaGpu() {
   if (process.env.F8_GPU === '0') return false;
@@ -49,6 +50,10 @@ function hostHasNvidiaGpu() {
 }
 
 function main() {
+  // Every variable this script reads can sit in the root .env file instead of the shell -
+  // the same file compose interpolates, same precedence (the shell wins). See env-file.js
+  // for why the script has to read it too.
+  applyDotEnv();
   // --published (npm run env:up:published): run purely from the published GHCR images -
   // no local builds, nothing needed beyond the compose files. F8_IMAGE_TAG pins a version
   // (default latest). GPU detection works exactly like the building mode; only the NLP
