@@ -1,10 +1,15 @@
 # Spec: Model providers (central backend selection + provenance)
 
-Status: spec'd 2026-08-29; being implemented on branch `feature/model-providers` (phase status in
-`plan.md`). **Amended 2026-08-29** during implementation: FR-1, FR-4 and FR-5.4 each carry a dated
-amendment note in place, because three of this spec's claims did not survive contact with the code.
-The original sentences are left standing above each note: a spec is a historical record, so what
-changed has to be visible rather than edited away.
+Status: **implemented and merged to `main` on 2026-08-30** (branch `feature/model-providers`;
+per-phase record in `plan.md`). **Amended 2026-08-29** during implementation: FR-1, FR-4 and FR-5.4
+each carry a dated amendment note in place, because three of this spec's claims did not survive
+contact with the code. The original sentences are left standing above each note: a spec is a
+historical record, so what changed has to be visible rather than edited away.
+
+Known gaps at merge, deliberately not blockers: `query-semantic-search.png` is still the
+pre-feature frame (recapturing it needs a live `bge-m3` backend), the opt-in live smokes have never
+run against a real key, and a completion stopped at the token ceiling is refused by the two new
+backends but still returned as an ordinary draft by Ollama and Nahil.
 
 Fallen-8's two model capabilities - the chat gateway (`POST /chat`, NL assist) and the
 embedding provider - each select a backend today: `Ollama` (the local sidecar) or `Nahil`.
