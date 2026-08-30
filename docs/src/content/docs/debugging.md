@@ -169,10 +169,11 @@ attach configuration. For everything else, local debugging is faster.
   instance with that key. Dynamic code execution (the delegate editor, inline fragments) is
   always on and needs no extra setting.
 - **Auth-open is not capability-open:** the launch configs pass no capability environment, so a
-  local debug run answers 403 on `/embedding/*`, `POST /chat` and `/document/*` whatever the key
-  situation is. Those flags are absent from `appsettings.json` (off) and the gate is independent
-  of authentication, so Studio's Knowledge screen, the embeddings tab and NL assist are all dead
-  until you switch them on in the launch config's `env`
+  local debug run answers 403 on `/embedding/*`, `POST /chat`, `GET /chat/models` and
+  `/document/*` whatever the key situation is. Those flags are absent from `appsettings.json`
+  (off) and the gate is independent of authentication, so Studio's Knowledge screen, the
+  embeddings tab and NL assist are all dead until you switch them on in the launch config's
+  `env`
   ([Configuration keys](/running/#configuration-keys) has the defaults):
 
   ```json

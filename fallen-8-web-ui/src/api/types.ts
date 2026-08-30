@@ -652,6 +652,27 @@ export interface ChatCompletionResultREST {
   stats?: ChatCompletionStatsREST | null;
 }
 
+// GET /chat/models (feature chat-model-catalog): what the RUNNING chat backend catalogues, so the
+// configuration surface can offer real names instead of a blank field. The list is deliberately NOT
+// treated as the whole resolvable set (a backend can resolve a name it does not catalogue), which is
+// why the picker built on it stays free-text.
+export interface ChatModelREST {
+  /** Verbatim from the backend's catalog; the server sorts ordinally for a stable contract. */
+  name: string;
+  /** Null when the backend does not say (OpenAI, Anthropic, an old sidecar, a failed lookup). */
+  capability: "completion" | "embedding" | null;
+  /** Whether a worker can serve it right now; null when the backend reports nothing. */
+  available: boolean | null;
+  /** The backend's own class string, passed through verbatim and carrying no published legend. */
+  class: string | null;
+}
+
+export interface ChatModelsREST {
+  /** The running backend's name, in the spelling ChatCompletionResultREST.backend uses. */
+  backend: string;
+  models: ChatModelREST[];
+}
+
 export interface GraphStatisticsREST {
   vertexCount: number;
   edgeCount: number;

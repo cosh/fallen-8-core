@@ -194,7 +194,8 @@ The models are the same ones a local setup uses - `phi4-f8-mini` (or `phi4-f8`) 
 bare name relies on both ends agreeing about a default, a tagged one names the same thing
 everywhere. The configured string reaches the request body verbatim - nothing strips, appends or
 normalizes a tag - so if a backend ever catalogues a model under a different name, that is an
-environment variable and nothing more.
+environment variable and nothing more. To see what it catalogues, ask the instance:
+[which models the backend has](/model-providers/#which-models-the-backend-has).
 
 ### One name can mean two different builds
 

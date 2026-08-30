@@ -65,6 +65,7 @@ import type {
   ConfigWriteSpec,
   ChatCompletionSpec,
   ChatCompletionResultREST,
+  ChatModelsREST,
   EmbeddingSearchSpecification,
   EmbeddingWriteSpecification,
   SaveGame,
@@ -159,6 +160,17 @@ export const postChat = (i: InstanceConfig, spec: ChatCompletionSpec, signal?: A
     scope: "fallen8",
     signal,
   });
+
+/**
+ * What the RUNNING chat backend catalogues (feature chat-model-catalog): one bounded read that fans
+ * out to the backend's own model list. Fallen-8-level and gated exactly like POST /chat (403 when the
+ * chat capability is off), so Studio only calls it where the answer is actionable.
+ *
+ * The answer is not the whole resolvable set: a backend can serve a name it does not catalogue, which
+ * is why the picker fed from this stays free-text.
+ */
+export const getChatModels = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<ChatModelsREST>(i, "/chat/models", { signal, scope: "fallen8" });
 
 /** Authorized iff the instance needs no key or accepted ours (server contract on StatusREST.ApiKeyRequired). */
 export const isAuthorized = (s: StatusREST): boolean => !s.apiKeyRequired || s.authenticated === true;

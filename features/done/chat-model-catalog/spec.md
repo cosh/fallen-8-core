@@ -1,9 +1,11 @@
 # Spec: Chat model catalog
 
-**Status: open (specified 2026-08-30, not implemented).** This fires the recorded revisit
+**Status: implemented (specified and built 2026-08-30).** This fires the recorded revisit
 trigger from [instance-config](../../done/instance-config/spec.md) open question 3: "no
 `/api/tags` model picker in v1 (right-sized). Revisit if a picker is wanted." A picker is now
-wanted. This file is the living record; the plan beside it is the sequencing note.
+wanted. This file is the living record; the plan beside it is the sequencing note. As-built
+deviations from the spec as first written are marked inline: the `/api/show` fan-out gained a
+documented width cap of 8 (decision 5), and the screenshot row records why no image is possible.
 
 ## Why
 
@@ -60,7 +62,11 @@ current versions; an older sidecar simply omits it). OpenAI and Anthropic each p
    rule today; the catalog follows it. The budget is a documented constant, not a setting.
 5. **Per-backend sources, one neutral response shape.**
    - **Ollama / Nahil**: `GET /api/tags`, then one concurrent `POST /api/show` per listed model
-     for `capabilities` and `nahil_routable_now`. The connection carries the credential exactly
+     for `capabilities` and `nahil_routable_now`, **at most 8 in flight**. The cap is a documented
+     constant, not a setting: uncapped, a long catalogue dials every model at once on a transport
+     with no per-server connection limit, and a metered backend answering 429 to the tail degrades
+     exactly those entries to "capability unknown", which hands the picker embedding models it
+     cannot recognise as such. The connection carries the credential exactly
      as the probe does (Nahil bearer on every call, never a header to a local sidecar). A failed
      or missing `/api/show` degrades that entry to capability unknown rather than dropping it.
    - **OpenAI**: `GET {endpoint}/v1/models` (bearer). The list includes non-chat models and
@@ -120,10 +126,13 @@ never the endpoint value).
 
 ### FR-2: Ollama-protocol catalog (Ollama and Nahil)
 
-Tags then show, concurrently per model, both under the single 5 s budget; credential handling is
+Tags then show, concurrently per model and at most 8 in flight (decision 5), both under the single 5 s budget; credential handling is
 the connection's, identical to the residency probe (bearer to Nahil on every call including
 `/api/show`, no Authorization header to a sidecar, ever). A model listed by tags whose show call
-fails is returned with `capability: null, available: null, class: null`.
+fails is returned with `capability: null, available: null, class: null`. A show still QUEUED behind
+the cap when the budget expires degrades the same way: its wait is cancelled, its name survives, and
+the read stays a 200. Letting that cancellation escape would fault the whole fan-out and turn a
+degraded list into a wholesale 503, so it is pinned by its own test.
 
 ### FR-3: Remote catalogs (OpenAI and Anthropic)
 
@@ -171,7 +180,7 @@ no new packages expected).
 | MCP (engine to REST to MCP) | New REST operation | Deferral entry with reason (decision 9); snapshot regenerated first |
 | `fallen-8-rest-client` / integrations | Not affected (neither consumes chat) | None |
 | Architecture diagrams | No new channel, layer or deployable | None |
-| Screenshots | `screen-configuration.png` captures the Change feed section, so the picker does not appear in it | No recapture; no new screenshot (the picker is a row-level affordance, described in prose) |
+| Screenshots | Two independent reasons, both verified rather than assumed. **No recapture:** `screen-configuration.png` has the Change feed section selected (the Chat section is only a left-nav entry there), so no existing frame contains the model row. **No new capture is possible either:** decision 7 makes the picker a NATIVE `<input list>` + `<datalist>`, and a native popup is browser chrome rather than page content, so it cannot be photographed. Probed with Playwright on 2026-08-30: with the list opened, the `<option>` elements report `boundingBox: null` and `isVisible: false`, and the captured frame shows only the input and its dropdown affordance. Do NOT trade the native control for a custom dropdown to make it capturable: it would add CSS the writable-instance-config 5.1 rule excludes, add code, and put the free-text guarantee (which the native control gives for free) at risk for a picture. | No recapture and no new image; the prose plus the curl/JSON example on `model-providers.md` are the documentation |
 | NL-assist dataset / eval | Prompt and dataset untouched | No RETRAIN-LOG entry |
 | README "Key features" | Sub-feature of the existing model-providers entry, not a new key feature | No new bullet |
 

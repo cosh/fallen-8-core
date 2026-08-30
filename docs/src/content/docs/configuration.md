@@ -98,6 +98,8 @@ The surface explains the requirement instead of showing a Save button that would
 
 One thing worth knowing once writes are on: an unsaved edit **survives** closing the surface. The Configuration card keeps showing that there are unsaved changes and its Refresh control becomes a **Discard**, which is the one way to drop them, and the ten-second poll that keeps model residency fresh stays suspended the whole time, so nothing can overwrite a half-typed field. Preserving someone's work beats asking them to confirm a dismissal.
 
+One row does more than take text: the chat model row suggests the models the **running** backend actually catalogues (not the ones a stored override is waiting to become), while still accepting a name you type yourself - [which models the backend has](/model-providers/#which-models-the-backend-has).
+
 ## Reading configuration is not gated the same way
 
 `GET /config` answers without a key on an instance that has not configured one, because that is what makes the Connect screen useful before you have set anything up. Two things follow from that.

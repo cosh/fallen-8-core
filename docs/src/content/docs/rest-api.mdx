@@ -99,7 +99,7 @@ Every endpoint group and the page that documents it. Routes shown bare; each als
 | Graph analytics | `GET /analytics/algorithms`, `POST /analytics/{name}`, `/analytics/{name}/partition/{id}` | [graph-analytics.md](/graph-analytics/) |
 | Embeddings & semantics | `PUT/GET/DELETE /graphelement/{id}/embedding/{name}`, `POST /embedding/{element,elements,search,text}` | [semantic-traversal.md](/semantic-traversal/) |
 | Semantic layer (documents) | `POST/GET /document`, `POST /document/text`, `GET/DELETE /document/{id}`, `POST /document/search`, `GET /document/binding`, `POST /document/binding/ensure`, `GET /document/entities`. The whole group answers `403` while `Fallen8:Ingestion:Enabled` is off. | [unstructured-ingestion.md](/unstructured-ingestion/) |
-| Chat gateway **(Fallen-8-level)** | `POST /chat` (`403` while `Fallen8:Chat:Enabled` is off) | [semantic-traversal.md](/semantic-traversal/) |
+| Chat gateway **(Fallen-8-level)** | `POST /chat`, `GET /chat/models`. Both answer `403` while `Fallen8:Chat:Enabled` is off | [model-providers.md](/model-providers/#which-models-the-backend-has) |
 | Namespaces **(Fallen-8-level)** | `GET /ns`, `GET/PUT/PATCH/DELETE /ns/{name}`, `POST /ns/{name}/activate` | [namespaces.md](/namespaces/) |
 | Bulk import/export | `GET /bulk/export`, `POST /bulk/import` | [bulk-import-export.md](/bulk-import-export/) |
 | Change feed | `GET /changefeed` (Server-Sent Events) | [change-feed.md](/change-feed/) |

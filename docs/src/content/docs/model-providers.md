@@ -1,6 +1,6 @@
 ---
 title: "Model providers"
-description: "Choose where the chat gateway and the embedding provider send their requests: the local Ollama sidecar, Nahil, OpenAI or Anthropic. Where the credential lives, what moves with a switch, and which backend served a call."
+description: "Choose where the chat gateway and the embedding provider send their requests: the local Ollama sidecar, Nahil, OpenAI or Anthropic. Where the credential lives, what moves with a switch, which models a backend catalogues, and which backend served a call."
 ---
 
 Fallen-8 has exactly two model capabilities, and both live in the REST app rather than in the
@@ -76,8 +76,10 @@ models (`F8_PULL_ASSIST=0`, ~4.8 GB nothing would ask for); `bge-m3` still pulls
 | `F8_ANTHROPIC_MAX_TOKENS` | anthropic | Defaults to `4096`; the Messages API requires it per request |
 | `F8_ANTHROPIC_CHAT_TIMEOUT` | anthropic | The chat budget in seconds; the overlay leaves it at `120` |
 
-The model names are config strings and nothing more. Fallen-8 does not chase either vendor's
-catalog, so a renamed or retired model is one environment variable.
+The model names are config strings and nothing more. Fallen-8 keeps no list of either vendor's
+models and follows neither vendor's renames, so a renamed or retired model is one environment
+variable. It can *ask* a backend what it lists today, which is a read you trigger rather than a
+catalog it maintains: [which models the backend has](#which-models-the-backend-has).
 
 ### The settings underneath
 
@@ -188,6 +190,92 @@ environment variable, the environment *wins* over a stored override: Studio rend
 read-only and a write is refused naming the variable to change instead. That is
 [how configuration authority works](/configuration/) generally, not something specific to a
 provider.
+
+## Which models the backend has
+
+Because the chat model is the writable one, it is also the one you can pick from a list instead of
+remembering. An instance will tell you what its backend catalogues, in two places:
+
+- **F8 Studio**, on the [configuration](/configuration/) surface: with the Chat section open and
+  the active backend's model row editable, that row suggests catalogued names as you type.
+- **`GET /chat/models`** over REST, which answers with the running backend's name and its models.
+  It is gated exactly like `POST /chat` - a `403` while chat is off, a key when the instance has
+  one - and carries the same [rate limit](/security/#other-perimeter-controls), because one read can
+  fan out a metadata call per catalogued model rather than making a single request.
+
+It takes no body, and the answer is the backend plus one entry per catalogued model:
+
+```bash
+curl -H "X-Api-Key: $F8_KEY" http://localhost:8080/chat/models
+```
+
+```json
+{
+  "backend": "Nahil",
+  "models": [
+    { "name": "bge-m3:latest", "capability": "embedding", "available": true, "class": "C2" },
+    { "name": "phi4-f8-mini:latest", "capability": "completion", "available": true, "class": "S1" }
+  ]
+}
+```
+
+Names come back verbatim and sorted, and every field except `name` is null wherever the backend
+does not report it (the table below says which backend reports what).
+
+Nothing is cached and nothing is polled: the list is read from the backend at the moment you ask,
+under one five-second budget for the whole read. How wide that read is depends on the backend: an
+Ollama-protocol backend names its models in one call and then asks about each one, at most eight of
+those in flight at a time, while OpenAI and Anthropic answer the whole catalog in a single call. Only
+the calls that go to a backend needing a credential carry one, so a local sidecar is asked without
+one, exactly as every other request to it is. Studio asks at most once per visit to the Chat
+section, so merely viewing configuration triggers **no catalog fan-out**. That is not the same as
+sending nothing: on an Ollama-protocol backend `GET /config` still runs its small, 3-second
+[model-residency probe](/nahil/#checking-it-works), which Studio re-reads every ten seconds while
+the Configuration card is open. The catalog is the read that can cost a call per model, and it is
+the one nothing triggers on its own.
+
+Whenever the catalog answers anything other than a list, the row stays the plain text field it has
+always been, with one line naming the reason the instance gave, and typing is never blocked. The
+realistic reasons: a backend that cannot answer inside the budget, a misconfigured backend saying so
+the way it [always does](#rules-the-configuration-is-held-to), a credential the provider refused,
+and this instance's own sensitive-endpoint rate limit, whose window is shared process-wide, so a
+busy import loop can be why a list is missing rather than anything about your provider. These are
+metadata reads and cost no tokens.
+
+**The list is the running backend's.** It comes from the backend serving requests now, not from the
+one your stored configuration is waiting to become. A backend switch takes effect at the next boot,
+so between writing `Fallen8:Chat:Backend=Nahil` and restarting into it the list still answers for
+the backend you are leaving, and the incoming backend's model is a name you type. The alternative
+would be a list describing a backend that has not served a single answer yet, which is the same
+reason the next section stamps provenance on responses rather than reading it off current
+configuration.
+
+**The list is a suggestion, not the set of names a backend will accept.** So the field stays free
+text everywhere, and a name that is not in the list is not an error. Nahil is the worked example:
+`f8-delegate:latest` is absent from its catalog listing, yet Nahil resolves it and serves it, and
+the [naming section](/nahil/#one-name-can-mean-two-different-builds) tells you to configure exactly
+that name when your sidecar volume predates a rename. A closed dropdown would have hidden a name
+this documentation recommends.
+
+**Embedding models are listed, not offered.** The list is neutral and names every model the backend
+has, embedding models included, so you can tell one kind from the other. What it will not do is
+offer one for selection, because an embedding model name is never writable: it *is* the identity
+stamp beside every vector you have stored, so a picker on that row would be a control wired to a
+refusal. Changing the embedding function stays the deliberate two-change configuration above.
+
+What an entry can tell you depends on the backend, and it says only what the backend itself reports:
+
+| Backend | What each entry carries |
+| --- | --- |
+| Ollama (the sidecar) | the name, whether it is a chat or an embedding model, and that it is present locally. An older sidecar that reports no capabilities leaves that unknown, and the entry still appears |
+| [Nahil](/nahil/) | the same, plus whether a worker can serve it **right now** (a cold one answers `503` first and is waited out), plus Nahil's own class label, which has no published legend |
+| OpenAI | names only, including models that are not chat models at all: the vendor's list reports no capability |
+| Anthropic | names only, and only the first page of them; paging further is deliberately skipped |
+
+**The model stays server-owned.** Reading a catalog changes what you can configure, not what a
+caller may ask for: `POST /chat` carries no model field and gains none, just as there is no
+per-request backend selection. One backend and one model per deployment, chosen where the rest of
+the configuration is.
 
 ## Which backend served this call
 
