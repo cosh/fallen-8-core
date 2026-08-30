@@ -818,40 +818,43 @@ namespace NoSQL.GraphDB.App
                     "Fallen-8 observability: no exporters enabled (Fallen8:Observability) - zero OpenTelemetry code paths run; /statistics and the health endpoints are always available.");
             }
 
-            // The model backends' addressability, reported at boot (feature nahil-backend):
-            // an endpoint that cannot be dialled is worth knowing before the first request rather
-            // than after it. Deliberately a WARNING and not a startup failure - the backends load
-            // lazily and latch the reason into the 503 their own endpoints answer, so a mistyped
-            // Nahil URL must not take a graph database down with it while every other capability
-            // would have kept working. The wording comes from OllamaConnection.IsValid, so this line
-            // and that 503 can never drift apart.
+            // The model backends' usability, reported at boot (features nahil-backend and
+            // model-providers): a backend that cannot serve a request is worth knowing before the
+            // first request rather than after it. Deliberately a WARNING and not a startup failure -
+            // the backends load lazily and latch the reason into the 503 their own endpoints answer,
+            // so a mistyped URL must not take a graph database down with it while every other
+            // capability would have kept working. Both reasons below are asked of the very code the
+            // 503 comes from, so a boot line and a 503 can never say different things.
             var chatOptions = app.Services.GetRequiredService<IOptions<Fallen8ChatOptions>>().Value;
             if (chatOptions.Enabled)
             {
-                var chatTarget = NoSQL.GraphDB.App.Chat.ChatBackendFactory.ResolveConnection(chatOptions);
-                // A null resolution means the selector names no backend this app has, which is the
-                // likeliest misconfiguration of all (a wrong-cased "nahil" matches nothing, because
-                // the factory compares ordinally). Reported here too, or the most common typo would
-                // be the one boot said nothing about.
-                var chatProblem = chatTarget == null
-                    ? "Fallen8:Chat:Backend is '" + chatOptions.Backend + "', which is not a supported backend."
-                    : chatTarget.IsValid(out var invalid) ? null : invalid;
+                // A name this app does not have is reported by Validate, not inferred from a null
+                // resolution: a null now also means a supported backend that speaks no protocol the
+                // residency probe can ask, so inferring would warn about a working deployment.
+                var chatProblem = NoSQL.GraphDB.App.Chat.ChatBackendFactory.Validate(chatOptions);
                 if (chatProblem != null)
                 {
                     startupLogger.LogWarning(
-                        "Fallen-8 chat gateway: the configured backend cannot be dialled, so POST /chat will answer 503. {Problem}",
+                        "Fallen-8 chat gateway: the configured backend is not usable, so POST /chat will answer 503. {Problem}",
                         chatProblem);
                 }
             }
 
             var embeddingOptions = app.Services.GetRequiredService<IOptions<Fallen8EmbeddingOptions>>().Value;
-            if (embeddingOptions.Enabled
-                && EmbeddingBackendFactory.ResolveConnection(embeddingOptions) is { } embeddingTarget
-                && !embeddingTarget.IsValid(out var embeddingProblem))
+            if (embeddingOptions.Enabled)
             {
-                startupLogger.LogWarning(
-                    "Fallen-8 embedding provider: the configured backend cannot be dialled, so the embedding surface will answer 503. {Problem}",
-                    embeddingProblem);
+                // Asked of the factory rather than inferred here, and asked of the same method the
+                // 503 comes from, so the boot line and the failed request cannot say different
+                // things. It builds nothing and dials nothing: an unreachable endpoint or an absent
+                // model file is still first learned on the first embed, which is why Onnx and
+                // LLamaSharp are silent here rather than warned about.
+                var embeddingProblem = EmbeddingBackendFactory.Validate(embeddingOptions);
+                if (embeddingProblem != null)
+                {
+                    startupLogger.LogWarning(
+                        "Fallen-8 embedding provider: the configured backend is not usable, so the embedding surface will answer 503. {Problem}",
+                        embeddingProblem);
+                }
             }
 
             if (spaIndexPresent)

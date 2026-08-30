@@ -64,6 +64,12 @@ namespace NoSQL.GraphDB.App.Chat
     /// <summary>Optional per-call knobs; each is left at the model's own default when null/empty.</summary>
     public sealed class ChatBackendOptions
     {
+        /// <summary>
+        ///   Sampling temperature, or null to leave it at the model's own default.
+        ///   <see cref="AnthropicChatBackend" /> IGNORES it: current Claude models reject a
+        ///   <c>temperature</c> outright with a 400, so honouring it there would turn every request
+        ///   that carries one into a failure rather than a differently-sampled answer.
+        /// </summary>
         public Double? Temperature { get; init; }
 
         /// <summary>

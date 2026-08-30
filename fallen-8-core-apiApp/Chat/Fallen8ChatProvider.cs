@@ -60,8 +60,15 @@ namespace NoSQL.GraphDB.App.Chat
         /// <summary>The backend selector (config value).</summary>
         public String Backend => _options.Backend;
 
-        /// <summary>The server-owned model (config value), whichever backend serves it.</summary>
-        public String Model => ProbeTarget?.Model;
+        /// <summary>
+        ///   The server-owned model (config value), whichever backend serves it. Deliberately NOT
+        ///   read from <see cref="ProbeTarget" />, which answers the narrower question of which
+        ///   Ollama-protocol target can be asked about residency and is null for a backend that has
+        ///   no such API - which once made <c>/status</c> and <c>/config</c> report a null model on a
+        ///   working deployment. Which key holds it stays
+        ///   <see cref="ChatBackendFactory.ResolveModel" />'s single answer.
+        /// </summary>
+        public String Model => ChatBackendFactory.ResolveModel(_options);
 
         /// <summary>Whether the backend client has been created (a chat call happened). A config
         /// read never flips this: residency is probed via a transient client (OllamaModelProbe).</summary>
@@ -120,13 +127,13 @@ namespace NoSQL.GraphDB.App.Chat
                 // invite an identical retry.
                 throw new ChatProviderOutputException(ex.Message);
             }
-            catch (Helper.NahilWarmupTimeoutException ex)
+            catch (Helper.ModelRetryTimeoutException ex)
             {
-                // Nahil spent the whole budget saying "not yet". Still a 504 - the caller's
-                // configured deadline is what expired - but the message names the model that was
-                // never loaded, so nobody goes looking for a slow generation that never started.
-                // A caller who went away in the meantime gets the cancellation they asked for
-                // instead: only OUR budget running out is a timeout.
+                // The backend spent the whole budget asking to be retried. Still a 504 - the
+                // caller's configured deadline is what expired - but the message names the model
+                // that never answered, so nobody goes looking for a slow generation that never
+                // started. A caller who went away in the meantime gets the cancellation they asked
+                // for instead: only OUR budget running out is a timeout.
                 cancellationToken.ThrowIfCancellationRequested();
                 throw new ChatProviderTimeoutException(String.Format(
                     "The chat backend did not respond within Fallen8:Chat:TimeoutSeconds ({0}s). {1}",
