@@ -185,6 +185,10 @@ describe("semantic search by text (Query screen)", () => {
       kind: undefined,
       label: undefined,
     });
+    // The caption names which backend and embedding function turned the text into a vector.
+    expect(screen.getByTestId("vector-search-provenance")).toHaveTextContent(
+      "via Onnx · bge-micro-v2",
+    );
   });
 
   it("keeps the text source disabled when the provider is off", async () => {
@@ -194,6 +198,28 @@ describe("semantic search by text (Query screen)", () => {
     await waitFor(() => expect(screen.getByTestId("index-select")).toBeInTheDocument());
     await user.selectOptions(screen.getByTestId("index-select"), "raw");
     expect(screen.getByTestId("vector-source-text")).toBeDisabled();
+  });
+
+  // The vector source is PERSISTED per instance, so "text" survives the operator turning the
+  // embedding provider off afterwards: the text field is still the one on screen and Run query is
+  // disabled, but nothing said why - and the caption went on naming a backend and an embedding
+  // function for a request that cannot be made. Its sibling caption in SemanticQueryEditor is gated
+  // on the resolved state for exactly this reason.
+  it("stops naming a backend when the provider goes off under a persisted text source", async () => {
+    const user = userEvent.setup();
+    const first = renderScreen(QueryScreen, true);
+    await user.selectOptions(screen.getByTestId("query-mode"), "index");
+    await waitFor(() => expect(screen.getByTestId("index-select")).toBeInTheDocument());
+    await user.selectOptions(screen.getByTestId("index-select"), "emb");
+    await user.click(screen.getByTestId("vector-source-text"));
+    expect(screen.getByTestId("vector-search-provenance")).toHaveTextContent("via Onnx");
+    first.unmount();
+
+    renderScreen(QueryScreen, false);
+    await waitFor(() => expect(screen.getByTestId("vector-search-text")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByTestId("vector-source-text")).toBeDisabled());
+    expect(screen.getByTestId("vector-search-provenance")).not.toHaveTextContent("via");
+    expect(screen.getByTestId("scan-run")).toBeDisabled();
   });
 });
 

@@ -504,7 +504,8 @@ export interface EmbeddingProviderStatsREST {
   intendedMetric: string | null;
   loaded: boolean;
   // Live model residency (Ollama /api/ps), only set on GET /config: true = warm, false = not
-  // loaded right now, null/undefined = unknown (non-Ollama backend or probe failed).
+  // loaded right now, null/undefined = unknown (a backend with no residency probe - Nahil,
+  // OpenAI - or the probe failed).
   resident?: boolean | null;
   gpu?: boolean | null;
 }
@@ -514,6 +515,10 @@ export interface EmbeddingProviderStatsREST {
 export interface ChatProviderStatsREST {
   enabled: boolean;
   backend: string | null;
+  /**
+   * From the configured options, not from a probe target: reported for EVERY backend, including
+   * the ones with no residency API.
+   */
   model: string | null;
   loaded: boolean;
   // Live model residency + GPU (Ollama /api/ps), only set on GET /config; null/undefined = unknown.
@@ -639,6 +644,11 @@ export interface ChatCompletionStatsREST {
 export interface ChatCompletionResultREST {
   content: string;
   model: string | null;
+  /**
+   * Which backend served THIS response (feature model-providers), stamped by the server. Null on
+   * a server predating the field. Per-call versus ambient: see lib/modelProvenance.ts.
+   */
+  backend?: string | null;
   stats?: ChatCompletionStatsREST | null;
 }
 
@@ -939,6 +949,14 @@ export interface SubGraphSemanticSummary {
   minScore?: number | null;
   /** Vertex pattern steps carrying a threshold (pattern = patternName or step index). */
   patternThresholds?: { pattern: string; minScore: number }[] | null;
+  /**
+   * Which embedding backend turned queryText into the bound vector, and that function's identity
+   * stamp (`name[@version]#dimension#metric`) - both stamped at registration and carried with the
+   * recipe, so the echo is the same on create, on read and after a recalculate. Absent for a
+   * vector-in registration: no embed call happened, so there is nothing honest to report.
+   */
+  embeddingBackend?: string | null;
+  embeddingIdentity?: string | null;
 }
 
 export interface SubGraphSummary {

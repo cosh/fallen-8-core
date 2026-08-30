@@ -247,9 +247,48 @@ describe("Connect Configuration card", () => {
     const chat = screen.getByTestId("config-chat");
     expect(chat).not.toHaveTextContent("GPU");
     expect(chat).not.toHaveTextContent("CPU"); // residency unknown → no device shown
+    // With no residency probe there is nothing to call "loaded": a hosted API loads nothing here.
+    expect(chat).toHaveTextContent("in use");
     expect(screen.getByTestId("config-observability-summary")).toHaveTextContent(
       "Off — no exporter configured",
     );
+  });
+
+  it("renders a hosted chat backend as an opaque name, with no invented residency", async () => {
+    getConfigMock.mockResolvedValue(
+      config({
+        semantic: {
+          embedding: {
+            enabled: true,
+            backend: "Ollama",
+            modelName: "bge-m3",
+            modelVersion: "",
+            dimension: 1024,
+            intendedMetric: "Cosine",
+            loaded: true,
+            resident: true,
+            gpu: false,
+          },
+          chat: {
+            enabled: true,
+            backend: "Anthropic",
+            model: "claude-opus-5",
+            loaded: false,
+            resident: null,
+            gpu: null,
+          },
+        },
+      }),
+    );
+    renderPanel();
+
+    const chat = await screen.findByTestId("config-chat");
+    expect(chat).toHaveTextContent("Anthropic");
+    expect(chat).toHaveTextContent("claude-opus-5");
+    // No /api/ps analogue exists there, so a device claim would be fabricated.
+    expect(chat).not.toHaveTextContent("GPU");
+    expect(chat).not.toHaveTextContent("CPU");
+    expect(chat).toHaveTextContent("not called yet");
   });
 
   it("re-checks on demand via the Refresh button", async () => {

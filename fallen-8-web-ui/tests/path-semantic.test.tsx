@@ -89,7 +89,9 @@ function status(enabled: boolean): StatusREST {
 
 function renderScreen(providerEnabled = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["local", "status"], status(providerEnabled));
+  // The screen reads /status through the NAMESPACE-BOUND instance id, so the row has to be
+  // keyed "local/default"; a bare "local" row is never read and leaves providerEnabled null.
+  client.setQueryData(["local/default", "status"], status(providerEnabled));
   return render(
     <QueryClientProvider client={client}>
       <PathScreen />
@@ -177,5 +179,18 @@ describe("path semantic block", () => {
 
     expect(screen.getByTestId("path-run")).toBeDisabled();
     expect(screen.getByTestId("path-sem-error")).toBeInTheDocument();
+  });
+
+  it("passes the provider snapshot down to the query editor's provenance caption", async () => {
+    // The screen holds the snapshot; the block and the query editor only forward it. This is the
+    // only test that covers the whole pass-through, so it pins the wiring, not the wording.
+    const user = userEvent.setup();
+    renderScreen(true);
+    await user.click(screen.getByTestId("path-semantic-enable"));
+    await user.selectOptions(screen.getByTestId("path-sem-source"), "text");
+
+    expect(screen.getByTestId("path-sem-text-provenance")).toHaveTextContent(
+      "embeds on this instance via Onnx · m",
+    );
   });
 });

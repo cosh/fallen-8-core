@@ -58,10 +58,11 @@ export interface NlAssistConfig {
 }
 
 /**
- * The default model the compose stack pulls for the instance's chat backend (produced by
- * nl-assist-finetune). Shown as a hint only; in instance mode the server owns the model, and
- * in custom mode the user picks one (see NL_PRESETS). If the chosen model is absent on the
- * backend, calls 404 - create it with the training pipeline or pick the stock phi4-mini preset.
+ * CUSTOM-MODE ONLY: the prefill for the model field, and the fine-tune the compose stack pulls
+ * (produced by nl-assist-finetune). It says nothing about instance mode - the server owns that
+ * model and reports it on /status, which is where the panels read it from. If the chosen model is
+ * absent on the endpoint, calls 404 - create it with the training pipeline or pick the stock
+ * phi4-mini preset.
  */
 export const DEFAULT_NL_MODEL = "phi4-f8-mini";
 

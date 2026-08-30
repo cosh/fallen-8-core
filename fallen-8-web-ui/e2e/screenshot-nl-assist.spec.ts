@@ -108,6 +108,8 @@ test("capture NL assist with drafted, server-validated fragments", async ({ page
       body: JSON.stringify({
         content,
         model: "phi4-f8-mini",
+        // Without this the captured stats line silently loses its last segment.
+        backend: "Ollama",
         stats: {
           promptTokens: 1148 + call * 7,
           completionTokens: 18 + call * 3,
@@ -131,6 +133,9 @@ test("capture NL assist with drafted, server-validated fragments", async ({ page
   await page.getByTestId("slot-filter-vertexfilter").click();
   await expect(page.getByTestId("nl-intent")).toBeVisible();
   await expect(page.getByTestId("nl-backend-status")).toContainText("this instance");
+  // The line reads the capture app's real /status, not the /chat stub, so a capture app with
+  // chat off would publish a frame saying "chat is off on this instance". Fail here instead.
+  await expect(page.getByTestId("nl-backend-status")).toContainText("Ollama");
 
   // Three intents -> three drafts, so the list is a genuine history rather than one row.
   for (const intent of INTENTS) {

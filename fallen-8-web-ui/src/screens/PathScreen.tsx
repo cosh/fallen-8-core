@@ -297,6 +297,7 @@ export function PathScreen() {
               draft.algorithm === "BLS" ? "BLS ignores costs — use DIJKSTRA" : undefined
             }
             providerEnabled={providerEnabled}
+            provider={provider}
             embeddingNames={suggestions.embeddingNames}
             idPrefix="path"
           />

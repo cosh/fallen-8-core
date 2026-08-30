@@ -173,6 +173,13 @@ export function describeSemanticSummary(summary: SubGraphSemanticSummary): strin
   if (summary.queryText) {
     parts.push(`from text "${summary.queryText}"`);
   }
+  if (summary.embeddingBackend) {
+    parts.push(
+      summary.embeddingIdentity
+        ? `via ${summary.embeddingBackend} · ${summary.embeddingIdentity}`
+        : `via ${summary.embeddingBackend}`,
+    );
+  }
   parts.push("bound at creation — recalculate reuses the stored vector");
   return parts.join(" · ");
 }

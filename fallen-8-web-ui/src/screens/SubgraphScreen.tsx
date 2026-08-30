@@ -429,6 +429,7 @@ export function SubgraphScreen() {
                   query={semanticQuery}
                   onChange={patchSemanticQuery}
                   providerEnabled={providerEnabled}
+                  provider={provider}
                   embeddingNames={suggestions.embeddingNames}
                   idPrefix="sg"
                 />

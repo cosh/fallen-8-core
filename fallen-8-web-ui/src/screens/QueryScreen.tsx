@@ -47,6 +47,7 @@ import type {
 import { BINARY_OPERATORS, type BinaryOperatorName } from "../api/types";
 import { toLiteral } from "../lib/literals";
 import { parseVector } from "../lib/vector";
+import { embeddingStamp } from "../lib/modelProvenance";
 import {
   indexCapabilities,
   type IndexCapability,
@@ -669,9 +670,19 @@ export function QueryScreen() {
                           onChange={(e) => setQueryDraft({ vectorSearchText: e.target.value })}
                           placeholder="red bicycles"
                         />
-                        <div className="text-fg-faint text-[11px]">
+                        <div
+                          className="text-fg-faint text-[11px]"
+                          data-testid="vector-search-provenance"
+                        >
                           embedded once server-side, then kNN — scores identical to a pasted
                           vector
+                          {/* Gated on the RESOLVED state, like SemanticQueryEditor's twin: the
+                              persisted vector source keeps this branch open after the provider is
+                              switched off, and naming a backend for a request that cannot be made is
+                              exactly the wrong claim this feature exists to stop. */}
+                          {providerEnabled === true &&
+                            provider &&
+                            ` · via ${provider.backend ?? "?"} · ${embeddingStamp(provider)}`}
                         </div>
                       </Field>
                     ) : (

@@ -210,4 +210,25 @@ describe("describeSemanticSummary", () => {
     expect(line).toContain('from text "red bicycles"');
     expect(line).toContain("bound at creation");
   });
+
+  it("names the backend and identity the recipe was stamped with", () => {
+    const line = describeSemanticSummary({
+      embeddingName: "default",
+      metric: "Cosine",
+      dimension: 1024,
+      queryText: "red bicycles",
+      embeddingBackend: "Nahil",
+      embeddingIdentity: "bge-m3#1024#Cosine",
+    });
+    expect(line).toContain("via Nahil · bge-m3#1024#Cosine");
+  });
+
+  it("names the backend alone when the identity is missing, and says nothing without a backend", () => {
+    const base = { embeddingName: "default", metric: "Cosine", dimension: 1024 };
+    expect(describeSemanticSummary({ ...base, embeddingBackend: "Nahil" })).toContain(
+      "via Nahil",
+    );
+    // A vector-in registration ran no embed call, so there is nothing honest to report.
+    expect(describeSemanticSummary(base)).not.toContain("via");
+  });
 });

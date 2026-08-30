@@ -243,4 +243,15 @@ describe("the NL affordances under the embed policy", () => {
     expect(screen.queryByTestId("nl-instance-locked")).not.toBeInTheDocument();
     expect(screen.getByRole("combobox")).toBeInTheDocument();
   });
+
+  it("the instance-mode hint names no model, because this form cannot know the server's", () => {
+    render(
+      <StudioConfigContext.Provider value={{}}>
+        <NlBackendConfig config={DEFAULT_NL_CONFIG} setConfig={() => {}} />
+      </StudioConfigContext.Provider>,
+    );
+    const hint = screen.getByTestId("nl-instance-hint");
+    expect(hint).not.toHaveTextContent("phi4");
+    expect(hint).toHaveTextContent("Fallen8:Chat");
+  });
 });

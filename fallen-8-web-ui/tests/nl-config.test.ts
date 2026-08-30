@@ -42,8 +42,9 @@ describe("NL assist enablement (FR-26.8 / nl-assist-ux FR-1, feature instance-co
   it("instance mode is the always-configured zero-config default", () => {
     expect(DEFAULT_NL_CONFIG.mode).toBe("instance");
     expect(isNlConfigured(DEFAULT_NL_CONFIG)).toBe(true);
-    // Pin the shipped default fine-tune (delegate-model-variants clean rename): the default
-    // server model is 'phi4-f8-mini'. A literal check so a regression fails CI.
+    // Pin the shipped default fine-tune (delegate-model-variants clean rename) as the CUSTOM-mode
+    // prefill. It is not "the default server model": in instance mode the server owns that and
+    // reports it on /status. A literal check so a regression fails CI.
     expect(DEFAULT_NL_MODEL).toBe("phi4-f8-mini");
     expect(DEFAULT_NL_CONFIG.model).toBe("phi4-f8-mini");
   });
@@ -245,6 +246,7 @@ describe("transport, stats, and key isolation", () => {
     responseBody = {
       content: "return (v) => true;",
       model: "phi4-f8-mini",
+      backend: "Nahil",
       stats: { promptTokens: 5, completionTokens: 9, durationMs: 200, tokensPerSecond: 45 },
     };
     const instance: InstanceConfig = {
@@ -263,6 +265,29 @@ describe("transport, stats, and key isolation", () => {
     expect(stats?.promptTokens).toBe(5);
     expect(stats?.completionTokens).toBe(9);
     expect(stats?.tokensPerSecond).toBe(45);
+    // Provenance rides the response, so a later config change cannot rewrite this attempt.
+    expect(stats?.backend).toBe("Nahil");
+    expect(stats?.raw).toMatchObject({ backend: "Nahil", model: "phi4-f8-mini" });
+  });
+
+  it("reports no backend when the server sends none, rather than guessing one", async () => {
+    responseBody = {
+      content: "return (v) => true;",
+      model: "phi4-f8-mini",
+      stats: { promptTokens: 5, completionTokens: 9, durationMs: 200, tokensPerSecond: 45 },
+    };
+    const instance: InstanceConfig = {
+      id: "t",
+      name: "t",
+      baseUrl: "http://f8.test",
+      auth: { kind: "none" },
+    };
+    const { stats } = await generateChat(
+      { ...DEFAULT_NL_CONFIG, mode: "instance" },
+      instance,
+      [{ role: "user", content: "hi" }],
+    );
+    expect(stats?.backend).toBeUndefined();
   });
 
   it("uses /v1/chat/completions for openai-compatible endpoints", async () => {
@@ -306,6 +331,8 @@ describe("transport, stats, and key isolation", () => {
     expect(stats?.promptTokens).toBe(900);
     expect(stats?.completionTokens).toBe(31);
     expect(stats?.raw).toMatchObject({ model: "gpt-4o-mini" });
+    // A browser-direct call reaches no Fallen-8, so there is no server selector to report.
+    expect(stats?.backend).toBeUndefined();
   });
 
   it("probes /api/version for ollama and /v1/models for openai (FR-2)", async () => {
