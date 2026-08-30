@@ -54,8 +54,9 @@ namespace NoSQL.GraphDB.App.Embedding
         private readonly Fallen8EmbeddingOptions _options;
         private readonly Lazy<IEmbeddingGenerator<String, Embedding<Single>>> _generator;
 
-        /// <summary>The per-call backend options; <c>null</c> for the in-process backends. See
-        /// <see cref="BuildGenerationOptions" /> - it carries exactly one thing.</summary>
+        /// <summary>The per-call backend options; <c>null</c> for every backend that does not speak
+        /// Ollama's protocol. See <see cref="BuildGenerationOptions" /> - it carries exactly one
+        /// thing.</summary>
         private readonly EmbeddingGenerationOptions _generationOptions;
 
         /// <summary>Latched fatal validation failure (e.g. the first output's dimension
@@ -115,6 +116,12 @@ namespace NoSQL.GraphDB.App.Embedding
         ///   <para>The in-process backends get <c>null</c>: ONNX truncates deliberately at
         ///   <c>Fallen8:Embedding:Onnx:MaxTokens</c> (operator-chosen and documented as such), and
         ///   neither it nor LLamaSharp reads these options at all.</para>
+        ///
+        ///   <para><c>OpenAI</c> gets <c>null</c> too, and the omission is not a gap: <c>truncate</c>
+        ///   is an Ollama-protocol key, and <c>/v1/embeddings</c> has no truncation knob of any name
+        ///   to switch off. It refuses an over-long input instead, which is the same promise kept by
+        ///   the service rather than by a flag - see
+        ///   <see cref="OpenAIEmbeddingGenerator" />.</para>
         /// </summary>
         private static EmbeddingGenerationOptions BuildGenerationOptions(String backend)
         {
@@ -203,11 +210,12 @@ namespace NoSQL.GraphDB.App.Embedding
             {
                 generated = await generator.GenerateAsync(texts, _generationOptions, timeoutCts.Token);
             }
-            catch (Helper.NahilWarmupTimeoutException ex)
+            catch (Helper.ModelRetryTimeoutException ex)
             {
-                // Nahil spent the whole budget saying "not yet". Same 503 as any other backend
-                // that is not usable right now, with the model that was never loaded named - and a
-                // caller who went away still gets their cancellation rather than a fault report.
+                // A remote backend spent the whole budget asking to be retried - warming up, rate
+                // limited or overloaded. Same 503 as any other backend that is not usable right
+                // now, with the reason it kept giving named, and a caller who went away still gets
+                // their cancellation rather than a fault report.
                 cancellationToken.ThrowIfCancellationRequested();
                 throw new EmbeddingProviderUnavailableException(String.Format(
                     "The embedding backend '{0}' did not respond within Fallen8:Embedding:TimeoutSeconds ({1}s). {2}",
