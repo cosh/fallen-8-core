@@ -20,6 +20,7 @@
 #   scripts/ensure-models.sh                          # full default set (~15GB)
 #   F8_PULL_PHI4F8=0 scripts/ensure-models.sh         # skip phi4-f8 (~6GB, CPU-only friendly)
 #   F8_EMBEDDINGS=false scripts/ensure-models.sh      # skip bge-m3 (embeddings opted out too)
+#   F8_PULL_ASSIST=0 scripts/ensure-models.sh         # skip the two mini assist models (~4.8GB)
 #   F8_DELEGATE_REPO=you/your-mini  F8_PHI4F8_REPO=you/your-14b  scripts/ensure-models.sh
 
 set -e
@@ -30,10 +31,18 @@ F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-1}"
 # Embeddings are on by default in docker-compose.yml, so the embedding model belongs in the
 # pre-seed too; opted out with the same variable as the provider and the sidecar.
 F8_EMBEDDINGS="${F8_EMBEDDINGS:-true}"
+# The two mini assist models; off for a deployment whose chat gateway runs on a hosted provider
+# (feature model-providers), which is what the openai and anthropic overlays set on the sidecar.
+F8_PULL_ASSIST="${F8_PULL_ASSIST:-1}"
 VOLUME="f8-ollama-models"
 IMAGE="ollama/ollama:latest"
 
-echo "[ensure-models] Seeding docker volume '$VOLUME': phi4-mini + phi4-f8-mini ($F8_DELEGATE_REPO)"
+case "$F8_PULL_ASSIST" in
+  0|false|FALSE|no|off)
+    echo "[ensure-models] Seeding docker volume '$VOLUME': F8_PULL_ASSIST is off - no assist models";;
+  *)
+    echo "[ensure-models] Seeding docker volume '$VOLUME': phi4-mini + phi4-f8-mini ($F8_DELEGATE_REPO)";;
+esac
 case "$F8_EMBEDDINGS" in
   0|false|FALSE|no|off)
     echo "[ensure-models] F8_EMBEDDINGS is off - skipping bge-m3 (saves ~1.2GB)";;
@@ -58,6 +67,7 @@ docker run --rm \
   -e F8_DELEGATE_REPO="$F8_DELEGATE_REPO" \
   -e F8_PHI4F8_REPO="$F8_PHI4F8_REPO" \
   -e F8_PULL_PHI4F8="$F8_PULL_PHI4F8" \
+  -e F8_PULL_ASSIST="$F8_PULL_ASSIST" \
   -e F8_EMBEDDINGS="$F8_EMBEDDINGS" \
   -v "$VOLUME":/root/.ollama \
   "$IMAGE" -c '
@@ -67,11 +77,16 @@ docker run --rm \
       ollama list >/dev/null 2>&1 && break
       sleep 1
     done
-    echo "[ensure-models] Pulling phi4-mini..."
-    ollama pull phi4-mini
-    echo "[ensure-models] Pulling $F8_DELEGATE_REPO -> phi4-f8-mini..."
-    ollama pull "$F8_DELEGATE_REPO"
-    ollama cp "$F8_DELEGATE_REPO" phi4-f8-mini
+    case "$F8_PULL_ASSIST" in
+      0|false|FALSE|no|off) ;;
+      *)
+        echo "[ensure-models] Pulling phi4-mini..."
+        ollama pull phi4-mini
+        echo "[ensure-models] Pulling $F8_DELEGATE_REPO -> phi4-f8-mini..."
+        ollama pull "$F8_DELEGATE_REPO"
+        ollama cp "$F8_DELEGATE_REPO" phi4-f8-mini
+        ;;
+    esac
     case "$F8_EMBEDDINGS" in
       0|false|FALSE|no|off) ;;
       *)

@@ -34,6 +34,10 @@ same spelling means - this fine-tune has two live published repos, so `phi4-f8-m
 neither the chat template nor the stop tokens a locally built image bakes in - send those per
 request via `options.stop` on `POST /chat`.
 
+Nor does the instance's chat gateway have to serve a fine-tune at all: it can be configured to
+draft through **OpenAI** or **Anthropic** instead, which keeps the provider key in the instance's
+environment rather than in each browser ([model providers](/model-providers/)).
+
 Fallen-8 ships **no weights**. The compose environment's Ollama sidecar pulls them on first start from
 the repositories named by `F8_DELEGATE_REPO` and `F8_PHI4F8_REPO`, so the models and their MIT licences
 bind whoever runs them ([running](/running/#first-start-pulls-models)). Until a fine-tune

@@ -145,6 +145,10 @@ services:
       - F8_DELEGATE_REPO=${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini:v0.0.35}
       - F8_PHI4F8_REPO=${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8:v0.0.35}
       - F8_PULL_PHI4F8=${F8_PULL_PHI4F8:-1}
+      # Both assist fine-tunes at once (phi4-mini + phi4-f8-mini, ~4.8 GB). Set 0 when chat runs
+      # off this machine, which is what the openai and anthropic overlays do. Independent of
+      # F8_EMBEDDINGS on purpose: a hosted-chat deployment is exactly the one that keeps bge-m3.
+      - F8_PULL_ASSIST=${F8_PULL_ASSIST:-1}
       # Keep in sync with the fallen8 service's embedding block: when embeddings are on
       # (the default), the sidecar also pulls the bge-m3 embedding model (~1.2 GB once).
       - F8_EMBEDDINGS=${F8_EMBEDDINGS:-true}

@@ -23,13 +23,15 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Starts the F8 environment (docker compose up). Two jobs:
+// Starts the F8 environment (docker compose up). Three jobs:
 //  1. GPU: when the host has an NVIDIA GPU, add docker-compose.gpu.yml (Ollama on the
 //     device; runtime-only, so it applies in BOTH modes) and, when building locally, also
 //     docker-compose.gpu-nlp.yml (the NLP transformer tier, a build-time variant - why the
 //     two files are separate: see their headers). Detection is "nvidia-smi works";
 //     F8_GPU=1 / F8_GPU=0 forces it either way.
-//  2. Nothing else. The Ollama container pulls the models itself on first start (see
+//  2. Model provider: F8_MODEL_PROVIDER picks where the two model capabilities send their
+//     requests and applies that overlay. https://docs.fallen-8.com/model-providers/
+//  3. Nothing else. The Ollama container pulls the models itself on first start (see
 //     scripts/ollama-init.sh) - this script does NOT gate startup on a host Ollama or a
 //     pre-populated volume. To pre-seed the volume for an offline/faster first start, run
 //     scripts/ensure-models.sh once (optional); it is never required.
@@ -60,15 +62,45 @@ function main() {
   // transformer tier stays out (a build-time variant, deliberately not published).
   const published = process.argv.includes('--published');
   const gpu = hostHasNvidiaGpu();
-  // Decided before the banners below: with Nahil on there is no local sidecar to put on a GPU and
-  // nothing to pull, so printing either would contradict the paragraph after it.
-  // Either variable turns it on. F8_NAHIL_URL alone used to be the selector, back when the
-  // overlay had no default endpoint; it does now (https://api.nahil.dev), so a deployment that
-  // only supplies the credential - which is the normal case - would otherwise have set the one
-  // thing Nahil needs and quietly got the local sidecar.
-  const nahil =
+  // Which provider the two model capabilities talk to. Decided before the banners below, because
+  // with the models off-box there is less sidecar to describe than the paragraphs assume.
+  //
+  //   local      the Ollama sidecar on this machine
+  //   nahil      nahil.dev serves both capabilities: the same bge-m3, so no vector re-embeds
+  //   openai     chat on OpenAI, embeddings stay on the sidecar
+  //   anthropic  chat on Anthropic, embeddings stay on the sidecar
+  //
+  // An unknown value is refused rather than resolved to the default: a typo'd provider must not
+  // quietly start a sidecar the operator believes is off-box.
+  const providers = ['local', 'nahil', 'openai', 'anthropic'];
+  const selected = (process.env.F8_MODEL_PROVIDER || '').trim().toLowerCase();
+  if (selected !== '' && !providers.includes(selected)) {
+    console.error(
+      `F8_MODEL_PROVIDER='${(process.env.F8_MODEL_PROVIDER || '').trim()}' is not a model provider.` +
+        ` Expected one of: ${providers.join(', ')}.`
+    );
+    process.exit(1);
+  }
+  // Nahil's original selector stays: either variable alone selects it when nothing else does.
+  // F8_NAHIL_URL counts because it used to BE the selector, back when the overlay had no default
+  // endpoint; it does now (https://api.nahil.dev), so a deployment that only supplies the
+  // credential - the normal case - would otherwise have set the one thing Nahil needs and quietly
+  // got the local sidecar.
+  const nahilVars =
     (process.env.F8_NAHIL_URL || '').trim() !== '' ||
     (process.env.F8_NAHIL_API_KEY || '').trim() !== '';
+  const provider = selected !== '' ? selected : nahilVars ? 'nahil' : 'local';
+  // Kept under its own name because everything downstream asks the one question it answers: is
+  // there a local sidecar serving BOTH capabilities or not.
+  const nahil = provider === 'nahil';
+  // An explicit selector wins over leftover credentials, and says so - silently ignoring a key
+  // that is still in someone's .env is how a deployment ends up somewhere nobody chose.
+  if (selected !== '' && !nahil && nahilVars) {
+    console.log(
+      `F8_MODEL_PROVIDER=${selected} wins over the F8_NAHIL_* variables that are also set, so Nahil\n` +
+        'is NOT selected. Unset F8_MODEL_PROVIDER to select it by credential again.\n'
+    );
+  }
   if (published) {
     console.log(
       'Published-image mode: pulling ghcr.io/cosh/fallen-8-core* (' +
@@ -81,6 +113,14 @@ function main() {
         'there, the local Ollama sidecar is NOT started, and nothing is pulled onto this machine.\n' +
         'Needs F8_NAHIL_API_KEY. Docs: https://docs.fallen-8.com/nahil/\n'
     );
+  } else if (provider === 'openai' || provider === 'anthropic') {
+    const label = provider === 'openai' ? 'OpenAI' : 'Anthropic';
+    const keyVar = provider === 'openai' ? 'F8_OPENAI_API_KEY' : 'F8_ANTHROPIC_API_KEY';
+    console.log(
+      `Chat runs on ${label} - POST /chat leaves this machine, and needs ${keyVar}.\n` +
+        'Embeddings deliberately do NOT move with it: the local sidecar keeps serving bge-m3, so\n' +
+        'every vector you have stored keeps its identity. Docs: https://docs.fallen-8.com/model-providers/\n'
+    );
   }
   console.log(
     gpu
@@ -92,11 +132,17 @@ function main() {
       : 'No NVIDIA GPU detected - starting CPU-only, the NLP sidecar on en_core_web_lg\n' +
         '(F8_GPU=1 forces the GPU override).'
   );
-  if (!nahil) {
+  if (provider === 'local') {
     console.log(
       'On first start the Ollama container pulls phi4-mini + phi4-f8-mini (a few GB); the F8\n' +
         'API is up immediately, and NL assist works once the pull finishes. Watch it with\n' +
         '`npm run env:logs`. To pre-seed the models (offline/faster first start): scripts/ensure-models.sh\n'
+    );
+  } else if (!nahil) {
+    console.log(
+      'On first start the sidecar pulls bge-m3 for embeddings (~1.2 GB) and skips the two mini\n' +
+        'assist models, since chat runs off this machine. The larger phi4-f8 still pulls unless you\n' +
+        'set F8_PULL_PHI4F8=0. Watch it with `npm run env:logs`.\n'
     );
   }
 
@@ -117,10 +163,22 @@ function main() {
   // stays available via a bare `docker compose up` (no overlay).
   files.push('-f', 'docker-compose.split.yml');
 
-  // Nahil (feature nahil-backend): the two model capabilities talk to nahil.dev and the local
-  // Ollama sidecar is not started at all. Applied after split.yml so its Fallen8__Chat/Embedding
-  // overrides win. Announced above, where the sidecar banners it contradicts are.
-  if (nahil) files.push('-f', 'docker-compose.nahil.yml');
+  // The model-provider overlay (features nahil-backend, model-providers), applied after split.yml
+  // so its Fallen8__Chat/Embedding overrides win. Announced above, where the sidecar banners it
+  // contradicts are. `local` has no overlay: the base file already wires both capabilities to the
+  // sidecar.
+  //
+  // None of these three belong in package.json's env:down / env:logs / env:status, and that is
+  // load-bearing rather than an omission: an overlay joins those commands only when it DEFINES a
+  // service (observability.yml and split.yml do). Adding one would also break them, because a
+  // ${VAR:?} is evaluated at config-parse time for EVERY compose subcommand, so `npm run env:down`
+  // would refuse to run from any shell that does not carry the provider's key.
+  const overlay = {
+    nahil: 'docker-compose.nahil.yml',
+    openai: 'docker-compose.openai.yml',
+    anthropic: 'docker-compose.anthropic.yml',
+  }[provider];
+  if (overlay) files.push('-f', overlay);
 
   // Unstructured ingestion (feature unstructured-ingestion): the docling-serve sidecar rides
   // the "ingestion" profile, default ON like the rest of the environment. F8_INGESTION=false

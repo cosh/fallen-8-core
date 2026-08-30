@@ -44,6 +44,11 @@ Each feature has a deep-dive doc — follow the link.
   words; the search inherits its label and drops the element itself from the hits.
 - **[Semantic traversal](https://docs.fallen-8.com/semantic-traversal/)** — embeddings as element state; a
   code-free `semantic` block steers paths and subgraphs by similarity.
+- **[Model providers](https://docs.fallen-8.com/model-providers/)** - choose where the chat gateway
+  and the embedding provider send their requests, each independently: the local Ollama sidecar,
+  Nahil, OpenAI or Anthropic. One deployment variable picks it, the credential lives in the
+  instance's environment and is never published or writable, and every response says which backend
+  served it.
 - **[Nahil](https://docs.fallen-8.com/nahil/)** - run the embedding and chat models on Nahil
   (nahil.dev) instead of the local sidecar: same vectors, same indices, no weights on the host.
   Configuration only; the local sidecar stays the default.
@@ -147,7 +152,8 @@ flowchart TB
         rest --> engine
     end
 
-    sidecar["Model backend<br/>local Ollama sidecar or remote gateway"]:::ext
+    sidecar["Model sidecar<br/>local Ollama"]:::ext
+    provider["Hosted model provider<br/>Nahil · OpenAI · Anthropic"]:::ext
     docling["Document sidecar<br/>docling-serve"]:::ext
     nlp["NLP sidecar<br/>spaCy · entities + terms"]:::ext
     sources["Your network<br/>CSV · UniFi console · Fronius inverter · ARXML extract"]:::ext
@@ -160,6 +166,7 @@ flowchart TB
     hostembed -->|HTTP · CORS| rest
     services -->|HTTP| rest
     rest -.->|embeddings + chat| sidecar
+    rest -.->|"chat, and embeddings on Nahil"| provider
     rest -.->|document conversion| docling
     rest -.->|entity + term enrichment| nlp
     rest -.->|OTLP push| obs

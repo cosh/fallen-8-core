@@ -12,6 +12,10 @@ from remote hardware.
 Both are supported, side by side, one per deployment. **The local sidecar stays the default** and
 nothing about an existing setup changes. Nahil is opt-in, per capability, by configuration alone.
 
+This page is the Nahil deep dive. Everything that is true of every provider - choosing one, where
+the credential lives, what a switch does and does not move, and which backend served a given call
+- lives once on [Model providers](/model-providers/).
+
 ## Why you might want it
 
 A useful local model wants a GPU, and a 14 B model wants a big one. Nahil lets a small Fallen-8
@@ -115,12 +119,8 @@ Fallen8__Embedding__IntendedMetric=Cosine
 The two capabilities are independent: embeddings can run on Nahil while chat stays on a local
 sidecar, or the other way round.
 
-For a bare `dotnet run --project fallen-8-core-apiApp` - which reads neither the overlay nor
-`.env` - the set-once home for these keys is
-[.NET user secrets](https://learn.microsoft.com/aspnet/core/security/app-secrets): the project
-already carries a `UserSecretsId`, so
-`dotnet user-secrets set "Fallen8:Chat:Nahil:ApiKey" "your-key" --project fallen-8-core-apiApp`
-works as-is and keeps the credential outside the repository.
+For a bare `dotnet run`, which reads neither the overlay nor `.env`, the set-once home for these
+keys is [.NET user secrets](/model-providers/#the-settings-underneath).
 
 `Fallen8:Embedding:ModelName` is in that list **only to say it does not change**. It is the
 identity stamp written beside every vector you have stored, not a request identifier, and it stays
@@ -128,37 +128,10 @@ untagged: retagging it to `bge-m3:latest` to match the request would make every 
 report an identity mismatch for no benefit on the wire. The compose overlay accordingly does not
 set it - the base environment already did, and that value is the one that must survive.
 
-## Rules the configuration is held to
-
-The endpoint must be a **host root**. `https://api.nahil.dev/v1` is refused with a message naming
-the key, because .NET's `HttpClient` silently *drops* a path prefix as soon as a request path
-starts with `/`: accepted, it would send every request to the wrong URL and report only a puzzling
-404. It is refused rather than rewritten, since guessing which half you meant is how a prefix ends
-up quietly unreachable.
-
-HTTPS is expected for anything off your own network and is not enforced. There is no
-certificate-validation bypass and none will be added.
-
-A misconfigured backend does **not** stop the server. The model backends load on first use, so a
-bad endpoint or a missing key becomes a `503` on that capability's endpoints - carrying the exact
-reason - while the rest of the database runs normally. The same reason is logged once at startup,
-so you do not have to make a request to find out.
-
-### The credential is never published
-
-`GET /config` publishes Fallen-8's whole setting inventory, and on an instance with no API key
-configured that route is anonymous. Both Nahil keys are therefore catalogued **never writable**,
-which is the tier whose entries publish a key's name, tier and reason but *no value*. They cannot
-be written over REST either: a writable credential would let a caller redirect your metered
-spend. No log line, error message or diagnostic contains the key.
-
-The two model names differ from each other, which is worth knowing before you try to change one.
-The chat model is writable-tier; the embedding model is never-writable, because it *is* the
-embedding function and a write would produce vectors that no longer match the ones already stored
-under the same stamp. And when compose supplies either as an environment variable, the environment
-*wins* over a stored override: Studio renders that row read-only and a write is refused naming the
-variable to change instead. That is
-[how configuration authority works](/configuration/) generally, not something specific to Nahil.
+The rules this configuration is held to - the host-root endpoint, HTTPS, a bad backend becoming a
+capability `503` rather than a dead server, the never-writable credential tier and the two model
+names' different tiers - are the same for every provider and are stated once on
+[Model providers](/model-providers/#rules-the-configuration-is-held-to).
 
 ## Waiting for a cold model
 
@@ -168,9 +141,8 @@ instead of failing, so **expect the first call after a quiet period to be slow r
 broken**. A spent token budget (`429`) is waited out the same way, and each wait logs one line
 naming the model and the reason, so the delay is visible while it happens.
 
-**The only knob is your own budget** - `Fallen8:Chat:TimeoutSeconds` /
-`Fallen8:Embedding:TimeoutSeconds`. There is deliberately no separate retry budget, because a
-second deadline could only make the answer arrive at a time no setting explains. When the budget
+The only knob is your own budget, and there is deliberately no separate retry budget:
+[how a wait is bounded](/model-providers/#rate-limits-refusals-and-a-stream-that-dies). When it
 runs out, the error says the model was not available in time, names it, and says how long was
 spent waiting.
 
@@ -210,12 +182,10 @@ every chunk has a vector, so the document is re-runnable rather than half-indexe
 
 ## Streaming, and why it matters here
 
-`Fallen8:Chat:Stream` is on by default, so the backend is asked to stream the completion.
-`POST /chat` still answers with a whole completion; the response shape is unchanged. The reason
-to stream anyway is that Nahil can run its own verification pass *after* delivery instead of in
-front of it, and that a stream which dies half way is **detectable** - a truncated answer fails
-with `502` naming how much arrived, instead of being returned as a short answer the model never
-gave.
+Streaming is on by default and a truncated answer is a detectable `502` on every backend
+([why](/model-providers/#rate-limits-refusals-and-a-stream-that-dies)). The reason it matters
+*here* specifically: Nahil can run its own verification pass **after** delivery instead of in front
+of it, so the first token arrives without waiting for that pass.
 
 ## Model names
 

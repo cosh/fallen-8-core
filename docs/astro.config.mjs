@@ -85,8 +85,14 @@ export default defineConfig({
 						{
 							label: 'Semantic and vector search',
 							description:
-								'element embeddings, vector indexes, semantic traversal and the semantic layer over unstructured sources',
-							paths: ['vector-search', 'semantic-traversal', 'unstructured-ingestion'],
+								'element embeddings, vector indexes, semantic traversal, the model providers behind embeddings and chat, and the semantic layer over unstructured sources',
+							paths: [
+								'vector-search',
+								'semantic-traversal',
+								'model-providers',
+								'nahil',
+								'unstructured-ingestion',
+							],
 						},
 						{
 							label: 'REST API and data movement',
@@ -192,6 +198,7 @@ export default defineConfig({
 						{ label: 'Indexes', slug: 'indexes' },
 						{ label: 'Vector search', slug: 'vector-search' },
 						{ label: 'Semantic traversal', slug: 'semantic-traversal' },
+						{ label: 'Model providers', slug: 'model-providers' },
 						{ label: 'Nahil', slug: 'nahil' },
 						{ label: 'Semantic layer', slug: 'unstructured-ingestion' },
 						{ label: 'Bulk import/export', slug: 'bulk-import-export' },

@@ -4,7 +4,8 @@
 # Ollama initialization (entrypoint of Dockerfile.ollama): start the daemon, then pull the
 # models F8 needs. Default set: phi4-mini (base), phi4-f8-mini (the mini fine-tune, the UI
 # default), and phi4-f8 (the full-Phi-4 fine-tune, ~9 GB, GPU recommended) - set
-# F8_PULL_PHI4F8=0 to skip it on a CPU-only or disk-constrained host.
+# F8_PULL_PHI4F8=0 to skip it on a CPU-only or disk-constrained host, or F8_PULL_ASSIST=0 to skip
+# the two mini assist pulls when the chat gateway runs on a hosted provider.
 # Feature: delegate-model-variants.
 #
 # Models already present in the mounted volume are reused, so this only downloads on a cold
@@ -20,6 +21,10 @@ F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-1}"
 # The embedding model the F8 API's provider is wired to in docker-compose.yml (feature
 # embedding-out-of-box); on by default, opted out together with the provider.
 F8_EMBEDDINGS="${F8_EMBEDDINGS:-true}"
+# The two assist fine-tunes (feature model-providers); on by default. Set 0 when the chat gateway
+# runs on a hosted provider, which is what the openai and anthropic overlays do. Deliberately
+# independent of F8_EMBEDDINGS: a hosted-chat deployment is exactly the one that keeps bge-m3 here.
+F8_PULL_ASSIST="${F8_PULL_ASSIST:-1}"
 HEALTH_CHECK_RETRIES=30
 HEALTH_CHECK_INTERVAL=1
 PULL_RETRIES=3
@@ -127,9 +132,17 @@ fi
 
 MISSING=""
 
-# Default set: the base + the CPU-OK mini fine-tune (the UI default).
-ensure_base "phi4-mini" || MISSING="$MISSING phi4-mini"
-ensure_finetune "$F8_DELEGATE_REPO" "phi4-f8-mini" || MISSING="$MISSING phi4-f8-mini"
+# Default set: the base + the CPU-OK mini fine-tune (the UI default) - unless chat runs on a
+# hosted provider and nothing here will ever be asked for a token (F8_PULL_ASSIST=0).
+case "$F8_PULL_ASSIST" in
+  0|false|FALSE|no|off)
+    log_info "F8_PULL_ASSIST is off - skipping the phi4-mini and phi4-f8-mini assist pulls"
+    ;;
+  *)
+    ensure_base "phi4-mini" || MISSING="$MISSING phi4-mini"
+    ensure_finetune "$F8_DELEGATE_REPO" "phi4-f8-mini" || MISSING="$MISSING phi4-f8-mini"
+    ;;
+esac
 
 # The embedding model (bge-m3, MIT) - unless embeddings are opted out (F8_EMBEDDINGS=false).
 case "$F8_EMBEDDINGS" in
