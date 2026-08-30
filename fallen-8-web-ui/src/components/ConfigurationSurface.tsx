@@ -267,7 +267,10 @@ function SurfaceBody({
     // which section a key lives in, which is exactly the person hunting for this row, and a list that
     // vanishes with no reason given reads as a broken picker. Names already fetched in this visit are
     // not affected; they survive a search narrowing the pane.
-    if (catalog.data === undefined && searching) {
+    // `!isFetching` matters: a fetch triggered by NAVIGATING here is still in flight for a moment,
+    // and a search typed during that window would otherwise tell an operator who is already in the
+    // Chat section to open the Chat section.
+    if (catalog.data === undefined && searching && !catalog.isFetching) {
       return { key: pickerKey, note: "Open the Chat section to load catalogued names; or type one." };
     }
     // Studio filters, the route does not (decision 8): an embedding model written here is a refusal
@@ -277,7 +280,7 @@ function SurfaceBody({
       .filter((model) => model.capability !== "embedding")
       .map((model) => ({ value: model.name, label: modelOptionLabel(model) }));
     return offered.length > 0 ? { key: pickerKey, suggestions: offered } : null;
-  }, [pickerKey, catalog.data, catalog.isError, catalog.error, searching]);
+  }, [pickerKey, catalog.data, catalog.isError, catalog.error, catalog.isFetching, searching]);
 
   return (
     <>

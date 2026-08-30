@@ -169,11 +169,15 @@ attach configuration. For everything else, local debugging is faster.
   instance with that key. Dynamic code execution (the delegate editor, inline fragments) is
   always on and needs no extra setting.
 - **Auth-open is not capability-open:** the launch configs pass no capability environment, so a
-  local debug run answers 403 on `/embedding/*`, `POST /chat`, `GET /chat/models` and
-  `/document/*` whatever the key situation is. Those flags are absent from `appsettings.json`
-  (off) and the gate is independent of authentication, so Studio's Knowledge screen, the
+  local debug run refuses `/embedding/*`, `POST /chat`, `GET /chat/models` and `/document/*`.
+  Those flags are absent from `appsettings.json` (off), so Studio's Knowledge screen, the
   embeddings tab and NL assist are all dead until you switch them on in the launch config's
-  `env`
+  `env`. **The refusal reads as `401` on the default keyless run, not `403`**, which is worth
+  knowing before you go hunting for an auth problem: the capability gate is independent of
+  authentication, but the status code it produces is not. A policy that fails for a caller the
+  server never authenticated is a challenge, so you get `401`; configure a key and present it and
+  the same capability answers `403`. A bare `401` from these routes means "switch the capability
+  on", not "your credential is wrong"
   ([Configuration keys](/running/#configuration-keys) has the defaults):
 
   ```json

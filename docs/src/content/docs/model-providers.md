@@ -222,13 +222,15 @@ curl -H "X-Api-Key: $F8_KEY" http://localhost:8080/chat/models
 Names come back verbatim and sorted, and every field except `name` is null wherever the backend
 does not report it (the table below says which backend reports what).
 
-Nothing is cached and nothing is polled: the list is read from the backend at the moment you ask,
-under one five-second budget for the whole read. How wide that read is depends on the backend: an
+The route polls nothing and caches nothing: it reads the backend at the moment you ask, under one
+five-second budget for the whole read. How wide that read is depends on the backend: an
 Ollama-protocol backend names its models in one call and then asks about each one, at most eight of
-those in flight at a time, while OpenAI and Anthropic answer the whole catalog in a single call. Only
-the calls that go to a backend needing a credential carry one, so a local sidecar is asked without
-one, exactly as every other request to it is. Studio asks at most once per visit to the Chat
-section, so merely viewing configuration triggers **no catalog fan-out**. That is not the same as
+those in flight at a time, while OpenAI and Anthropic each answer in a single call (Anthropic's
+first page of it, which is the one limit worth knowing here). Only the calls that go to a backend
+needing a credential carry one, so a local sidecar is asked without one, exactly as every other
+request to it is. Studio asks at most once per visit to the Chat section, and holds the answer for
+a few minutes after you close the surface, so a model you pull while it is open may not appear
+until that has lapsed. Merely viewing configuration triggers **no catalog fan-out**. That is not the same as
 sending nothing: on an Ollama-protocol backend `GET /config` still runs its small, 3-second
 [model-residency probe](/nahil/#checking-it-works), which Studio re-reads every ten seconds while
 the Configuration card is open. The catalog is the read that can cost a call per model, and it is

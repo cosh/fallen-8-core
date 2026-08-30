@@ -420,6 +420,31 @@ describe("Chat model picker", () => {
     expect(row(NAHIL_KEY)).toHaveValue("f8-delegate:latest");
   });
 
+  it("does not tell an operator already in the Chat section to open the Chat section", async () => {
+    const user = userEvent.setup();
+    // A fetch that has not resolved yet, so the row is in the window between navigating here and
+    // the names arriving. Typing in the search box during that window must not swap the (correct,
+    // pending) state for a caption telling them to do the thing they already did.
+    let release!: (value: ChatModelsREST) => void;
+    getChatModelsMock.mockReturnValue(
+      new Promise<ChatModelsREST>((resolve) => {
+        release = resolve;
+      }),
+    );
+    renderSurface();
+
+    await selectSection(user, "chat");
+    await screen.findByTestId(settingTestId(NAHIL_KEY));
+    await user.type(screen.getByTestId("config-search"), "m");
+
+    expect(screen.queryByTestId(`${settingTestId(NAHIL_KEY)}-note`)).toBeNull();
+
+    // And once it lands, the names are offered as usual.
+    release(CATALOG);
+    await waitFor(() => expect(row(NAHIL_KEY)).toHaveAttribute("list"));
+    expect(screen.queryByTestId(`${settingTestId(NAHIL_KEY)}-note`)).toBeNull();
+  });
+
   it("does not fan out again as the pane flips out and back in after a refusal", async () => {
     const user = userEvent.setup();
     getChatModelsMock.mockRejectedValue(

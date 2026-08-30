@@ -120,10 +120,13 @@ namespace NoSQL.GraphDB.Tests
                 "the chat gateway is Studio's model path (browser -> instance -> Ollama); agents bring " +
                 "their own model. Chat capability state is discoverable via f8_overview (chatEnabled/chatBackend)"),
             new(op => op == "GET /chat/models",
-                "the model catalog feeds Studio's picker for the SERVER-owned model, which only a " +
-                "configuration write can change; agents bring their own model, so the instance " +
-                "backend's name list buys them nothing beyond what f8_overview already reports " +
-                "(chatEnabled/chatBackend)"),
+                "the model catalog exists to fill a PICKER: it turns a free-text configuration field " +
+                "into a list for a human choosing from a dropdown. An agent needs no dropdown, and it " +
+                "is not short of the capability either - f8_admin get_settings already reads " +
+                "Fallen8:Chat:<Backend>:Model and set_settings already writes it, since PATCH /config " +
+                "is bridged - so the catalog would add a convenience, not a reach. Deliberately NOT " +
+                "justified by f8_overview: that reports chatEnabled and chatBackend only, and does not " +
+                "carry the model name"),
             // GET /config is no longer deferred: feature writable-instance-config turned it into the whole
             // setting inventory (tier, source, effective value, and the reason a key is refused), and
             // f8_admin get_settings/set_settings bridge it. The deferral had to be DELETED rather than

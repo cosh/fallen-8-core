@@ -40,13 +40,19 @@ namespace NoSQL.GraphDB.App.Helper
     ///   surfaced as an unhandled <see cref="System.Threading.Tasks.TaskCanceledException" />
     ///   (HTTP 500) instead of the documented gateway-timeout mapping.
     ///   <para>
-    ///     THE DEADLINE RULE, stated once for all Ollama-protocol callers: a caller either owns the
-    ///     deadline with a linked <see cref="CancellationTokenSource" /> and takes no transport one
+    ///     THE DEADLINE RULE, stated once for all Ollama-protocol callers: there is exactly ONE
+    ///     deadline on a call, never two, because two deadlines is the bug above. A caller either owns
+    ///     it with a linked <see cref="CancellationTokenSource" /> and takes no transport one
     ///     (<see cref="CreateForProvider" />, used by the two providers, whose budget is
     ///     operator-configured and must be authoritative), or it has no outer budget and takes a
-    ///     finite transport one (<see cref="CreateForProbe" />). Never both: two deadlines is the bug
-    ///     above, which is why the choice is two entry points rather than an argument a call site can
-    ///     get wrong.
+    ///     finite transport one (<see cref="CreateForProbe" /> with a real timeout, the residency
+    ///     probe). A caller that owns a budget covering SEVERAL calls is the third shape: it passes
+    ///     <see cref="Timeout.InfiniteTimeSpan" /> to <see cref="CreateForProbe" />, which keeps its
+    ///     one budget authoritative while still declining the warm-up retry, because retrying a
+    ///     metadata read would spend a shared budget on one of its calls
+    ///     (<see cref="Chat.ChatModelCatalog" />). What the two entry points really choose between is
+    ///     the RETRY, and the transport deadline is the argument, which is why only the retry is
+    ///     baked into the name.
     ///   </para>
     ///   <para>
     ///     A Nahil connection additionally carries the bearer credential it requires on every route

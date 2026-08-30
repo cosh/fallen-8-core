@@ -80,17 +80,21 @@ current versions; an older sidecar simply omits it). OpenAI and Anthropic each p
    rule).
 7. **Studio renders the picker as a native combobox (`<input list>` + `<datalist>`).** Free text
    stays first-class (decision: the closed-dropdown trap above), no new CSS primitives (the
-   writable-instance-config 5.1 rule), and only two rows ever get it: the ACTIVE backend's
-   `Fallen8:Chat:<Backend>:Model` row. Embedding model rows never get a picker: every
+   writable-instance-config 5.1 rule), and exactly ONE row ever gets it: the ACTIVE backend's
+   `Fallen8:Chat:<Backend>:Model` row. The Chat section publishes four model rows, one per
+   backend; the three that are not running stay bare. Embedding model rows never get a picker: every
    `Fallen8:Embedding:*:Model` is NotWritable under R3 (the value is the identity stamp beside
    stored vectors), so a picker there would be a button wired to a refusal.
 8. **Studio filters, the route does not.** The route returns every catalogued model with its
    capability; Studio's picker excludes `capability === "embedding"` and keeps unknowns. The
    catalog stays a neutral read (a future informational embedding view can reuse it).
 9. **MCP: conscious deferral, not a bridge.** `GET /chat/models` joins `POST /chat` in
-   `McpRestCoverageTest`'s deferral list with the same reason: agents bring their own model, and
-   the server-owned model is discoverable via `f8_overview`. The OpenAPI snapshot is
-   regenerated (additions only).
+   `McpRestCoverageTest`'s deferral list, but NOT for the same reason: the catalog exists to fill
+   a picker, and an agent needs no dropdown. It is also not short of the capability, because
+   `PATCH /config` is bridged, so `f8_admin get_settings` already reads
+   `Fallen8:Chat:<Backend>:Model` and `set_settings` already writes it. Explicitly not justified
+   by `f8_overview`, which reports `chatEnabled` and `chatBackend` only and does NOT carry the
+   model name. The OpenAPI snapshot is regenerated (additions only).
 10. **No engine change, no NL-assist impact.** This is apiApp + Studio + docs. The NL-assist
     prompt, dataset and custom mode are untouched; no `RETRAIN-LOG.md` entry.
 
@@ -104,9 +108,9 @@ current versions; an older sidecar simply omits it). OpenAI and Anthropic each p
 {
   "backend": "Nahil",
   "models": [
+    { "name": "bge-m3:latest",       "capability": "embedding",  "available": true,  "class": "C2" },
     { "name": "phi4-f8-mini:latest", "capability": "completion", "available": true,  "class": "S1" },
-    { "name": "phi4-f8:latest",      "capability": "completion", "available": true,  "class": "S2" },
-    { "name": "bge-m3:latest",       "capability": "embedding",  "available": true,  "class": "C2" }
+    { "name": "phi4-f8:latest",      "capability": "completion", "available": true,  "class": "S2" }
   ]
 }
 ```
@@ -149,6 +153,16 @@ once per section visit and only under those conditions (no outbound fan-out from
 configuration). A non-200 catalog answer degrades the row to today's plain input plus a one-line
 caption naming why the list is unavailable; typing is never blocked, and a typed value that is
 not in the list is not an error (it may be `f8-delegate:latest`).
+
+**As built, two additions.** First, the fetch also requires that a search is NOT active, and that
+the row is present as the pane actually RENDERS it (the active filter chip included). A search
+spans every section and matches a key, its rule and its reason, so one incidental character typed
+at another section's keys surfaces the Chat pane, and without this the credentialed fan-out fell
+out of a keystroke; likewise the "not writable" chip leaves the Chat pane showing only rows a rule
+excludes, where the answer had nothing on screen to reach. Second, that gate needs its own caption,
+so a row reached BY SEARCH says where its list comes from rather than silently rendering bare
+(names already fetched in the visit survive a search, and the caption is suppressed while a
+legitimately triggered fetch is still in flight).
 
 ### FR-5: Gates
 
