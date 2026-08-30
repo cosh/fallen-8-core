@@ -186,13 +186,13 @@ Configure it under `Fallen8:Embedding` (off unless `Enabled`):
 | Key | Default | Meaning |
 |---|---|---|
 | `Enabled` | `false` | Master switch; endpoints answer 403 when off |
-| `Backend` | `Onnx` | `Onnx` \| `LLamaSharp` \| `Ollama` \| [`Nahil`](/nahil/): the whole backend swap |
+| `Backend` | `Onnx` | `Onnx` \| `LLamaSharp` \| `Ollama` \| `Nahil` \| `OpenAI`: the whole backend swap, and [which to pick](/model-providers/) |
 | `ModelName` / `ModelVersion` | (none) | Identity name (required when enabled) + optional version |
 | `Dimension` | (none) | Declared output length; a mismatch against real output latches 503 |
 | `IntendedMetric` | `Cosine` | Metric the vectors are meant for |
 | `MaxBatchSize` / `MaxTextLength` | 64 / 8192 | Request bounds, in items and **chars**. `MaxTextLength` is not a token window - see below |
 | `QueryPrefix` | `""` | Retrieval prefix applied to **query-time** embeddings only |
-| `Onnx.{ModelPath,VocabPath,…}`, `LLamaSharp.ModelPath`, `Ollama.{Endpoint,Model}` | (none) | Backend-specific settings |
+| `Onnx.{ModelPath,VocabPath,…}`, `LLamaSharp.ModelPath`, `Ollama.{Endpoint,Model}`, `Nahil.{…}`, `OpenAI.{Endpoint,ApiKey,Model}` | (none) | Backend-specific settings |
 
 The provider's biggest consumer is [unstructured ingestion](/unstructured-ingestion/):
 document chunks embed through it on the way into the graph.
@@ -257,8 +257,8 @@ gateway**, `POST /chat`, that proxies a chat completion to the
 same model backend so a client reaches an SLM/LLM *through* the instance. It is the default
 NL-assist transport in [F8 Studio](/studio/), also apiApp-only and capability-gated, and the
 model is server-owned. Configure it under `Fallen8:Chat` (off unless `Enabled` /
-`F8_CHAT`): `Backend` (`Ollama` or `Nahil`, see [Nahil](/nahil/)),
-`Ollama.{Endpoint,Model}` (default `phi4-f8-mini:latest`),
+`F8_CHAT`): `Backend` (`Ollama`, `Nahil`, `OpenAI` or `Anthropic`, see
+[model providers](/model-providers/)), `Ollama.{Endpoint,Model}` (default `phi4-f8-mini:latest`),
 `TimeoutSeconds` (the single deadline on a completion; exceeded calls answer `504`). Both
 providers' state, plus whether the backend runs on GPU when Ollama reports it, is shown
 on Studio's Connect **Configuration** card (`GET /config`), and their keys sit in the Embedding
@@ -280,6 +280,8 @@ Weights are **never downloaded by Fallen-8**: paths point at operator-provided f
 | `Onnx` | yes (CPU) | ONNX export + WordPiece vocab | self-contained; the bge family is the tested reference |
 | `LLamaSharp` | yes (CPU) | embedding-capable GGUF | reuses a local Ollama blob; not bit-identical to the daemon |
 | `Ollama` | no | a model you `ollama pull` | zero in-process memory; couples availability to the container (503 while down) |
+| `Nahil` | no | the same `bge-m3`, on nahil.dev | no weights on the host, and no vector re-embeds ([Nahil](/nahil/)) |
+| `OpenAI` | no | none of yours | a **different** embedding function: new stamp, new dimension, so it never moves with a chat switch ([model providers](/model-providers/)) |
 
 In the compose environment the provider is **on by default**: the shipped Ollama sidecar serves
 **bge-m3** (MIT, 1024-dim, Cosine) and the `fallen8` service is wired to it; opt out with
@@ -330,6 +332,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8080/path/1/to/9 -ContentTy
 
 ## See also
 
+- [model-providers.md](/model-providers/): which backend serves embeddings and chat, and what a switch moves
 - [vector-search.md](/vector-search/): VectorIndex kNN mechanics (metrics, brute force, `/scan/index/vector`)
 - [delegates.md](/delegates/): the no-query-language philosophy and the `context` parameter for compiled fragments
 - [path-finding.md](/path-finding/) / [subgraphs.md](/subgraphs/): the traversal surfaces the block rides

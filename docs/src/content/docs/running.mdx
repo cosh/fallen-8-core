@@ -40,7 +40,7 @@ overlay when a GPU is detected. Eight containers publish a host port:
 | ----------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | F8 Studio (UI)                | http://localhost:8081                 | The browser UI, in its own container (`F8_UI_PORT`)                                                                                 |
 | F8 REST API                   | http://localhost:8080                 | The engine plus the REST surface: the data plane (`F8_PORT`)                                                                        |
-| Model sidecar (Ollama)        | http://localhost:11434                | Serves `bge-m3` for embeddings and the assist models for NL assist. Replaceable by [Nahil](/nahil/)          |
+| Model sidecar (Ollama)        | http://localhost:11434                | Serves `bge-m3` for embeddings and the assist models for NL assist. Either capability can move to a [hosted provider](/model-providers/)          |
 | MCP server                    | http://localhost:8090                 | The [AI-agent surface](/mcp-server/), anonymous and read-only in this environment (`F8_MCP_PORT`)                     |
 | Document conversion (docling) | http://localhost:5001                 | Converts PDF, Office and HTML uploads for [ingestion](/unstructured-ingestion/) (`F8_DOCLING_PORT`)                   |
 | NLP enrichment (spaCy)        | http://localhost:8100                 | Named entities and key terms per chunk, folded into the entity graph (`F8_NLP_PORT`)                                                |
@@ -96,6 +96,10 @@ with `phi4-f8`, so first start can take a while: the API and Studio are up immed
 assist starts answering once the mini pull finishes (the bigger model finishes later in the
 background). Watch progress with `npm run env:logs`.
 
+When chat runs on a [hosted provider](/model-providers/) the assist weights are dead weight, so
+the `openai` and `anthropic` presets set `F8_PULL_ASSIST=0` and the two mini models are skipped;
+`bge-m3` still pulls, because that sidecar is still the embedding backend.
+
 Later starts reuse the cached volume. The two **fine-tunes** are re-checked against the registry
 on every start, because the pipeline republishes them over the same `:latest` tag - a pull is
 content-addressed, so an unchanged model is a digest check and no transfer. If the registry is
@@ -137,9 +141,10 @@ needs only Docker and no host Ollama:
 bash scripts/ensure-models.sh        # assist models into the f8-ollama-models volume
 ```
 
-The pre-seed covers the same set the container would pull: `phi4-mini`, `phi4-f8-mini`, `phi4-f8`
-unless `F8_PULL_PHI4F8=0`, and `bge-m3` unless `F8_EMBEDDINGS=false`. So an environment seeded here
-and started offline has a model behind every capability it advertises.
+The pre-seed covers the same set the container would pull, and honours the same opt-outs:
+`phi4-mini` and `phi4-f8-mini` unless `F8_PULL_ASSIST=0`, `phi4-f8` unless `F8_PULL_PHI4F8=0`, and
+`bge-m3` unless `F8_EMBEDDINGS=false`. So an environment seeded here and started offline has a
+model behind every capability it advertises.
 
 If a pull fails the sidecar still comes up with whatever is present (it does not
 crash-loop); fix the network and re-run. The 404-in-Studio case is in
@@ -154,8 +159,8 @@ Any of them can instead live in a **`.env` file beside `docker-compose.yml`**, o
 per line. That is the standard compose mechanism, and the helper scripts read the same file, so
 it also drives what `env:up` *decides* - which overlays apply, which profiles start. A variable
 set in the shell wins over the file. `.env` is gitignored, which makes it the home for values you
-set once and keep - credentials included; [Nahil](/nahil/)'s `F8_NAHIL_API_KEY` is the canonical
-case. To start one, copy
+set once and keep - credentials included; a [model provider](/model-providers/)'s API key is the
+canonical case. To start one, copy
 [`.env.example`](https://github.com/cosh/fallen-8-core/blob/main/.env.example) from the repo root
 to `.env` and uncomment what you need.
 
@@ -166,6 +171,12 @@ to `.env` and uncomment what you need.
 | `F8_API_KEY`                                               | _(unset)_                        | Set it and the **entire data plane** requires the key; unset = open. The MCP bridge receives it for its own downstream calls but keeps its own caller auth (`F8_MCP_AUTH_MODE`) ([Security](/security/)) |
 | `F8_EMBEDDINGS`                                            | `true`                           | Text-in embeddings via the sidecar's `bge-m3`; `false` disables the provider (bring-your-own-vector still works)                                          |
 | `F8_CHAT`                                                  | `true`                           | The chat gateway (`POST /chat` to the sidecar's assist model), the default NL-assist path. `false` answers 403 (custom browser-direct backends still work) |
+| `F8_MODEL_PROVIDER`                                        | `local`                          | Where the two model capabilities send their requests: `local` (the sidecar), `nahil`, `openai` or `anthropic`, applying that overlay. An unknown value is refused before anything starts ([model providers](/model-providers/)) |
+| `F8_NAHIL_API_KEY`                                         | _(unset)_                        | [Nahil](/nahil/)'s credential, and on its own also the selector for that provider. It is the one provider that moves **embeddings** too, because it serves the same `bge-m3`. `F8_NAHIL_URL`, `F8_NAHIL_CHAT_MODEL` and the rest are in [its own table](/nahil/#turn-it-on) |
+| `F8_OPENAI_API_KEY`                                        | _(unset)_                        | Required by `F8_MODEL_PROVIDER=openai`; the overlay fails closed without it. `F8_OPENAI_URL` (default `https://api.openai.com`) and `F8_OPENAI_CHAT_TIMEOUT` (`120`) are the rest of the set |
+| `F8_OPENAI_CHAT_MODEL`                                     | `gpt-4o-mini`                    | The chat model that provider is asked for. A config string; Fallen-8 does not chase the vendor catalog |
+| `F8_ANTHROPIC_API_KEY`                                     | _(unset)_                        | Required by `F8_MODEL_PROVIDER=anthropic`; the overlay fails closed without it. `F8_ANTHROPIC_URL`, `F8_ANTHROPIC_MAX_TOKENS` (`4096`) and `F8_ANTHROPIC_CHAT_TIMEOUT` (`120`) are the rest of the set |
+| `F8_ANTHROPIC_CHAT_MODEL`                                  | `claude-opus-5`                  | The chat model that provider is asked for. Anthropic serves chat only: it publishes no embeddings API |
 | `F8_INGESTION`                                             | `true`                           | [Document ingestion](/unstructured-ingestion/). `false` skips the docling sidecar (a ~4.4 GB image) **and** answers 403 on the document endpoints, including txt/md |
 | `F8_NLP`                                                   | `true`                           | NLP enrichment. `false` skips the spaCy sidecar; ingestion still writes Document and Chunk vertices, just without the entity graph                         |
 | `F8_INTEGRATIONS`                                          | `true`                           | The [integrations](/integrations/) runtime, on its own profile and with no host port. `false` skips the sidecar and the four `/integrations/*` routes then refuse the capability |
@@ -174,6 +185,7 @@ to `.env` and uncomment what you need.
 | `F8_GPU`                                                   | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
 | `F8_IMAGE_TAG`                                             | `latest`                         | Which published image version `env:up:published` runs (mirrors the release tags, e.g. `0.0.28`); ignored by the building `env:up`                          |
 | `F8_PULL_PHI4F8`                                           | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |
+| `F8_PULL_ASSIST`                                           | `1`                              | Pulls the two mini assist models (`phi4-mini` + `phi4-f8-mini`, ~4.8 GB); `0` skips them, which is what the `openai` and `anthropic` presets set. Independent of `F8_EMBEDDINGS`: a hosted-chat deployment is exactly the one that keeps `bge-m3` |
 | `F8_DELEGATE_REPO`                                         | `stoic_hellman_728/phi4-f8-mini:v0.0.35` | Source for the default assist fine-tune (tagged locally as `phi4-f8-mini`); `F8_PHI4F8_REPO` is the same for `phi4-f8`. Pinned to a version on purpose - drop the tag to follow `:latest`                                     |
 | `F8_MCP_AUTH_MODE`                                         | `None`                           | Caller auth for the [MCP server](/mcp-server/). Anything reachable off-box wants `StaticToken` plus `F8_MCP_TOKEN`                           |
 | `F8_MCP_ENABLE_WRITE` / `F8_MCP_ENABLE_ADMIN` / `F8_MCP_ENABLE_CODE` | `false`                | Opt individual MCP tool tiers in; agents get read-only tools by default                                                                                   |
@@ -357,6 +369,7 @@ model.
 ## See also
 
 - [Architecture](/architecture/): how the containers, engine and sidecars fit together
+- [Model providers](/model-providers/): choosing where embeddings and chat run, and where the key lives
 - [Security](/security/): the API key you set at launch
 - [Studio](/studio/): the browser UI this serves
 - [MCP server](/mcp-server/): the agent surface on `:8090` and how to secure it

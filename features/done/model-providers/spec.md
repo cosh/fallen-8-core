@@ -1,7 +1,15 @@
 # Spec: Model providers (central backend selection + provenance)
 
-Status: **open** - spec'd 2026-08-29, not implemented. Implementation is planned for a
-`feature/model-providers` branch (see `plan.md`).
+Status: **implemented and merged to `main` on 2026-08-30** (branch `feature/model-providers`;
+per-phase record in `plan.md`). **Amended 2026-08-29** during implementation: FR-1, FR-4 and FR-5.4
+each carry a dated amendment note in place, because three of this spec's claims did not survive
+contact with the code. The original sentences are left standing above each note: a spec is a
+historical record, so what changed has to be visible rather than edited away.
+
+Known gaps at merge, deliberately not blockers: `query-semantic-search.png` is still the
+pre-feature frame (recapturing it needs a live `bge-m3` backend), the opt-in live smokes have never
+run against a real key, and a completion stopped at the token ceiling is refused by the two new
+backends but still returned as an ordinary draft by Ollama and Nahil.
 
 Fallen-8's two model capabilities - the chat gateway (`POST /chat`, NL assist) and the
 embedding provider - each select a backend today: `Ollama` (the local sidecar) or `Nahil`.
@@ -105,6 +113,14 @@ accepts `OpenAI`. Matching stays ordinal; the catalog `allowedValues` widens acc
 (`Fallen8SettingCatalog.cs:281-282`, load-bearing because matching is ordinal).
 `Backend=Ollama` and `Backend=Nahil` behaviour stays bit-identical.
 
+**Amendment (2026-08-29).** The `allowedValues` sentence is true of the CHAT selector only.
+`Fallen8:Embedding:Backend` is a `NotWritable(..., "R3", ...)` entry, and
+`Fallen8SettingEntry.NotWritable` has no `allowedValues` parameter at all - a never-writable
+setting has no write to validate, so there is nothing for an allow-list to gate. On the embedding
+side the only widening is the `Backend` XML doc plus the `EmbeddingBackendFactory` switch, and
+`Anthropic` gets its own refusal sentence there. Stated because someone will otherwise go hunting
+for a line that does not exist.
+
 ### FR-2: Provider option blocks and validation
 
 New sections, mirroring `NahilOptions`:
@@ -161,6 +177,35 @@ identity stamp rules are unchanged: switching to OpenAI means the operator sets
 vectors/indices report identity mismatch rather than silently mixing spaces (R3 is why
 `Embedding:Backend` stays never-writable).
 
+**Amendment (2026-08-29).** "`MaxBatchSize` chunks requests" describes a layer that does not
+exist. `Fallen8EmbeddingProvider.EmbedAsync` passes the whole list straight to
+`generator.GenerateAsync(...)`; `MaxBatchSize` is enforced by the CALLERS
+(`EmbeddingController` turns an over-cap request into a 400 rather than splitting it, and
+`DocumentIngestionService` chunks before calling the provider). The sentence should read: **the
+transport chunks at the provider's own per-request input cap** - 2048 inputs for OpenAI, which the
+SDK does not enforce itself - and the generator deliberately does **not** read `MaxBatchSize`. A
+second reader of that setting is exactly the duplication this repo forbids, and the shipped default
+of 64 is well under 2048 anyway, so in practice one batch is one request. Dimension validation is
+likewise not the generator's job: `Fallen8EmbeddingProvider` already owns dimension, finiteness,
+zero-norm and count checks for every backend, and a second copy would produce two different
+messages for one fault.
+
+**Amendment (2026-08-30, review repair).** "existing vectors/indices report identity mismatch rather
+than silently mixing spaces" (and decision 3's version of the same sentence) reads as though the
+switch itself produced the mismatch. It does not, and no code was added that would: the identity is
+purely declarative (`ModelName`/`Dimension`/`IntendedMetric`), `BoundIndexContract` compares an
+index's stored dimension and stamp against that declaration, and the generator asks the wire for
+`Fallen8:Embedding:Dimension` - so an operator who sets only `Backend`/`OpenAI:Model`/`OpenAI:ApiKey`
+gets `text-embedding-3-*` vectors filed under the old `bge-m3#1024#Cosine` stamp with every check
+passing. The mismatch is produced by the operator DECLARING the new identity, which is the second
+half of the documented move. The claim was corrected in place (`EmbeddingBackendFactory`,
+`Fallen8EmbeddingOptions.Backend`, `model-providers.md`) rather than backed by a new equality check
+between `ModelName` and `OpenAI:Model`: a stamp is not required to spell a provider's model id (the
+Ollama backend's `bge-m3` stamp names `bge-m3:latest`, and an OpenAI-protocol gateway's model id is
+an alias of the operator's choosing), and the same "a stamp is not verified against the function"
+gap is pre-existing for every backend rather than something this feature introduced. A cross-backend
+stamp/model check is a separate feature if it is wanted.
+
 ### FR-5: Provenance on the wire
 
 1. `ChatResultREST` gains `backend` (string: the configured selector value, e.g. `"Nahil"`),
@@ -179,6 +224,33 @@ vectors/indices report identity mismatch rather than silently mixing spaces (R3 
    request, the semantic summary echoes `embeddingBackend` and the identity stamp beside
    the fields it already echoes (`SubGraphSemanticSummary.cs:49-93`). Vector-in requests
    (no embed call) echo nothing new.
+
+   **Amendment (2026-08-29): `/path` is DROPPED from this requirement.** As written it is not
+   implementable there. `POST /path/{from}/to/{to}` returns a **bare JSON array**
+   (`List<PathREST>`) with no envelope to attach a summary to - confirmed by the MCP DTO's own
+   comment (`fallen-8-mcp/Bridge/Dto/PathAndAnalyticsDto.cs:71`) and by
+   `fallen-8-web-ui/src/api/endpoints.ts:530` (`apiRequest<PathREST[]>`).
+
+   FR-5.4 now reads: **`/subgraph` responses echo `embeddingBackend` and `embeddingIdentity` when
+   a `queryText` was embedded; `/path` returns a bare array by contract and carries no envelope, so
+   its semantic provenance is the ambient answer read from `/status`.** Revisit only if `/path`
+   grows an envelope for another reason.
+
+   Why, in order. (i) The request behind this feature named the subgraph view's stats, not
+   `/path`'s. (ii) `/path` displays no per-call model stats today, so there is nothing there to
+   mislabel: the need is genuinely ambient, and `/status`'s embedding block is one poll away and
+   already held by every Studio screen. (iii) The alternative - a `PathResultREST` envelope - is a
+   breaking response-shape change across `GraphController.Path.cs`, `AppJsonContext`, the OpenAPI
+   snapshot, the MCP DTO plus `PathsTool`, `endpoints.ts` and every Studio path consumer, plus
+   eight test classes (`PathTest`, `PathTestEdgeCases`, `PathFilterArityTest`,
+   `PathExecutionBudgetTest`, `PathAlgorithmParityTest`, `SemanticTraversalTest`,
+   `StoredQueryInvocationTest`, `McpReadToolsTest`), in exchange for a field nothing renders.
+   Response headers were rejected outright: a fourth home for provenance, invisible in the OpenAPI
+   schemas.
+
+   One deliberate leftover: the shared helper still stamps the two fields onto
+   `SemanticTraversalSpecification` on the `/path` path, where they are simply never serialized.
+   Harmless, and it keeps the envelope option cheap if it is ever wanted.
 
 ### FR-6: Provenance in Studio
 
@@ -216,6 +288,18 @@ defaulting per decision 8. Unlike the Nahil overlay they do NOT park the sidecar
 running for embeddings and pulls only `bge-m3` (the chat fine-tune pulls are skipped via the
 sidecar's existing env). `.env.example` gains the provider block. This FR builds on the
 `.env`-reading env scripts (feature nahil-env-file, merged 2026-08-29).
+
+**Amendment (2026-08-29).** "skipped via the sidecar's existing env" was false: no such variable
+existed. `scripts/ollama-init.sh` had exactly two opt-out gates, and neither fits -
+`F8_EMBEDDINGS=false` skips `bge-m3`, which is precisely what such a deployment must KEEP, and
+`F8_PULL_PHI4F8=0` skips only the ~9 GB `phi4-f8`. `phi4-mini` + `phi4-f8-mini` (~4.8 GB) pulled
+unconditionally. Resolved by **adding `F8_PULL_ASSIST`** (default `1`), one `case` block mirroring
+the `F8_EMBEDDINGS` gate, in `ollama-init.sh` and in the offline pre-seed `ensure-models.sh`, passed
+through by `docker-compose.yml` and set to `0` by both new overlays. It is deliberately independent
+of `F8_EMBEDDINGS`, because hosted chat plus local embeddings is a real configuration. It covers the
+two MINI models only: `phi4-f8` keeps its own gate, so an overlay run that does not want that ~9 GB
+either also sets `F8_PULL_PHI4F8=0`, and every compose header and the `running.mdx` row say so
+rather than claiming a saving the overlay does not make.
 
 ### FR-8: Catalog, tiers, and the test lattice
 
@@ -257,7 +341,10 @@ diagrams (root `README.md` and `architecture.md`, house style, never mermaid def
   updates with it.
 - **Studio**: the FR-6 components; screenshots to recapture: `screen-delegate-editor.png`,
   `screen-configuration.png`, `screen-connect.png` (and `screen-nl-assist.png` if the
-  status line is visible there).
+  status line is visible there). **Amendment (2026-08-29):** `screen-nl-assist.png` IS affected
+  (the status line is in frame) and so is `query-semantic-search.png`, which this list missed: it
+  is captured with the Query screen's text-in vector source active, and that caption gains the
+  embedding provenance. Five PNGs, not three.
 - **NL-assist dataset/eval**: no retrain, prompts unchanged (decision 9). No RETRAIN-LOG
   entry.
 - **nahil-env-file**: FR-7 builds on it (merged to main 2026-08-29); the provider keys are

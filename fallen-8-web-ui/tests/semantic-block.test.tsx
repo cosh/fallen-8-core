@@ -29,6 +29,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SemanticBlockEditor } from "../src/components/SemanticBlockEditor";
 import { DEFAULT_SEMANTIC_DRAFT, type SemanticDraft } from "../src/lib/semantic";
+import type { EmbeddingProviderStatsREST } from "../src/api/types";
 
 /**
  * The shared semantic-block editor (feature element-embeddings): its gating mirrors the
@@ -37,16 +38,28 @@ import { DEFAULT_SEMANTIC_DRAFT, type SemanticDraft } from "../src/lib/semantic"
  * is inert when a stored template owns the filters.
  */
 
+const PROVIDER: EmbeddingProviderStatsREST = {
+  enabled: true,
+  backend: "Nahil",
+  modelName: "bge-m3",
+  modelVersion: "",
+  dimension: 1024,
+  intendedMetric: "Cosine",
+  loaded: true,
+};
+
 function Harness({
   allowCost = true,
   costDisabledReason,
   providerEnabled = true as boolean | null,
+  provider,
   disabled = false,
   initial = {},
 }: {
   allowCost?: boolean;
   costDisabledReason?: string;
   providerEnabled?: boolean | null;
+  provider?: EmbeddingProviderStatsREST | null;
   disabled?: boolean;
   initial?: Partial<SemanticDraft>;
 }) {
@@ -61,6 +74,7 @@ function Harness({
       allowCost={allowCost}
       costDisabledReason={costDisabledReason}
       providerEnabled={providerEnabled}
+      provider={provider}
       embeddingNames={["default", "title"]}
       idPrefix="t"
       disabled={disabled}
@@ -98,6 +112,54 @@ describe("SemanticBlockEditor", () => {
   it("query-text unknown-provider hint suggests pasting a vector", () => {
     render(<Harness providerEnabled={null} initial={{ enabled: true, source: "text" }} />);
     expect(screen.getByTestId("t-sem-text-unavailable")).toHaveTextContent(/not reported by this server/i);
+  });
+
+  it("names the backend and embedding function that will embed the text", () => {
+    render(
+      <Harness provider={PROVIDER} initial={{ enabled: true, source: "text" }} />,
+    );
+    expect(screen.getByTestId("t-sem-text-provenance")).toHaveTextContent(
+      "embeds on this instance via Nahil · bge-m3",
+    );
+  });
+
+  it("says nothing about a provider that cannot embed, so the two never both show", () => {
+    render(
+      <Harness
+        providerEnabled={false}
+        provider={PROVIDER}
+        initial={{ enabled: true, source: "text" }}
+      />,
+    );
+    expect(screen.queryByTestId("t-sem-text-provenance")).not.toBeInTheDocument();
+    expect(screen.getByTestId("t-sem-text-unavailable")).toBeInTheDocument();
+  });
+
+  it("stays silent when the caller holds no provider snapshot", () => {
+    render(<Harness initial={{ enabled: true, source: "text" }} />);
+    expect(screen.queryByTestId("t-sem-text-provenance")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the dimension when the provider reports no model name", () => {
+    render(
+      <Harness
+        provider={{ ...PROVIDER, modelName: null, backend: "Onnx" }}
+        initial={{ enabled: true, source: "text" }}
+      />,
+    );
+    expect(screen.getByTestId("t-sem-text-provenance")).toHaveTextContent(
+      "embeds on this instance via Onnx · 1024d",
+    );
+  });
+
+  it("shows the version when the embedding function carries one", () => {
+    render(
+      <Harness
+        provider={{ ...PROVIDER, modelVersion: "v2" }}
+        initial={{ enabled: true, source: "text" }}
+      />,
+    );
+    expect(screen.getByTestId("t-sem-text-provenance")).toHaveTextContent("bge-m3@v2");
   });
 
   it("costBySimilarity is inert under DotProduct and absent when cost is not allowed", async () => {

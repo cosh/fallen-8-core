@@ -26,7 +26,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { DelegateValidationResult } from "../src/api/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type {
+  ChatProviderStatsREST,
+  DelegateValidationResult,
+  StatusREST,
+} from "../src/api/types";
 import type { InstanceConfig } from "../src/instances/types";
 
 /**
@@ -58,9 +63,12 @@ vi.mock("@monaco-editor/react", () => ({
 }));
 
 const validateMock = vi.fn<(...args: unknown[]) => Promise<DelegateValidationResult>>();
-vi.mock("../src/api/endpoints", () => ({
-  validateDelegate: (...args: unknown[]) => validateMock(...args),
-}));
+// Spread the original: the NL panel's ambient status line reads the /status cache row, and a
+// replacement factory exporting only validateDelegate leaves getStatus undefined at import time.
+vi.mock("../src/api/endpoints", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/api/endpoints")>();
+  return { ...original, validateDelegate: (...args: unknown[]) => validateMock(...args) };
+});
 
 import type { NlChatResult } from "../src/delegate/nl/generate";
 
@@ -105,22 +113,52 @@ const INVALID: DelegateValidationResult = {
 };
 const VALID: DelegateValidationResult = { valid: true, diagnostics: [] };
 
-function renderEditorHandle(onCommit = vi.fn()) {
+const CHAT: ChatProviderStatsREST = {
+  enabled: true,
+  backend: "Nahil",
+  model: "phi4-f8-mini",
+  loaded: true,
+};
+
+function statusWithChat(chat: ChatProviderStatsREST): StatusREST {
+  return {
+    vertexCount: 0,
+    edgeCount: 0,
+    usedMemory: 0,
+    availableIndexPlugins: [],
+    availablePathPlugins: [],
+    availableAnalyticsPlugins: [],
+    availableServicePlugins: [],
+    chat,
+  };
+}
+
+/**
+ * The panel reads /status through the shared cache row of the NAMESPACE-BOUND active instance.
+ * The active instance here is the registry's own same-origin default ("local"), not the editor's
+ * `instance` prop, and binding appends the namespace - hence "local/default". Seeding it keeps
+ * the row warm so no jsdom fetch is attempted.
+ */
+function renderEditorHandle(onCommit = vi.fn(), chat: ChatProviderStatsREST = CHAT) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(["local/default", "status"], statusWithChat(chat));
   const utils = render(
-    <DelegateEditor
-      instance={instance}
-      delegateKind="VertexFilter"
-      contextLabel="test slot"
-      initialFragment=""
-      onCommit={onCommit}
-      onCancel={() => {}}
-    />,
+    <QueryClientProvider client={client}>
+      <DelegateEditor
+        instance={instance}
+        delegateKind="VertexFilter"
+        contextLabel="test slot"
+        initialFragment=""
+        onCommit={onCommit}
+        onCancel={() => {}}
+      />
+    </QueryClientProvider>,
   );
   return { ...utils, onCommit };
 }
 
-function renderEditor(onCommit = vi.fn()) {
-  return renderEditorHandle(onCommit).onCommit;
+function renderEditor(onCommit = vi.fn(), chat?: ChatProviderStatsREST) {
+  return renderEditorHandle(onCommit, chat).onCommit;
 }
 
 beforeEach(() => {
@@ -196,7 +234,11 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     renderEditor();
     expect(screen.getByTestId("nl-intent")).toBeInTheDocument();
     expect(screen.getByTestId("nl-generate")).toBeInTheDocument();
-    expect(screen.getByTestId("nl-backend-status")).toHaveTextContent("this instance");
+    // The ambient destination, read from /status. Never the connection registry's name, which
+    // is not a backend and cannot be one.
+    expect(screen.getByTestId("nl-backend-status")).toHaveTextContent(
+      "this instance · /chat → Nahil · phi4-f8-mini",
+    );
     expect(screen.queryByTestId("nl-disabled-hint")).not.toBeInTheDocument();
   });
 
@@ -393,7 +435,8 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
         completionTokens: 24,
         durationMs: 3200,
         tokensPerSecond: 8,
-        raw: { eval_count: 24, total_duration: 3_200_000_000 },
+        backend: "Nahil",
+        raw: { backend: "Nahil", eval_count: 24, total_duration: 3_200_000_000 },
       },
     });
 
@@ -405,7 +448,8 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
       expect(screen.getByTestId("nl-attempts")).toHaveTextContent("812→24 tok"),
     );
     expect(screen.getByTestId("nl-attempts")).toHaveTextContent("3.2s");
-    expect(screen.getByTestId("nl-attempts")).toHaveTextContent("8.0 tok/s");
+    // The backend is the last segment of the line, not a row of its own.
+    expect(screen.getByTestId("nl-attempts")).toHaveTextContent("8.0 tok/s · Nahil");
     expect(screen.getByText("raw stats")).toBeInTheDocument();
     expect(screen.getByTestId("nl-attempts")).toHaveTextContent("eval_count");
 
@@ -415,6 +459,56 @@ describe("NL assist (FR-26 / nl-assist + nl-assist-ux specs)", () => {
     const label = screen.getByRole("button", { name: /^draft 1/ });
     expect(label.textContent).toBe("draft 1 (in editor)");
     expect(label.parentElement?.textContent).not.toContain("tok");
+  });
+
+  it("keeps a draft's own backend after the ambient backend changes (model-providers decision 5)", async () => {
+    const user = userEvent.setup();
+    validateMock.mockResolvedValue(VALID);
+    // The response says Nahil served this call; the instance's CURRENT configuration says
+    // Anthropic. Inferring the per-draft label from configuration is the bug this feature fixes,
+    // so the two must disagree on screen.
+    chatMock.mockResolvedValueOnce({
+      content: "return (v) => true;",
+      stats: {
+        completionTokens: 12,
+        durationMs: 1000,
+        tokensPerSecond: 12,
+        backend: "Nahil",
+        raw: { backend: "Nahil" },
+      },
+    });
+
+    renderEditor(vi.fn(), {
+      enabled: true,
+      backend: "Anthropic",
+      model: "claude-opus-5",
+      loaded: false,
+    });
+    await user.type(screen.getByTestId("nl-intent"), "anything");
+    await user.click(screen.getByTestId("nl-generate"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("nl-attempts")).toHaveTextContent("12.0 tok/s · Nahil"),
+    );
+    expect(screen.getByTestId("nl-attempts")).not.toHaveTextContent("Anthropic");
+    // The ambient line is the one that follows the configuration.
+    expect(screen.getByTestId("nl-backend-status")).toHaveTextContent(
+      "this instance · /chat → Anthropic · claude-opus-5",
+    );
+  });
+
+  it("says chat is off rather than naming a backend it cannot know", () => {
+    renderEditor(vi.fn(), { enabled: false, backend: null, model: null, loaded: false });
+    expect(screen.getByTestId("nl-backend-status")).toHaveTextContent(
+      "this instance · /chat → chat is off on this instance",
+    );
+  });
+
+  it("says the backend is unreported when a server answers without one", () => {
+    renderEditor(vi.fn(), { enabled: true, backend: null, model: null, loaded: false });
+    expect(screen.getByTestId("nl-backend-status")).toHaveTextContent(
+      "backend not reported by this server",
+    );
   });
 
   it("shows the leave-notice for non-loopback endpoints before the first send (FR-26.10)", () => {

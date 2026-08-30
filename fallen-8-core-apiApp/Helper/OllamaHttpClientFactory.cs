@@ -51,7 +51,8 @@ namespace NoSQL.GraphDB.App.Helper
     ///   <para>
     ///     A Nahil connection additionally carries the bearer credential it requires on every route
     ///     and, on the provider path only, the warm-up retry - see <see cref="OllamaConnection" /> for
-    ///     the protocol delta and <see cref="NahilWarmupRetryHandler" /> for the waiting. The
+    ///     the protocol delta and <see cref="RetryAfterHandler" />, which owns the wait arithmetic
+    ///     for every provider, for the waiting. The
     ///     credential is set ONCE here, on the client, so no call site ever formats an
     ///     <c>Authorization</c> header (and no log line can reach one).
     ///   </para>
@@ -64,7 +65,7 @@ namespace NoSQL.GraphDB.App.Helper
     {
         /// <summary>The pooled-connection lifetime, shared with the sidecar clients so a restarted
         /// Ollama container is picked up without an app restart.</summary>
-        private static readonly TimeSpan PooledConnectionLifetime = TimeSpan.FromMinutes(2);
+        internal static readonly TimeSpan PooledConnectionLifetime = TimeSpan.FromMinutes(2);
 
         /// <summary>
         ///   The transport for a provider call: no deadline of its own, and on Nahil it waits out
@@ -94,7 +95,7 @@ namespace NoSQL.GraphDB.App.Helper
         }
 
         private static HttpClient Create(OllamaConnection connection, TimeSpan requestTimeout,
-            NahilWarmupRetryHandler retry, HttpMessageHandler transport)
+            RetryAfterHandler retry, HttpMessageHandler transport)
         {
             if (connection == null)
             {

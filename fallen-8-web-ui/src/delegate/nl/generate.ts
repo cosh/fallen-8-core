@@ -66,6 +66,12 @@ export interface NlGenerationStats {
   completionTokens?: number;
   durationMs?: number;
   tokensPerSecond?: number;
+  /**
+   * Which server-side backend produced THIS draft, from that call's own response. Undefined in
+   * custom mode, deliberately: a browser-direct call reaches no Fallen-8, so there is no server
+   * selector to report and inventing one would sit a fabricated name beside real ones.
+   */
+  backend?: string;
   /** The provider's stats fields verbatim, for the expandable raw view. */
   raw: Record<string, unknown>;
 }
@@ -173,7 +179,8 @@ export async function chatViaInstance(
         completionTokens: s.completionTokens ?? undefined,
         durationMs: s.durationMs ?? undefined,
         tokensPerSecond: s.tokensPerSecond ?? undefined,
-        raw: { model: result.model, ...s },
+        backend: result.backend ?? undefined,
+        raw: { backend: result.backend, model: result.model, ...s },
       }
     : null;
   return { content: result.content, stats };

@@ -68,13 +68,22 @@ namespace NoSQL.GraphDB.Core.App.Helper
         ///   embedding-provider): capability-gated like the embedding endpoints (403 via the
         ///   authorization service; a null service - direct unit construction - bypasses the
         ///   gate), embedded ONCE with the provider's query prefix, before the traversal
-        ///   starts. Returns <c>null</c> on success (including "nothing to resolve"), or the
-        ///   ActionResult to short-circuit with.
+        ///   starts. Also the one place the block's server-owned provenance is set (see
+        ///   <see cref="SemanticTraversalSpecification.EmbeddingBackend" />). Returns <c>null</c>
+        ///   on success (including "nothing to resolve"), or the ActionResult to short-circuit
+        ///   with.
         /// </summary>
         internal static async Task<ActionResult> TryResolveQueryTextAsync(SemanticTraversalSpecification specification,
             Fallen8EmbeddingProvider provider, IAuthorizationService authorizationService, ClaimsPrincipal user,
             CancellationToken cancellationToken)
         {
+            // Server-owned: whatever a client sent here is discarded before anything reads it.
+            if (specification != null)
+            {
+                specification.EmbeddingBackend = null;
+                specification.EmbeddingIdentity = null;
+            }
+
             if (specification == null || String.IsNullOrWhiteSpace(specification.QueryText))
             {
                 return null;
@@ -106,6 +115,8 @@ namespace NoSQL.GraphDB.Core.App.Helper
                 var vectors = await provider.EmbedAsync(
                     new[] { provider.ApplyQueryPrefix(specification.QueryText) }, cancellationToken);
                 specification.QueryVector = vectors[0];
+                specification.EmbeddingBackend = provider.Backend;
+                specification.EmbeddingIdentity = provider.Identity.Stamp;
                 return null;
             }
             catch (Exception ex) when (ex is EmbeddingProviderUnavailableException || ex is EmbeddingProviderOutputException)

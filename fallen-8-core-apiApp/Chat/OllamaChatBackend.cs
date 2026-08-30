@@ -119,7 +119,7 @@ namespace NoSQL.GraphDB.App.Chat
                 }
             }
             catch (Exception ex) when (!(ex is OperationCanceledException)
-                && !(ex is NahilWarmupTimeoutException) && content.Length > 0)
+                && !(ex is ModelRetryTimeoutException) && content.Length > 0)
             {
                 // A stream that dies AFTER producing tokens is a truncation, and returning what
                 // arrived would be indistinguishable from a short answer the model chose to give.

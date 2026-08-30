@@ -40,6 +40,7 @@ import {
 import { NlBackendConfig } from "../../delegate/nl/NlBackendConfig";
 import { downloadText, toTrainingJsonl, type Verdict } from "../../delegate/nl/feedback";
 import { NlDraftList, type NlDraftView } from "../../delegate/nl/NlDraftList";
+import { NlDraftStats } from "../../delegate/nl/NlDraftStats";
 import {
   generateChat,
   initialMessages,
@@ -47,7 +48,9 @@ import {
   type NlGenerationStats,
 } from "../../delegate/nl/generate";
 import { useElapsedSeconds, useNlRun, useReachabilityProbe } from "../../delegate/nl/useNlRun";
-import { useActiveInstance } from "../../instances/registry";
+import { useActiveInstance, useBoundInstance } from "../../instances/registry";
+import { useStatus } from "../../state/status";
+import { chatAmbientLabel } from "../../lib/modelProvenance";
 import {
   buildPluginGenerationPrompt,
   buildPluginRefinePrompt,
@@ -110,6 +113,8 @@ function PluginNlAssistPanelInner({
   const run = useNlRun();
   // Progress feedback; useElapsedSeconds explains why it is load-bearing.
   const elapsedSeconds = useElapsedSeconds(busy !== null);
+  // Ambient destination; the bound instance is the one whose /status row is polled.
+  const ambient = chatAmbientLabel(useStatus(useBoundInstance()).data?.chat);
 
   const isInstance = config.mode === "instance";
   const effective = effectiveNlConfig(config);
@@ -211,7 +216,7 @@ function PluginNlAssistPanelInner({
           <p className="text-fg-faint text-[10px]" data-testid="plugin-nl-backend-status">
             {isInstance ? (
               <>
-                this instance · {instance?.name ?? "?"} → <code>/chat</code> (server-selected model)
+                this instance · <code>/chat</code> → {ambient}
               </>
             ) : (
               <>
@@ -292,6 +297,7 @@ function PluginNlAssistPanelInner({
                     active: attempt.source === currentSource,
                     loadTitle: "load this draft into the editor",
                     labelSuffix: attempt.valid === false ? " (invalid)" : undefined,
+                    below: attempt.stats ? <NlDraftStats stats={attempt.stats} /> : undefined,
                   }),
                 )}
                 onLoad={(index) => onDraft(attempts[index].source)}

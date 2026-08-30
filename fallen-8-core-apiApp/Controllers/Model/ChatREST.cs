@@ -31,8 +31,8 @@ using System.Text.Json.Serialization;
 namespace NoSQL.GraphDB.App.Controllers.Model
 {
     /// <summary>A chat completion request proxied to the instance's model backend (feature
-    /// instance-config). The model is SERVER-owned (<c>Fallen8:Chat:Ollama:Model</c>); there is no
-    /// client model field.</summary>
+    /// instance-config). The model is SERVER-owned (the selected backend's own <c>Model</c>
+    /// setting); there is no client model field.</summary>
     /// <example>
     /// { "messages": [ { "role": "user", "content": "Draft a vertex filter for label person" } ] }
     /// </example>
@@ -115,6 +115,20 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <example>phi4-f8-mini</example>
         [JsonPropertyName("model")]
         public String Model
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The backend selector value that served THIS call (feature model-providers), stamped
+        ///   per response rather than read from current configuration: a draft made under one
+        ///   backend must still say so after the operator switches the deployment to another. For
+        ///   the ambient "requests will go to X" answer, read <c>GET /status</c>'s chat block
+        ///   instead.
+        /// </summary>
+        /// <example>Nahil</example>
+        [JsonPropertyName("backend")]
+        public String Backend
         {
             get; set;
         }

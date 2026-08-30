@@ -215,8 +215,8 @@ The editor's side panel drafts a fragment from a natural-language description, c
 | Setting | Detail |
 |---|---|
 | backend | **this Fallen-8 instance** (default) or **custom endpoint** (browser-direct) |
-| instance mode | browser → the active instance's `POST /chat` → its model backend (the Ollama sidecar). The model is server-owned (`Fallen8:Chat:Ollama:Model`, default `phi4-f8-mini:latest`); nothing to configure. Needs the instance's chat gateway enabled (`Fallen8:Chat:Enabled` / `F8_CHAT`), [semantic-traversal.md](/semantic-traversal/). |
-| custom mode | the browser calls the endpoint **directly**; api kind `ollama` or `openai`-compatible; presets for the fine-tuned `phi4-f8-mini`/`phi4-f8`, stock `phi4-mini`/`phi4`, OpenAI, Anthropic. Any API key is held only in the browser and never sent to a Fallen-8 instance. |
+| instance mode | browser → the active instance's `POST /chat` → whichever backend `Fallen8:Chat` selects (the Ollama sidecar by default; also Nahil, OpenAI or Anthropic, [model-providers.md](/model-providers/)). The model is server-owned; nothing to configure. The panel names the backend and model it is routed to, and each draft's stats line names the backend **that draft** came from. Needs the instance's chat gateway enabled (`Fallen8:Chat:Enabled` / `F8_CHAT`), [semantic-traversal.md](/semantic-traversal/). |
+| custom mode | the browser calls the endpoint **directly**; api kind `ollama` or `openai`-compatible; presets for the fine-tuned `phi4-f8-mini`/`phi4-f8`, stock `phi4-mini`/`phi4`, OpenAI, Anthropic. Any API key is held only in the browser and never sent to a Fallen-8 instance. This is a different thing from configuring the instance for the same provider, which is the better home for a key ([model-providers.md](/model-providers/)). |
 
 Instance mode is the default because Fallen-8 is now the semantic gateway (embeddings and chat both proxy through the instance). **This retires the earlier "never through the Fallen-8 instance" rule for the default path**: the prompt travels to the same instance you already trust with your graph, so instance mode shows no egress notice; the surviving guarantee is that a **custom** endpoint and its key stay browser-direct and never reach F8. A non-loopback custom endpoint still shows the "text leaves this machine" notice.
 
@@ -229,7 +229,7 @@ Studio degrades gracefully when a capability is off, but these features need ser
 | Studio capability | Needs on the server | Docs |
 |---|---|---|
 | Delegate validation + inline path/subgraph filters & costs | The API key when one is configured (dynamic code is always on) | [security.md](/security/) |
-| NL assist drafting (instance mode, default) | The chat gateway enabled (`Fallen8:Chat:Enabled` / `F8_CHAT`) + its Ollama backend reachable | [semantic-traversal.md](/semantic-traversal/) |
+| NL assist drafting (instance mode, default) | The chat gateway enabled (`Fallen8:Chat:Enabled` / `F8_CHAT`) + its configured backend reachable | [model-providers.md](/model-providers/) |
 | NL assist drafting (custom mode) | A reachable model backend the browser calls directly (`OLLAMA_ORIGINS` for a browser-direct Ollama) | [security.md](/security/) |
 | Text-in embedding, semantic search, text query vectors | Embedding provider enabled | [semantic-traversal.md](/semantic-traversal/) |
 | The whole Knowledge screen (document ingest, chunk search, entities) | Ingestion enabled (`Fallen8:Ingestion:Enabled` / `F8_INGESTION`), plus the docling sidecar for pdf/docx/xlsx/pptx/html; without it, txt/md only | [unstructured-ingestion.md](/unstructured-ingestion/) |

@@ -1,0 +1,56 @@
+# Anthropic overlay (feature model-providers): the CHAT gateway talks to Anthropic's Messages API
+# instead of the local Ollama sidecar. Embeddings stay exactly where they are.
+#
+#   F8_MODEL_PROVIDER=anthropic F8_ANTHROPIC_API_KEY=... npm run env:up
+#
+# or, without the helper scripts:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.anthropic.yml up
+#
+# Why embeddings do NOT move with the chat gateway: Anthropic publishes no embeddings API at all,
+# so there is nothing to move them to. Fallen8__Embedding__Backend=Anthropic is refused at
+# construction with that sentence rather than failing later. This file therefore sets no
+# Fallen8__Embedding__* key and the base file's Ollama/bge-m3/1024/Cosine block survives
+# untouched. https://docs.fallen-8.com/model-providers/
+#
+# The local sidecar keeps running and keeps serving bge-m3. It skips the two chat fine-tunes
+# (~4.8 GB) via F8_PULL_ASSIST=0 below, because nothing asks it for chat here.
+#
+# Required: F8_ANTHROPIC_API_KEY. There is no default and there will not be one - a credential
+# that appears from nowhere is a credential nobody can rotate - so the overlay fails closed with
+# the reason if it is unset.
+#
+# F8_ANTHROPIC_URL defaults to https://api.anthropic.com, Anthropic's own host root (a host root:
+# scheme, host, optional port, NO path - HttpClient drops a path prefix instead of honouring it, so
+# one is refused rather than rewritten). The Messages route is a transport detail the backend adds
+# itself and never appears in configuration.
+
+services:
+  fallen8:
+    environment:
+      # Chat (the NL-assist path). The model is a config string; the repo does not chase the
+      # vendor catalog.
+      - Fallen8__Chat__Backend=Anthropic
+      - Fallen8__Chat__Anthropic__Endpoint=${F8_ANTHROPIC_URL:-https://api.anthropic.com}
+      - Fallen8__Chat__Anthropic__ApiKey=${F8_ANTHROPIC_API_KEY:?set F8_ANTHROPIC_API_KEY}
+      - Fallen8__Chat__Anthropic__Model=${F8_ANTHROPIC_CHAT_MODEL:-claude-opus-5}
+      # The Messages API requires max_tokens on every request, which is why this knob exists here
+      # and on no other provider. It bounds one answer, not a budget.
+      - Fallen8__Chat__Anthropic__MaxTokens=${F8_ANTHROPIC_MAX_TOKENS:-4096}
+      # No sampling parameter is sent to Anthropic, ever: current Claude models reject
+      # temperature/top_p/top_k with a 400, so there is deliberately nothing to configure here and
+      # Fallen8:Chat's temperature is ignored on this backend.
+      #
+      # The shipped 120s, and deliberately not the Nahil overlay's 600: a hosted API has no cold
+      # model to pull onto a worker, so there is nothing to wait out.
+      - Fallen8__Chat__TimeoutSeconds=${F8_ANTHROPIC_CHAT_TIMEOUT:-120}
+
+  # The sidecar is NOT parked on a dead profile (which is what the Nahil overlay does): it is the
+  # embedding backend for this deployment and has to stay in the active configuration.
+  ollama:
+    environment:
+      # Chat runs off-box, so phi4-mini + phi4-f8-mini (~4.8 GB) would be downloaded and never
+      # asked for a token. bge-m3 still pulls: F8_EMBEDDINGS owns that one, and F8_PULL_ASSIST is
+      # deliberately independent of it. The larger phi4-f8 keeps its own gate and is NOT covered
+      # here: add F8_PULL_PHI4F8=0 if you do not want its ~9 GB either.
+      - F8_PULL_ASSIST=0

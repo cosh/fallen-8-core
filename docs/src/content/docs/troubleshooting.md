@@ -28,6 +28,18 @@ misconfigured, and the message names the setting to fix. A `504` after a long wa
 case: the pull did not finish inside `Fallen8:Chat:TimeoutSeconds`, and that message names the model
 and how long was spent waiting. The logs carry one line per retry.
 
+**With a hosted [model provider](/model-providers/) - OpenAI or Anthropic - a `503` is almost always
+configuration, and the message names the key.** A missing or empty API key, a missing model name,
+or an endpoint carrying a path instead of a host root each latch that capability with the exact
+setting to fix, while the rest of the database keeps running. The reason is also logged once at
+startup, so a boot log answers this without a request. The other two codes mean the provider
+answered: a `502` is a refusal, a content filter, an answer that stopped at its output ceiling
+(`Fallen8:Chat:Anthropic:MaxTokens`, or the model's own limit), or a stream that died mid-answer -
+each of them naming how much arrived, because a truncated answer must never read as a short one. A
+`504` is the provider not finishing inside
+`Fallen8:Chat:TimeoutSeconds`, rate-limit waits included. Nothing here is the sidecar's fault, and
+nothing is fixed by pulling a model: with chat off-box the sidecar serves embeddings only.
+
 A common variant with the **custom browser-direct** backend: the editor's preset list offers
 **"Ollama (fine-tuned phi4-f8, GPU)"** (model `phi4-f8`) alongside the default
 `phi4-f8-mini`. `phi4-f8` (~9GB) is pulled by default too, but it is queued **after** the

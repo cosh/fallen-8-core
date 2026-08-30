@@ -687,6 +687,35 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task SubGraphSummary_ClientSuppliedProvenance_IsDiscarded()
+        {
+            // Feature model-providers: embeddingBackend/embeddingIdentity are server-owned. A
+            // vector-in request embeds nothing, so there is no provenance to report - and a caller
+            // must not be able to plant one, or the echo becomes a field the caller wrote.
+            using var factory = new VolatileAppFactory();
+            Diamond(EngineOf(factory));
+            using var client = factory.CreateClient();
+
+            using var created = await PutJson(client, "/subgraph",
+                "{ \"name\": \"planted\", \"semantic\": { \"queryVector\": [1, 0], " +
+                "    \"embeddingBackend\": \"Anthropic\", \"embeddingIdentity\": \"made-up#7#L2\" }, " +
+                "  \"patterns\": [ { \"type\": \"Vertex\" } ] }");
+            Assert.AreEqual(HttpStatusCode.Created, created.StatusCode, await created.Content.ReadAsStringAsync());
+
+            var semantic = (await ReadJson(created)).GetProperty("semantic");
+            Assert.IsFalse(semantic.TryGetProperty("embeddingBackend", out _),
+                "a client-supplied backend must be discarded, not echoed back as provenance");
+            Assert.IsFalse(semantic.TryGetProperty("embeddingIdentity", out _),
+                "and neither may a client-supplied identity stamp");
+
+            using var fetched = await client.GetAsync("/subgraph/planted");
+            Assert.AreEqual(HttpStatusCode.OK, fetched.StatusCode);
+            var body = await fetched.Content.ReadAsStringAsync();
+            Assert.IsFalse(body.Contains("made-up#7#L2"),
+                "the planted value must not have reached the persisted recipe either");
+        }
+
+        [TestMethod]
         public void SubGraphSummary_EchoesQueryText_AndIndexesUnnamedSteps()
         {
             // queryText persists in the recipe NEXT TO the resolved vector (the resolver fills
@@ -699,7 +728,9 @@ namespace NoSQL.GraphDB.Tests
                 {
                     SpecificationJson =
                         "{ \"name\": \"t\", " +
-                        "  \"semantic\": { \"queryVector\": [0.1, 0.2, 0.3], \"queryText\": \"red bicycles\" }, " +
+                        "  \"semantic\": { \"queryVector\": [0.1, 0.2, 0.3], \"queryText\": \"red bicycles\", " +
+                        "                  \"embeddingBackend\": \"Nahil\", " +
+                        "                  \"embeddingIdentity\": \"bge-m3#1024#Cosine\" }, " +
                         "  \"patterns\": [ { \"type\": \"Vertex\", \"semanticMinScore\": 0.6 } ] }"
                 }
             };
@@ -707,6 +738,10 @@ namespace NoSQL.GraphDB.Tests
             var summary = SubGraphSummary.FromResult(result, canRecalculate: true);
 
             Assert.AreEqual("red bicycles", summary.Semantic.QueryText);
+            // Feature model-providers: the provenance stamped when the text was embedded rides the
+            // recipe, so the echo names that run and not the configuration in force right now.
+            Assert.AreEqual("Nahil", summary.Semantic.EmbeddingBackend);
+            Assert.AreEqual("bge-m3#1024#Cosine", summary.Semantic.EmbeddingIdentity);
             Assert.AreEqual(3, summary.Semantic.Dimension);
             Assert.IsNull(summary.Semantic.MinScore, "no top-level threshold was set");
             Assert.AreEqual("0", summary.Semantic.PatternThresholds[0].Pattern,

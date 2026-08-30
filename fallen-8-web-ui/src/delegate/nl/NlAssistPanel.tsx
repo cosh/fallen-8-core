@@ -36,11 +36,14 @@ import {
 import { NlBackendConfig } from "./NlBackendConfig";
 import { downloadText, toTrainingJsonl, type TrainingExample, type Verdict } from "./feedback";
 import { NlDraftList, type NlDraftView } from "./NlDraftList";
+import { NlDraftStats } from "./NlDraftStats";
 import { formatFragment } from "./format";
 import { buildGenerationPrompt, buildRefinePrompt, extractFragment } from "./prompt";
 import { generateChat, initialMessages, type ChatTurn, type NlGenerationStats } from "./generate";
 import { useElapsedSeconds, useNlRun, useReachabilityProbe } from "./useNlRun";
-import { useActiveInstance } from "../../instances/registry";
+import { useActiveInstance, useBoundInstance } from "../../instances/registry";
+import { useStatus } from "../../state/status";
+import { chatAmbientLabel } from "../../lib/modelProvenance";
 
 /**
  * NL assist (FR-26, nl-assist + nl-assist-ux specs): builtin-by-default model backend,
@@ -89,6 +92,9 @@ function NlAssistPanelInner({
   const run = useNlRun();
   // Progress feedback; useElapsedSeconds explains why it is load-bearing.
   const elapsedSeconds = useElapsedSeconds(busy !== null);
+  // AMBIENT only: where the next prompt would go. The BOUND instance is what carries the polled
+  // /status row, so reading the raw one here would open a second, cold row and fetch again.
+  const ambient = chatAmbientLabel(useStatus(useBoundInstance()).data?.chat);
 
   const isInstance = config.mode === "instance";
   const effective = effectiveNlConfig(config);
@@ -195,8 +201,7 @@ function NlAssistPanelInner({
           <p className="text-fg-faint text-[10px]" data-testid="nl-backend-status">
             {isInstance ? (
               <>
-                this instance · {instance?.name ?? "?"} → <code>/chat</code> (server-selected
-                model)
+                this instance · <code>/chat</code> → {ambient}
               </>
             ) : (
               <>
@@ -286,19 +291,7 @@ function NlAssistPanelInner({
                     loadTitle: attempt.fragment,
                     labelSuffix:
                       attempt.valid === false ? ` (${attempt.errorCount} error(s))` : undefined,
-                    below: attempt.stats ? (
-                      <>
-                        <div className="text-fg-faint pl-4 text-[10px]">
-                          {statsLine(attempt.stats)}
-                        </div>
-                        <details className="text-fg-faint pl-4 text-[10px]">
-                          <summary className="cursor-pointer">raw stats</summary>
-                          <pre className="overflow-x-auto whitespace-pre-wrap">
-                            {JSON.stringify(attempt.stats.raw, null, 1)}
-                          </pre>
-                        </details>
-                      </>
-                    ) : undefined,
+                    below: attempt.stats ? <NlDraftStats stats={attempt.stats} /> : undefined,
                   }),
                 )}
                 onLoad={(index) => onDraft(attempts[index].fragment)}
@@ -322,15 +315,4 @@ function NlAssistPanelInner({
       </div>
     </div>
   );
-}
-
-function statsLine(stats: NlGenerationStats): string {
-  const parts: string[] = [];
-  if (stats.promptTokens !== undefined || stats.completionTokens !== undefined) {
-    parts.push(`${stats.promptTokens ?? "?"}→${stats.completionTokens ?? "?"} tok`);
-  }
-  if (stats.durationMs !== undefined) parts.push(`${(stats.durationMs / 1000).toFixed(1)}s`);
-  if (stats.tokensPerSecond !== undefined)
-    parts.push(`${stats.tokensPerSecond.toFixed(1)} tok/s`);
-  return parts.join(" · ");
 }

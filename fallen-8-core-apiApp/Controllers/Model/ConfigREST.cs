@@ -61,7 +61,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        /// <summary>The backend selector (config value), e.g. Ollama.</summary>
+        /// <summary>The backend selector (config value): Ollama, Nahil, OpenAI or Anthropic.</summary>
         [JsonPropertyName("backend")]
         public String Backend
         {
@@ -83,8 +83,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>Whether the model is currently loaded in the backend (Ollama /api/ps): true =
-        /// warm, false = not loaded right now (loads on first use), null = undeterminable or not an
-        /// Ollama backend. A point-in-time read, only set on GET /config.</summary>
+        /// warm, false = not loaded right now (loads on first use), null = undeterminable, or a
+        /// backend with no residency API (OpenAI and Anthropic have none, so this stays null by
+        /// design). A point-in-time read, only set on GET /config.</summary>
         [JsonPropertyName("resident")]
         public Boolean? Resident
         {

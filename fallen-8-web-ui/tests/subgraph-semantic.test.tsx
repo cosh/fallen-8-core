@@ -106,7 +106,9 @@ function status(enabled: boolean): StatusREST {
 
 function renderScreen(providerEnabled = true) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  client.setQueryData(["local", "status"], status(providerEnabled));
+  // The screen reads /status through the NAMESPACE-BOUND instance id, so the row has to be
+  // keyed "local/default"; a bare "local" row is never read and leaves providerEnabled null.
+  client.setQueryData(["local/default", "status"], status(providerEnabled));
   return render(
     <QueryClientProvider client={client}>
       <SubgraphScreen />
@@ -283,5 +285,41 @@ describe("subgraph semantic slots", () => {
     expect(badge).toHaveAttribute("title", expect.stringContaining("step start ≥ 0.6"));
     expect(badge).toHaveAttribute("title", expect.stringContaining("bound at creation"));
     expect(screen.queryByTestId("sg-semantic-badge-plain")).not.toBeInTheDocument();
+  });
+
+  it("the badge carries the stamped provenance a text-in registration rode with", async () => {
+    subGraphList = [
+      {
+        name: "close",
+        vertexCount: 3,
+        edgeCount: 2,
+        semantic: {
+          embeddingName: "default",
+          metric: "Cosine",
+          dimension: 1024,
+          queryText: "red bicycles",
+          embeddingBackend: "Nahil",
+          embeddingIdentity: "bge-m3#1024#Cosine",
+        },
+      },
+    ];
+    renderScreen(true);
+
+    const badge = await screen.findByTestId("sg-semantic-badge-close");
+    expect(badge).toHaveAttribute(
+      "title",
+      expect.stringContaining("via Nahil · bge-m3#1024#Cosine"),
+    );
+  });
+
+  it("passes the provider snapshot down to the query editor's provenance caption", async () => {
+    const user = userEvent.setup();
+    renderScreen(true);
+    await user.selectOptions(screen.getByTestId("sg-vf-mode"), "semantic");
+    await user.selectOptions(screen.getByTestId("sg-sem-source"), "text");
+
+    expect(screen.getByTestId("sg-sem-text-provenance")).toHaveTextContent(
+      "embeds on this instance via Onnx · m",
+    );
   });
 });

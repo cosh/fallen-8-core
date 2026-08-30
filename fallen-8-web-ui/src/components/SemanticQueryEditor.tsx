@@ -25,7 +25,9 @@
 
 import { Field } from "./Field";
 import { parseVector } from "../lib/vector";
+import { embeddingStamp } from "../lib/modelProvenance";
 import type { SemanticMetric, SemanticQueryDraft, SemanticSource } from "../lib/semantic";
+import type { EmbeddingProviderStatsREST } from "../api/types";
 
 /**
  * The semantic QUERY fields (source, vector/text, embedding name, metric) — the one query
@@ -37,6 +39,7 @@ export function SemanticQueryEditor({
   query,
   onChange,
   providerEnabled,
+  provider,
   embeddingNames,
   idPrefix,
 }: {
@@ -44,6 +47,12 @@ export function SemanticQueryEditor({
   onChange: (patch: Partial<SemanticQueryDraft>) => void;
   /** Resolved provider state; null = unknown (no graph shape computed yet). */
   providerEnabled: boolean | null;
+  /**
+   * The provider snapshot behind {@link providerEnabled}, when the caller holds it: it names the
+   * backend and embedding function that will turn the text into a vector. Optional, so a call
+   * site that cannot answer that question simply says nothing.
+   */
+  provider?: EmbeddingProviderStatsREST | null;
   embeddingNames: string[];
   idPrefix: string;
 }) {
@@ -142,6 +151,14 @@ export function SemanticQueryEditor({
               {providerEnabled === null
                 ? "provider status not reported by this server — paste a vector instead."
                 : "the embedding provider is off on this instance — paste a vector instead."}
+            </div>
+          )}
+          {!textUnavailable && provider && (
+            <div
+              className="text-fg-faint text-[11px]"
+              data-testid={`${idPrefix}-sem-text-provenance`}
+            >
+              embeds on this instance via {provider.backend ?? "?"} · {embeddingStamp(provider)}
             </div>
           )}
         </Field>

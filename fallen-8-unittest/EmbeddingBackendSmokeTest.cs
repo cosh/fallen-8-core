@@ -47,6 +47,12 @@ namespace NoSQL.GraphDB.Tests
     ///     F8_TEST_GGUF_MODEL / F8_TEST_GGUF_DIM                        (embedding-capable GGUF)
     ///     F8_TEST_OLLAMA_ENDPOINT / F8_TEST_OLLAMA_MODEL / F8_TEST_OLLAMA_DIM
     ///     F8_TEST_NAHIL_API_KEY / F8_TEST_NAHIL_ENDPOINT / F8_TEST_NAHIL_EMBED_MODEL (Nahil)
+    ///     F8_TEST_OPENAI_API_KEY / F8_TEST_OPENAI_ENDPOINT / F8_TEST_OPENAI_EMBED_MODEL /
+    ///     F8_TEST_OPENAI_EMBED_DIM (OpenAI)
+    ///
+    ///   <para>The <c>F8_TEST_</c> prefix is not decoration: the unprefixed forms are the compose
+    ///   variables, so keying a smoke off one would make an ordinary <c>dotnet test</c> place live
+    ///   billed calls on any machine with a working deployment.</para>
     /// </summary>
     [TestClass]
     public class EmbeddingBackendSmokeTest
@@ -144,12 +150,56 @@ namespace NoSQL.GraphDB.Tests
             await AssertBackendContract(generator, dimension);
         }
 
-        /// <summary>Reaches the internal factory's Ollama branch without widening its visibility.</summary>
+        /// <summary>
+        ///   OpenAI is a DIFFERENT embedding function from the bge-m3 every other backend here
+        ///   serves: a different dimension and a different identity stamp, so a graph does not move
+        ///   between them without re-embedding. This smoke therefore proves only the contract every
+        ///   backend owes - declared width, finite, non-zero, self-similar - against whatever model
+        ///   and dimension the environment names.
+        /// </summary>
+        [TestMethod]
+        [Ignore("Live-endpoint smoke: set F8_TEST_OPENAI_API_KEY and remove [Ignore] to run.")]
+        [TestCategory("LiveModel")]
+        public async Task OpenAI_TextEmbedding3_EmbedsRealText()
+        {
+            var apiKey = Env("F8_TEST_OPENAI_API_KEY");
+            if (String.IsNullOrEmpty(apiKey))
+            {
+                Assert.Inconclusive("F8_TEST_OPENAI_API_KEY not set.");
+            }
+
+            var dimension = Int32.Parse(Env("F8_TEST_OPENAI_EMBED_DIM") ?? "1536");
+            var options = new Fallen8EmbeddingOptions { Backend = "OpenAI", Dimension = dimension };
+            options.OpenAI.Endpoint = Env("F8_TEST_OPENAI_ENDPOINT") ?? "https://api.openai.com";
+            options.OpenAI.Model = Env("F8_TEST_OPENAI_EMBED_MODEL") ?? "text-embedding-3-small";
+            options.OpenAI.ApiKey = apiKey;
+
+            using var generator = EmbeddingBackendFactoryAccessor.Create(options);
+            await AssertBackendContract(generator, dimension);
+        }
+
+        /// <summary>Reaches the internal factory without widening its visibility, so a smoke
+        /// exercises the branch a deployment would take rather than a client it built itself.</summary>
         private static class EmbeddingBackendFactoryAccessor
         {
             internal static IEmbeddingGenerator<string, Embedding<float>> CreateOllama(string endpoint, string model)
             {
                 return new OllamaSharp.OllamaApiClient(new Uri(endpoint), model);
+            }
+
+            internal static IEmbeddingGenerator<string, Embedding<float>> Create(Fallen8EmbeddingOptions options)
+            {
+                var create = typeof(Fallen8EmbeddingProvider).Assembly
+                    .GetType("NoSQL.GraphDB.App.Embedding.EmbeddingBackendFactory")
+                    .GetMethod("Create", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                try
+                {
+                    return (IEmbeddingGenerator<string, Embedding<float>>)create.Invoke(null, new object[] { options, null });
+                }
+                catch (System.Reflection.TargetInvocationException ex)
+                {
+                    throw ex.InnerException;
+                }
             }
         }
     }

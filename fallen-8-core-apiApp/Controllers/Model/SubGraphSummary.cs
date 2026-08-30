@@ -192,6 +192,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                 Metric = String.IsNullOrWhiteSpace(semantic.Metric) ? "Cosine" : semantic.Metric,
                 Dimension = semantic.QueryVector.Length,
                 QueryText = String.IsNullOrWhiteSpace(semantic.QueryText) ? null : semantic.QueryText,
+                EmbeddingBackend = semantic.EmbeddingBackend,
+                EmbeddingIdentity = semantic.EmbeddingIdentity,
                 MinScore = semantic.MinScore,
                 PatternThresholds = thresholds
             };

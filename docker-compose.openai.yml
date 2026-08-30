@@ -1,0 +1,53 @@
+# OpenAI overlay (feature model-providers): the CHAT gateway talks to OpenAI instead of the local
+# Ollama sidecar. Embeddings stay exactly where they are.
+#
+#   F8_MODEL_PROVIDER=openai F8_OPENAI_API_KEY=... npm run env:up
+#
+# or, without the helper scripts:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.openai.yml up
+#
+# Why embeddings do NOT move with the chat gateway - the one real difference from the Nahil
+# overlay: OpenAI's embedding models are a DIFFERENT embedding function. A new identity stamp, a
+# new dimension (1536 or 3072 instead of 1024), and every vector already stored under bge-m3
+# would report an honest identity mismatch. Nobody should get that by picking a chat provider, so
+# this file sets no Fallen8__Embedding__* key at all and the base file's Ollama/bge-m3/1024/Cosine
+# block survives untouched. Moving embeddings to OpenAI is a deliberate manual configuration,
+# documented with its consequence: https://docs.fallen-8.com/model-providers/
+#
+# The local sidecar therefore keeps running and keeps serving bge-m3. It skips the two chat
+# fine-tunes (~4.8 GB) via F8_PULL_ASSIST=0 below, because nothing asks it for chat here.
+#
+# Required: F8_OPENAI_API_KEY. There is no default and there will not be one - a credential that
+# appears from nowhere is a credential nobody can rotate - so the overlay fails closed with the
+# reason if it is unset.
+#
+# F8_OPENAI_URL defaults to https://api.openai.com, OpenAI's own host root (a host root: scheme,
+# host, optional port, NO path - HttpClient drops a path prefix instead of honouring it, so one is
+# refused rather than rewritten). The route prefix the API lives under is a transport detail the
+# backend adds itself and never appears in configuration.
+
+services:
+  fallen8:
+    environment:
+      # Chat (the NL-assist path). The model is a config string; the repo does not chase the
+      # vendor catalog. gpt-4o-mini matches the preset Studio's browser-direct custom mode has
+      # shipped for OpenAI, so a draft made here reads like the one made there.
+      - Fallen8__Chat__Backend=OpenAI
+      - Fallen8__Chat__OpenAI__Endpoint=${F8_OPENAI_URL:-https://api.openai.com}
+      - Fallen8__Chat__OpenAI__ApiKey=${F8_OPENAI_API_KEY:?set F8_OPENAI_API_KEY}
+      - Fallen8__Chat__OpenAI__Model=${F8_OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      # The shipped 120s, and deliberately not the Nahil overlay's 600: a hosted API has no cold
+      # model to pull onto a worker, so there is nothing to wait out and a request that has not
+      # answered in two minutes is not about to.
+      - Fallen8__Chat__TimeoutSeconds=${F8_OPENAI_CHAT_TIMEOUT:-120}
+
+  # The sidecar is NOT parked on a dead profile (which is what the Nahil overlay does): it is the
+  # embedding backend for this deployment and has to stay in the active configuration.
+  ollama:
+    environment:
+      # Chat runs off-box, so phi4-mini + phi4-f8-mini (~4.8 GB) would be downloaded and never
+      # asked for a token. bge-m3 still pulls: F8_EMBEDDINGS owns that one, and F8_PULL_ASSIST is
+      # deliberately independent of it. The larger phi4-f8 keeps its own gate and is NOT covered
+      # here: add F8_PULL_PHI4F8=0 if you do not want its ~9 GB either.
+      - F8_PULL_ASSIST=0

@@ -84,6 +84,12 @@
     <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
     <PackageReference Include="LLamaSharp" Version="0.27.0" />
     <PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+    <!-- Model providers (feature model-providers). Both official SDKs, both wrapped in our own
+         IChatBackend / IEmbeddingGenerator the way OllamaSharp is. Each is configured with the
+         SINGLE-DEADLINE and NO-AUTO-RETRY settings the transport contract requires; see
+         RemoteModelHttpClient for the one home of that composition. -->
+    <PackageReference Include="OpenAI" Version="2.13.0" />
+    <PackageReference Include="Anthropic" Version="12.44.0" />
   </ItemGroup>
 
   <ItemGroup>

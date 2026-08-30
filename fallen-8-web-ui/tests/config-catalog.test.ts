@@ -93,8 +93,8 @@ describe("configuration section taxonomy", () => {
       analytics: 3,
       bulkio: 3,
       ceilings: 2, // Plugins 1 + StoredQueries 1
-      embedding: 21,
-      chat: 9,
+      embedding: 24,
+      chat: 16,
       ingestion: 29, // Ingestion 23 + Nlp 6
       integrations: 3,
       observability: 6,
@@ -206,6 +206,8 @@ describe("groupSettings", () => {
       { label: "", n: 4 },
       { label: "Ollama", n: 2 },
       { label: "Nahil", n: 3 },
+      { label: "OpenAI", n: 3 },
+      { label: "Anthropic", n: 4 },
     ]);
 
     const embedding = groupSettings(shipped).find((entry) => entry.section.id === "embedding")!;
@@ -215,6 +217,7 @@ describe("groupSettings", () => {
       { label: "LLamaSharp", n: 1 },
       { label: "Ollama", n: 2 },
       { label: "Nahil", n: 3 },
+      { label: "OpenAI", n: 3 },
     ]);
 
     // A merged raw section becomes a sub-group under its own name.

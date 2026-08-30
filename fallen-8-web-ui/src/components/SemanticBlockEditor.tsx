@@ -27,6 +27,7 @@ import { help } from "../lib/fieldHelp";
 import { Field } from "./Field";
 import { SemanticQueryEditor } from "./SemanticQueryEditor";
 import { buildSemanticSpec, type SemanticDraft } from "../lib/semantic";
+import type { EmbeddingProviderStatsREST } from "../api/types";
 
 /**
  * The Path screen's declarative semantic block (feature element-embeddings): the shared
@@ -46,6 +47,7 @@ export function SemanticBlockEditor({
   allowCost,
   costDisabledReason,
   providerEnabled,
+  provider,
   embeddingNames,
   idPrefix,
   disabled = false,
@@ -60,6 +62,8 @@ export function SemanticBlockEditor({
   costDisabledReason?: string;
   /** Resolved provider state; null = unknown (no graph shape computed yet). */
   providerEnabled: boolean | null;
+  /** Passed straight to SemanticQueryEditor, which documents it. */
+  provider?: EmbeddingProviderStatsREST | null;
   embeddingNames: string[];
   idPrefix: string;
   /** e.g. a stored template is selected — the block cannot apply. */
@@ -110,6 +114,7 @@ export function SemanticBlockEditor({
               )
             }
             providerEnabled={providerEnabled}
+            provider={provider}
             embeddingNames={embeddingNames}
             idPrefix={idPrefix}
           />

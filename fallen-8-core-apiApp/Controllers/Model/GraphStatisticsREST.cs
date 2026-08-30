@@ -363,7 +363,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        /// <summary>The configured backend: Onnx, LLamaSharp or Ollama.</summary>
+        /// <summary>The configured backend: Onnx, LLamaSharp, Ollama, Nahil or OpenAI.</summary>
         /// <example>Onnx</example>
         [JsonPropertyName("backend")]
         public String Backend
@@ -403,7 +403,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>Whether the backend has actually been created (lazy load happened on first use).
-        /// For an Ollama backend this is client construction, not model residency - see
+        /// For any remote backend this is client construction, not model residency - see
         /// <see cref="Resident"/>.</summary>
         /// <example>false</example>
         [JsonPropertyName("loaded")]
@@ -413,9 +413,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>Whether the model is currently loaded in the backend (Ollama /api/ps): true =
-        /// warm, false = not loaded right now (loads on first use), null = undeterminable or not an
-        /// Ollama backend. Only set on GET /config (a point-in-time probe), never on /status or
-        /// /statistics.</summary>
+        /// warm, false = not loaded right now (loads on first use), null = undeterminable, or a
+        /// backend with no residency API (OpenAI has none, so this stays null by design). Only set
+        /// on GET /config (a point-in-time probe), never on /status or /statistics.</summary>
         [JsonPropertyName("resident")]
         public Boolean? Resident
         {
@@ -423,7 +423,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>Best-effort GPU residency (Ollama VRAM): true/false when reported, null when
-        /// undeterminable or not probed. Only set on GET /config.</summary>
+        /// undeterminable, not probed, or a backend with no residency API. Only set on
+        /// GET /config.</summary>
         [JsonPropertyName("gpu")]
         public Boolean? Gpu
         {

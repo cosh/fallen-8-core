@@ -83,6 +83,14 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
   };
 });
 
+import type { NlChatResult } from "../src/delegate/nl/generate";
+
+const chatMock = vi.fn<(...args: unknown[]) => Promise<NlChatResult>>();
+vi.mock("../src/delegate/nl/generate", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/delegate/nl/generate")>();
+  return { ...original, generateChat: (...a: unknown[]) => chatMock(...a) };
+});
+
 import { PluginsPanel } from "../src/components/PluginsPanel";
 
 const PLUGINS: PluginSummaryREST[] = [
@@ -114,6 +122,18 @@ const PLUGINS: PluginSummaryREST[] = [
 
 function renderPanel() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // The authoring editor's NL panel reads /status for its ambient backend line, keyed on the
+  // namespace-bound active instance. Seeded so the row is warm and no jsdom fetch is attempted.
+  client.setQueryData(["local/default", "status"], {
+    vertexCount: 0,
+    edgeCount: 0,
+    usedMemory: 0,
+    availableIndexPlugins: [],
+    availablePathPlugins: [],
+    availableAnalyticsPlugins: [],
+    availableServicePlugins: [],
+    chat: { enabled: true, backend: "Nahil", model: "phi4-f8-mini", loaded: true },
+  });
   return render(
     <QueryClientProvider client={client}>
       <PluginsPanel />
@@ -133,6 +153,7 @@ beforeEach(() => {
   validatePluginMock.mockReset().mockResolvedValue({ valid: true, error: null });
   registerAlgorithmPluginMock.mockReset().mockResolvedValue(PLUGINS[0]);
   registerFunctionPluginMock.mockReset().mockResolvedValue(PLUGINS[1]);
+  chatMock.mockReset();
 });
 
 describe("plugins list", () => {
@@ -237,5 +258,48 @@ describe("authoring editor", () => {
     await user.selectOptions(screen.getByTestId("plugin-category"), "function");
     await waitFor(() => expect(editor.value).toContain(": IGraphFunction"));
     expect(screen.queryByTestId("plugin-contract")).not.toBeInTheDocument();
+  });
+
+  it("names the ambient chat destination instead of the connection's own name", async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByTestId("plugin-row-MyDijkstra")).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId("register-plugin"));
+
+    expect(screen.getByTestId("plugin-nl-backend-status")).toHaveTextContent(
+      "this instance · /chat → Nahil · phi4-f8-mini",
+    );
+  });
+
+  it("renders the drafting stats it already captured, backend included (FR-6.3)", async () => {
+    const user = userEvent.setup();
+    chatMock.mockResolvedValueOnce({
+      content: "public sealed class Drafted : IGraphFunction {}",
+      stats: {
+        promptTokens: 640,
+        completionTokens: 31,
+        durationMs: 2500,
+        tokensPerSecond: 12.4,
+        backend: "Nahil",
+        raw: { backend: "Nahil", eval_count: 31 },
+      },
+    });
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByTestId("plugin-row-MyDijkstra")).toBeInTheDocument(),
+    );
+    await user.click(screen.getByTestId("register-plugin"));
+
+    await user.type(screen.getByTestId("plugin-nl-intent"), "neighbours of a label");
+    await user.click(screen.getByTestId("plugin-nl-generate"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("plugin-nl-attempts")).toHaveTextContent("640→31 tok"),
+    );
+    const attempts = screen.getByTestId("plugin-nl-attempts");
+    expect(attempts).toHaveTextContent("12.4 tok/s · Nahil");
+    expect(screen.getByText("raw stats")).toBeInTheDocument();
   });
 });

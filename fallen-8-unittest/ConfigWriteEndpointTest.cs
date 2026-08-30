@@ -331,13 +331,19 @@ namespace NoSQL.GraphDB.Tests
             using var accepted = await Patch(client, ("Fallen8:Chat:Backend", "Ollama"));
             Assert.AreEqual(HttpStatusCode.OK, accepted.StatusCode);
 
-            // Both backends are accepted, and only in the spelling the factory switches on: the
+            // Every backend is accepted, and only in the spelling the factory switches on: the
             // catalogued value and that `case` label have to stay byte-identical, or a stored value
             // passes validation here and then latches the permanent 503 this test exists to prevent.
             using var nahilWrongCase = await Patch(client, ("Fallen8:Chat:Backend", "gateway"));
             Assert.AreEqual(HttpStatusCode.BadRequest, nahilWrongCase.StatusCode);
             using var nahil = await Patch(client, ("Fallen8:Chat:Backend", "Nahil"));
             Assert.AreEqual(HttpStatusCode.OK, nahil.StatusCode);
+            using var openAiWrongCase = await Patch(client, ("Fallen8:Chat:Backend", "openai"));
+            Assert.AreEqual(HttpStatusCode.BadRequest, openAiWrongCase.StatusCode);
+            using var openAi = await Patch(client, ("Fallen8:Chat:Backend", "OpenAI"));
+            Assert.AreEqual(HttpStatusCode.OK, openAi.StatusCode);
+            using var anthropic = await Patch(client, ("Fallen8:Chat:Backend", "Anthropic"));
+            Assert.AreEqual(HttpStatusCode.OK, anthropic.StatusCode);
         }
 
         /// <summary>

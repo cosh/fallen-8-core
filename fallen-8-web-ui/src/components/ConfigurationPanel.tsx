@@ -38,6 +38,7 @@ import type {
 import { Truncated } from "./Truncated";
 import { ConfigurationSurface } from "./ConfigurationSurface";
 import { restartBannerSummary } from "../lib/restartCopy";
+import { embeddingStamp } from "../lib/modelProvenance";
 import { ErrorBox } from "./ErrorBox";
 
 /**
@@ -83,8 +84,10 @@ type ModelStatus = { text: string; state: "loaded" | "idle" | "unknown" };
 /**
  * The provider's live status. Prefers the model-residency probe (Ollama /api/ps) when known —
  * that is the honest "is the model loaded right now" signal — and falls back to the lazy
- * `loaded` flag (client created on first use) for non-Ollama backends or when the probe is
- * inconclusive. "idle" is normal: a provider loads its model on first use.
+ * `loaded` flag (client created on first use) when there is no probe to run.
+ *
+ * With residency unknown the wording avoids the word "load" on purpose: a hosted provider loads
+ * nothing on this machine, so the only knowable fact there is whether it has been called.
  */
 function modelStatus(
   loaded: boolean,
@@ -96,9 +99,10 @@ function modelStatus(
     return { text: `loaded${device}`, state: "loaded" };
   }
   if (resident === false) return { text: "not loaded (loads on first use)", state: "idle" };
+  // Residency is unknown from here down, both returns included.
   return loaded
-    ? { text: "loaded", state: "loaded" }
-    : { text: "idle (loads on first use)", state: "idle" };
+    ? { text: "in use", state: "loaded" }
+    : { text: "not called yet", state: "idle" };
 }
 
 function StatusRow({ status }: { status: ModelStatus }) {
@@ -125,11 +129,7 @@ function EmbeddingCard({ embedding }: { embedding: EmbeddingProviderStatsREST | 
           <Row label="backend" value={embedding.backend ?? "—"} />
           <Row
             label="model"
-            value={
-              embedding.modelName
-                ? embedding.modelName + (embedding.modelVersion ? `@${embedding.modelVersion}` : "")
-                : "—"
-            }
+            value={embedding.modelName ? embeddingStamp(embedding) : "—"}
           />
           <Row label="vector" value={`${embedding.dimension}d · ${embedding.intendedMetric ?? "—"}`} />
           <StatusRow status={modelStatus(embedding.loaded, embedding.resident, embedding.gpu)} />

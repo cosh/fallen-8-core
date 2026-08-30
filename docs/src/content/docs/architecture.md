@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-description: "How the engine, REST app, F8 Studio, the MCP server, the integrations runtime and the model sidecar fit together."
+description: "How the engine, REST app, F8 Studio, the MCP server, the integrations runtime, the model sidecar and the hosted model providers fit together."
 ---
 
 Fallen-8 is an in-memory graph engine with a thin REST app wrapped around it. The engine
@@ -41,7 +41,8 @@ flowchart TB
         durab["Durability<br/>(WAL + checkpoints)"]:::sys
         feed["Change feed<br/>(dispatcher + ring buffer)"]:::sys
     end
-    sidecar["Model backend<br/>local Ollama sidecar OR Nahil (nahil.dev)<br/>embeddings + delegate assist"]:::ext
+    sidecar["Model sidecar (Ollama)<br/>local · embeddings + delegate assist"]:::ext
+    provider["Hosted model provider<br/>Nahil · OpenAI · Anthropic"]:::ext
     docling["Document sidecar (docling-serve)<br/>binary-to-structured conversion"]:::ext
     nlp["NLP sidecar (spaCy)<br/>named entities + key terms"]:::ext
     integrations["Integrations runtime · fallen-8-integrations<br/>separate deployable · no host port · writes via REST"]:::mcp
@@ -77,6 +78,7 @@ flowchart TB
     rest --> savegames
     rest -->|proxy /integrations/*| integrations
     semantic -.->|embeddings + chat| sidecar
+    semantic -.->|"chat, and embeddings on Nahil"| provider
     ingestion -.->|document conversion| docling
     ingestion -.->|entity + term enrichment| nlp
     rest -.->|OTLP metrics/traces/logs| collector
@@ -160,7 +162,8 @@ A thin ASP.NET Core layer. It owns what the engine deliberately does not:
   to ([namespaces](/namespaces/#startup-load)).
 - **The optional [embedding provider](/semantic-traversal/).** Text-in embedding lives only
   in the app so the engine stays model-free; a bare run has it off, and the compose
-  environment wires it to the model sidecar.
+  environment wires it to the model sidecar, or to whichever
+  [provider](/model-providers/) is configured.
 - **The optional [ingestion pipeline](/unstructured-ingestion/).** Documents become
   Document/Chunk vertices through parse, chunk, embed, write, running off-thread on a single
   global queue; binary formats convert in the docling sidecar and an optional spaCy sidecar
@@ -196,7 +199,7 @@ losing hours of embedding work. An entry is deleted on every ending a run has, s
 runtime's spool is empty, and neither a credential nor a file's bytes is ever written there. The
 full story is in [Integrations](/integrations/).
 
-## F8 Studio and the model sidecar
+## F8 Studio and the model backends
 
 [F8 Studio](/studio/) is a React single-page app. It talks to the REST API like any other
 client: it has no privileged channel, including for models. The app is the **semantic
@@ -208,9 +211,10 @@ instance**: the browser hands the app *text* and the app embeds or proxies serve
 `POST /embedding/text` is the bare text-to-vector route, there for other clients. In the compose
 environment the backend behind all of this is the Ollama sidecar, which serves both the embedding
 model and the chat model. F8 itself bundles no model weights or
-runtime. That backend is also the one part of this picture that can move off the machine: a
-[Nahil](/nahil/) serves the same API from someone else's hardware, and choosing
-it is a configuration change with no new deployable and no new path from the browser. The one path that stays off the instance is a **custom** NL-assist endpoint: there
+runtime. That backend is also the one part of this picture that can move off the machine: each
+capability picks its own [model provider](/model-providers/) - the sidecar, Nahil, OpenAI or
+Anthropic - and choosing one is a configuration change with no new deployable and no new path from
+the browser. The one path that stays off the instance is a **custom** NL-assist endpoint: there
 the browser calls the model backend directly and any API key is held only in the browser
 (the earlier browser-only default was retired in favour of the gateway; see
 [studio.md](/studio/)).
@@ -250,7 +254,8 @@ Studio in its own nginx container on `:8081`, whose origin the data plane allow-
 ([standalone UI](/standalone-ui/)). The **all-in-one** image (the SPA baked into `wwwroot`, API
 and UI both on `:8080`) is still built and is what a bare `docker compose up` runs.
 
-Around the data plane the same environment brings up the Ollama model sidecar, the docling
+Around the data plane the same environment brings up the Ollama model sidecar (which
+`F8_MODEL_PROVIDER` can leave serving embeddings only, or not start at all), the docling
 document-conversion sidecar (`F8_INGESTION=false` skips it), the spaCy NLP sidecar
 (`F8_NLP=false` skips it), the `f8-mcp` bridge on `:8090` (anonymous and read-only in this local-dev
 posture), the `f8-integrations` runtime on the `integrations` profile with no published port
@@ -260,6 +265,7 @@ the WAL, and the save-game registry share one mounted named volume.
 ## See also
 
 - [Running](/running/): how to launch each of these
+- [Model providers](/model-providers/): which backend serves embeddings and chat, and where its key lives
 - [Standalone F8 Studio](/standalone-ui/): deploying the UI apart from the data plane
 - [Graph model](/graph-model/): the data model and the transaction/read contract
 - [Delegates](/delegates/): why there is no query language and how fragments compile

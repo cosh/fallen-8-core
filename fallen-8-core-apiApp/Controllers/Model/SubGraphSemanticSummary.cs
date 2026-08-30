@@ -81,6 +81,27 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
+        /// <summary>The backend that embedded <c>queryText</c> at registration; absent for
+        /// client-supplied vectors. Echoed from the recipe, so it names the run that embedded and not
+        /// the current configuration - full contract on
+        /// <see cref="SemanticTraversalSpecification.EmbeddingBackend" />.</summary>
+        /// <example>Nahil</example>
+        [JsonPropertyName("embeddingBackend")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String EmbeddingBackend
+        {
+            get; set;
+        }
+
+        /// <summary>That run's embedding model identity stamp.</summary>
+        /// <example>bge-m3#1024#Cosine</example>
+        [JsonPropertyName("embeddingIdentity")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String EmbeddingIdentity
+        {
+            get; set;
+        }
+
         /// <summary>The top-level vertex pre-filter threshold (<c>semantic.minScore</c>), when set.</summary>
         [JsonPropertyName("minScore")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]

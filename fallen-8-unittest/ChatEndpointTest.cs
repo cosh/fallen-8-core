@@ -106,6 +106,32 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
+        private const String RemoteKey = "openai-test-key";
+
+        private const String OtherRemoteKey = "anthropic-test-key";
+
+        /// <summary>
+        ///   A deployment whose chat selector names a backend with no Ollama-protocol target
+        ///   (feature model-providers). Nothing is ever constructed: the tests using it only read
+        ///   the reported state, which is exactly where the bug was.
+        /// </summary>
+        private sealed class RemoteBackendFactory : VolatileAppFactory
+        {
+            protected override void ConfigureWebHost(IWebHostBuilder builder)
+            {
+                base.ConfigureWebHost(builder);
+                builder.UseSetting("Fallen8:Chat:Enabled", "true");
+                builder.UseSetting("Fallen8:Chat:Backend", "OpenAI");
+                builder.UseSetting("Fallen8:Chat:OpenAI:ApiKey", RemoteKey);
+                builder.UseSetting("Fallen8:Chat:OpenAI:Model", "gpt-4o-mini");
+                // Both left set on purpose: an unselected provider's credential is configured on
+                // plenty of real deployments, and an earlier selector's model must not be what gets
+                // reported once the selector moved.
+                builder.UseSetting("Fallen8:Chat:Anthropic:ApiKey", OtherRemoteKey);
+                builder.UseSetting("Fallen8:Chat:Ollama:Model", "fake-model");
+            }
+        }
+
         private static StringContent Json(String json) => new StringContent(json, Encoding.UTF8, "application/json");
 
         private static FakeChatBackend Returns(String content, Int64 promptTokens = 3, Int64 completionTokens = 7)
@@ -147,6 +173,9 @@ namespace NoSQL.GraphDB.Tests
             var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
             Assert.AreEqual("hello from the model", body.GetProperty("content").GetString());
             Assert.AreEqual("fake-model", body.GetProperty("model").GetString());
+            // The fake REPLACES the backend while the selector still says Ollama, so this value can
+            // only have come from the provider and not from the IChatBackend that answered.
+            Assert.AreEqual("Ollama", body.GetProperty("backend").GetString());
             var stats = body.GetProperty("stats");
             Assert.AreEqual(3, stats.GetProperty("promptTokens").GetInt64());
             Assert.AreEqual(7, stats.GetProperty("completionTokens").GetInt64());
@@ -275,6 +304,51 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("Ollama", chat.GetProperty("backend").GetString());
             Assert.AreEqual("fake-model", chat.GetProperty("model").GetString());
             Assert.IsFalse(chat.GetProperty("loaded").GetBoolean(), "no chat call happened, so nothing is loaded");
+        }
+
+        [TestMethod]
+        public async Task Status_BackendWithoutAnOllamaTarget_ReportsItsOwnModel_AndNoResidency()
+        {
+            // THE REGRESSION THIS PINS (feature model-providers, FR-5.2). The reported model used to
+            // be read off the residency PROBE target, which answers the narrower question of which
+            // Ollama-protocol endpoint can be dialled - null for a backend that speaks its own
+            // protocol. A perfectly working deployment therefore reported model: null.
+            using var factory = new RemoteBackendFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/status");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+
+            var chat = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement.GetProperty("chat");
+            Assert.AreEqual("OpenAI", chat.GetProperty("backend").GetString());
+            Assert.AreEqual("gpt-4o-mini", chat.GetProperty("model").GetString(),
+                "the model comes from the SELECTED backend's own options");
+            Assert.AreEqual(JsonValueKind.Null, chat.GetProperty("resident").ValueKind,
+                "there is no residency API to probe, so residency stays unknown rather than guessed");
+            Assert.AreEqual(JsonValueKind.Null, chat.GetProperty("gpu").ValueKind);
+        }
+
+        [TestMethod]
+        public async Task Config_BackendWithoutAnOllamaTarget_NeverEchoesTheProviderCredential()
+        {
+            // GET /config is anonymous on a keyless instance, so the credential of a METERED
+            // provider is exactly the thing that must not ride the config view. The R8 tier is what
+            // withholds it; this is the same assertion shape the sibling config test uses.
+            using var factory = new RemoteBackendFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/config");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+
+            var raw = await response.Content.ReadAsStringAsync();
+            Assert.IsFalse(raw.Contains(RemoteKey), "the config view must never echo a provider credential");
+            Assert.IsFalse(raw.Contains(OtherRemoteKey),
+                "including the credential of a provider this deployment did not select");
+            var chat = JsonDocument.Parse(raw).RootElement.GetProperty("semantic").GetProperty("chat");
+            Assert.AreEqual("gpt-4o-mini", chat.GetProperty("model").GetString(),
+                "/config reports the model the same way /status does");
+            Assert.AreEqual(JsonValueKind.Null, chat.GetProperty("resident").ValueKind,
+                "the residency probe is skipped for a backend that has no such API, not attempted and failed");
         }
 
         [TestMethod]

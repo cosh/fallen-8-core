@@ -611,15 +611,17 @@ namespace NoSQL.GraphDB.Tests
                     backend + ": a real boolean false, since that is what reaches the request body");
             }
 
-            // The in-process backends read none of this: options they ignore would only suggest the
-            // flag governs them too.
-            foreach (var backend in new[] { "Onnx", "LLamaSharp" })
+            // Every other backend gets nothing, for two different reasons: the in-process ones read
+            // none of this at all, and OpenAI has no key of that name to set - its route carries no
+            // truncation knob and refuses an over-long input instead. Sending an option a backend
+            // ignores would only suggest the flag governs it too.
+            foreach (var backend in new[] { "Onnx", "LLamaSharp", "OpenAI" })
             {
                 var fake = new FakeEmbeddingGenerator(2);
                 await Provider(EmbeddingOptions(backend), fake).EmbedAsync(new[] { "x" }, default);
 
                 Assert.AreEqual(1, fake.Calls, backend);
-                Assert.IsNull(fake.LastOptions, backend + " truncates on its own configured terms, if at all");
+                Assert.IsNull(fake.LastOptions, backend + " does not read the truncate flag");
             }
         }
 
@@ -748,8 +750,154 @@ namespace NoSQL.GraphDB.Tests
             using var remote = (IDisposable)CreateBackend(nahil);
             Assert.IsInstanceOfType(remote, typeof(OllamaSharp.OllamaApiClient));
 
+            // OpenAI constructs eagerly too, and needs the same triple - but it is a different
+            // protocol AND a different embedding function, so it is its own generator rather than
+            // another OllamaApiClient.
+            var openAi = new Fallen8EmbeddingOptions { Backend = "OpenAI", Dimension = 1536 };
+            openAi.OpenAI.Model = "text-embedding-3-small";
+            openAi.OpenAI.ApiKey = "k";
+            using var openAiGenerator = (IDisposable)CreateBackend(openAi);
+            Assert.IsInstanceOfType(openAiGenerator, typeof(IEmbeddingGenerator<string, Embedding<float>>));
+            Assert.IsNotInstanceOfType(openAiGenerator, typeof(OllamaSharp.OllamaApiClient));
+
+            // And its triple is validated with the key named, like Nahil's. The endpoint has a
+            // default, so a bare selector still needs the model and the credential.
+            var incomplete = new Fallen8EmbeddingOptions { Backend = "OpenAI" };
+            StringAssert.Contains(Assert.ThrowsException<InvalidOperationException>(
+                () => CreateBackend(incomplete)).Message, "Fallen8:Embedding:OpenAI:Model");
+            incomplete.OpenAI.Model = "text-embedding-3-small";
+            StringAssert.Contains(Assert.ThrowsException<InvalidOperationException>(
+                () => CreateBackend(incomplete)).Message, "Fallen8:Embedding:OpenAI:ApiKey");
+
             Assert.ThrowsException<InvalidOperationException>(() =>
                 CreateBackend(new Fallen8EmbeddingOptions { Backend = "Nope" }));
+        }
+
+        /// <summary>
+        ///   The startup warning and the surface's <c>503</c> read ONE method, so an operator is
+        ///   never told two different things about one deployment. Asserted as an equality against
+        ///   the thrown message rather than by re-listing the sentences: a second copy of them here
+        ///   would be the very duplication the single home exists to prevent.
+        ///
+        ///   <para>Covers the case that had no boot warning at all before: a selected but
+        ///   incompletely configured OpenAI embedding backend. The shipped docs promise the reason is
+        ///   logged once at startup, and <c>ResolveConnection</c> answers <c>null</c> for OpenAI (it
+        ///   speaks no Ollama protocol), so inferring the problem from that null found nothing to
+        ///   warn about.</para>
+        ///
+        ///   <para>And it pins the deliberate silences: <c>Onnx</c> and <c>LLamaSharp</c> validate
+        ///   clean because whether the operator's model FILE is present is their constructor's
+        ///   answer, not something a selector check can know. Warning about them at boot would fire
+        ///   on every working in-process deployment.</para>
+        /// </summary>
+        [TestMethod]
+        public void BackendFactory_ValidateIsTheOneHome_SoTheBootWarningAndThe503Agree()
+        {
+            var unusable = new[]
+            {
+                new Fallen8EmbeddingOptions { Backend = "Anthropic" },
+                new Fallen8EmbeddingOptions { Backend = "Nope" },
+                new Fallen8EmbeddingOptions { Backend = "openai" },
+                // Selected, and missing each of the three things it needs in turn.
+                OpenAI(null, "text-embedding-3-small", "sk-key"),
+                OpenAI("https://api.openai.com", null, "sk-key"),
+                OpenAI("https://api.openai.com", "text-embedding-3-small", null),
+                OpenAI("https://api.openai.com", "text-embedding-3-small", "   "),
+                // The Ollama-protocol arm, so the shared branch is covered by the same claim.
+                Nahil("https://models.example", "bge-m3:latest", null)
+            };
+
+            foreach (var options in unusable)
+            {
+                var problem = Validate(options);
+                Assert.IsNotNull(problem, "an unusable backend must be refusable before it is built: "
+                    + options.Backend);
+
+                var thrown = Assert.ThrowsException<InvalidOperationException>(() => CreateBackend(options));
+                Assert.AreEqual(thrown.Message, problem,
+                    "the startup line and the 503 must be the same sentence, or they can drift");
+            }
+
+            foreach (var backend in new[] { "Onnx", "LLamaSharp" })
+            {
+                Assert.IsNull(Validate(new Fallen8EmbeddingOptions { Backend = backend }),
+                    backend + " runs in-process on operator files, so a missing file is its "
+                    + "constructor's answer and not a name this check can refuse");
+            }
+
+            Assert.IsNull(Validate(Nahil("https://models.example", "bge-m3:latest", "k")),
+                "a fully configured remote backend has nothing to warn about at boot");
+        }
+
+        /// <summary>Whether the configured embedding backend is refusable, through the real factory.</summary>
+        private static String Validate(Fallen8EmbeddingOptions options)
+        {
+            var factory = typeof(Fallen8EmbeddingProvider).Assembly
+                .GetType("NoSQL.GraphDB.App.Embedding.EmbeddingBackendFactory");
+            var validate = factory.GetMethod("Validate",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+            Assert.IsNotNull(validate, "Validate is the one home the boot warning and the 503 share");
+            return (String)validate.Invoke(null, new object[] { options });
+        }
+
+        private static Fallen8EmbeddingOptions OpenAI(String endpoint, String model, String apiKey)
+        {
+            return new Fallen8EmbeddingOptions
+            {
+                Backend = "OpenAI",
+                OpenAI = new Fallen8EmbeddingOptions.OpenAIOptions
+                {
+                    Endpoint = endpoint,
+                    Model = model,
+                    ApiKey = apiKey
+                }
+            };
+        }
+
+        private static Fallen8EmbeddingOptions Nahil(String endpoint, String model, String apiKey)
+        {
+            var options = new Fallen8EmbeddingOptions { Backend = "Nahil" };
+            options.Nahil.Endpoint = endpoint;
+            options.Nahil.Model = model;
+            options.Nahil.ApiKey = apiKey;
+            return options;
+        }
+
+        /// <summary>
+        ///   Anthropic is a name an operator can reasonably have expected to work - it IS a
+        ///   configurable chat backend - so it gets its own sentence rather than the typo's. The
+        ///   distinction is the operator's next move: pick another embedding backend, versus fix a
+        ///   spelling. And the sentence has to say the two capabilities are configured
+        ///   independently, or it reads as "Anthropic is not usable on this instance at all".
+        /// </summary>
+        [TestMethod]
+        public void BackendFactory_RefusesAnthropic_WithItsOwnReason_NotAnUnknownName()
+        {
+            var refused = Assert.ThrowsException<InvalidOperationException>(
+                () => CreateBackend(new Fallen8EmbeddingOptions { Backend = "Anthropic" }));
+
+            StringAssert.Contains(refused.Message, "Fallen8:Embedding:Backend",
+                "a refusal names the key an operator has to change");
+            StringAssert.Contains(refused.Message, "Anthropic");
+            StringAssert.Contains(refused.Message, "no embeddings API");
+            StringAssert.Contains(refused.Message, "chat may stay on Anthropic");
+            StringAssert.Contains(refused.Message, "OpenAI", "and lists what it can be instead");
+
+            var typo = Assert.ThrowsException<InvalidOperationException>(
+                () => CreateBackend(new Fallen8EmbeddingOptions { Backend = "Anthropik" }));
+            StringAssert.Contains(typo.Message, "is not a supported embedding backend");
+            Assert.AreNotEqual(refused.Message, typo.Message);
+            Assert.IsFalse(typo.Message.Contains("no embeddings API", StringComparison.Ordinal),
+                "a typo is not told a fact about a provider it did not name");
+
+            // Matching is ordinal, so the casing the catalog publishes is the only spelling that
+            // works. A backend that half-matched would latch a 503 nobody could explain.
+            foreach (var wrongCase in new[] { "openai", "OpenAi", "OPENAI" })
+            {
+                var rejected = Assert.ThrowsException<InvalidOperationException>(
+                    () => CreateBackend(new Fallen8EmbeddingOptions { Backend = wrongCase }));
+                StringAssert.Contains(rejected.Message, "is not a supported embedding backend", wrongCase);
+            }
         }
 
         /// <summary>
@@ -761,15 +909,6 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void BackendFactory_RefusesAnUnusableNahil_NamingTheKeyToFix()
         {
-            static Fallen8EmbeddingOptions Nahil(String endpoint, String model, String apiKey)
-            {
-                var options = new Fallen8EmbeddingOptions { Backend = "Nahil" };
-                options.Nahil.Endpoint = endpoint;
-                options.Nahil.Model = model;
-                options.Nahil.ApiKey = apiKey;
-                return options;
-            }
-
             // A path prefix is REFUSED, never rewritten: HttpClient.BaseAddress would drop it and
             // every call would silently go to the wrong URL.
             var path = Assert.ThrowsException<InvalidOperationException>(

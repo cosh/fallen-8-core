@@ -24,12 +24,7 @@
 // SOFTWARE.
 
 import { Field } from "../../components/Field";
-import {
-  DEFAULT_NL_MODEL,
-  NL_PRESETS,
-  usesApiKey,
-  type NlAssistConfig,
-} from "./config";
+import { NL_PRESETS, usesApiKey, type NlAssistConfig } from "./config";
 import { useStudioConfig } from "../../app/studioConfig";
 
 /**
@@ -74,10 +69,10 @@ export function NlBackendConfig({
       )}
       {mode === "instance" ? (
         <p className="text-fg-faint text-[10px]" data-testid="nl-instance-hint">
-          Routed through the active instance: <code>POST /chat</code> proxies to the server's
-          model backend (default <code>{DEFAULT_NL_MODEL}</code>, chosen on the server via
-          Fallen8:Chat). Nothing to configure here; the prompt stays within the instance you
-          are already connected to.
+          Routed through the active instance: <code>POST /chat</code> proxies to whichever
+          backend <code>Fallen8:Chat</code> selects, with the model that backend is configured
+          for. Nothing to configure here; the prompt stays within the instance you are already
+          connected to.
         </p>
       ) : (
         <>

@@ -112,40 +112,13 @@ namespace NoSQL.GraphDB.App.Helper
         ///   this instance answers until the configuration is fixed) and reported once at startup, so
         ///   both say the same thing from one place.
         ///
-        ///   <para>No message here QUOTES the endpoint. It reaches an operator two ways - a startup
-        ///   warning and the problem-detail of the 503 the affected capability answers - and the
-        ///   second of those is anonymous on a keyless instance, while the catalog deliberately
-        ///   withholds this key's value from the config surface. Echoing it back would undo that,
-        ///   and would disclose any credential an operator embedded in the URL. Naming the key is
-        ///   enough to fix it.</para>
-        ///
-        ///   <para>The host-root rule is the one worth stating: <see cref="System.Net.Http.HttpClient.BaseAddress"/>
-        ///   DROPS a path prefix as soon as a request URI starts with <c>/</c>, silently, so an
-        ///   endpoint carrying a path would dial the wrong URL and report only a 404 from somewhere
-        ///   unexpected. It is refused rather than rewritten: guessing which half of
-        ///   <c>https://host/prefix</c> the operator meant is how a proxy path becomes unreachable
-        ///   without anyone noticing.</para>
+        ///   <para>The endpoint half of that answer, and why it is shaped the way it is, lives on
+        ///   <see cref="EndpointRule" />.</para>
         /// </summary>
         public Boolean IsValid(out String problem)
         {
-            if (String.IsNullOrWhiteSpace(Endpoint))
+            if (!EndpointRule.Validate(SectionKey, Endpoint, out problem))
             {
-                problem = SectionKey + ":Endpoint is required.";
-                return false;
-            }
-
-            if (!Uri.TryCreate(Endpoint, UriKind.Absolute, out var uri)
-                || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-            {
-                problem = SectionKey + ":Endpoint must be an absolute http:// or https:// URL.";
-                return false;
-            }
-
-            if (uri.AbsolutePath != "/" || !String.IsNullOrEmpty(uri.Query) || !String.IsNullOrEmpty(uri.Fragment))
-            {
-                problem = SectionKey + ":Endpoint must be a host root - scheme, host and optional"
-                    + " port, nothing more - because HttpClient.BaseAddress drops a path prefix"
-                    + " instead of honouring it.";
                 return false;
             }
 
