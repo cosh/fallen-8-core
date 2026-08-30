@@ -233,9 +233,9 @@
       "id": "fallen8-deps",
       "title": "Fallen-8 Dependencies",
       "emoji": "📦",
-      "pitch": "Fallen-8's own supply chain across every ecosystem (npm 1013, nuget 30, pypi 19, githubactions 18, github 1) — the static twin of the GitHub card below.",
-      "vertexCount": 1081,
-      "edgeCount": 1845,
+      "pitch": "Fallen-8's own supply chain across every ecosystem (npm 1013, nuget 32, pypi 19, githubactions 18, github 1) — the static twin of the GitHub card below.",
+      "vertexCount": 1083,
+      "edgeCount": 1847,
       "badges": [
         "canvas",
         "analytics"
