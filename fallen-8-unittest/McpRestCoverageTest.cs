@@ -118,7 +118,7 @@ namespace NoSQL.GraphDB.Tests
                 "the file-path load is deferred; f8_admin load uses the id-based /savegames/{id}/load"),
             new(op => op == "POST /chat",
                 "the chat gateway is Studio's model path (browser -> instance -> Ollama); agents bring " +
-                "their own model. Chat capability state is discoverable via f8_overview (chatEnabled)"),
+                "their own model. Chat capability state is discoverable via f8_overview (chatEnabled/chatBackend)"),
             // GET /config is no longer deferred: feature writable-instance-config turned it into the whole
             // setting inventory (tier, source, effective value, and the reason a key is refused), and
             // f8_admin get_settings/set_settings bridge it. The deferral had to be DELETED rather than

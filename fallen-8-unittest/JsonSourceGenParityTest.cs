@@ -585,6 +585,8 @@ namespace NoSQL.GraphDB.Tests
                         Metric = "Cosine",
                         Dimension = 384,
                         QueryText = "red bicycles",
+                        EmbeddingBackend = "Nahil",
+                        EmbeddingIdentity = "bge-m3#1024#Cosine",
                         MinScore = 0.7,
                         PatternThresholds = new List<SubGraphPatternThresholdSummary>
                         {
@@ -656,7 +658,9 @@ namespace NoSQL.GraphDB.Tests
                         EmbeddingName = "default",
                         Metric = "Cosine",
                         MinScore = 0.7,
-                        CostBySimilarity = true
+                        CostBySimilarity = true,
+                        EmbeddingBackend = "Nahil",
+                        EmbeddingIdentity = "bge-m3#1024#Cosine"
                     }
                 }, "PathSpecification"),
                 (new PathFilterSpecification(), "PathFilterSpecification"),
@@ -667,7 +671,11 @@ namespace NoSQL.GraphDB.Tests
                     EmbeddingName = "title",
                     Metric = "L2",
                     MinScore = null, // exercises null-writing
-                    CostBySimilarity = false
+                    CostBySimilarity = false,
+                    // Left null on purpose: the vector-in shape carries no provenance, and both
+                    // fields are WhenWritingNull, so this arm exercises the omission.
+                    EmbeddingBackend = null,
+                    EmbeddingIdentity = null
                 }, "SemanticTraversalSpecification"),
                 (new EmbeddingWriteSpecification
                 {
@@ -740,6 +748,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     Content = "return (v) => v.Label == \"person\";",
                     Model = "phi4-f8-mini",
+                    Backend = "Nahil",
                     Stats = new ChatStatsREST
                     {
                         PromptTokens = 12,

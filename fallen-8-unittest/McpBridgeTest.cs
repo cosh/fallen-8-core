@@ -162,6 +162,12 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(status.TryGetProperty("vertexCount", out _), "status carries the vertex count");
             Assert.IsTrue(status.TryGetProperty("availableAnalyticsAlgorithms", out _),
                 "overview surfaces the available analytics algorithms for agent discovery");
+            // Against a LIVE apiApp, so this proves the bridge DTO members actually bind to the
+            // wire names (a stubbed body would only prove the tool copies whatever it deserialized).
+            Assert.AreEqual("Ollama", status.GetProperty("chatBackend").GetString(),
+                "the shipped chat default reaches the agent, so it can tell where a prompt would go");
+            Assert.AreEqual("Onnx", status.GetProperty("embeddingBackend").GetString(),
+                "the shipped embedding default reaches the agent the same way");
         }
 
         /// <summary>
@@ -191,6 +197,10 @@ namespace NoSQL.GraphDB.Tests
                 "an index count of 0 would read as \"this namespace has no indices\"");
             Assert.AreEqual(JsonValueKind.Null, status.GetProperty("availablePathAlgorithms").ValueKind,
                 "an empty list would read as \"this namespace can run nothing\"");
+            Assert.AreEqual(JsonValueKind.Null, status.GetProperty("chatBackend").ValueKind,
+                "a body with no chat block must report an absent backend, never a guessed \"Ollama\"");
+            Assert.AreEqual(JsonValueKind.Null, status.GetProperty("embeddingBackend").ValueKind,
+                "same for the embedding backend");
             StringAssert.Contains(
                 String.Join(" ", result.Content.OfType<ModelContextProtocol.Protocol.TextContentBlock>().Select(c => c.Text)),
                 "not loaded", "the summary line must say why there are no counts");

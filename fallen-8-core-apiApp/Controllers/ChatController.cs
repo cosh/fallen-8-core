@@ -82,9 +82,10 @@ namespace NoSQL.GraphDB.App.Controllers
         /// </summary>
         /// <param name="definition">The conversation turns and optional generation knobs</param>
         /// <param name="cancellationToken">Aborts the backend call when the request is cancelled</param>
-        /// <remarks>The instance proxies to its Ollama sidecar (feature instance-config). The model
-        /// is server-owned (Fallen8:Chat:Ollama:Model); clients cannot choose it on this path. A
-        /// custom endpoint is a browser-direct concern, never proxied here.</remarks>
+        /// <remarks>The instance proxies to whichever backend Fallen8:Chat:Backend selects (feature
+        /// instance-config); the response names it. The model is server-owned (that backend's own
+        /// Model setting); clients cannot choose it on this path. A custom endpoint is a
+        /// browser-direct concern, never proxied here.</remarks>
         /// <response code="200">The completion, with the backend's generation stats</response>
         /// <response code="400">Empty message list or a message missing content</response>
         /// <response code="401">No valid credential was supplied</response>
@@ -151,6 +152,9 @@ namespace NoSQL.GraphDB.App.Controllers
             {
                 Content = result.Content,
                 Model = result.Model,
+                // The selector belongs to the provider: a backend that could name itself here could
+                // name one it is not.
+                Backend = _provider.Backend,
                 Stats = new ChatStatsREST
                 {
                     PromptTokens = result.PromptTokens,

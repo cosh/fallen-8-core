@@ -194,7 +194,10 @@ namespace NoSQL.GraphDB.Mcp.Tools
             node["availableAnalyticsAlgorithms"] = ToJsonArray(status.AvailableAnalyticsPlugins);
             node["availableIndexPlugins"] = ToJsonArray(status.AvailableIndexPlugins);
             node["embeddingEnabled"] = status.Embedding?.Enabled ?? false;
+            node["embeddingBackend"] = status.Embedding?.Backend;
             node["chatEnabled"] = status.Chat?.Enabled ?? false;
+            // Both backends stay null when unreported, for the reason indexCount stays absent above.
+            node["chatBackend"] = status.Chat?.Backend;
 
             return node;
         }

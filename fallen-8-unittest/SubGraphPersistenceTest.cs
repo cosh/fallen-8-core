@@ -27,10 +27,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers;
 using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Embedding;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Algorithms.SubGraph;
@@ -191,6 +195,58 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNotNull(result.Recipe, "The recipe should be retained so it can be persisted again");
             StringAssert.Contains(result.Recipe.SpecificationJson, "semanticMinScore",
                 "The thresholds ride the persisted recipe");
+        }
+
+        [TestMethod]
+        public void SaveThenLoad_StampedEmbeddingProvenance_RidesTheRecipe()
+        {
+            // Feature model-providers: the provenance of the run that embedded semantic.queryText
+            // is stamped into the persisted specification, so the echo a restarted process gives is
+            // the same answer the create response gave - not a re-read of whatever backend happens
+            // to be configured then. The generator is the deterministic fake, so no model loads.
+            var source = CreateGraphWithData(withCompiler: true);
+            var provider = new Fallen8EmbeddingProvider(
+                Options.Create(new Fallen8EmbeddingOptions
+                {
+                    Enabled = true,
+                    Backend = "Ollama",
+                    ModelName = "bge-m3",
+                    Dimension = 2,
+                    IntendedMetric = "Cosine"
+                }),
+                new Lazy<IEmbeddingGenerator<string, Embedding<float>>>(() => new FakeEmbeddingGenerator(2)));
+
+            var specification = new SubGraphSpecification
+            {
+                Name = "text-bound",
+                Semantic = new SemanticTraversalSpecification
+                {
+                    QueryText = "close to alice",
+                    // Planted by the caller: the stamp must be the server's, so this is discarded.
+                    EmbeddingBackend = "Anthropic",
+                    EmbeddingIdentity = "made-up#7#L2"
+                },
+                Patterns = new List<PatternSpecification> { new PatternSpecification { Type = "Vertex" } }
+            };
+            var controller = new SubGraphController(TestLoggerFactory.Create().CreateLogger<SubGraphController>(),
+                source, authorizationService: null, embeddingProvider: provider);
+            Assert.IsInstanceOfType(controller.CreateSubGraph(specification).Result,
+                typeof(Microsoft.AspNetCore.Mvc.CreatedResult));
+
+            var actualPath = SaveGraph(source);
+
+            var loaded = new Fallen8(TestLoggerFactory.Create());
+            loaded.SubGraphRecipeCompiler = new RecipeSubGraphCompiler();
+            loaded.EnqueueTransaction(new LoadTransaction { Path = actualPath }).WaitUntilFinished();
+
+            Assert.IsTrue(loaded.SubGraphFactory.TryGetSubGraph(out SubGraphResult result, "text-bound"),
+                "The text-bound subgraph should be rehydrated after load");
+            var semantic = SubGraphSummary.FromResult(result, canRecalculate: true).Semantic;
+            Assert.AreEqual("close to alice", semantic.QueryText, "The bound text rides the recipe as before");
+            Assert.AreEqual("Ollama", semantic.EmbeddingBackend,
+                "The backend that actually embedded survives the round trip");
+            Assert.AreEqual("bge-m3#2#Cosine", semantic.EmbeddingIdentity,
+                "And so does its identity stamp, in the canonical name#dimension#metric form");
         }
 
         [TestMethod]

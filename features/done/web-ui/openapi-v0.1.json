@@ -745,7 +745,7 @@
           "Chat"
         ],
         "summary": "Runs a chat completion against the instance's configured model backend",
-        "description": "The instance proxies to its Ollama sidecar (feature instance-config). The model\r\n    is server-owned (Fallen8:Chat:Ollama:Model); clients cannot choose it on this path. A\r\n    custom endpoint is a browser-direct concern, never proxied here.",
+        "description": "The instance proxies to whichever backend Fallen8:Chat:Backend selects (feature\r\n    instance-config); the response names it. The model is server-owned (that backend's own\r\n    Model setting); clients cannot choose it on this path. A custom endpoint is a\r\n    browser-direct concern, never proxied here.",
         "parameters": [
           {
             "name": "api-version",
@@ -18000,7 +18000,7 @@
               "null",
               "string"
             ],
-            "description": "The backend selector (config value), e.g. Ollama."
+            "description": "The backend selector (config value): Ollama, Nahil, OpenAI or Anthropic."
           },
           "model": {
             "type": [
@@ -18018,7 +18018,7 @@
               "null",
               "boolean"
             ],
-            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable or not an\r\n    Ollama backend. A point-in-time read, only set on GET /config."
+            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable, or a\r\n    backend with no residency API (OpenAI and Anthropic have none, so this stays null by\r\n    design). A point-in-time read, only set on GET /config."
           },
           "gpu": {
             "type": [
@@ -18048,6 +18048,14 @@
             "description": "The model that produced it (the server-owned model).",
             "example": "phi4-f8-mini"
           },
+          "backend": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The backend selector value that served THIS call (feature model-providers), stamped\r\nper response rather than read from current configuration: a draft made under one\r\nbackend must still say so after the operator switches the deployment to another. For\r\nthe ambient \"requests will go to X\" answer, read `GET /status`'s chat block\r\ninstead.",
+            "example": "Nahil"
+          },
           "stats": {
             "description": "Generation stats (token counts and durations); fields are null when the\r\n    backend does not report them.",
             "$ref": "#/components/schemas/ChatStatsREST"
@@ -18076,7 +18084,7 @@
             "$ref": "#/components/schemas/ChatOptionsSpecification"
           }
         },
-        "description": "A chat completion request proxied to the instance's model backend (feature\r\n    instance-config). The model is SERVER-owned (`Fallen8:Chat:Ollama:Model`); there is no\r\n    client model field.",
+        "description": "A chat completion request proxied to the instance's model backend (feature\r\n    instance-config). The model is SERVER-owned (the selected backend's own `Model`\r\n    setting); there is no client model field.",
         "example": {
           "messages": [
             {
@@ -19313,7 +19321,7 @@
               "null",
               "string"
             ],
-            "description": "The configured backend: Onnx, LLamaSharp or Ollama.",
+            "description": "The configured backend: Onnx, LLamaSharp, Ollama, Nahil or OpenAI.",
             "example": "Onnx"
           },
           "modelName": {
@@ -19351,7 +19359,7 @@
           },
           "loaded": {
             "type": "boolean",
-            "description": "Whether the backend has actually been created (lazy load happened on first use).\r\n    For an Ollama backend this is client construction, not model residency - see\r\n    bool? EmbeddingProviderStatsREST.Resident.",
+            "description": "Whether the backend has actually been created (lazy load happened on first use).\r\n    For any remote backend this is client construction, not model residency - see\r\n    bool? EmbeddingProviderStatsREST.Resident.",
             "example": false
           },
           "resident": {
@@ -19359,14 +19367,14 @@
               "null",
               "boolean"
             ],
-            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable or not an\r\n    Ollama backend. Only set on GET /config (a point-in-time probe), never on /status or\r\n    /statistics."
+            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable, or a\r\n    backend with no residency API (OpenAI has none, so this stays null by design). Only set\r\n    on GET /config (a point-in-time probe), never on /status or /statistics."
           },
           "gpu": {
             "type": [
               "null",
               "boolean"
             ],
-            "description": "Best-effort GPU residency (Ollama VRAM): true/false when reported, null when\r\n    undeterminable or not probed. Only set on GET /config."
+            "description": "Best-effort GPU residency (Ollama VRAM): true/false when reported, null when\r\n    undeterminable, not probed, or a backend with no residency API. Only set on\r\n    GET /config."
           }
         },
         "description": "The active embedding provider and its declared model identity (feature\r\n    embedding-provider). Cheap config/state reads only - surfacing it never loads a model.\r\n    Carried by both GET /status (the cheap discovery surface) and GET /statistics (the\r\n    full snapshot)."
@@ -22400,6 +22408,22 @@
             "type": "boolean",
             "description": "Optional declarative vertex cost (path requests only): Cosine maps to\r\n`1 - score`, L2 to the distance itself; DotProduct has no honest non-negative\r\nmapping and is rejected. Vertices without the embedding are filtered.",
             "example": true
+          },
+          "embeddingBackend": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Which embedding backend resolved `queryText` into `queryVector` (feature\r\nmodel-providers). SERVER-OWNED: whatever a client sends here is discarded before\r\nanything reads it, and the value is stamped only on the request that actually embedded\r\na text - a vector-in request carries nothing new. It rides a registered subgraph's\r\nrecipe, so the echo on the create response, on `GET /subgraph/{name}` and after a\r\nrecalculation is the same answer, taken from the run that embedded rather than from\r\ncurrent configuration.",
+            "example": "Nahil"
+          },
+          "embeddingIdentity": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The embedding model identity stamp of that same run,\r\n    `name[@version]#dimension#metric`. Server-owned exactly like\r\n    `embeddingBackend`.",
+            "example": "bge-m3#1024#Cosine"
           }
         },
         "description": "The declarative semantic block of a path or subgraph request (feature\r\nelement-embeddings). Carries the query vector for the traversal context - embedded\r\nONCE, before the traversal starts - plus optional code-free filter/cost derivations.\r\nPure data (it compiles no C#); conflicts with a C# fragment or a\r\nstored query owning the same delegate slot are rejected (one owner per slot).",
@@ -22960,6 +22984,22 @@
               "string"
             ],
             "description": "The query text the vector was resolved from at registration, when the subgraph was\r\ncreated via `semantic.queryText`; null for client-supplied vectors. Documents\r\nintent - the bound vector remains the truth and is never re-embedded."
+          },
+          "embeddingBackend": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The backend that embedded `queryText` at registration; absent for\r\n    client-supplied vectors. Echoed from the recipe, so it names the run that embedded and not\r\n    the current configuration - full contract on\r\n    string SemanticTraversalSpecification.EmbeddingBackend.",
+            "example": "Nahil"
+          },
+          "embeddingIdentity": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "That run's embedding model identity stamp.",
+            "example": "bge-m3#1024#Cosine"
           },
           "minScore": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",

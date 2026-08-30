@@ -98,6 +98,14 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
         public String? Model { get; set; }
 
         public Int32? Dimensions { get; set; }
+
+        /// <summary>
+        ///   The backend selector value the target is configured for (feature model-providers), so
+        ///   an agent can tell where a prompt or an embed would go before sending one. Null when the
+        ///   target did not report one, never a guessed default: an invented backend is a fact an
+        ///   agent would act on.
+        /// </summary>
+        public String? Backend { get; set; }
     }
 
     public sealed class ChatStateDto
@@ -105,5 +113,9 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
         public Boolean Enabled { get; set; }
 
         public String? Model { get; set; }
+
+        /// <summary>The chat backend selector value; same contract as
+        /// <see cref="EmbeddingStateDto.Backend" />.</summary>
+        public String? Backend { get; set; }
     }
 }

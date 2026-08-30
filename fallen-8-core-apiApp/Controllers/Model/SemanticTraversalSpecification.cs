@@ -101,6 +101,34 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
+        /// <summary>
+        ///   Which embedding backend resolved <c>queryText</c> into <c>queryVector</c> (feature
+        ///   model-providers). SERVER-OWNED: whatever a client sends here is discarded before
+        ///   anything reads it, and the value is stamped only on the request that actually embedded
+        ///   a text - a vector-in request carries nothing new. It rides a registered subgraph's
+        ///   recipe, so the echo on the create response, on <c>GET /subgraph/{name}</c> and after a
+        ///   recalculation is the same answer, taken from the run that embedded rather than from
+        ///   current configuration.
+        /// </summary>
+        /// <example>Nahil</example>
+        [JsonPropertyName("embeddingBackend")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String EmbeddingBackend
+        {
+            get; set;
+        }
+
+        /// <summary>The embedding model identity stamp of that same run,
+        /// <c>name[@version]#dimension#metric</c>. Server-owned exactly like
+        /// <c>embeddingBackend</c>.</summary>
+        /// <example>bge-m3#1024#Cosine</example>
+        [JsonPropertyName("embeddingIdentity")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String EmbeddingIdentity
+        {
+            get; set;
+        }
+
         public Boolean Equals(SemanticTraversalSpecification other)
         {
             if (other is null)
@@ -116,14 +144,17 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                    String.Equals(EmbeddingName, other.EmbeddingName, StringComparison.Ordinal) &&
                    String.Equals(Metric, other.Metric, StringComparison.Ordinal) &&
                    Nullable.Equals(MinScore, other.MinScore) &&
-                   CostBySimilarity == other.CostBySimilarity;
+                   CostBySimilarity == other.CostBySimilarity &&
+                   String.Equals(EmbeddingBackend, other.EmbeddingBackend, StringComparison.Ordinal) &&
+                   String.Equals(EmbeddingIdentity, other.EmbeddingIdentity, StringComparison.Ordinal);
         }
 
         public override Boolean Equals(Object obj) => Equals(obj as SemanticTraversalSpecification);
 
         public override Int32 GetHashCode()
         {
-            return HashCode.Combine(QueryVector?.Length ?? -1, QueryText, EmbeddingName, Metric, MinScore, CostBySimilarity);
+            return HashCode.Combine(QueryVector?.Length ?? -1, QueryText, EmbeddingName, Metric, MinScore,
+                CostBySimilarity, EmbeddingBackend, EmbeddingIdentity);
         }
     }
 }
