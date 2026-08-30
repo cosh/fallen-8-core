@@ -191,11 +191,14 @@ namespace NoSQL.GraphDB.Tests
                 "Fallen8:Durability:StorageDirectory", "Fallen8:Durability:WalPath",
                 "Fallen8:Metadata:Directory", "Fallen8:Embedding:Onnx:ModelPath",
                 "Fallen8:Nlp:Endpoint", "Fallen8:Integrations:Endpoint", "Fallen8:Security:ApiKey",
-                // Nahil's URL and, above all, the credential this server PRESENTS to it:
-                // this route is anonymous on a keyless instance, so a published value would hand the
-                // key to whoever asked (feature nahil-backend, rule R8).
+                // Every remote provider's URL and, above all, the credential this server PRESENTS to
+                // it: this route is anonymous on a keyless instance, so a published value would hand
+                // the key to whoever asked (rule R8).
                 "Fallen8:Chat:Nahil:Endpoint", "Fallen8:Chat:Nahil:ApiKey",
-                "Fallen8:Embedding:Nahil:Endpoint", "Fallen8:Embedding:Nahil:ApiKey"
+                "Fallen8:Embedding:Nahil:Endpoint", "Fallen8:Embedding:Nahil:ApiKey",
+                "Fallen8:Chat:OpenAI:Endpoint", "Fallen8:Chat:OpenAI:ApiKey",
+                "Fallen8:Chat:Anthropic:Endpoint", "Fallen8:Chat:Anthropic:ApiKey",
+                "Fallen8:Embedding:OpenAI:Endpoint", "Fallen8:Embedding:OpenAI:ApiKey"
             })
             {
                 var setting = Setting(config, key);
@@ -234,7 +237,7 @@ namespace NoSQL.GraphDB.Tests
 
             var backend = Setting(config, "Fallen8:Chat:Backend");
             Assert.AreEqual("enum", backend.GetProperty("kind").GetString());
-            CollectionAssert.AreEquivalent(new[] { "Ollama", "Nahil" },
+            CollectionAssert.AreEquivalent(new[] { "Ollama", "Nahil", "OpenAI", "Anthropic" },
                 backend.GetProperty("allowedValues").EnumerateArray().Select(v => v.GetString()).ToList());
         }
 

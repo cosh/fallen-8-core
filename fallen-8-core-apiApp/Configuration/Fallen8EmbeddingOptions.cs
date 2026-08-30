@@ -49,8 +49,16 @@ namespace NoSQL.GraphDB.App.Configuration
             get; set;
         }
 
-        /// <summary>The backend: <c>Onnx</c>, <c>LLamaSharp</c>, <c>Ollama</c> (the local sidecar) or
-        /// <c>Nahil</c> (nahil.dev, remote and authenticated).</summary>
+        /// <summary>The backend: <c>Onnx</c>, <c>LLamaSharp</c>, <c>Ollama</c> (the local sidecar),
+        /// <c>Nahil</c> (nahil.dev, remote and authenticated) or <c>OpenAI</c>.
+        /// <para>Nahil serves the same model, so moving to it changes nothing about the vectors.
+        /// <c>OpenAI</c> is a DIFFERENT embedding function, so moving there means declaring its
+        /// identity too (<see cref="ModelName" />, <see cref="Dimension" />,
+        /// <see cref="IntendedMetric" />): THAT declaration is what makes every vector and index
+        /// already stored report an honest identity mismatch until it is re-embedded. Nothing can
+        /// verify a stamp against a function on the far side of an endpoint, so an old identity left
+        /// in place would file the new function's vectors under it. That is why this key is never
+        /// writable at runtime.</para></summary>
         public String Backend { get; set; } = "Onnx";
 
         /// <summary>The per-call budget for one generate (which embeds a BATCH of texts, hence the
@@ -116,6 +124,9 @@ namespace NoSQL.GraphDB.App.Configuration
 
         /// <summary>Nahil settings; used only when <see cref="Backend" /> is <c>Nahil</c>.</summary>
         public NahilOptions Nahil { get; set; } = new NahilOptions();
+
+        /// <summary>OpenAI settings; used only when <see cref="Backend" /> is <c>OpenAI</c>.</summary>
+        public OpenAIOptions OpenAI { get; set; } = new OpenAIOptions();
 
         public sealed class OnnxOptions
         {
@@ -190,6 +201,35 @@ namespace NoSQL.GraphDB.App.Configuration
             /// <summary>The embedding model to invoke, as Nahil's catalog names it. This is the
             /// embedding FUNCTION: it must serve the same model the stored vectors were produced
             /// with, or the identity stamp beside them becomes a lie.</summary>
+            public String Model
+            {
+                get; set;
+            }
+        }
+
+        /// <summary>
+        ///   OpenAI, or any gateway that serves OpenAI's embeddings protocol. Unlike
+        ///   <see cref="NahilOptions" />, this is a different embedding function rather than the
+        ///   same one somewhere else: selecting it means setting
+        ///   <see cref="Fallen8EmbeddingOptions.ModelName" />, <see cref="Dimension" /> and
+        ///   <see cref="IntendedMetric" /> to that function's identity and re-embedding what was
+        ///   stored under the old one.
+        /// </summary>
+        public sealed class OpenAIOptions
+        {
+            /// <summary>The base URL. Must be a host root (scheme, host, optional port); the SDK
+            /// appends the route itself.</summary>
+            public String Endpoint { get; set; } = "https://api.openai.com";
+
+            /// <summary>The credential OpenAI requires on every route. Never logged and never
+            /// published on the config read surface.</summary>
+            public String ApiKey
+            {
+                get; set;
+            }
+
+            /// <summary>The embedding model to invoke, as OpenAI's catalog names it. Reaches the
+            /// request body verbatim.</summary>
             public String Model
             {
                 get; set;

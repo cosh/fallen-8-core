@@ -618,12 +618,16 @@ namespace NoSQL.GraphDB.Tests
                 ["Fallen8:Ingestion:EntityIndexId"] = "R3",
 
                 ["Fallen8:Embedding:Nahil:Model"] = "R3",
+                ["Fallen8:Embedding:OpenAI:Model"] = "R3",
 
                 // R4 - every URL the server dials.
                 ["Fallen8:Embedding:Ollama:Endpoint"] = "R4",
                 ["Fallen8:Chat:Ollama:Endpoint"] = "R4",
                 ["Fallen8:Chat:Nahil:Endpoint"] = "R4",
                 ["Fallen8:Embedding:Nahil:Endpoint"] = "R4",
+                ["Fallen8:Chat:OpenAI:Endpoint"] = "R4",
+                ["Fallen8:Chat:Anthropic:Endpoint"] = "R4",
+                ["Fallen8:Embedding:OpenAI:Endpoint"] = "R4",
                 ["Fallen8:Ingestion:Docling:Endpoint"] = "R4",
                 ["Fallen8:Nlp:Endpoint"] = "R4",
                 ["Fallen8:Observability:Otlp:Endpoint"] = "R4",
@@ -638,10 +642,13 @@ namespace NoSQL.GraphDB.Tests
                 ["Fallen8:Observability:Prometheus:RequireApiKey"] = "R5",
 
                 // R8 - no credential this server PRESENTS. Pinned here because it is the whole
-                // security property of the gateway backend: writable it redirects someone's metered
-                // spend, published it hands the key to an anonymous reader of GET /config.
+                // security property of every remote model backend: writable it redirects someone's
+                // metered spend, published it hands the key to an anonymous reader of GET /config.
                 ["Fallen8:Chat:Nahil:ApiKey"] = "R8",
-                ["Fallen8:Embedding:Nahil:ApiKey"] = "R8"
+                ["Fallen8:Embedding:Nahil:ApiKey"] = "R8",
+                ["Fallen8:Chat:OpenAI:ApiKey"] = "R8",
+                ["Fallen8:Chat:Anthropic:ApiKey"] = "R8",
+                ["Fallen8:Embedding:OpenAI:ApiKey"] = "R8"
             };
 
             var violations = new List<String>();

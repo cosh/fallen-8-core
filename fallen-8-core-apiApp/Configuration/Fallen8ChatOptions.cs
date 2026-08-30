@@ -50,9 +50,11 @@ namespace NoSQL.GraphDB.App.Configuration
             get; set;
         }
 
-        /// <summary>The backend: <c>Ollama</c> (the local sidecar, the default) or <c>Nahil</c>
-        /// (nahil.dev, remote and authenticated). Both speak the same protocol; Nahil adds a
-        /// credential and a warm-up state, which is the whole difference.</summary>
+        /// <summary>The backend: <c>Ollama</c> (the local sidecar, the default), <c>Nahil</c>
+        /// (nahil.dev), <c>OpenAI</c> or <c>Anthropic</c>. Ollama and Nahil speak one protocol, so
+        /// Nahil differs from the sidecar only by a credential and a warm-up state; OpenAI and
+        /// Anthropic speak their own protocols and each carries its own credential too. Matching is
+        /// ordinal, so the spelling here is the spelling the catalog publishes.</summary>
         public String Backend { get; set; } = "Ollama";
 
         /// <summary>The per-request proxy timeout; exceeded requests answer 504. It is the SINGLE
@@ -85,6 +87,12 @@ namespace NoSQL.GraphDB.App.Configuration
 
         /// <summary>Nahil settings; used only when <see cref="Backend" /> is <c>Nahil</c>.</summary>
         public NahilOptions Nahil { get; set; } = new NahilOptions();
+
+        /// <summary>OpenAI settings; used only when <see cref="Backend" /> is <c>OpenAI</c>.</summary>
+        public OpenAIOptions OpenAI { get; set; } = new OpenAIOptions();
+
+        /// <summary>Anthropic settings; used only when <see cref="Backend" /> is <c>Anthropic</c>.</summary>
+        public AnthropicOptions Anthropic { get; set; } = new AnthropicOptions();
 
         public sealed class OllamaOptions
         {
@@ -129,6 +137,70 @@ namespace NoSQL.GraphDB.App.Configuration
             {
                 get; set;
             }
+        }
+
+        /// <summary>
+        ///   OpenAI, or any gateway that serves OpenAI's chat-completions protocol. The endpoint has
+        ///   a default because OpenAI's own host is the overwhelmingly common target; the model does
+        ///   not, so selecting this backend without naming one is refused with the reason rather
+        ///   than guessing a model the operator pays for.
+        /// </summary>
+        public sealed class OpenAIOptions
+        {
+            /// <summary>The base URL. Must be a host root (scheme, host, optional port); the SDK
+            /// appends the route itself.</summary>
+            public String Endpoint { get; set; } = "https://api.openai.com";
+
+            /// <summary>The credential OpenAI requires on every route. Never logged and never
+            /// published on the config read surface.</summary>
+            public String ApiKey
+            {
+                get; set;
+            }
+
+            /// <summary>The chat model to invoke, as OpenAI's catalog names it. Reaches the request
+            /// body verbatim.</summary>
+            public String Model
+            {
+                get; set;
+            }
+        }
+
+        /// <summary>
+        ///   Anthropic's native Messages API. Same endpoint/model reasoning as
+        ///   <see cref="OpenAIOptions" />, plus one knob no other provider has.
+        ///
+        ///   <para><b>No sampling parameter is ever sent to this backend</b> - not
+        ///   <c>temperature</c>, not <c>top_p</c>, not <c>top_k</c>. Current Claude models reject
+        ///   them with a 400, so honouring <c>ChatBackendOptions.Temperature</c> here would turn a
+        ///   request that works on every other backend into a hard failure on this one. The caller's
+        ///   value is ignored, deliberately.</para>
+        /// </summary>
+        public sealed class AnthropicOptions
+        {
+            /// <summary>The base URL. Must be a host root (scheme, host, optional port); the SDK
+            /// appends the route itself.</summary>
+            public String Endpoint { get; set; } = "https://api.anthropic.com";
+
+            /// <summary>The credential Anthropic requires on every route. Never logged and never
+            /// published on the config read surface.</summary>
+            public String ApiKey
+            {
+                get; set;
+            }
+
+            /// <summary>The chat model to invoke, as Anthropic's catalog names it. Reaches the
+            /// request body verbatim.</summary>
+            public String Model
+            {
+                get; set;
+            }
+
+            /// <summary>The output ceiling for one completion. It exists because the Messages API
+            /// requires the field on every request, which is why no other provider carries the
+            /// knob; an answer that hits it is reported as INCOMPLETE, naming this setting, rather
+            /// than handed on as a draft that merely looks short.</summary>
+            public Int32 MaxTokens { get; set; } = 4096;
         }
     }
 }
