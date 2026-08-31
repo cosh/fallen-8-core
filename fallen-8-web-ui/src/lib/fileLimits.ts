@@ -60,12 +60,18 @@ function inForce(ceiling: number | undefined): boolean {
  */
 export type MaybeLimits = FileLimits | null | undefined;
 
-/** What one file setting is being asked to hold, and what the rest of the job already holds. */
-export interface StagingRequest {
+/**
+ * What one file setting is being asked to hold, and what the rest of the job already holds.
+ *
+ * Generic over the incoming type, so a caller passing real `File` handles gets `File`s back with no
+ * cast. That is not cosmetic: it is what makes "this only ever filters, it never constructs" a fact
+ * the compiler holds rather than a comment somebody has to keep true.
+ */
+export interface StagingRequest<T extends SizedFile = SizedFile> {
   /** The ceilings this instance published, or absent when they could not be read. */
   limits: MaybeLimits;
   /** The files being added to ONE file setting, in the order they were picked. */
-  incoming: SizedFile[];
+  incoming: T[];
   /** What that setting already holds. Kept whatever this verdict says. */
   staged?: SizedFile[];
   /** What every OTHER file setting of the same job holds: the total and the count are job-wide. */
@@ -74,9 +80,9 @@ export interface StagingRequest {
   claimedSet?: boolean;
 }
 
-export interface StagingVerdict {
+export interface StagingVerdict<T extends SizedFile = SizedFile> {
   /** The incoming files that may be staged, in pick order. */
-  accepted: SizedFile[];
+  accepted: T[];
   /** One message for the setting's problem channel, or null when there is nothing to say. */
   problem: string | null;
 }
@@ -90,15 +96,15 @@ export interface StagingVerdict {
  * batch is accepted: picking some arbitrary prefix that fits would drop the tail on a decision the
  * person picking never made, and for a claimed set it would silently split the set.
  */
-export function checkStaging(request: StagingRequest): StagingVerdict {
+export function checkStaging<T extends SizedFile>(request: StagingRequest<T>): StagingVerdict<T> {
   const { limits, incoming } = request;
   const staged = request.staged ?? [];
   const elsewhere = request.elsewhere ?? [];
 
   if (!limits) return { accepted: incoming, problem: null };
 
-  const oversized: SizedFile[] = [];
-  const accepted: SizedFile[] = [];
+  const oversized: T[] = [];
+  const accepted: T[] = [];
   for (const file of incoming) {
     if (inForce(limits.maxFileBytes) && file.size > limits.maxFileBytes) oversized.push(file);
     else accepted.push(file);

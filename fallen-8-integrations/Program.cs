@@ -52,7 +52,7 @@ namespace NoSQL.GraphDB.Integrations
                           ?? new IntegrationsOptions();
             builder.WebHost.UseUrls($"http://{options.BindAddress}:{options.Port}");
 
-            // A job now carries a file, base64, so the framework's 30 MB default would refuse a job at the
+            // A job carries its provider's files, so the framework's 30 MB default would refuse a job at the
             // configured ceiling with a bare 413 and no body - which the apiApp's proxy reports as a
             // runtime that did not answer, sending the caller to look at a healthy sidecar.
             //
@@ -61,9 +61,12 @@ namespace NoSQL.GraphDB.Integrations
             // useful if THIS one is always the larger, so an absurd body is refused at the front door
             // where the 413 means something. A bound that scaled with the ceiling would invert that
             // ordering the moment an operator LOWERED the ceiling. Size refusals a caller can actually
-            // read are therefore exactly three: the proxy's 413 for an absurd body, this runtime's
-            // MaxFileBytes message for one file over the per-file ceiling, and its MaxJobFileBytes message
-            // for a set of legal files whose total is not. Each names its own numbers.
+            // read are therefore these, each naming its own numbers: the proxy's 413 for an absurd body
+            // (and its 411 for one whose length was not declared, since an undeclared body cannot be
+            // judged before it arrives), this runtime's MaxFileBytes message for one file over the
+            // per-file ceiling, its MaxJobFileBytes message for a set of legal files whose total is not,
+            // and its MaxJobFiles message for too many of them. What a caller may send without guessing
+            // at any of this is served by GET /integration/limits.
             builder.WebHost.ConfigureKestrel(kestrel =>
                 kestrel.Limits.MaxRequestBodySize = TransportBound);
 
@@ -85,12 +88,14 @@ namespace NoSQL.GraphDB.Integrations
         ///   The bound on a request body reaching this runtime: 832 MiB, chosen only to sit ABOVE the
         ///   apiApp proxy's own fixed bound (768 MiB), which is the only way in because this container
         ///   publishes no port. It is not a statement about how big a file may be - that is
-        ///   <c>Integrations:MaxFileBytes</c> per file and <c>Integrations:MaxJobFileBytes</c> for their
-        ///   total, both enforced on the decoded bytes with messages naming their own numbers.
+        ///   <c>Integrations:MaxFileBytes</c> per file, <c>Integrations:MaxJobFileBytes</c> for their total
+        ///   and <c>Integrations:MaxJobFiles</c> for how many, the first two enforced on the decoded bytes,
+        ///   all three with messages naming their own numbers.
         ///
-        ///   <para>It grew with multi-file input: one request still carries a whole run, so a job carrying a
-        ///   vehicle's worth of extracts is one body, and 512 MiB of decoded files is about 683 MiB of
-        ///   base64 before the JSON around it.</para>
+        ///   <para>It grew with multi-file input: one request still carries a whole run, so a job carrying
+        ///   a vehicle's worth of extracts is one body. The headroom over the proxy's bound covers the
+        ///   framing of either transport - a multipart form's part headers, or the base64 expansion that
+        ///   turns 512 MiB of decoded files into about 683 MiB inside a JSON document.</para>
         /// </summary>
         internal const Int64 TransportBound = 872_415_232;
     }

@@ -262,7 +262,7 @@ export function IntegrationsScreen() {
       problems.push(verdict.problem);
     }
 
-    for (const file of verdict.accepted as File[]) {
+    for (const file of verdict.accepted) {
       if (file.size === 0) {
         // Refused here as well as by the runtime, because the round trip for this one is pure
         // latency: an empty file is the mistake somebody makes when they pick before saving.

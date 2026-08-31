@@ -34,7 +34,7 @@ namespace NoSQL.GraphDB.App.Configuration
     ///
     ///   <para>The integration runtime is a separate deployable (<c>fallen-8-integrations</c>) whose
     ///   container port is deliberately not published, because jobs hand it third-party credentials.
-    ///   The apiApp is therefore the only way in: it proxies the runtime's six routes, being already
+    ///   The apiApp is therefore the only way in: it proxies the runtime's eight routes, being already
     ///   the authenticated front door, which is why the runtime needs no second auth story.</para>
     /// </summary>
     public sealed class Fallen8IntegrationsOptions
@@ -59,7 +59,7 @@ namespace NoSQL.GraphDB.App.Configuration
         /// SYNCHRONOUS read of somebody's console followed by graph writes, not a local
         /// computation, and the caller is waiting on that one call.
         ///
-        /// <para>This is the budget for the six SMALL routes only. The job route has its own
+        /// <para>This is the budget for the seven SMALL routes only. The job route has its own
         /// (<see cref="JobTimeoutSeconds" />), because one number cannot serve both: this one also
         /// bounds the run poll Studio calls repeatedly, where a fifteen-minute budget would let a
         /// wedged runtime hold a poll for fifteen minutes.</para></summary>

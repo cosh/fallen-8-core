@@ -61,17 +61,20 @@ namespace NoSQL.GraphDB.App.Controllers
     public class IntegrationsController : ControllerBase
     {
         /// <summary>
-        ///   The transport bound on a job body, which carries a provider's files as base64 (features
-        ///   integration-file-upload and integration-run-lifecycle). 768 MiB, and both of its relations
-        ///   are load-bearing:
+        ///   The transport bound on a job body, which carries a provider's files (features
+        ///   integration-file-upload, integration-run-lifecycle and integration-file-transport).
+        ///   768 MiB, and both of its relations are load-bearing:
         ///
-        ///   <para>ABOVE any legal job. What sets the size is no longer one file but the job TOTAL: a
-        ///   file setting a provider declares <c>multiple</c> takes a whole vehicle's system extracts at
-        ///   once, the runtime's default <c>Integrations:MaxJobFileBytes</c> is 512 MiB of decoded bytes,
-        ///   and base64 costs a third, so a maximal legal job arrives at about 683 MiB and this bound
-        ///   never fires for one the runtime would accept. Real files set both numbers: the first extract
-        ///   anybody pointed at this feature was a large size, an earlier 48 MiB bound refused it with a bare
-        ///   transport 413, and a vehicle arrives as several such extracts that reference each other.</para>
+        ///   <para>ABOVE any legal job. What sets the size is not one file but the job TOTAL: a file
+        ///   setting a provider declares <c>multiple</c> takes a whole vehicle's system extracts at once,
+        ///   and the runtime's default <c>Integrations:MaxJobFileBytes</c> is 512 MiB of decoded bytes.
+        ///   How much of this bound that consumes depends on the TRANSPORT, and both are accepted: over
+        ///   <c>multipart/form-data</c> the files travel as raw bytes, so a maximal legal job is 512 MiB
+        ///   plus part framing; over <c>application/json</c> they are base64, which costs a third, so the
+        ///   same job arrives at about 683 MiB. Either way this bound never fires for a job the runtime
+        ///   would accept. Real files set both numbers: the first extract anybody pointed at this feature
+        ///   was a large size, an earlier 48 MiB bound refused it with a bare transport 413, and a vehicle
+        ///   arrives as several such extracts that reference each other.</para>
         ///
         ///   <para>BELOW the runtime's own transport bound (832 MiB, fixed). That ordering is the point:
         ///   an absurd body has to be refused HERE, with a 413 whose meaning is plain, because a body
@@ -83,8 +86,16 @@ namespace NoSQL.GraphDB.App.Controllers
         ///   <c>DocumentController</c>'s upload bound is: the real ceiling lives in the OTHER
         ///   deployable's configuration, so a key here would be a second number to keep in step with it
         ///   and a caller could not tell which one refused them. The consequence, stated rather than
-        ///   hidden: raising <c>Integrations:MaxJobFileBytes</c> past about 576 MiB has no effect through
-        ///   this proxy, and the proxy is the only way in because the runtime publishes no port.</para>
+        ///   hidden: this bound caps what raising <c>Integrations:MaxJobFileBytes</c> can achieve through
+        ///   this proxy, at about 767 MiB of files over multipart and about 576 MiB over JSON, and the
+        ///   proxy is the only way in because the runtime publishes no port. A caller does not have to
+        ///   work that out: <c>GET /integrations/limits</c> serves the reconciled numbers, which is
+        ///   where <c>Binding</c> below applies exactly this cap.</para>
+        ///
+        ///   <para>Two OTHER ceilings bound a job and are not this one, both the runtime's and both
+        ///   reported by that route: <c>Integrations:MaxFileBytes</c> per file, and
+        ///   <c>Integrations:MaxJobFiles</c> on how many files one job carries, which the byte ceilings
+        ///   cannot bound because a one-byte file is legal.</para>
         /// </summary>
         private const Int32 JobTransportLimit = 805_306_368;
 

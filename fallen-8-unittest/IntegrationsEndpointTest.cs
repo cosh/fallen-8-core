@@ -49,6 +49,7 @@ using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Integrations;
 using NoSQL.GraphDB.Integrations.Conformance;
 using NoSQL.GraphDB.Integrations.Configuration;
+using NoSQL.GraphDB.Integrations.Hosting;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -349,6 +350,7 @@ namespace NoSQL.GraphDB.Tests
         private const String RuntimeJobRoute = "/integration/job?wait=true";
 
         private const String ProxyProvidersRoute = "/integrations/providers";
+        private const String ProxyLimitsRoute = "/integrations/limits";
         private const String ProxyVocabularyRoute = "/integrations/vocabulary";
         private const String ProxyValidateRoute = "/integrations/snapshot/validate";
         private const String ProxyJobRoute = "/integrations/job";
@@ -1541,7 +1543,7 @@ namespace NoSQL.GraphDB.Tests
         #region B. the apiApp's proxy
 
         /// <summary>
-        /// The apiApp, whose four /integrations routes proxy the runtime.
+        /// The apiApp, whose eight /integrations routes proxy the runtime.
         /// </summary>
         private sealed class ProxyFactory : VolatileAppFactory
         {
@@ -1611,6 +1613,7 @@ namespace NoSQL.GraphDB.Tests
             var answers = new List<HttpResponseMessage>
             {
                 await client.GetAsync(ProxyProvidersRoute),
+                await client.GetAsync(ProxyLimitsRoute),
                 await client.GetAsync(ProxyVocabularyRoute),
                 await client.PostAsync(ProxyValidateRoute, Json(SnapshotBody("complete"))),
                 await client.PostAsync(ProxyJobRoute, Json(JobBody(CsvProviderId, "garage", null))),
@@ -1624,9 +1627,72 @@ namespace NoSQL.GraphDB.Tests
 
         private static readonly String[] ProxyRoutes =
         {
-            ProxyProvidersRoute, ProxyVocabularyRoute, ProxyValidateRoute, ProxyJobRoute,
-            ProxyRunsRoute, ProxyRunRoute, ProxyCancelRoute,
+            ProxyProvidersRoute, ProxyLimitsRoute, ProxyVocabularyRoute, ProxyValidateRoute,
+            ProxyJobRoute, ProxyRunsRoute, ProxyRunRoute, ProxyCancelRoute,
         };
+
+        #region the startup banner announces every ceiling it enforces
+
+        /// <summary>
+        ///   The runtime's startup banner names ALL THREE file ceilings.
+        ///
+        ///   <para>This test exists because its absence let a real omission through: the file-count
+        ///   ceiling was added, enforced and documented, and the banner kept announcing two of three, so an
+        ///   operator reading their own container's log could not see the third at all. The banner is the
+        ///   only place a deployment's posture is stated to whoever runs it, which makes a silently missing
+        ///   line worse than a wrong one.</para>
+        /// </summary>
+        [TestMethod]
+        public void TheStartupBanner_NamesEveryFileCeilingItEnforces()
+        {
+            var sink = new TestLogSink();
+            using var factory = sink.CreateFactory();
+
+            IntegrationsHost.LogStartupPosture(factory.CreateLogger("posture"),
+                new IntegrationsOptions(), new Fallen8TargetOptions());
+
+            foreach (var key in new[]
+                     {
+                         "Integrations:MaxFileBytes",
+                         "Integrations:MaxJobFileBytes",
+                         "Integrations:MaxJobFiles",
+                     })
+            {
+                Assert.IsTrue(sink.Entries.Any(entry => entry.Message.Contains(key, StringComparison.Ordinal)),
+                    "the startup banner never mentions " + key + ", so an operator cannot see a ceiling " +
+                    "their deployment enforces from the log it prints on every start");
+            }
+        }
+
+        /// <summary>
+        ///   A ceiling switched OFF is a WARNING naming the key, for each of the three. Off is a legitimate
+        ///   configuration and an alarming one - what a job may cost is then whoever submits it to decide -
+        ///   so it may not read like an ordinary informational line.
+        /// </summary>
+        [TestMethod]
+        public void TheStartupBanner_WarnsForEachCeilingThatIsSwitchedOff()
+        {
+            var sink = new TestLogSink();
+            using var factory = sink.CreateFactory();
+
+            IntegrationsHost.LogStartupPosture(factory.CreateLogger("posture"),
+                new IntegrationsOptions { MaxFileBytes = 0, MaxJobFileBytes = 0, MaxJobFiles = 0 },
+                new Fallen8TargetOptions());
+
+            foreach (var key in new[]
+                     {
+                         "Integrations:MaxFileBytes",
+                         "Integrations:MaxJobFileBytes",
+                         "Integrations:MaxJobFiles",
+                     })
+            {
+                Assert.IsTrue(sink.Contains(LogLevel.Warning, key),
+                    "switching " + key + " off is not announced as a warning, so a deployment with no " +
+                    "ceiling at all looks exactly like one with the shipped defaults");
+            }
+        }
+
+        #endregion
 
         #region the instance serves the ceilings a caller has to respect
 
