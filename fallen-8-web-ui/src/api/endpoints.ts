@@ -23,7 +23,16 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { apiForm, apiRequest, buildUrl, resolveAuthHeaders, scopedPath, throwIfNotOk } from "./client";
+import {
+  apiForm,
+  apiRequest,
+  apiUpload,
+  buildUrl,
+  resolveAuthHeaders,
+  scopedPath,
+  throwIfNotOk,
+} from "./client";
+import type { UploadProgress } from "./client";
 import type { InstanceConfig } from "../instances/types";
 import type {
   AnalyticsResultREST,
@@ -814,18 +823,62 @@ export const listIntegrationProviders = (i: InstanceConfig, signal?: AbortSignal
 export const getIntegrationLimits = (i: InstanceConfig, signal?: AbortSignal) =>
   apiRequest<FileLimits>(i, "/integrations/limits", { signal, scope: "fallen8" });
 
-/** Runs one job and returns its report. A job that RAN and failed still answers 200. */
 /**
  * Starts a run. Answers a run id, NOT a report: the report is read afterwards from
  * getIntegrationRun, because any real source outlives the connection that would have carried it.
  * Everything that can reject the job still fails this call, so a resolved promise means it started.
+ *
+ * Sent as a MULTIPART FORM (feature integration-file-transport): the document in a `job` part with
+ * its `files` map left out, and each file as its own part streamed straight from the browser's
+ * handle. There is deliberately no JSON fallback here, even though the instance still accepts one -
+ * keeping it would mean keeping a base64 encoder, and that encoder is what capped a job at about
+ * 384 MiB regardless of what the instance would have accepted. Against an apiApp too old to accept
+ * multipart the answer is a 415, which says so plainly.
+ *
+ * `onProgress` is how far the SEND has got, which for a multi-gigabyte set of extracts is the
+ * difference between a progress bar and an apparent hang.
  */
-export const submitIntegrationJob = (i: InstanceConfig, job: IntegrationJobRequest) =>
-  apiRequest<IntegrationRunAccepted>(i, "/integrations/job", {
-    method: "POST",
-    body: job,
+export const submitIntegrationJob = (
+  i: InstanceConfig,
+  job: IntegrationJobRequest,
+  options: { signal?: AbortSignal; onProgress?: (progress: UploadProgress) => void } = {},
+) =>
+  apiUpload<IntegrationRunAccepted>(i, "/integrations/job", integrationJobForm(job), {
     scope: "fallen8",
+    signal: options.signal,
+    onProgress: options.onProgress,
   });
+
+/**
+ * The job as a multipart form. Exported so a test can assert on the parts rather than on a mock's
+ * arguments: what matters is the shape that goes on the wire.
+ *
+ * The `job` part is a STRING and not a Blob. Appending a Blob makes the browser declare a filename
+ * on that part, which the runtime refuses by name because a value part carrying a filename is how
+ * the whole envelope gets sent as a file.
+ *
+ * The part naming is the runtime's grammar: `files[<key>]` for a setting given one file,
+ * `files[<key>][<n>]` numbered from 0 for one given several. The distinction is load-bearing rather
+ * than cosmetic - a list of one is a different statement from one file, and a setting the descriptor
+ * does not declare `multiple` refuses the list form.
+ */
+export function integrationJobForm(job: IntegrationJobRequest): FormData {
+  const { files, ...document } = job;
+  const form = new FormData();
+  form.append("job", JSON.stringify(document));
+
+  for (const [key, supplied] of Object.entries(files ?? {})) {
+    if (Array.isArray(supplied)) {
+      supplied.forEach((entry, index) => {
+        form.append(`files[${key}][${index}]`, entry.file, entry.name);
+      });
+    } else {
+      form.append(`files[${key}]`, supplied.file, supplied.name);
+    }
+  }
+
+  return form;
+}
 
 /**
  * One identity's current or most recent run: the phase while it runs, the report once it ends.

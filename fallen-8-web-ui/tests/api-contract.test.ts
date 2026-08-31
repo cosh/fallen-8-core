@@ -55,8 +55,57 @@ interface Recorded {
 
 let recorded: Recorded[] = [];
 
+/**
+ * The stub for {@link apiUpload}, which goes through XMLHttpRequest rather than fetch because fetch
+ * cannot report upload progress. Without it jsdom really tries to open a socket to f8.test, and the
+ * completeness sweep below fails with a DNS error rather than a contract verdict.
+ *
+ * It records into the same list as the fetch stub, so an XHR route is held to the same check.
+ */
+class RecordingXhr {
+  static sent: FormData[] = [];
+
+  private method = "GET";
+  private url = "";
+  private handlers: Record<string, Array<() => void>> = {};
+
+  readonly upload = { addEventListener: () => {} };
+  status = 200;
+  responseText = "null";
+
+  open(method: string, url: string) {
+    this.method = method;
+    this.url = url;
+  }
+
+  setRequestHeader() {}
+
+  addEventListener(name: string, handler: () => void) {
+    (this.handlers[name] ??= []).push(handler);
+  }
+
+  removeEventListener() {}
+
+  abort() {}
+
+  send(body: FormData) {
+    RecordingXhr.sent.push(body);
+    const parsed = new URL(this.url);
+    recorded.push({
+      method: this.method,
+      path: parsed.pathname,
+      query: parsed.searchParams,
+      body: undefined,
+      rawBody: undefined,
+    });
+    for (const handler of this.handlers.load ?? []) handler();
+  }
+}
+
 beforeEach(() => {
   recorded = [];
+  RecordingXhr.sent = [];
+  vi.stubGlobal("XMLHttpRequest", RecordingXhr);
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {
@@ -110,6 +159,7 @@ function assertInContract(call: Recorded) {
 const EXCLUDED_FROM_CONTRACT_SWEEP = new Map<string, string>([
   ["isAuthorized", "pure predicate over StatusREST; issues no request"],
   ["listSubGraphSummaries", "composite helper; its routes are pinned via listSubGraphNames + getSubGraph"],
+  ["integrationJobForm", "pure FormData builder for submitIntegrationJob; issues no request"],
 ]);
 
 // One representative call per route-bearing endpoint. Arguments only need to be well-formed
@@ -282,7 +332,7 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
       // shape here is a statement of the real wire body rather than something it can verify.
       settings: {},
       credentialValues: {},
-      files: { file: { name: "devices.csv", contentBase64: "bWFjCg==" } },
+      files: { file: { name: "devices.csv", file: new File(["mac\n"], "devices.csv") } },
     }),
 };
 
@@ -442,6 +492,45 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     expect(recorded[0].path).toBe("/ns/analytics/activate");
     expect(recorded[0].rawBody).toBeUndefined();
     expect(recorded[0].query.has("loadOnStartup")).toBe(false);
+  });
+
+  it("the multipart job form names its parts the way the runtime's grammar reads them", async () => {
+    await endpoints.submitIntegrationJob(instance, {
+      providerId: "autosar-arxml",
+      integrationInstanceId: "vehicle-7",
+      settings: {},
+      credentialValues: {},
+      files: {
+        file: [
+          { name: "chassis.arxml", file: new File(["<A/>"], "chassis.arxml") },
+          { name: "body.arxml", file: new File(["<B/>"], "body.arxml") },
+        ],
+        single: { name: "one.csv", file: new File(["mac\n"], "one.csv") },
+      },
+    });
+
+    const form = RecordingXhr.sent[0];
+    expect(form, "the job was not sent as a form at all").toBeInstanceOf(FormData);
+
+    // A STRING, not a Blob. Appending a Blob makes the browser declare a filename on that part, and
+    // the runtime refuses a job envelope that arrives as a file - so this one line is the difference
+    // between every job working and every job being refused with a message about a filename.
+    expect(typeof form.get("job")).toBe("string");
+    const document = JSON.parse(form.get("job") as string);
+    expect(document.providerId).toBe("autosar-arxml");
+    // The files are the PARTS on this transport; a `files` map in the document as well would be a
+    // second answer to which files the run reads, and the runtime refuses it.
+    expect(document).not.toHaveProperty("files");
+
+    expect(form.getAll("files[file][0]")).toHaveLength(1);
+    expect(form.getAll("files[file][1]")).toHaveLength(1);
+    expect((form.get("files[file][0]") as File).name).toBe("chassis.arxml");
+    // Numbered from 0 and ascending, because a gap is a file the run silently would not read - and
+    // un-numbered for the single-file setting, because a list of one is a different statement that a
+    // setting taking exactly one file refuses.
+    expect(form.get("files[file][2]")).toBeNull();
+    expect((form.get("files[single]") as File).name).toBe("one.csv");
+    expect(form.get("files[single][0]")).toBeNull();
   });
 
   it("the integration limits route stays bare on a namespace-bound instance", async () => {

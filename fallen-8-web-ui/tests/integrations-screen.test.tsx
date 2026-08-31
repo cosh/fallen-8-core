@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "../src/api/client";
@@ -58,8 +58,19 @@ import { ListCapNote } from "../src/components/ListCapNote";
 const listProvidersMock = vi.fn<(i: InstanceConfig) => Promise<IntegrationProvider[] | null>>();
 // The POST answers a run ID now, not a report: the report is read afterwards from the run, because a
 // real import outlives the connection that would have carried it.
+/** What the screen passes for progress and cancellation (feature integration-file-transport). */
+type SendOptions = {
+  signal?: AbortSignal;
+  onProgress?: (progress: { sent: number; total: number | null }) => void;
+};
 const submitJobMock =
-  vi.fn<(i: InstanceConfig, job: IntegrationJobRequest) => Promise<IntegrationRunAccepted | null>>();
+  vi.fn<
+    (
+      i: InstanceConfig,
+      job: IntegrationJobRequest,
+      options?: SendOptions,
+    ) => Promise<IntegrationRunAccepted | null>
+  >();
 const getRunMock =
   vi.fn<(i: InstanceConfig, instanceId: string) => Promise<IntegrationRunState | null>>();
 // The cancel answers the run as it was when the stop was RECORDED, so the panel can show the stop as
@@ -74,7 +85,8 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
   return {
     ...original,
     listIntegrationProviders: (i: InstanceConfig) => listProvidersMock(i),
-    submitIntegrationJob: (i: InstanceConfig, job: IntegrationJobRequest) => submitJobMock(i, job),
+    submitIntegrationJob: (i: InstanceConfig, job: IntegrationJobRequest, options?: SendOptions) =>
+      submitJobMock(i, job, options),
     getIntegrationRun: (i: InstanceConfig, instanceId: string) => getRunMock(i, instanceId),
     cancelIntegrationRun: (i: InstanceConfig, instanceId: string) => cancelRunMock(i, instanceId),
     getStatus: (i: InstanceConfig, s?: AbortSignal) => getStatusMock(i, s),
@@ -363,7 +375,7 @@ describe("a file setting takes the file itself", () => {
     expect(screen.getByTestId("integration-missing")).toHaveTextContent("Extract");
   });
 
-  it("sends the file's BYTES in files, and its name never in settings", async () => {
+  it("sends the file HANDLE in files, and its name never in settings", async () => {
     renderScreen();
     await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
 
@@ -371,10 +383,10 @@ describe("a file setting takes the file itself", () => {
     await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
     await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
 
-    await userEvent.upload(
-      screen.getByTestId("integration-setting-extract"),
-      new File(["mac,name\nAA:BB:CC:DD:EE:01,Reception\n"], "devices.csv", { type: "text/csv" }),
-    );
+    const picked = new File(["mac,name\nAA:BB:CC:DD:EE:01,Reception\n"], "devices.csv", {
+      type: "text/csv",
+    });
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), picked);
 
     // Staging, not sending: a run also needs an identity and the other settings, so the file waits.
     await waitFor(() =>
@@ -388,7 +400,11 @@ describe("a file setting takes the file itself", () => {
     const job = submitJobMock.mock.calls[0][1];
     const sent = oneFile(job, "extract");
     expect(sent.name).toBe("devices.csv");
-    expect(atob(sent.contentBase64)).toBe("mac,name\nAA:BB:CC:DD:EE:01,Reception\n");
+    // IDENTICALLY the object that was picked. Not a copy, not bytes, not a re-encode - and asserted
+    // by identity on purpose: a test comparing CONTENT would pass just as well against the version
+    // this replaced, which read every file into memory at pick time and base64'd it at send time.
+    // Reference equality is the only assertion that fails if anyone reintroduces that.
+    expect(sent.file).toBe(picked);
     // The name in `settings` is what the runtime refuses, and putting it there would be the one
     // mistake that looks like it works right up to the 400.
     expect(job.settings).not.toHaveProperty("extract");
@@ -494,11 +510,8 @@ describe("a file setting can take a SET of files (feature integration-run-lifecy
   it("stages several files and sends them as ONE ordered array", async () => {
     await selectAndFill(multiFileIntegration());
 
-    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
-      extract("body.arxml"),
-      extract("chassis.arxml"),
-      extract("powertrain.arxml"),
-    ]);
+    const picked = [extract("body.arxml"), extract("chassis.arxml"), extract("powertrain.arxml")];
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), picked);
     await waitFor(() => expect(rows()).toHaveLength(3));
 
     await userEvent.click(screen.getByTestId("integration-run"));
@@ -513,7 +526,8 @@ describe("a file setting can take a SET of files (feature integration-run-lifecy
       "chassis.arxml",
       "powertrain.arxml",
     ]);
-    expect(atob(sent[2].contentBase64)).toBe("<AUTOSAR>powertrain.arxml</AUTOSAR>");
+    // The same handles, in that order: identity again, so a copy or a re-encode fails here.
+    expect(sent.map((file) => file.file)).toEqual(picked);
   });
 
   it("ADDS a second drop to the set rather than replacing it", async () => {
@@ -1402,5 +1416,220 @@ describe("a run picked up after a restart says so (feature integration-run-lifec
     expect(screen.queryByTestId("integration-run-cancel")).toBeNull();
     expect(screen.queryByTestId("run-cancelled")).toBeNull();
     expect(screen.queryByTestId("run-cancel-too-late")).toBeNull();
+  });
+});
+
+/**
+ * WHAT THE SEND LOOKS LIKE WHILE IT HAPPENS (feature integration-file-transport).
+ *
+ * The failure that prompted all of this: an operator staged several gigabytes of extracts, pressed
+ * run, saw one unchanging word for minutes, and got an error. So a send now reports its progress,
+ * can be cancelled, and never encodes a file into memory on the way.
+ */
+describe("sending a job is visible while it happens", () => {
+  /** Selects the multi-file provider and fills everything a run needs except the files. */
+  async function ready() {
+    listProvidersMock.mockResolvedValue([multiFileIntegration()]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "vehicle-network");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+  }
+
+  function extract(name: string): File {
+    return new File([`<AUTOSAR>${name}</AUTOSAR>`], name, { type: "application/xml" });
+  }
+
+  const staged = () => screen.getAllByTestId("integration-setting-extract-staged-file");
+
+  /** Stages one extract, which is all most of these need. */
+  async function stageOne() {
+    await ready();
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml"),
+    ]);
+    await waitFor(() => expect(staged()).toHaveLength(1));
+  }
+
+  it("walks the button through starting, sending a share, and starting the run", async () => {
+    let release: (value: IntegrationRunAccepted | null) => void = () => {};
+    let report: SendOptions["onProgress"];
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      report = options?.onProgress;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+
+    await stageOne();
+
+    const button = () => screen.getByTestId("integration-run");
+    expect(button()).toHaveTextContent("run now");
+
+    await userEvent.click(button());
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+    // Before the first progress event there is genuinely nothing to report, so the old word stands.
+    expect(button()).toHaveTextContent("starting");
+
+    await act(async () => {
+      report!({ sent: 250, total: 1000 });
+    });
+    expect(button()).toHaveTextContent("sending 25%");
+    expect(screen.getByTestId("integration-send-progress")).toHaveTextContent("250 B of 1000 B");
+
+    // Everything sent, but the runtime has not answered: the label says starting the RUN rather than
+    // claiming the run is under way, because this call ends when the job is ACCEPTED and the run
+    // outlives it.
+    await act(async () => {
+      report!({ sent: 1000, total: 1000 });
+    });
+    expect(button()).toHaveTextContent("starting the run");
+
+    await act(async () => {
+      release(accepted());
+    });
+    await waitFor(() => expect(button()).toHaveTextContent("run now"));
+    // And the progress row is gone rather than left showing a finished send.
+    expect(screen.queryByTestId("integration-send-progress")).toBeNull();
+  });
+
+  it("reports bytes sent even when the browser will not say how many there are", async () => {
+    let report: SendOptions["onProgress"];
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      report = options?.onProgress;
+      return new Promise(() => {});
+    });
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      report!({ sent: 4096, total: null });
+    });
+
+    // No percentage and no bar, because inventing a denominator would show one that never fills.
+    expect(screen.getByTestId("integration-send-progress")).toHaveTextContent("sending 4.0 KiB");
+    expect(screen.getByTestId("integration-run")).toHaveTextContent("sending");
+    expect(screen.getByTestId("integration-run")).not.toHaveTextContent("%");
+  });
+
+  it("cancelling the send aborts it, watches nothing, and shows no error", async () => {
+    let signal: AbortSignal | undefined;
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      signal = options?.signal;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("The upload was cancelled.", "AbortError")),
+        );
+      });
+    });
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    expect(signal?.aborted).toBe(false);
+    await userEvent.click(screen.getByTestId("integration-send-cancel"));
+
+    await waitFor(() => expect(signal?.aborted).toBe(true));
+    // Nothing started, so nothing is watched and nothing is polled: arming the watch optimistically
+    // would show the identity's PREVIOUS finished run as this run's outcome.
+    expect(getRunMock).not.toHaveBeenCalled();
+    // And no error box: somebody who pressed cancel does not need to be told that it failed.
+    await waitFor(() => expect(screen.getByTestId("integration-run")).toHaveTextContent("run now"));
+    expect(screen.queryByTestId("integration-run-error")).toBeNull();
+  });
+
+  it("arms the watch only once the runtime has accepted the job", async () => {
+    let release: (value: IntegrationRunAccepted | null) => void = () => {};
+    submitJobMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    expect(getRunMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      release(accepted());
+    });
+    await waitFor(() => expect(getRunMock).toHaveBeenCalled());
+  });
+
+  /**
+   * The point of the feature, asserted where it cannot be argued away: nothing base64-encodes a file
+   * any more. `btoa` over a set of extracts is what capped a job at about 384 MiB - a JavaScript
+   * string maxes at 512 MiB - whatever the instance would have accepted.
+   */
+  it("base64-encodes nothing at all across a three-file submit", async () => {
+    const btoaSpy = vi.spyOn(globalThis, "btoa");
+
+    await ready();
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml"),
+      extract("chassis.arxml"),
+      extract("powertrain.arxml"),
+    ]);
+    await waitFor(() => expect(staged()).toHaveLength(3));
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    expect(btoaSpy).not.toHaveBeenCalled();
+    btoaSpy.mockRestore();
+  });
+
+  /**
+   * Staging reads ONE BYTE and no more. The read exists to catch a handle that cannot be opened, at
+   * the pick rather than minutes into a send; reading the whole file to learn that would restore the
+   * memory cost this feature removed, so the SIZE of the read is what is asserted.
+   */
+  it("reads exactly one byte per file at staging time", async () => {
+    const slices: Array<[number, number]> = [];
+    const original = Blob.prototype.slice;
+    const sliceSpy = vi
+      .spyOn(Blob.prototype, "slice")
+      .mockImplementation(function (this: Blob, start?: number, end?: number) {
+        slices.push([start ?? 0, end ?? this.size]);
+        return original.call(this, start, end);
+      });
+
+    await stageOne();
+
+    expect(slices).toEqual([[0, 1]]);
+    sliceSpy.mockRestore();
+  });
+
+  it("says a staged file is read at send time when the send fails", async () => {
+    submitJobMock.mockRejectedValue(new TypeError("Failed to reach http://f8.test"));
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    const note = await screen.findByTestId("integration-send-stale-note");
+    // The honest regression this transport introduces: a file moved or edited after staging fails
+    // HERE rather than at the picker, so the copy has to say where to look.
+    expect(note).toHaveTextContent("read while the job is sent");
+    expect(note).toHaveTextContent("nothing was withdrawn");
+  });
+
+  it("names the missing capability when an instance refuses multipart outright", async () => {
+    submitJobMock.mockRejectedValue(
+      new ApiError(415, "/integrations/job", "Unsupported Media Type"),
+    );
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    // Studio keeps no base64 fallback on purpose, so this is a real state an older instance can
+    // produce, and it has to say what to do rather than show a bare 415.
+    const note = await screen.findByTestId("integration-no-multipart");
+    expect(note).toHaveTextContent("does not accept multipart");
   });
 });

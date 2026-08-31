@@ -27,6 +27,7 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useActiveInstance, useActiveNamespace, useInstanceStore } from "../instances/registry";
 import { cancelIntegrationRun, getIntegrationRun, submitIntegrationJob } from "../api/endpoints";
+import type { UploadProgress } from "../api/client";
 import type { InstanceConfig } from "../instances/types";
 import type {
   IntegrationJobFile,
@@ -39,7 +40,7 @@ import type {
 } from "../api/types";
 import { capabilityOf, useIntegrationProviders } from "../state/integrations";
 import { useEmbeddingProvider } from "../state/graphShape";
-import { ApiError } from "../api/client";
+import { ApiError, wasCancelled } from "../api/client";
 import { ErrorBox } from "../components/ErrorBox";
 import { FileDropzone } from "../components/FileDropzone";
 import { ListCapNote } from "../components/ListCapNote";
@@ -120,12 +121,27 @@ export function IntegrationsScreen() {
   const selectedIdRef = useRef(selectedId);
   selectedIdRef.current = selectedId;
 
+  // How far the SEND has got, and the handle that stops it. Both are refs plus state on purpose:
+  // the controller must survive re-renders (a state-only controller would be replaced mid-send and
+  // the cancel button would abort nothing), while the bytes have to re-render a progress bar.
+  const [sent, setSent] = useState<UploadProgress | null>(null);
+  const uploadRef = useRef<AbortController | null>(null);
+
   const submit = useMutation({
-    mutationFn: () =>
-      submitIntegrationJob(
+    mutationFn: () => {
+      const controller = new AbortController();
+      uploadRef.current = controller;
+      setSent({ sent: 0, total: null });
+      return submitIntegrationJob(
         instance,
         buildJob(selected!, namespace, instanceId, values, files, embedRequested, embeddingName),
-      ),
+        { signal: controller.signal, onProgress: setSent },
+      );
+    },
+    onSettled: () => {
+      uploadRef.current = null;
+      setSent(null);
+    },
     onSuccess: (accepted) => {
       // The answer is a run id, not a report. The identity is what survives a reload, because it is what
       // the runtime keys its slot by; the run id is what tells this run apart from the identity's last.
@@ -221,9 +237,16 @@ export function IntegrationsScreen() {
     const problems: string[] = [];
 
     for (const file of multiple ? picked : picked.slice(0, 1)) {
-      let bytes: Uint8Array;
+      if (file.size === 0) {
+        // Refused here as well as by the runtime, because the round trip for this one is pure
+        // latency: an empty file is the mistake somebody makes when they pick before saving.
+        // `size` is on the handle, so this costs no read at all.
+        problems.push(`${file.name} is empty, so there would be nothing to read.`);
+        continue;
+      }
+
       try {
-        bytes = await readBytes(file);
+        await probeReadable(file);
       } catch (error) {
         if (askedBy !== selectedIdRef.current) return;
         problems.push(`${file.name} could not be read: ${describeReadFailure(error)}`);
@@ -231,20 +254,13 @@ export function IntegrationsScreen() {
       }
       if (askedBy !== selectedIdRef.current) return;
 
-      if (bytes.length === 0) {
-        // Refused here as well as by the runtime, because the round trip for this one is pure
-        // latency: an empty file is the mistake somebody makes when they pick before saving.
-        problems.push(`${file.name} is empty, so there would be nothing to read.`);
-        continue;
-      }
-
       const name = file.name.trim().toLowerCase();
       if (taken.has(name)) {
         problems.push(`${file.name} is already staged here, and one name cannot mean two files.`);
         continue;
       }
       taken.add(name);
-      accepted.push({ name: file.name, size: bytes.length, bytes });
+      accepted.push({ name: file.name, size: file.size, file });
     }
 
     if (accepted.length > 0) {
@@ -467,8 +483,18 @@ export function IntegrationsScreen() {
                 disabled={!canSubmit || submit.isPending}
                 onClick={() => submit.mutate()}
               >
-                {submit.isPending ? "starting…" : "run now"}
+                {sendLabel(submit.isPending, sent)}
               </button>
+              {submit.isPending && (
+                <button
+                  type="button"
+                  className="btn"
+                  data-testid="integration-send-cancel"
+                  onClick={() => uploadRef.current?.abort()}
+                >
+                  cancel
+                </button>
+              )}
               {missing.length > 0 && (
                 <span className="text-fg-faint text-[11px]" data-testid="integration-missing">
                   needs {missing.join(", ")}
@@ -476,7 +502,29 @@ export function IntegrationsScreen() {
               )}
             </div>
 
-            {submit.isError && (
+            {submit.isPending && sent !== null && (
+              <div className="space-y-1" data-testid="integration-send-progress">
+                {sent.total !== null && sent.total > 0 && (
+                  <div className="bg-surface-2 h-1 w-full overflow-hidden rounded">
+                    <div
+                      className="bg-accent h-1"
+                      style={{ width: `${Math.min(100, Math.round((sent.sent / sent.total) * 100))}%` }}
+                    />
+                  </div>
+                )}
+                <p className="text-fg-faint text-[11px]">
+                  {sent.total !== null && sent.total > 0
+                    ? `sending ${formatBytes(sent.sent)} of ${formatBytes(sent.total)}`
+                    : `sending ${formatBytes(sent.sent)}`}
+                  . Cancelling now sends nothing and starts nothing.
+                </p>
+              </div>
+            )}
+
+            {/* An abort is not a failure. react-query moves an aborted MUTATION to isError with the
+                abort as its error, so without this guard pressing cancel puts a red box reading
+                "Cannot continue" in front of the person who pressed it. */}
+            {submit.isError && !wasCancelled(submit.error) && (
               <div className="space-y-1" data-testid="integration-run-error">
                 <ErrorBox error={submit.error} />
                 {submit.error instanceof ApiError && submit.error.status === 413 && (
@@ -484,6 +532,20 @@ export function IntegrationsScreen() {
                     The request body was refused before the run started - what it carries is larger
                     than this instance forwards, whether that is one file or the set of them.
                     Nothing was read and nothing was withdrawn.
+                  </p>
+                )}
+                {submit.error instanceof ApiError && submit.error.status === 415 && (
+                  <p className="text-fg-dim text-[12px]" data-testid="integration-no-multipart">
+                    This instance does not accept multipart integration jobs, which is the only shape
+                    this screen sends. It predates the file transport this version uses; upgrade it,
+                    or submit the job over the API directly.
+                  </p>
+                )}
+                {Object.keys(files).length > 0 && (
+                  <p className="text-fg-faint text-[11px]" data-testid="integration-send-stale-note">
+                    A staged file is read while the job is sent, not when it is picked, so one moved,
+                    renamed or edited since fails here. Re-pick it if that is what happened. Nothing
+                    started, so nothing was withdrawn.
                   </p>
                 )}
               </div>
@@ -1110,40 +1172,55 @@ function forgetSecrets(
   return kept;
 }
 
-/** One file held in this tab, waiting for a run. */
-type StagedFile = { name: string; size: number; bytes: Uint8Array };
+/**
+ * One file staged in this tab, waiting for a run: its name, its size and the browser's HANDLE.
+ *
+ * Not its bytes. Reading them here is what made staging a vehicle's extracts leave gigabytes resident before
+ * the send started, and the base64 the send then needed capped a job at about 384 MiB whatever the
+ * instance would have accepted. A handle costs nothing until the request streams it off disk.
+ */
+type StagedFile = { name: string; size: number; file: File };
 
 /**
- * Reads a file as BYTES, via FileReader.
+ * Reads ONE BYTE, to find out whether the file can still be read at all.
  *
- * Bytes and not text, and FileReader rather than `file.text()`, for two independent reasons.
+ * The file's contents are not read here any more: a job streams from the handle at send time
+ * (feature integration-file-transport). But a handle can go stale - the file gets moved, renamed or
+ * replaced between the picker and the button - and without a probe that failure would surface
+ * minutes into a send instead of at the pick. One byte is enough: the browser opens the file to
+ * serve it, which is the thing being tested.
  *
- * Bytes, because the browser deciding the encoding loses information the runtime can still use: it
- * decodes with byte-order-mark detection, so an ARXML a vendor tool wrote as UTF-16 arrives intact
- * where `readAsText` would have made mojibake of it. That is the whole of what is claimed - a file in
- * a legacy codepage with NO byte-order mark still falls back to UTF-8 at the far end, exactly as it
- * did when the file came off a mount, so nothing here has made that case better or worse.
- *
- * FileReader, because jsdom does not implement `Blob.prototype.text`: it typechecks against the DOM
- * lib and then throws at test time.
+ * FileReader rather than `Blob.slice().arrayBuffer()`, because jsdom does not implement the latter:
+ * it typechecks against the DOM lib and then throws at test time.
  */
-function readBytes(file: File): Promise<Uint8Array> {
+function probeReadable(file: File): Promise<void> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error ?? new Error("the file could not be read"));
-    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
-    reader.readAsArrayBuffer(file);
+    reader.onload = () => resolve();
+    reader.readAsArrayBuffer(file.slice(0, 1));
   });
 }
 
-/** Bytes to base64, in chunks: one `String.fromCharCode(...bytes)` call blows the argument limit. */
-function base64Of(bytes: Uint8Array): string {
-  const chunk = 0x8000;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+/**
+ * What the run button says, which is four things rather than two.
+ *
+ * "starting" was the whole of it when a job was a small JSON body, and it is a lie for a multipart
+ * send of several gigabytes: the operator who prompted this feature pressed run, saw one unchanging
+ * word for minutes, and reasonably concluded nothing was happening. So the label distinguishes
+ * sending from waiting, and names the share sent while it is sending.
+ *
+ * The last stage is deliberately "starting the run", not "running": this call ends when the runtime
+ * ACCEPTS the job, and the run itself outlives it and is watched in its own panel.
+ */
+function sendLabel(pending: boolean, progress: UploadProgress | null): string {
+  if (!pending) return "run now";
+  if (progress === null) return "starting…";
+  if (progress.total !== null && progress.total > 0) {
+    if (progress.sent >= progress.total) return "starting the run…";
+    return `sending ${Math.min(99, Math.floor((progress.sent / progress.total) * 100))}%…`;
   }
-  return btoa(binary);
+  return progress.sent > 0 ? "sending…" : "starting…";
 }
 
 function describeReadFailure(error: unknown): string {
@@ -1228,12 +1305,12 @@ function buildJob(
 
   for (const setting of provider.settings) {
     if (setting.kind === "File") {
-      // NOT trimmed, and not decoded to text on the way: the bytes are what the provider parses,
-      // and the file's own name is what its messages will call it. The staged order is kept, because
-      // a provider composing its files reads it as precedence.
-      const carried = (staged[setting.key] ?? []).map((file) => ({
-        name: file.name,
-        contentBase64: base64Of(file.bytes),
+      // The HANDLE, not the bytes: nothing reads the file until the request streams it. The name is
+      // NOT trimmed, because the file's own name is what every message about the run will call it.
+      // The staged order is kept, because a provider composing its files reads it as precedence.
+      const carried = (staged[setting.key] ?? []).map((staged) => ({
+        name: staged.name,
+        file: staged.file,
       }));
 
       if (carried.length > 0) {
