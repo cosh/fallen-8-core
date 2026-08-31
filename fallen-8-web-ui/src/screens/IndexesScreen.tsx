@@ -42,6 +42,12 @@ import type { IndexDescription, VectorIndexAddSpecification } from "../api/types
 import { toIndexKey, type TypedValue } from "../lib/literals";
 import { parseVector } from "../lib/vector";
 import { indexCapabilities } from "../lib/indexCapabilities";
+import {
+  VECTOR_DIMENSION_RANGE,
+  isValidVectorDimension,
+  vectorIndexDefaults,
+  vectorIndexPluginOptions,
+} from "../lib/vectorIndexCreate";
 import { TypedLiteralEditor } from "../components/TypedLiteralEditor";
 import { Field } from "../components/Field";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -77,6 +83,18 @@ export function IndexesScreen() {
   const [confirmTarget, setConfirmTarget] = useState<IndexDescription | null>(null);
   const [fallbackDeleteId, setFallbackDeleteId] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+
+  // The dead end this pointer exists to remove (feature semantic-search-onramp): embeddings can
+  // already sit on thousands of elements while the one thing that RANKS them is absent, and an
+  // inventory of other families reads as a complete answer to "can this instance search by
+  // meaning". Only claimed when the inventory is actually known, and an index whose capabilities
+  // cannot be determined counts as a vector index rather than provoking a false claim.
+  const hasVectorIndex = inventory.some((i) => indexCapabilities(i).includes("vector"));
+  // Only where the dead end actually is: OTHER families present, this one absent. On a wholly
+  // empty inventory the paragraph above already says "create one below", and saying it twice was
+  // the state a newcomer hits first.
+  const noVectorIndex =
+    status.data != null && !inventoryAbsent && inventory.length > 0 && !hasVectorIndex;
 
   const suggestions = shapeSuggestions(useGraphShape(instance).data);
   const refreshInventory = () =>
@@ -233,6 +251,13 @@ export function IndexesScreen() {
             <ErrorBox error={remove.error} />
           </div>
         )}
+        {noVectorIndex && (
+          <p className="text-fg-faint px-3 pb-3 text-[11px]" data-testid="no-vector-index-note">
+            No vector index here, so a semantic search (Query screen) has nothing to rank
+            against. That is plugin type VectorIndex, bound to the embedding name your elements
+            carry.
+          </p>
+        )}
         <p className="text-fg-faint px-3 pb-3 text-[11px]">
           Click a row to manage its content. Index definitions are immutable — there is no
           update; delete and recreate instead.
@@ -296,11 +321,13 @@ function CreatePanel({ onCreated }: { onCreated: () => void }) {
   const availableTypes = status?.availableIndexPlugins ?? [];
 
   // The provider is the authority on both numbers: a bound index whose dimension or metric disagrees
-  // with the model writing into it is refused on every use, so guessing is worse than asking.
+  // with the model writing into it is refused on every use, so guessing is worse than asking. The
+  // derivation is shared with the Query screen's semantic on-ramp (lib/vectorIndexCreate.ts).
   const provider = status?.embedding ?? null;
-  const providerReady = provider !== null && provider.enabled && provider.dimension > 0;
-  const dimension = dimensionEdit ?? (providerReady ? String(provider!.dimension) : "384");
-  const metric = metricEdit ?? (providerReady && provider!.intendedMetric ? provider!.intendedMetric : "Cosine");
+  const { providerReady, dimension: defaultDimension, metric: defaultMetric } =
+    vectorIndexDefaults(provider);
+  const dimension = dimensionEdit ?? defaultDimension;
+  const metric = metricEdit ?? defaultMetric;
 
   const isVectorIndex = indexType.trim() === "VectorIndex";
   // SpatialIndex.Initialize needs CLR objects (metric, dimensions) that JSON plugin
@@ -313,40 +340,8 @@ function CreatePanel({ onCreated }: { onCreated: () => void }) {
       createIndex(instance, {
         uniqueId: indexId,
         pluginType: indexType,
-        // VectorIndex options travel as typed literals (vector-index README §creation).
-        // embeddingName/model are added only when set, so a raw index stays exactly the
-        // old two-option shape (pinned by index-management.test.tsx).
         pluginOptions: isVectorIndex
-          ? {
-              dimension: {
-                propertyId: "dimension",
-                propertyValue: dimension,
-                fullQualifiedTypeName: "System.Int32",
-              },
-              metric: {
-                propertyId: "metric",
-                propertyValue: metric,
-                fullQualifiedTypeName: "System.String",
-              },
-              ...(embeddingName.trim()
-                ? {
-                    embeddingName: {
-                      propertyId: "embeddingName",
-                      propertyValue: embeddingName.trim(),
-                      fullQualifiedTypeName: "System.String",
-                    },
-                  }
-                : {}),
-              ...(model.trim()
-                ? {
-                    model: {
-                      propertyId: "model",
-                      propertyValue: model.trim(),
-                      fullQualifiedTypeName: "System.String",
-                    },
-                  }
-                : {}),
-            }
+          ? vectorIndexPluginOptions({ dimension, metric, embeddingName, model })
           : undefined,
       }),
     onSuccess: (ok) => {
@@ -401,19 +396,25 @@ function CreatePanel({ onCreated }: { onCreated: () => void }) {
           <>
             <Field
               helpKey="vectorDimension"
-              label="dimension (1–4096)"
+              label={`dimension (${VECTOR_DIMENSION_RANGE.min}–${VECTOR_DIMENSION_RANGE.max})`}
               htmlFor="vector-dimension-opt"
             >
               <input
                 id="vector-dimension-opt"
                 className="input w-24"
                 type="number"
-                min={1}
-                max={4096}
+                min={VECTOR_DIMENSION_RANGE.min}
+                max={VECTOR_DIMENSION_RANGE.max}
                 data-testid="vector-dimension-opt"
                 value={dimension}
                 onChange={(e) => setDimensionEdit(e.target.value)}
               />
+              {!isValidVectorDimension(dimension) && (
+                <div className="text-warn text-[11px]" data-testid="vector-dimension-invalid">
+                  a whole number from {VECTOR_DIMENSION_RANGE.min} to{" "}
+                  {VECTOR_DIMENSION_RANGE.max}
+                </div>
+              )}
             </Field>
             <Field helpKey="vectorMetric" label="metric" htmlFor="vector-metric">
               <select
@@ -457,7 +458,14 @@ function CreatePanel({ onCreated }: { onCreated: () => void }) {
         <button
           type="button"
           className="btn btn-accent"
-          disabled={!indexId.trim() || create.isPending || isSpatialIndex}
+          disabled={
+            !indexId.trim() ||
+            create.isPending ||
+            isSpatialIndex ||
+            // An emptied dimension would travel as "" against System.Int32, which the server
+            // cannot convert: the same guard the Query screen's on-ramp uses, from one home.
+            (isVectorIndex && !isValidVectorDimension(dimension))
+          }
           onClick={() => create.mutate()}
         >
           Create

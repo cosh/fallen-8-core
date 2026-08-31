@@ -31,10 +31,10 @@ import { closeIntroIfOpen } from "./firstRun";
  * Docs screenshot capture for the semantic-search frame on the Samples page. Output:
  *   docs/src/assets/images/query-semantic-search.png
  *
- * NEEDS AN EMBEDDING PROVIDER. The frame is the "text (provider)" mode, where the query sentence is
- * embedded server-side before the kNN runs, so it cannot be produced without one: with the provider
- * off Studio renders that tab disabled and the run button stays dead. Wire the Fallen8:Embedding
- * section on the capture app (this is the compose default), e.g.
+ * NEEDS AN EMBEDDING PROVIDER. The frame is the "semantic search" query mode, where the query
+ * sentence is embedded server-side before the kNN runs, so it cannot be produced without one: with
+ * the provider off Studio disables the query text and the run button stays dead. Wire the
+ * Fallen8:Embedding section on the capture app (this is the compose default), e.g.
  *
  *   Fallen8__Embedding__Enabled=true  Fallen8__Embedding__Backend=Ollama
  *   Fallen8__Embedding__ModelName=bge-m3  Fallen8__Embedding__Dimension=1024
@@ -103,8 +103,8 @@ test("capture semantic search over the Movie Night embeddings index", async ({ p
   const embedding = (await status.json()).embedding as { enabled?: boolean } | undefined;
   test.skip(
     embedding?.enabled !== true,
-    "the embedding provider is off on this instance, so the 'text (provider)' tab is disabled and " +
-      "this frame cannot be produced. Wire Fallen8__Embedding__* (see the file header).",
+    "the embedding provider is off on this instance, so the semantic mode's query text is " +
+      "disabled and this frame cannot be produced. Wire Fallen8__Embedding__* (see the header).",
   );
 
   await registerSecuredInstance(page);
@@ -114,10 +114,10 @@ test("capture semantic search over the Movie Night embeddings index", async ({ p
   await expect(page.getByTestId("namespace-switcher")).toContainText("191 v", { timeout: 30_000 });
 
   await page.goto("/query");
-  await page.getByTestId("query-mode").selectOption("index");
-  await page.getByTestId("index-select").selectOption("embeddings");
-  // The provider tab. With the provider on it is enabled, and the sentence is embedded server-side.
-  await page.getByTestId("vector-source-text").click();
+  // Its own query mode since feature semantic-search-onramp: no index has to be picked first, and
+  // the selector that follows offers only the indexes that can actually rank a vector.
+  await page.getByTestId("query-mode").selectOption("semantic");
+  await page.getByTestId("semantic-index-select").selectOption("embeddings");
   await page.getByTestId("vector-search-text").fill("mind-bending sci-fi about dreams");
   await page.locator("#vector-k").fill("10");
   await page.getByTestId("scan-run").click();

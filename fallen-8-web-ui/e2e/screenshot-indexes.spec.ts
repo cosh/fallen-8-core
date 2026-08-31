@@ -61,7 +61,13 @@ test("capture the Indexes screen", async ({ page, request }) => {
   await expect(page.getByTestId("health-chip")).toContainText(/online/i, { timeout: 20_000 });
 
   await page.goto("/q/default/indexes");
-  await expect(page.getByTestId("index-type").first()).toBeVisible({ timeout: 20_000 });
+  // Waiting for VISIBLE is not enough: the plugin-type control renders as a free-form input
+  // before /status answers, so the frame could be shot (and was, for several releases) with the
+  // header still reading "checking" and the plugin dropdown absent. A SELECT exists only once
+  // the inventory and the plugin list have actually arrived.
+  await expect(page.getByTestId("index-type").first()).toHaveJSProperty("tagName", "SELECT", {
+    timeout: 20_000,
+  });
 
   await page.screenshot({ path: "../docs/src/assets/images/screen-indexes.png" });
 });

@@ -223,6 +223,61 @@ describe("inventory table", () => {
   });
 });
 
+// Feature semantic-search-onramp FR-4. An inventory of dictionary indices reads as a complete
+// answer to "can this instance search by meaning", which is how an operator with many embedded
+// elements concluded the capability did not exist.
+describe("the missing-vector-index pointer", () => {
+  it("names what a semantic search needs when no index can rank vectors", async () => {
+    getStatusMock.mockResolvedValue({
+      ...STATUS,
+      indices: [{ indexId: "f8i-claims", pluginType: "DictionaryIndex", capabilities: ["equality"] }],
+    });
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByTestId("no-vector-index-note")).toHaveTextContent(/semantic search/i),
+    );
+  });
+
+  it("stays out of the way on an instance with no indexes at all", async () => {
+    // The empty-inventory paragraph already says "create one below", so adding a second
+    // sentence that says it again is noise in the first state a newcomer sees. The pointer earns
+    // its keep only where other families are present and this one is missing.
+    getStatusMock.mockResolvedValue({ ...STATUS, indices: [] });
+    renderScreen();
+    await waitFor(() =>
+      expect(screen.getByTestId("inventory-empty")).toHaveTextContent(/No indexes on this instance/),
+    );
+    expect(screen.queryByTestId("no-vector-index-note")).not.toBeInTheDocument();
+  });
+
+  it("stays quiet once a vector index exists", async () => {
+    renderScreen();
+    await waitFor(() => expect(screen.getByTestId("index-inventory")).toBeInTheDocument());
+    expect(screen.queryByTestId("no-vector-index-note")).not.toBeInTheDocument();
+  });
+
+  it("counts an index of unknown capability as one that could rank, rather than claiming", async () => {
+    // A pre-capabilities server plus a third-party plugin: indexCapabilities errs toward every
+    // family, so the screen cannot know this one is not a vector index and must not say so.
+    getStatusMock.mockResolvedValue({
+      ...STATUS,
+      indices: [{ indexId: "acme", pluginType: "AcmeIndex" }],
+    });
+    renderScreen();
+    await waitFor(() => expect(screen.getByTestId("index-row-acme")).toBeInTheDocument());
+    expect(screen.queryByTestId("no-vector-index-note")).not.toBeInTheDocument();
+  });
+
+  it("makes no claim when the server does not report an inventory", async () => {
+    // Nothing is known about what indexes exist, so "there is no vector index" is not a
+    // statement this screen is entitled to make.
+    getStatusMock.mockResolvedValue({ ...STATUS, indices: null });
+    renderScreen();
+    await waitFor(() => expect(screen.getByTestId("inventory-empty")).toBeInTheDocument());
+    expect(screen.queryByTestId("no-vector-index-note")).not.toBeInTheDocument();
+  });
+});
+
 describe("plugin-type dropdown", () => {
   it("lists the server's available index plugins, DictionaryIndex preselected", async () => {
     renderScreen();
@@ -297,6 +352,42 @@ describe("per-type creation options", () => {
     expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
     expect(screen.getByTestId("spatial-create-note")).toBeInTheDocument();
     expect(createIndexMock).not.toHaveBeenCalled();
+  });
+});
+
+// The other half of the shared guard in lib/vectorIndexCreate.ts. Only the Query screen's
+// on-ramp twin was pinned, and this panel had the same hole: an emptied dimension travelled as
+// "" against System.Int32, which the server cannot convert.
+describe("the shared dimension guard", () => {
+  it("refuses to submit a dimension the engine cannot take", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await findTypeSelect();
+    await user.selectOptions(screen.getByTestId("index-type"), "VectorIndex");
+    await user.type(screen.getByLabelText(/index id/i), "vec");
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+
+    await user.clear(screen.getByTestId("vector-dimension-opt"));
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+    expect(screen.getByTestId("vector-dimension-invalid")).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("vector-dimension-opt"), "9999");
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+
+    await user.clear(screen.getByTestId("vector-dimension-opt"));
+    await user.type(screen.getByTestId("vector-dimension-opt"), "768");
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+    expect(screen.queryByTestId("vector-dimension-invalid")).not.toBeInTheDocument();
+    expect(createIndexMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves a non-vector create alone, which has no dimension at all", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await findTypeSelect();
+    await user.type(screen.getByLabelText(/index id/i), "byName");
+    expect(screen.queryByTestId("vector-dimension-invalid")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
   });
 });
 

@@ -134,6 +134,75 @@ describe("per-instance state isolation", () => {
     expect(draft.semanticQuery.vectorText).toBe("[1, 0]");
   });
 
+  // Feature semantic-search-onramp moved text-in kNN out of the index mode's vector form (where
+  // it was a `vectorSource` toggle) into its own query mode. A draft is a session convenience,
+  // but this one is LIFTED rather than reset: the text, k, kind and label are the same question,
+  // and silently emptying somebody's search box on upgrade is the kind of small loss nobody
+  // reports and everybody notices.
+  it("lifts a persisted index-mode text search into the semantic mode", () => {
+    window.localStorage.setItem(
+      "f8.workspace.inst-text",
+      JSON.stringify({
+        state: {
+          queryDraft: {
+            mode: "index",
+            form: "vector",
+            vectorSource: "text",
+            indexId: "embeddings",
+            vectorSearchText: "red bicycles",
+            vectorK: "25",
+            vectorKind: "vertex",
+            vectorLabel: "movie",
+          },
+        },
+        version: 0,
+      }),
+    );
+
+    const draft = getInstanceStore("inst-text").getState().queryDraft;
+    expect(draft.mode).toBe("semantic");
+    expect(draft.vectorSearchText).toBe("red bicycles");
+    expect(draft.vectorK).toBe("25");
+    expect(draft.vectorKind).toBe("vertex");
+    expect(draft.vectorLabel).toBe("movie");
+    // The index travels into the semantic mode's own field, which did not exist back then, and
+    // stays where the index mode had it too: reopening must not need a second pick.
+    expect(draft.semanticIndexId).toBe("embeddings");
+    expect(draft.indexId).toBe("embeddings");
+    // The key this build has no meaning for is stripped, not carried along as dead weight.
+    expect("vectorSource" in draft).toBe(false);
+  });
+
+  it("leaves a stale text source alone when that form was not the one on screen", () => {
+    // The operator moved on to a property scan; the leftover source is not a request to
+    // reopen a semantic search on their behalf.
+    window.localStorage.setItem(
+      "f8.workspace.inst-stale",
+      JSON.stringify({
+        state: { queryDraft: { mode: "property", form: "vector", vectorSource: "text" } },
+        version: 0,
+      }),
+    );
+
+    expect(getInstanceStore("inst-stale").getState().queryDraft.mode).toBe("property");
+  });
+
+  it("normalizes a query mode this build does not know", () => {
+    // Hand-edited storage. An unknown mode renders no form at all and leaves Run query wired
+    // to whichever branch falls through, so it is normalized rather than trusted.
+    window.localStorage.setItem(
+      "f8.workspace.inst-bogus",
+      JSON.stringify({
+        state: { queryDraft: { mode: "telepathy", vectorSearchText: "kept" } },
+        version: 0,
+      }),
+    );
+
+    const draft = getInstanceStore("inst-bogus").getState().queryDraft;
+    expect(draft.mode).toBe("property");
+    expect(draft.vectorSearchText).toBe("kept");
+  });
+
   it("merging is idempotent and edge endpoints get stub nodes", () => {
     const a = getInstanceStore("inst-a");
     a.getState().mergeIntoCanvas([vertex(1)], [

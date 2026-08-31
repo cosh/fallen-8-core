@@ -240,12 +240,10 @@ Two more cards round out the gallery:
 
 ### Semantic search
 
-Load **Movie Night**, open **Query**, pick the `embeddings` index, switch to **text
-(provider)**, and search a *concept* rather than keywords. "mind-bending sci-fi about dreams"
-ranks Inception top by cosine similarity: the query text is embedded once server-side, then
-run as exact kNN.
-
-![Semantic search on Movie Night: ten hits ranked by cosine, Inception (vertex 0, its plot in the properties cell) at the top.](../../assets/images/query-semantic-search.png)
+Load **Movie Night**, open **Query**, choose the **semantic search** mode, and search a
+*concept* rather than keywords. The sample ships an `embeddings` index, so it is already
+selected. "mind-bending sci-fi about dreams" ranks Inception top by cosine similarity: the
+query text is embedded once server-side, then run as exact kNN.
 
 The mechanics (element embeddings, bound indices, the model-identity contract) are in
 [semantic traversal](/semantic-traversal/); the kNN scan itself in [vector search](/vector-search/).

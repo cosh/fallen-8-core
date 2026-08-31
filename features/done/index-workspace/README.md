@@ -29,9 +29,11 @@ provider) — see [element-embeddings](../../done/element-embeddings/) and
 
 ## Query screen (`/query`)
 
-Two modes: **property scan** (walks elements, no index) or **ask an index** — pick the
+Three modes: **property scan** (walks elements, no index), **ask an index** — pick the
 index from the live inventory (free-form fallback when none is known) and the query form
-follows its capabilities:
+follows its capabilities — or **semantic search** (feature semantic-search-onramp), which
+takes typed words instead of an index-first pick and is the one home for `POST
+/embedding/search`. The index mode's vector form is bring-your-own-vector only.
 
 | capability | form | endpoint |
 |---|---|---|
@@ -39,7 +41,7 @@ follows its capabilities:
 | range | typed limits + inclusivity | `POST /scan/index/range` |
 | fulltext | query string | `POST /scan/index/fulltext` |
 | spatial | reference element + distance | `POST /scan/index/spatial` |
-| vector | kNN by vector or provider text | `POST /scan/index/vector`, `POST /embedding/search` |
+| vector | kNN by a pasted vector | `POST /scan/index/vector` |
 
 Behaviour pins: `StatusIndexInventoryTest` (server contract),
 `tests/index-management.test.tsx` (Indexes screen), `tests/query-scans.test.tsx` and

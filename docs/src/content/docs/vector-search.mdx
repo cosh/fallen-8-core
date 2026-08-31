@@ -183,8 +183,10 @@ Response, hits are graph element ids with raw scores, best first:
 To query with **text** instead of a vector, `POST /embedding/search` embeds the query once through
 the provider and runs this identical kNN, taking the same `k`/`kind`/`label` and returning the same
 shape (plus a `409` when the index's dimension or declared `model` conflicts with the active
-provider): see [semantic-traversal.md](/semantic-traversal/). F8 Studio's Query screen
-offers both forms ([studio.md](/studio/)).
+provider): see [semantic-traversal.md](/semantic-traversal/). F8 Studio's Query screen offers
+both: a pasted vector under **ask an index**, and typed text under its own **semantic search**
+mode, which also offers to create the bound index when the instance has none
+([studio.md](/studio/)).
 
 ## From hits to graph (GraphRAG)
 
