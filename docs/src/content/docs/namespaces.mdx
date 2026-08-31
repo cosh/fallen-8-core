@@ -18,7 +18,7 @@ A Fallen-8 is a collection of namespaces, and a namespace is one isolated graph 
 
 ## Routing: bare and `/ns/{name}/…`
 
-Every namespace-scoped route has a twin under `/ns/{name}/…`. A bare URL addresses the reserved `default` namespace, so `/vertex/count` and `/ns/default/vertex/count` hit the same engine. Fallen-8-level routes exist once and have no twin: namespace management itself, `PUT /save/all`, `HEAD /tabularasa/all`, the save-game registry (`/savegames/…`), `GET /config`, `POST /chat`, and `POST /delegates/validate`.
+Every namespace-scoped route has a twin under `/ns/{name}/…`. A bare URL addresses the reserved `default` namespace, so `/vertex/count` and `/ns/default/vertex/count` hit the same engine. Fallen-8-level routes exist once and have no twin: namespace management itself, `PUT /save/all`, `HEAD /tabularasa/all`, the save-game registry (`/savegames/…`), `GET /config`, `POST /chat`, `GET /chat/models`, and `POST /delegates/validate`.
 
 Two scoped routes deliberately have **no bare alias**: the [benchmark](/benchmark/) helpers `GET /ns/{name}/generate` and `GET /ns/{name}/benchmark`. Called bare they answer `400` ("Namespace required") naming the scoped form, rather than generating into `default` or reporting `default`'s throughput as the caller's. Everything else keeps the bare alias.
 

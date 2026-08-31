@@ -119,6 +119,7 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
   getConfig: () => endpoints.getConfig(instance),
   writeConfig: () => endpoints.writeConfig(instance, { settings: { "Fallen8:Plugins:MaxCount": "128" } }),
   postChat: () => endpoints.postChat(instance, { messages: [{ role: "user", content: "hi" }] }),
+  getChatModels: () => endpoints.getChatModels(instance),
   getStatistics: () => endpoints.getStatistics(instance),
   saveGraph: () => endpoints.saveGraph(instance),
   saveAllNamespaces: () => endpoints.saveAllNamespaces(instance),

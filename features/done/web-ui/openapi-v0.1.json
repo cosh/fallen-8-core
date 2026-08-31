@@ -855,6 +855,83 @@
         }
       }
     },
+    "/chat/models": {
+      "get": {
+        "tags": [
+          "Chat"
+        ],
+        "summary": "Lists the models the instance's configured chat backend catalogues",
+        "description": "For the RUNNING backend (feature chat-model-catalog), so a client can offer real\r\n    names for the server-owned model instead of a blank field; choosing one is still a\r\n    configuration write (Fallen8:Chat:&lt;Backend&gt;:Model), not a per-request field. A\r\n    pending-restart backend switch is not previewed. The list is not necessarily the whole\r\n    RESOLVABLE set - a backend can resolve a name it does not catalogue - so free-text entry\r\n    stays valid. Capability, availability and class are null wherever the backend does not\r\n    report them; filtering is the client's job.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The running backend and its catalogued models, sorted by name",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatModelsREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "The chat provider is disabled (Fallen8:Chat:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "The sensitive-endpoint rate limit was exceeded",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "The backend is misconfigured or did not answer its catalog in time",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/config": {
       "get": {
         "tags": [
@@ -17956,6 +18033,68 @@
           }
         },
         "description": "One chat turn."
+      },
+      "ChatModelREST": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The name VERBATIM, as the backend spells it (tag included): the value that goes\r\n    back into `Fallen8:Chat:&lt;Backend&gt;:Model`.",
+            "example": "phi4-f8-mini:latest"
+          },
+          "capability": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "`completion`, `embedding`, or null when the backend does not say\r\n    (OpenAI and Anthropic never do, an older Ollama sidecar omits it).",
+            "example": "completion"
+          },
+          "available": {
+            "type": [
+              "null",
+              "boolean"
+            ],
+            "description": "Whether the backend can serve this model right now: Nahil's per-model\r\n    routability, true for a local sidecar's models (they are on disk), null when the backend\r\n    reports nothing on the subject.",
+            "example": true
+          },
+          "class": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Nahil's model class verbatim, null elsewhere. It carries no published legend\r\n    (observed: S1/S2 on completion models, C1/C2 on embedding ones), so treat it as a label\r\n    rather than a contract.",
+            "example": "S1"
+          }
+        },
+        "description": "ONE catalogued model. Everything but the name is optional, because no backend\r\n    publishes all of it."
+      },
+      "ChatModelsREST": {
+        "type": "object",
+        "properties": {
+          "backend": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The RUNNING backend, spelled as the selector spells it (the same value\r\n`ChatResultREST.Backend` carries). A pending-restart backend switch is not\r\npreviewed: until the restart this still answers for the backend a completion would\r\nreach.",
+            "example": "Nahil"
+          },
+          "models": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChatModelREST"
+            },
+            "description": "The catalogued models, sorted ordinally by name. Empty when the backend\r\n    catalogues nothing; never null."
+          }
+        },
+        "description": "What the instance's configured chat backend catalogues (feature chat-model-catalog): the\r\nrunning backend and its model names, so a client can offer real names instead of a blank\r\nfield. It is a NEUTRAL read: every catalogued model is returned with whatever the backend\r\nsaid about it, and filtering (a chat picker hides embedding models) belongs to the client."
       },
       "ChatOptionsSpecification": {
         "type": "object",

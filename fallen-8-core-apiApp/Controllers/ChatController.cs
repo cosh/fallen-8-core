@@ -32,6 +32,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Chat;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
@@ -47,6 +48,12 @@ namespace NoSQL.GraphDB.App.Controllers
     ///   (instance-wide, no <c>/ns/{ns}</c> twin) and gated by the Chat capability (403 when
     ///   <c>Fallen8:Chat:Enabled</c> is off). The model is server-owned; the request carries no model
     ///   field. Message content is never written to spans or logs.
+    ///   <para>
+    ///     It also publishes what that backend CATALOGUES (feature chat-model-catalog), so the
+    ///     Configuration surface can offer real model names for the server-owned model instead of a
+    ///     blank field. That is a read: choosing a model is still a configuration write, never a
+    ///     per-request field. The read itself lives in <see cref="ChatModelCatalog" />.
+    ///   </para>
     /// </summary>
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]
@@ -57,9 +64,15 @@ namespace NoSQL.GraphDB.App.Controllers
     {
         private readonly Fallen8ChatProvider _provider;
 
-        public ChatController(Fallen8ChatProvider provider)
+        /// <summary>The bound options, read for the CATALOG only: it resolves its target through the
+        /// backend factory the way the residency probe does, and the provider exposes no
+        /// Ollama-protocol-independent target to resolve it from.</summary>
+        private readonly Fallen8ChatOptions _options;
+
+        public ChatController(Fallen8ChatProvider provider, IOptions<Fallen8ChatOptions> options)
         {
             _provider = provider;
+            _options = options.Value;
         }
 
         /// <summary>Maps chat provider faults to problem+json: timeout → 504, backend down → 503,
@@ -163,6 +176,56 @@ namespace NoSQL.GraphDB.App.Controllers
                     TokensPerSecond = result.TokensPerSecond
                 }
             });
+        }
+
+        /// <summary>
+        /// Lists the models the instance's configured chat backend catalogues
+        /// </summary>
+        /// <param name="cancellationToken">Aborts the outbound catalog read when the caller goes away</param>
+        /// <remarks>For the RUNNING backend (feature chat-model-catalog), so a client can offer real
+        /// names for the server-owned model instead of a blank field; choosing one is still a
+        /// configuration write (Fallen8:Chat:&lt;Backend&gt;:Model), not a per-request field. A
+        /// pending-restart backend switch is not previewed. The list is not necessarily the whole
+        /// RESOLVABLE set - a backend can resolve a name it does not catalogue - so free-text entry
+        /// stays valid. Capability, availability and class are null wherever the backend does not
+        /// report them; filtering is the client's job.</remarks>
+        /// <response code="200">The running backend and its catalogued models, sorted by name</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">The chat provider is disabled (Fallen8:Chat:Enabled)</response>
+        /// <response code="429">The sensitive-endpoint rate limit was exceeded</response>
+        /// <response code="503">The backend is misconfigured or did not answer its catalog in time</response>
+        [HttpGet("/chat/models")]
+        [EnableRateLimiting(Fallen8SecurityOptions.SensitiveRateLimitPolicy)]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(ChatModelsREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<IActionResult> ChatModels(CancellationToken cancellationToken)
+        {
+            // The same reason the boot warning and the chat 503 give, from the same one home.
+            if (ChatBackendFactory.Validate(_options) is { } problem)
+            {
+                return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                    "Chat provider unavailable", problem);
+            }
+
+            var models = await ChatModelCatalog.ReadAsync(_options, cancellationToken);
+            if (models == null)
+            {
+                // It names the possibilities rather than the actual fault, because the actual fault
+                // arrives as a transport message that can carry the endpoint value or the credential,
+                // and neither may be echoed (the nahil-backend rule).
+                return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                    "Chat provider unavailable", String.Format(
+                        "The chat backend '{0}' returned no usable model catalog: it did not answer"
+                        + " within {1}s, refused the read, or answered something this instance could"
+                        + " not parse.", _provider.Backend, (Int32)ChatModelCatalog.Budget.TotalSeconds));
+            }
+
+            // The selector belongs to the provider, for the reason stated on the completion above.
+            return Ok(ChatModelsREST.From(_provider.Backend, models));
         }
     }
 }

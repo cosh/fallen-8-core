@@ -365,6 +365,7 @@ export function ConfigurationPanel() {
           open={showSettings}
           onClose={() => setShowSettings(false)}
           instanceName={instance.name}
+          instance={instance}
           settings={settings}
           pendingRestart={pendingRestart}
           observability={config.data.observability}
@@ -379,6 +380,11 @@ export function ConfigurationPanel() {
           editable={editable}
           isRowDisabled={isRowDisabled}
           blankNumericKey={blankNumericKey}
+          // The RUNNING chat gateway (feature chat-model-catalog): the same value ChatCard above
+          // renders, and the surface's only switch for the model picker. Two facts live nowhere else
+          // in what the surface is handed - whether chat is on at all, and which backend is actually
+          // serving - so without this the picker can never activate.
+          chat={config.data.semantic?.chat}
         />
       )}
     </section>

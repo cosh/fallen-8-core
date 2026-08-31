@@ -403,6 +403,11 @@ namespace NoSQL.GraphDB.Tests
                 // not-loaded namespace can be activated at all.
                 "/ns/{name}/activate",
                 "/chat",
+                // The chat gateway's catalog read (feature chat-model-catalog) is Fallen8-level for
+                // the same reason /chat is: the model backend is the instance's, not a graph's. Listed
+                // explicitly because this check matches the path STRING, so the [Fallen8Level] on the
+                // controller is invisible to it.
+                "/chat/models",
                 "/config",
             };
 

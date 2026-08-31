@@ -1,9 +1,11 @@
 # Spec: Chat model catalog
 
-**Status: open (specified 2026-08-30, not implemented).** This fires the recorded revisit
+**Status: implemented (specified and built 2026-08-30).** This fires the recorded revisit
 trigger from [instance-config](../../done/instance-config/spec.md) open question 3: "no
 `/api/tags` model picker in v1 (right-sized). Revisit if a picker is wanted." A picker is now
-wanted. This file is the living record; the plan beside it is the sequencing note.
+wanted. This file is the living record; the plan beside it is the sequencing note. As-built
+deviations from the spec as first written are marked inline: the `/api/show` fan-out gained a
+documented width cap of 8 (decision 5), and the screenshot row records why no image is possible.
 
 ## Why
 
@@ -60,7 +62,11 @@ current versions; an older sidecar simply omits it). OpenAI and Anthropic each p
    rule today; the catalog follows it. The budget is a documented constant, not a setting.
 5. **Per-backend sources, one neutral response shape.**
    - **Ollama / Nahil**: `GET /api/tags`, then one concurrent `POST /api/show` per listed model
-     for `capabilities` and `nahil_routable_now`. The connection carries the credential exactly
+     for `capabilities` and `nahil_routable_now`, **at most 8 in flight**. The cap is a documented
+     constant, not a setting: uncapped, a long catalogue dials every model at once on a transport
+     with no per-server connection limit, and a metered backend answering 429 to the tail degrades
+     exactly those entries to "capability unknown", which hands the picker embedding models it
+     cannot recognise as such. The connection carries the credential exactly
      as the probe does (Nahil bearer on every call, never a header to a local sidecar). A failed
      or missing `/api/show` degrades that entry to capability unknown rather than dropping it.
    - **OpenAI**: `GET {endpoint}/v1/models` (bearer). The list includes non-chat models and
@@ -74,17 +80,21 @@ current versions; an older sidecar simply omits it). OpenAI and Anthropic each p
    rule).
 7. **Studio renders the picker as a native combobox (`<input list>` + `<datalist>`).** Free text
    stays first-class (decision: the closed-dropdown trap above), no new CSS primitives (the
-   writable-instance-config 5.1 rule), and only two rows ever get it: the ACTIVE backend's
-   `Fallen8:Chat:<Backend>:Model` row. Embedding model rows never get a picker: every
+   writable-instance-config 5.1 rule), and exactly ONE row ever gets it: the ACTIVE backend's
+   `Fallen8:Chat:<Backend>:Model` row. The Chat section publishes four model rows, one per
+   backend; the three that are not running stay bare. Embedding model rows never get a picker: every
    `Fallen8:Embedding:*:Model` is NotWritable under R3 (the value is the identity stamp beside
    stored vectors), so a picker there would be a button wired to a refusal.
 8. **Studio filters, the route does not.** The route returns every catalogued model with its
    capability; Studio's picker excludes `capability === "embedding"` and keeps unknowns. The
    catalog stays a neutral read (a future informational embedding view can reuse it).
 9. **MCP: conscious deferral, not a bridge.** `GET /chat/models` joins `POST /chat` in
-   `McpRestCoverageTest`'s deferral list with the same reason: agents bring their own model, and
-   the server-owned model is discoverable via `f8_overview`. The OpenAPI snapshot is
-   regenerated (additions only).
+   `McpRestCoverageTest`'s deferral list, but NOT for the same reason: the catalog exists to fill
+   a picker, and an agent needs no dropdown. It is also not short of the capability, because
+   `PATCH /config` is bridged, so `f8_admin get_settings` already reads
+   `Fallen8:Chat:<Backend>:Model` and `set_settings` already writes it. Explicitly not justified
+   by `f8_overview`, which reports `chatEnabled` and `chatBackend` only and does NOT carry the
+   model name. The OpenAPI snapshot is regenerated (additions only).
 10. **No engine change, no NL-assist impact.** This is apiApp + Studio + docs. The NL-assist
     prompt, dataset and custom mode are untouched; no `RETRAIN-LOG.md` entry.
 
@@ -98,9 +108,9 @@ current versions; an older sidecar simply omits it). OpenAI and Anthropic each p
 {
   "backend": "Nahil",
   "models": [
+    { "name": "bge-m3:latest",       "capability": "embedding",  "available": true,  "class": "C2" },
     { "name": "phi4-f8-mini:latest", "capability": "completion", "available": true,  "class": "S1" },
-    { "name": "phi4-f8:latest",      "capability": "completion", "available": true,  "class": "S2" },
-    { "name": "bge-m3:latest",       "capability": "embedding",  "available": true,  "class": "C2" }
+    { "name": "phi4-f8:latest",      "capability": "completion", "available": true,  "class": "S2" }
   ]
 }
 ```
@@ -120,10 +130,13 @@ never the endpoint value).
 
 ### FR-2: Ollama-protocol catalog (Ollama and Nahil)
 
-Tags then show, concurrently per model, both under the single 5 s budget; credential handling is
+Tags then show, concurrently per model and at most 8 in flight (decision 5), both under the single 5 s budget; credential handling is
 the connection's, identical to the residency probe (bearer to Nahil on every call including
 `/api/show`, no Authorization header to a sidecar, ever). A model listed by tags whose show call
-fails is returned with `capability: null, available: null, class: null`.
+fails is returned with `capability: null, available: null, class: null`. A show still QUEUED behind
+the cap when the budget expires degrades the same way: its wait is cancelled, its name survives, and
+the read stays a 200. Letting that cancellation escape would fault the whole fan-out and turn a
+degraded list into a wholesale 503, so it is pinned by its own test.
 
 ### FR-3: Remote catalogs (OpenAI and Anthropic)
 
@@ -140,6 +153,16 @@ once per section visit and only under those conditions (no outbound fan-out from
 configuration). A non-200 catalog answer degrades the row to today's plain input plus a one-line
 caption naming why the list is unavailable; typing is never blocked, and a typed value that is
 not in the list is not an error (it may be `f8-delegate:latest`).
+
+**As built, two additions.** First, the fetch also requires that a search is NOT active, and that
+the row is present as the pane actually RENDERS it (the active filter chip included). A search
+spans every section and matches a key, its rule and its reason, so one incidental character typed
+at another section's keys surfaces the Chat pane, and without this the credentialed fan-out fell
+out of a keystroke; likewise the "not writable" chip leaves the Chat pane showing only rows a rule
+excludes, where the answer had nothing on screen to reach. Second, that gate needs its own caption,
+so a row reached BY SEARCH says where its list comes from rather than silently rendering bare
+(names already fetched in the visit survive a search, and the caption is suppressed while a
+legitimately triggered fetch is still in flight).
 
 ### FR-5: Gates
 
@@ -171,7 +194,7 @@ no new packages expected).
 | MCP (engine to REST to MCP) | New REST operation | Deferral entry with reason (decision 9); snapshot regenerated first |
 | `fallen-8-rest-client` / integrations | Not affected (neither consumes chat) | None |
 | Architecture diagrams | No new channel, layer or deployable | None |
-| Screenshots | `screen-configuration.png` captures the Change feed section, so the picker does not appear in it | No recapture; no new screenshot (the picker is a row-level affordance, described in prose) |
+| Screenshots | Two independent reasons, both verified rather than assumed. **No recapture:** `screen-configuration.png` has the Change feed section selected (the Chat section is only a left-nav entry there), so no existing frame contains the model row. **No new capture is possible either:** decision 7 makes the picker a NATIVE `<input list>` + `<datalist>`, and a native popup is browser chrome rather than page content, so it cannot be photographed. Probed with Playwright on 2026-08-30: with the list opened, the `<option>` elements report `boundingBox: null` and `isVisible: false`, and the captured frame shows only the input and its dropdown affordance. Do NOT trade the native control for a custom dropdown to make it capturable: it would add CSS the writable-instance-config 5.1 rule excludes, add code, and put the free-text guarantee (which the native control gives for free) at risk for a picture. | No recapture and no new image; the prose plus the curl/JSON example on `model-providers.md` are the documentation |
 | NL-assist dataset / eval | Prompt and dataset untouched | No RETRAIN-LOG entry |
 | README "Key features" | Sub-feature of the existing model-providers entry, not a new key feature | No new bullet |
 
