@@ -474,6 +474,8 @@ namespace NoSQL.GraphDB.App.Configuration
                 + "onto the operator's own network."));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Integrations:TimeoutSeconds",
                 Fallen8SettingKind.Int, minimum: 1, maximum: MaxSeconds));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Integrations:JobTimeoutSeconds",
+                Fallen8SettingKind.Int, minimum: 1, maximum: MaxSeconds));
 
             #endregion
 

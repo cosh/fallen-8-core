@@ -57,7 +57,26 @@ namespace NoSQL.GraphDB.App.Configuration
 
         /// <summary>Per-proxied-request timeout. Generous by default because running a job is a
         /// SYNCHRONOUS read of somebody's console followed by graph writes, not a local
-        /// computation, and the caller is waiting on that one call.</summary>
+        /// computation, and the caller is waiting on that one call.
+        ///
+        /// <para>This is the budget for the six SMALL routes only. The job route has its own
+        /// (<see cref="JobTimeoutSeconds" />), because one number cannot serve both: this one also
+        /// bounds the run poll Studio calls repeatedly, where a fifteen-minute budget would let a
+        /// wedged runtime hold a poll for fifteen minutes.</para></summary>
         public Int32 TimeoutSeconds { get; set; } = 120;
+
+        /// <summary>
+        ///   The budget for <c>POST /integrations/job</c> alone, which is the only route whose
+        ///   request carries a body worth measuring.
+        ///
+        ///   <para>Separate from <see cref="TimeoutSeconds" /> because the budget has to cover the
+        ///   UPLOAD, not just the answer: the proxy streams the caller's body through, so the clock
+        ///   runs at the browser's send rate. Measured, 120 seconds needs a sustained 40 Mbit/s to
+        ///   move a maximal 576 MiB job and fails outright at 25; 900 seconds is 5.4 Mbit/s
+        ///   sustained, which is a slow link rather than a broken one.</para>
+        ///
+        ///   <para>Floored at 1 like its sibling: a zero budget would fail every job instantly.</para>
+        /// </summary>
+        public Int32 JobTimeoutSeconds { get; set; } = 900;
     }
 }

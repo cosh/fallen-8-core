@@ -29,6 +29,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Configuration;
@@ -82,6 +83,30 @@ namespace NoSQL.GraphDB.App.Integrations
         }
     }
 
+    /// <summary>
+    ///   The CALLER's request was rejected while it was being forwarded, so the fault is theirs and
+    ///   not the runtime's. Its own type because the alternative was measured and is worse than a
+    ///   wrong status: a body over this route's bound fails mid-copy inside
+    ///   <c>HttpClient.SendAsync</c>, which made it an <c>HttpRequestException</c>, which made it
+    ///   503 "the integrations runtime did not answer" - about a runtime that was serving providers
+    ///   a second earlier. Distinguishing them is the whole point; the status here is the one
+    ///   Kestrel already chose (413 for a body over the bound, 400 otherwise).
+    /// </summary>
+    public sealed class IntegrationsRequestRejectedException : Exception
+    {
+        public IntegrationsRequestRejectedException(Int32 status, String message, Exception inner = null)
+            : base(message, inner)
+        {
+            Status = status;
+        }
+
+        /// <summary>The status Kestrel chose for this fault; the proxy answers with it verbatim.</summary>
+        public Int32 Status
+        {
+            get;
+        }
+    }
+
     /// <summary>The integration runtime behind the fallen-8-integrations sidecar (feature
     /// integrations). One implementation; the seam exists for the proxy's tests.</summary>
     public interface IIntegrationsClient
@@ -104,9 +129,17 @@ namespace NoSQL.GraphDB.App.Integrations
         ///   the parsed document, the UTF-16 string a re-serialisation produces, and the UTF-8 bytes it
         ///   is encoded back into - which is hundreds of megabytes of large-object heap per in-flight
         ///   request, for a hop that is not allowed to look at the body anyway.
+        ///
+        ///   <para>The caller's declared body length is passed through as well (null when they declared
+        ///   none), so the runtime can refuse on the HEADER rather than mid-body: without it the
+        ///   forwarded request has no length and becomes chunked, and the runtime's own bound could
+        ///   only fire once bytes were already moving. A body that fails to read because the CALLER's
+        ///   request was refused throws <see cref="IntegrationsRequestRejectedException" /> rather than
+        ///   <see cref="IntegrationsUnavailableException" />, so their fault is never reported as an
+        ///   unreachable runtime.</para>
         /// </summary>
         Task<SidecarResponse> ForwardStreamAsync(HttpMethod method, String path, Stream body,
-            String contentType, CancellationToken cancellationToken);
+            String contentType, Int64? contentLength, CancellationToken cancellationToken);
 
         Task<Boolean> IsReachableAsync(CancellationToken cancellationToken);
     }
@@ -129,10 +162,49 @@ namespace NoSQL.GraphDB.App.Integrations
                    TimeSpan.FromSeconds(Math.Max(1, Resolve(options).TimeoutSeconds)),
                    logger, "Integrations", handler)
         {
+            _small = TimeSpan.FromSeconds(Math.Max(1, Resolve(options).TimeoutSeconds));
+            _job = TimeSpan.FromSeconds(Math.Max(1, Resolve(options).JobTimeoutSeconds));
+
+            // The two budgets differ, and HttpClient.Timeout is one number for the whole client, so
+            // it is disarmed here and applied per call instead. Safe for the base's cached /health
+            // probe, which already links its own 5 second token rather than relying on this.
+            //
+            // Null when no endpoint is configured, which is the default: the base builds no client at
+            // all then, and every call fails at the Configured check before reaching one.
+            if (Configured)
+            {
+                Http.Timeout = Timeout.InfiniteTimeSpan;
+            }
         }
+
+        private readonly TimeSpan _small;
+        private readonly TimeSpan _job;
 
         private static Fallen8IntegrationsOptions Resolve(IOptions<Fallen8IntegrationsOptions> options)
             => options.Value ?? new Fallen8IntegrationsOptions();
+
+        /// <summary>
+        ///   Was this the CALLER's fault rather than the runtime's? Kestrel raises
+        ///   <see cref="BadHttpRequestException" /> while the caller's body is being read, and because
+        ///   the read happens inside the forward it arrives wrapped. Walking the chain is what keeps a
+        ///   413 from being reported as an unreachable sidecar.
+        /// </summary>
+        private static Boolean IsCallerFault(Exception ex, out Int32 status, out String detail)
+        {
+            for (var walk = ex; walk != null; walk = walk.InnerException)
+            {
+                if (walk is BadHttpRequestException bad)
+                {
+                    status = bad.StatusCode;
+                    detail = bad.Message;
+                    return true;
+                }
+            }
+
+            status = 0;
+            detail = null;
+            return false;
+        }
 
         /// <summary>
         ///   Sends <paramref name="jsonBody" /> to the runtime's <paramref name="path" /> unchanged
@@ -149,39 +221,43 @@ namespace NoSQL.GraphDB.App.Integrations
                     "No integrations endpoint is configured (Fallen8:Integrations:Endpoint).");
             }
 
-            try
+            using (var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                using (var request = new HttpRequestMessage(method, path))
+                budget.CancelAfter(_small);
+                try
                 {
-                    if (jsonBody != null)
+                    using (var request = new HttpRequestMessage(method, path))
                     {
-                        request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-                    }
+                        if (jsonBody != null)
+                        {
+                            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                        }
 
-                    using (var response = await Http.SendAsync(request, cancellationToken))
-                    {
-                        // Read as TEXT, never deserialized: the body belongs to the runtime's contract
-                        // and this hop must not be able to change what it says.
-                        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-                        var contentType = response.Content.Headers.ContentType?.ToString();
-                        return new SidecarResponse((Int32)response.StatusCode, body, contentType);
+                        using (var response = await Http.SendAsync(request, budget.Token))
+                        {
+                            // Read as TEXT, never deserialized: the body belongs to the runtime's contract
+                            // and this hop must not be able to change what it says.
+                            var body = await response.Content.ReadAsStringAsync(budget.Token);
+                            var contentType = response.Content.Headers.ContentType?.ToString();
+                            return new SidecarResponse((Int32)response.StatusCode, body, contentType);
+                        }
                     }
                 }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
-            {
-                throw new IntegrationsUnavailableException(String.Format(
-                    "The integrations runtime did not answer: {0}", ex.Message), ex);
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException)
+                {
+                    throw new IntegrationsUnavailableException(String.Format(
+                        "The integrations runtime did not answer: {0}", ex.Message), ex);
+                }
             }
         }
 
         /// <inheritdoc />
         public async Task<SidecarResponse> ForwardStreamAsync(HttpMethod method, String path, Stream body,
-            String contentType, CancellationToken cancellationToken)
+            String contentType, Int64? contentLength, CancellationToken cancellationToken)
         {
             if (!Configured)
             {
@@ -189,41 +265,62 @@ namespace NoSQL.GraphDB.App.Integrations
                     "No integrations endpoint is configured (Fallen8:Integrations:Endpoint).");
             }
 
-            try
+            using (var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
             {
-                using (var request = new HttpRequestMessage(method, path))
+                budget.CancelAfter(_job);
+                try
                 {
-                    // StreamContent over the caller's own body, so the bytes are copied through in
-                    // chunks and nothing here ever holds the whole job. The content type is the
-                    // caller's verbatim: this hop decides nothing about the body, including how it is
-                    // labelled.
-                    var content = new StreamContent(body);
-                    content.Headers.TryAddWithoutValidation("Content-Type",
-                        String.IsNullOrEmpty(contentType) ? "application/json" : contentType);
-                    request.Content = content;
-
-                    // ResponseHeadersRead so the forwarding does not wait on a body it is about to read
-                    // itself, which for a long-running job run is the difference between streaming and
-                    // sitting on a buffer.
-                    using (var response = await Http.SendAsync(request,
-                        HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                    using (var request = new HttpRequestMessage(method, path))
                     {
-                        // The RESPONSE is still read whole, deliberately: it is a job report, bounded by
-                        // its own diagnostics list, and the proxy has to hand it back as one string.
-                        var answered = await response.Content.ReadAsStringAsync(cancellationToken);
-                        var answeredType = response.Content.Headers.ContentType?.ToString();
-                        return new SidecarResponse((Int32)response.StatusCode, answered, answeredType);
+                        // StreamContent over the caller's own body, so the bytes are copied through in
+                        // chunks and nothing here ever holds the whole job. The content type is the
+                        // caller's verbatim: this hop decides nothing about the body, including how it is
+                        // labelled.
+                        var content = new StreamContent(body);
+                        content.Headers.TryAddWithoutValidation("Content-Type",
+                            String.IsNullOrEmpty(contentType) ? "application/json" : contentType);
+
+                        // Forwarded so the runtime can refuse on the HEADER instead of mid-body, which
+                        // is the same courtesy this proxy now extends to its own caller. Without it
+                        // StreamContent has no length and the hop becomes chunked, so the runtime's own
+                        // bound could only fire once bytes were already moving.
+                        if (contentLength.HasValue)
+                        {
+                            content.Headers.ContentLength = contentLength.Value;
+                        }
+
+                        request.Content = content;
+
+                        // ResponseHeadersRead so the forwarding does not wait on a body it is about to read
+                        // itself, which for a long-running job run is the difference between streaming and
+                        // sitting on a buffer.
+                        using (var response = await Http.SendAsync(request,
+                            HttpCompletionOption.ResponseHeadersRead, budget.Token))
+                        {
+                            // The RESPONSE is still read whole, deliberately: it is a job report, bounded by
+                            // its own diagnostics list, and the proxy has to hand it back as one string.
+                            var answered = await response.Content.ReadAsStringAsync(budget.Token);
+                            var answeredType = response.Content.Headers.ContentType?.ToString();
+                            return new SidecarResponse((Int32)response.StatusCode, answered, answeredType);
+                        }
                     }
                 }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException)
-            {
-                throw new IntegrationsUnavailableException(String.Format(
-                    "The integrations runtime did not answer: {0}", ex.Message), ex);
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException)
+                {
+                    // The caller's own body failing to read is checked FIRST, or a 413 arrives as a
+                    // report that a healthy runtime is unreachable.
+                    if (IsCallerFault(ex, out var status, out var detail))
+                    {
+                        throw new IntegrationsRequestRejectedException(status, detail, ex);
+                    }
+
+                    throw new IntegrationsUnavailableException(String.Format(
+                        "The integrations runtime did not answer: {0}", ex.Message), ex);
+                }
             }
         }
     }

@@ -26,19 +26,25 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.App.Controllers;
+using NoSQL.GraphDB.App.Integrations;
 using NoSQL.GraphDB.Integrations.Conformance;
 using NoSQL.GraphDB.Integrations.Configuration;
 
@@ -1319,6 +1325,159 @@ namespace NoSQL.GraphDB.Tests
             ProxyProvidersRoute, ProxyVocabularyRoute, ProxyValidateRoute, ProxyJobRoute,
             ProxyRunsRoute, ProxyRunRoute, ProxyCancelRoute,
         };
+
+        #region the job route refuses an oversized body itself, instead of blaming the runtime
+
+        /// <summary>The bound on <c>POST /integrations/job</c>, mirrored from the controller's own private
+        /// const so a change there fails a test instead of quietly moving what a caller may send.</summary>
+        private const Int64 ProxyJobTransportLimit = 805_306_368;
+
+        /// <summary>
+        ///   A body whose DECLARED length is over the bound is refused here, with a 413, and the endpoint
+        ///   points at a CLOSED port while it happens. That is what makes this a real assertion rather than
+        ///   a restatement: nothing could have been forwarded, so a 413 can only have come from the header
+        ///   check, and the 503 this used to answer was measured against a runtime that was serving
+        ///   providers a second earlier (feature integration-file-transport, findings.md).
+        ///
+        ///   <para>The length is declared rather than sent. A test that really uploaded 768 MiB would
+        ///   measure the machine, not the contract, and the contract is precisely that no upload happens.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task AJobBodyOverTheTransportBound_Answers413AndNeverBlamesTheRuntime()
+        {
+            using var factory = new ProxyFactory(enabled: "true", endpoint: "http://127.0.0.1:1");
+            using var client = factory.CreateClient();
+
+            using var content = new StringContent("{}", Encoding.UTF8, "application/json");
+            content.Headers.ContentLength = ProxyJobTransportLimit + 1;
+
+            using var answer = await client.PostAsync(ProxyJobRoute, content);
+            var body = await ReadText(answer);
+
+            Assert.AreEqual(HttpStatusCode.RequestEntityTooLarge, answer.StatusCode,
+                "an oversized job body did not answer 413. If this is a 503, the refusal has gone back to " +
+                "happening while the body is FORWARDED, which reports the caller's own request as a " +
+                "runtime that did not answer and sends them to inspect a healthy sidecar: " + body);
+            Assert.IsFalse(body.Contains("Integration runtime unavailable", StringComparison.Ordinal),
+                "the 413 body still accuses the runtime, which was never contacted: " + body);
+            StringAssert.Contains(body, ProxyJobTransportLimit.ToString(CultureInfo.InvariantCulture),
+                "the refusal does not name the bound it broke, so the caller cannot tell how much to cut: " + body);
+        }
+
+        /// <summary>
+        ///   No Content-Length, no judgement: a chunked body cannot be measured before it is read, and one
+        ///   over the bound cannot be refused with a status that reliably reaches the caller at all. So it
+        ///   is refused up front instead, which is the contract narrowing this feature took deliberately.
+        ///
+        ///   <para>Asserted on the ACTION rather than over HTTP because the in-memory test transport
+        ///   always supplies a length, so it cannot express a chunked request at all. Testing the branch
+        ///   directly also buys a stronger claim than a status: the client is one that fails the test if
+        ///   it is called, which proves nothing was forwarded. The wire behaviour is verified live with
+        ///   curl and recorded in the feature's findings.md.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task AJobBodyWithNoDeclaredLength_Answers411AndForwardsNothing()
+        {
+            var never = new NeverForwardsClient();
+            var controller = new IntegrationsController(never)
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            // DefaultHttpContext declares no Content-Length, which is exactly the chunked case.
+            var result = await controller.Job(wait: null, CancellationToken.None) as ObjectResult;
+
+            Assert.IsNotNull(result, "the 411 branch did not produce a problem result");
+            Assert.AreEqual(StatusCodes.Status411LengthRequired, result.StatusCode,
+                "a body with no declared length was not refused with 411, so an oversized one is judged " +
+                "mid-upload again and its refusal may never reach the caller");
+            StringAssert.Contains(((ProblemDetails)result.Value).Detail, "Content-Length",
+                "the 411 does not say what is missing, which is the one thing a caller can act on");
+            Assert.IsFalse(never.WasCalled,
+                "the runtime was contacted for a request this proxy had already decided to refuse");
+        }
+
+        /// <summary>
+        ///   The same claim for the oversized case, at the same level: refused without the runtime being
+        ///   asked. The HTTP test above proves the status travels; this one proves no forward happened,
+        ///   which is the property that makes the refusal cheap enough to be worth having.
+        /// </summary>
+        [TestMethod]
+        public async Task AnOversizedJobBody_IsRefusedWithoutContactingTheRuntime()
+        {
+            var never = new NeverForwardsClient();
+            var context = new DefaultHttpContext();
+            context.Request.ContentLength = ProxyJobTransportLimit + 1;
+            var controller = new IntegrationsController(never)
+            {
+                ControllerContext = new ControllerContext { HttpContext = context }
+            };
+
+            var result = await controller.Job(wait: null, CancellationToken.None) as ObjectResult;
+
+            Assert.IsNotNull(result, "the 413 branch did not produce a problem result");
+            Assert.AreEqual(StatusCodes.Status413PayloadTooLarge, result.StatusCode,
+                "an oversized declared length was not refused with 413");
+            Assert.IsFalse(never.WasCalled,
+                "the runtime was contacted for an oversized body, which is how a caller's own request " +
+                "came to be reported as a runtime that did not answer");
+        }
+
+        /// <summary>A client that fails the test if the proxy forwards anything to it.</summary>
+        private sealed class NeverForwardsClient : IIntegrationsClient
+        {
+            internal Boolean WasCalled
+            {
+                get; private set;
+            }
+
+            public Boolean Configured => true;
+
+            public Task<SidecarResponse> ForwardAsync(HttpMethod method, String path, String jsonBody,
+                CancellationToken cancellationToken)
+            {
+                WasCalled = true;
+                return Task.FromResult(new SidecarResponse(200, "{}", "application/json"));
+            }
+
+            public Task<SidecarResponse> ForwardStreamAsync(HttpMethod method, String path, Stream body,
+                String contentType, Int64? contentLength, CancellationToken cancellationToken)
+            {
+                WasCalled = true;
+                return Task.FromResult(new SidecarResponse(200, "{}", "application/json"));
+            }
+
+            public Task<Boolean> IsReachableAsync(CancellationToken cancellationToken)
+            {
+                return Task.FromResult(true);
+            }
+        }
+
+        /// <summary>
+        ///   The pre-check must not swallow a legal job. A body inside the bound still reaches the forward,
+        ///   which against a closed port is the honest 503 - and that 503 naming a connection is what
+        ///   distinguishes "your request was too big" from "the runtime is not there", the two answers this
+        ///   route used to give in the same words.
+        /// </summary>
+        [TestMethod]
+        public async Task ALegalJobBody_StillReachesTheForwardAndFailsAsAnAbsentRuntime()
+        {
+            using var factory = new ProxyFactory(enabled: "true", endpoint: "http://127.0.0.1:1");
+            using var client = factory.CreateClient();
+
+            using var answer = await client.PostAsync(ProxyJobRoute,
+                Json(JobBody(CsvProviderId, "legal-body", null)));
+            var body = await ReadText(answer);
+
+            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, answer.StatusCode,
+                "a legal job body no longer reaches the runtime, so the size pre-check is refusing " +
+                "requests it was never meant to see: " + body);
+            StringAssert.Contains(body, "Integration runtime unavailable",
+                "an absent runtime stopped saying so, which is the half of this distinction that was " +
+                "already correct: " + body);
+        }
+
+        #endregion
 
         /// <summary>
         /// Off is the default, and that 403 IS the opt-out a client gates the feature on. The caller is
