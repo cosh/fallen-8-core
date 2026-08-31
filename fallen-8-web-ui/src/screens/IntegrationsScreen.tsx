@@ -46,7 +46,7 @@ import { FileDropzone } from "../components/FileDropzone";
 import { ListCapNote } from "../components/ListCapNote";
 import { Truncated } from "../components/Truncated";
 import { formatBytes } from "../lib/format";
-import { checkStaging, describeLimits, LIMITS_UNKNOWN_NOTE } from "../lib/fileLimits";
+import { checkStaging, describeLimits } from "../lib/fileLimits";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { capList, SCROLL_ROWS, scrollRows } from "../lib/listCaps";
 import { RUN_PHASES } from "../api/types";
@@ -100,9 +100,11 @@ export function IntegrationsScreen() {
   // body before the answer is read, so it costs the whole upload first (see the feature's
   // findings.md). Unknown is a real state - an older instance, or the capability off - and it means
   // check NOTHING: a fallback number here is the bug this feature exists to remove.
-  const limitsQuery = useIntegrationLimits(instance);
-  const limits = limitsQuery.data ?? undefined;
-  const limitsUnknown = limitsQuery.isError || (limitsQuery.isSuccess && !limitsQuery.data);
+  // ONE value, read by both the checks and the copy. A second derived "is it unknown" flag was wrong
+  // in the state that matters least often and confuses most: a failed REFETCH over retained data
+  // leaves the query in error while the numbers it already answered with are still there, so the copy
+  // said nothing was being checked while checkStaging was still checking against them.
+  const limits = useIntegrationLimits(instance).data ?? undefined;
 
   const catalog = useMemo(() => providers.data ?? [], [providers.data]);
   const selected = catalog.find((provider) => provider.id === selectedId) ?? null;
@@ -136,26 +138,37 @@ export function IntegrationsScreen() {
   // the cancel button would abort nothing), while the bytes have to re-render a progress bar.
   const [sent, setSent] = useState<UploadProgress | null>(null);
   const uploadRef = useRef<AbortController | null>(null);
+  // Whether the request still has bytes to go out. Only knowable when the browser told us a total;
+  // with an unknown total the honest answer is "not knowably outstanding", which is why the strong
+  // "nothing was sent" claim is withheld in that case rather than guessed at.
+  const bytesOutstanding = sent !== null && sent.total !== null && sent.sent < sent.total;
+  const fullySent = sent !== null && sent.total !== null && sent.sent >= sent.total;
 
+  // The job and the identity are CAPTURED AT THE CLICK and travel as the mutation's variables, never
+  // read again from the render closure. react-query keeps the latest render's callbacks, so an
+  // onSuccess reading `instanceId` would arm the watch on whatever the field says when the upload
+  // ENDS - and an upload here runs for minutes. Editing the field mid-send then left the run
+  // untrackable: watched under a name no run exists for, so the run panel never rendered, so the stop
+  // button inside it never rendered either, while a re-submit was refused 409 by the run gate. A
+  // multi-hour run, invisible and unstoppable, from one keystroke.
   const submit = useMutation({
-    mutationFn: () => {
+    mutationFn: (submitted: { job: IntegrationJobRequest; identity: string }) => {
       const controller = new AbortController();
       uploadRef.current = controller;
       setSent({ sent: 0, total: null });
-      return submitIntegrationJob(
-        instance,
-        buildJob(selected!, namespace, instanceId, values, files, embedRequested, embeddingName),
-        { signal: controller.signal, onProgress: setSent },
-      );
+      return submitIntegrationJob(instance, submitted.job, {
+        signal: controller.signal,
+        onProgress: setSent,
+      });
     },
     onSettled: () => {
       uploadRef.current = null;
       setSent(null);
     },
-    onSuccess: (accepted) => {
+    onSuccess: (accepted, submitted) => {
       // The answer is a run id, not a report. The identity is what survives a reload, because it is what
       // the runtime keys its slot by; the run id is what tells this run apart from the identity's last.
-      setWatching(instanceId.trim().toLowerCase());
+      setWatching(submitted.identity);
       setExpectedRunId(accepted?.runId ?? null);
       submitStartedRef.current = true;
       // The job has reported, so a secret typed into this form has done its work: drop it. Only on
@@ -389,10 +402,15 @@ export function IntegrationsScreen() {
           <div className="space-y-3 p-3">
             <label className="block">
               <span className="label">integration instance id</span>
+              {/* Frozen while the job is going out. The job already carries the identity captured at
+                  the click, so an edit here could not change the run - it could only make the field
+                  disagree with the run in progress, which is a reading nobody should have to reconcile
+                  on the one field that decides what gets withdrawn. */}
               <input
                 className="input"
                 value={instanceId}
                 data-testid="integration-instance-id"
+                disabled={submit.isPending}
                 onChange={(event) => setInstanceId(event.target.value)}
                 placeholder="office-inventory"
               />
@@ -417,7 +435,7 @@ export function IntegrationsScreen() {
                 onChange={(next) => setValues((current) => ({ ...current, [setting.key]: next }))}
                 files={files[setting.key] ?? []}
                 problem={fileProblems[setting.key]}
-                ceilings={limitsUnknown ? LIMITS_UNKNOWN_NOTE : describeLimits(limits)}
+                ceilings={describeLimits(limits)}
                 onFiles={(picked) => void stage(setting, picked)}
                 onRemoveFile={(index) => {
                   setFiles((current) => {
@@ -508,11 +526,31 @@ export function IntegrationsScreen() {
                 className="btn btn-accent"
                 data-testid="integration-run"
                 disabled={!canSubmit || submit.isPending}
-                onClick={() => submit.mutate()}
+                onClick={() =>
+                  submit.mutate({
+                    job: buildJob(
+                      selected!,
+                      namespace,
+                      instanceId,
+                      values,
+                      files,
+                      embedRequested,
+                      embeddingName,
+                    ),
+                    // Folded the way the runtime folds it, so the watch and the run agree on the
+                    // identity even if the field is edited while the body is still going out.
+                    identity: instanceId.trim().toLowerCase(),
+                  })
+                }
               >
                 {sendLabel(submit.isPending, sent)}
               </button>
-              {submit.isPending && (
+              {/* Offered only while bytes are still OUTSTANDING. Once the body is fully sent the
+                  runtime may already have accepted the job and started the run, and the run
+                  deliberately does not die with its caller, so aborting the request from here would
+                  stop nothing while looking like it stopped everything. From that point the run's own
+                  panel is what stops it. */}
+              {submit.isPending && !fullySent && (
                 <button
                   type="button"
                   className="btn"
@@ -543,7 +581,14 @@ export function IntegrationsScreen() {
                   {sent.total !== null && sent.total > 0
                     ? `sending ${formatBytes(sent.sent)} of ${formatBytes(sent.total)}`
                     : `sending ${formatBytes(sent.sent)}`}
-                  . Cancelling now sends nothing and starts nothing.
+                  .{" "}
+                  {/* The strong claim is made ONLY while bytes are outstanding, because only then is
+                      it true. Once everything is sent the runtime may already have started the run,
+                      and a run outlives the request that began it. */}
+                  {bytesOutstanding
+                    ? "Cancelling now sends nothing and starts nothing."
+                    : "Everything has been sent and the runtime is deciding. If it starts the run, " +
+                      "it is stopped from the run panel below rather than from here."}
                 </p>
               </div>
             )}

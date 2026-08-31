@@ -700,6 +700,43 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   AN ABSURDLY LARGE CEILING IS STILL NO CEILING, not a broken one.
+        ///
+        ///   <para>The reader looks one byte past the ceiling to know it was broken, and computing that as
+        ///   <c>ceiling + 1</c> overflows for <c>Int64.MaxValue</c> - which is how somebody spells "no
+        ///   limit" before they read that zero means that here. The limit went NEGATIVE, the read loop ran
+        ///   zero times, the part arrived with no bytes, and the job was refused as an EMPTY file: a
+        ///   refusal that is factually wrong about the caller's file, produced by a configuration that was
+        ///   trying to switch the ceiling off. Found by review, not by a failing test, which is why it now
+        ///   has one.</para>
+        /// </summary>
+        [TestMethod]
+        [DataRow(Int64.MaxValue, DisplayName = "Int64.MaxValue")]
+        [DataRow(Int64.MaxValue - 1, DisplayName = "one below Int64.MaxValue")]
+        public async Task AnAbsurdlyLargeCeilingStillReadsTheFile(Int64 ceiling)
+        {
+            var content = Encoding.UTF8.GetBytes("mac,name\n44:D2:44:AA:BB:CC,Reception AP\n");
+
+            var read = await Read(Multipart(
+                    (ValuePart("job"), Encoding.UTF8.GetBytes(JobDocument(CsvProviderId, "office"))),
+                    (FilePart("files[file]", "devices.csv"), content)),
+                maxFileBytes: ceiling);
+
+            Assert.IsNotNull(read.Job, read.Failure);
+            var file = read.Job!.Files["file"].Files[0];
+            Assert.IsFalse(file.Truncated,
+                "a file well under the ceiling was marked truncated, so the ceiling arithmetic wrapped");
+            CollectionAssert.AreEqual(content, file.Content,
+                "the file arrived with " + (file.Content?.Length ?? -1) + " bytes instead of " +
+                content.Length + ": the read limit overflowed, so a legitimate file is refused as empty " +
+                "on any instance whose ceiling is set to a very large number");
+
+            Assert.IsTrue(read.Job.TryNormalize(out var normalized, out var failure, maxFileBytes: ceiling),
+                failure);
+            CollectionAssert.AreEqual(content, normalized!.Files["file"].First.Content);
+        }
+
+        /// <summary>
         ///   A file spanning several read segments arrives whole. One segment is 1 MiB, so nothing smaller
         ///   would ever exercise the join, and a bug there would corrupt every real extract while every
         ///   small fixture passed.
@@ -840,6 +877,151 @@ namespace NoSQL.GraphDB.Tests
             var read = await JobRequestReader.ReadAsync(context.Request, 0, 0, CancellationToken.None);
 
             Assert.IsNotNull(read.Job, read.Failure);
+        }
+
+        #endregion
+
+        #region a body this route cannot parse is the caller's 400, not a 500
+
+        /// <summary>
+        ///   A MALFORMED FORM IS A 400 NAMING THE FRAMING FAULT.
+        ///
+        ///   <para>The framework signals a body it cannot parse by throwing, and unhandled those left this
+        ///   route answering an empty, Content-Type-less 500 that appears in neither its
+        ///   <c>[ProducesResponseType]</c> set nor the OpenAPI snapshot - while every other mistake on the
+        ///   same route gets a precise 400. That is this feature's founding complaint reappearing on the
+        ///   arm it added: a fault in the caller's body reported as a fault in the runtime.</para>
+        ///
+        ///   <para>All four inputs here were reproduced against a hosted runtime on a real socket during
+        ///   review, each answering <c>500</c> with a zero-length body before the guard existed.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task AFormThatEndsEarlyIsRefusedAsAnIncompleteForm()
+        {
+            // A well-formed first part and no closing delimiter: an interrupted upload, or a proxy that
+            // truncated it, or a client that forgot the terminator.
+            var whole = Multipart(
+                (ValuePart("job"), Encoding.UTF8.GetBytes(JobDocument(CsvProviderId, "office"))),
+                (FilePart("files[file]", "devices.csv"), Encoding.UTF8.GetBytes("mac\n")));
+            var cut = new Byte[whole.Length - 30];
+            Array.Copy(whole, cut, cut.Length);
+
+            var read = await Read(cut);
+
+            Assert.IsNull(read.Job, "a form that ended early was read as a complete job");
+            Assert.AreEqual(StatusCodes.Status400BadRequest, read.Status,
+                "an interrupted upload answered something other than 400, and a 500 here is the runtime " +
+                "taking blame for the caller's body: " + read.Failure);
+            StringAssert.Contains(read.Failure, "ended before it was complete", read.Failure);
+            StringAssert.Contains(read.Failure, "Nothing was run", read.Failure);
+        }
+
+        /// <summary>
+        ///   An empty body with a multipart content type. The cheapest possible reproducer, and the one a
+        ///   script produces by forgetting to attach anything at all.
+        /// </summary>
+        [TestMethod]
+        public async Task AnEmptyBodyWithAMultipartContentTypeIsRefusedRatherThanThrowing()
+        {
+            var read = await Read(Array.Empty<Byte>());
+
+            Assert.IsNull(read.Job);
+            Assert.AreEqual(StatusCodes.Status400BadRequest, read.Status, read.Failure);
+        }
+
+        /// <summary>
+        ///   A boundary that does not appear in the body at all: the header says one delimiter and the body
+        ///   uses another, so nothing can be found and the read runs off the end.
+        /// </summary>
+        [TestMethod]
+        public async Task ABoundaryThatDoesNotMatchTheBodyIsRefused()
+        {
+            var body = Multipart(
+                (ValuePart("job"), Encoding.UTF8.GetBytes(JobDocument(CsvProviderId, "office"))));
+
+            var context = new DefaultHttpContext();
+            context.Request.ContentType = "multipart/form-data; boundary=----a-different-boundary";
+            context.Request.Body = new MemoryStream(body);
+            context.Request.ContentLength = body.Length;
+
+            var read = await JobRequestReader.ReadAsync(context.Request, 0, 0, CancellationToken.None);
+
+            Assert.IsNull(read.Job);
+            Assert.AreEqual(StatusCodes.Status400BadRequest, read.Status, read.Failure);
+        }
+
+        /// <summary>
+        ///   Too many headers on one part. The framework caps this at 16 and throws; a caller gets told the
+        ///   form is unparseable rather than getting a bare 500.
+        /// </summary>
+        [TestMethod]
+        public async Task APartWithAnAbsurdNumberOfHeadersIsRefused()
+        {
+            var crlf = new String(new[] { (Char)13, (Char)10 });
+            var buffer = new MemoryStream();
+            var header = new StringBuilder();
+            header.Append("--").Append(Boundary).Append(crlf);
+            header.Append("Content-Disposition: ").Append(ValuePart("job")).Append(crlf);
+            for (var i = 0; i < 40; i++)
+            {
+                header.Append("X-Padding-").Append(i).Append(": x").Append(crlf);
+            }
+
+            header.Append(crlf).Append(JobDocument(CsvProviderId, "office")).Append(crlf);
+            header.Append("--").Append(Boundary).Append("--").Append(crlf);
+            var bytes = Encoding.UTF8.GetBytes(header.ToString());
+            buffer.Write(bytes, 0, bytes.Length);
+
+            var read = await Read(buffer.ToArray());
+
+            Assert.IsNull(read.Job);
+            Assert.AreEqual(StatusCodes.Status400BadRequest, read.Status, read.Failure);
+            StringAssert.Contains(read.Failure, "could not be read", read.Failure);
+        }
+
+        /// <summary>
+        ///   A boundary longer than the reader can match is refused by a BOUND rather than by an exception,
+        ///   which is why the length is checked instead of the throw being caught: a checked bound can say
+        ///   what the limit is, and RFC 2046 caps a boundary at 70 characters anyway.
+        /// </summary>
+        [TestMethod]
+        public async Task AnAbsurdlyLongBoundaryIsRefusedByItsOwnBound()
+        {
+            var context = new DefaultHttpContext();
+            context.Request.ContentType = "multipart/form-data; boundary=" + new String('b', 5000);
+            context.Request.Body = new MemoryStream(Array.Empty<Byte>());
+            context.Request.ContentLength = 0;
+
+            var read = await JobRequestReader.ReadAsync(context.Request, 0, 0, CancellationToken.None);
+
+            Assert.IsNull(read.Job);
+            Assert.AreEqual(StatusCodes.Status400BadRequest, read.Status, read.Failure);
+            StringAssert.Contains(read.Failure, "5000 characters", read.Failure);
+            StringAssert.Contains(read.Failure, "at most 70", read.Failure);
+        }
+
+        /// <summary>
+        ///   Cancellation is NOT swallowed by the framing guard. A cancelled read has to stay cancelled, or
+        ///   a caller who walked away is answered 400 "your form is malformed" about a form that was fine.
+        /// </summary>
+        [TestMethod]
+        public async Task ACancelledReadStaysCancelledRatherThanBecomingAMalformedForm()
+        {
+            var body = Multipart(
+                (ValuePart("job"), Encoding.UTF8.GetBytes(JobDocument(CsvProviderId, "office"))),
+                (FilePart("files[file]", "devices.csv"), Encoding.UTF8.GetBytes("mac\n")));
+
+            var context = new DefaultHttpContext();
+            context.Request.ContentType = "multipart/form-data; boundary=" + Boundary;
+            context.Request.Body = new MemoryStream(body);
+            context.Request.ContentLength = body.Length;
+
+            using var cancelled = new CancellationTokenSource();
+            cancelled.Cancel();
+
+            await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+                () => JobRequestReader.ReadAsync(context.Request, 0, 0, cancelled.Token),
+                "a cancelled read was turned into a refusal about the caller's form");
         }
 
         #endregion

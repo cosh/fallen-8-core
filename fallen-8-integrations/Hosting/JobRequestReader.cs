@@ -82,6 +82,15 @@ namespace NoSQL.GraphDB.Integrations.Hosting
         /// </summary>
         private const Int32 SegmentBytes = 1_048_576;
 
+        /// <summary>
+        ///   The longest boundary this route reads. RFC 2046 caps a boundary at 70 characters, and every
+        ///   client sends far less; the reason it is enforced rather than trusted is that
+        ///   <see cref="MultipartReader" /> needs its buffer to exceed the boundary, so a longer one threw
+        ///   out of the reader and surfaced as an empty 500. Checked here, so the answer is a 400 that says
+        ///   what was wrong.
+        /// </summary>
+        private const Int32 MaxBoundaryLength = 70;
+
         /// <summary>The web defaults, which is what the minimal-API body binding this replaced used.</summary>
         private static readonly JsonSerializerOptions JobJson =
             new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -111,7 +120,15 @@ namespace NoSQL.GraphDB.Integrations.Hosting
 
             if (TryGetMultipartBoundary(request.ContentType, out var boundary))
             {
-                return await ReadMultipartAsync(request, boundary!, maxFileBytes, maxJobFiles,
+                if (boundary!.Length > MaxBoundaryLength)
+                {
+                    return JobRequest.Rejected(String.Format(CultureInfo.InvariantCulture,
+                        "The multipart boundary is {0} characters; at most {1} are read. A boundary is a " +
+                        "delimiter rather than data, and one this long cannot be matched against the " +
+                        "buffer the parts are read through.", boundary.Length, MaxBoundaryLength));
+                }
+
+                return await ReadMultipartAsync(request, boundary, maxFileBytes, maxJobFiles,
                     cancellationToken).ConfigureAwait(false);
             }
 
@@ -153,6 +170,43 @@ namespace NoSQL.GraphDB.Integrations.Hosting
         ///   snapshot withdraws what it does not mention.</para>
         /// </summary>
         private static async Task<JobRequest> ReadMultipartAsync(HttpRequest request, String boundary,
+            Int64 maxFileBytes, Int32 maxJobFiles, CancellationToken cancellationToken)
+        {
+            // THE FRAMING GUARD. Everything below reads a body the caller controls, and the framework
+            // signals a body it cannot parse by THROWING: InvalidDataException for too many part headers
+            // or an unreadable header line, IOException for a body that ends early - a dropped link, a
+            // truncating proxy, a hand-written client that forgets the closing delimiter, or simply
+            // Content-Length: 0 with a multipart content type.
+            //
+            // Unhandled, those left this route answering an empty, Content-Type-less 500 that is in
+            // neither its [ProducesResponseType] set nor the OpenAPI snapshot, while every other mistake
+            // on this route gets a precise 400. That is this feature's own founding complaint reappearing
+            // on the arm it added: a fault in the caller's body reported as a fault in the runtime.
+            //
+            // Deliberately NARROW. OperationCanceledException is not caught, so a cancelled request stays
+            // cancelled; and no catch-all is used, so a defect in the reading below still surfaces as a
+            // 500 rather than being mislabelled as somebody else's malformed form.
+            try
+            {
+                return await ReadPartsAsync(request, boundary, maxFileBytes, maxJobFiles, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+            catch (InvalidDataException ex)
+            {
+                return JobRequest.Rejected(String.Format(CultureInfo.InvariantCulture,
+                    "The multipart form could not be read: {0} A job form carries a 'job' part and then " +
+                    "one part per file; this body is not one this route can parse.", ex.Message));
+            }
+            catch (IOException)
+            {
+                return JobRequest.Rejected(
+                    "The multipart form ended before it was complete, so what the job carries cannot be " +
+                    "known. Nothing was run. A body that stops early is usually an interrupted upload or " +
+                    "a missing closing boundary; send the whole form again.");
+            }
+        }
+
+        private static async Task<JobRequest> ReadPartsAsync(HttpRequest request, String boundary,
             Int64 maxFileBytes, Int32 maxJobFiles, CancellationToken cancellationToken)
         {
             var reader = new MultipartReader(boundary, request.Body);
@@ -441,7 +495,12 @@ namespace NoSQL.GraphDB.Integrations.Hosting
         private static async Task<PartContent> ReadPartAsync(Stream body, Int64 ceiling,
             CancellationToken cancellationToken)
         {
-            var limit = ceiling > 0 ? ceiling + 1 : Int64.MaxValue;
+            // SATURATING, not `ceiling + 1`. A ceiling of Int64.MaxValue - which is how somebody spells
+            // "no limit" before they read that zero means that here - overflows to a NEGATIVE limit, the
+            // read loop below never runs once, and the part arrives with zero bytes. The job is then
+            // refused as an EMPTY file: a message that is factually wrong about the caller's file, for a
+            // configuration that was trying to switch the ceiling off.
+            var limit = ceiling > 0 && ceiling < Int64.MaxValue ? ceiling + 1 : Int64.MaxValue;
             var segments = new List<ArraySegment<Byte>>();
             var total = 0L;
             var eof = false;

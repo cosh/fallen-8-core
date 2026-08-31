@@ -1517,6 +1517,121 @@ describe("sending a job is visible while it happens", () => {
     expect(screen.queryByTestId("integration-send-progress")).toBeNull();
   });
 
+  /**
+   * THE IDENTITY TRAVELS WITH THE JOB, as a mutation variable, rather than being read again when the
+   * upload ends.
+   *
+   * react-query keeps the latest render's callbacks, so an `onSuccess` reading the field armed the
+   * watch on whatever it said minutes later. Editing it mid-send left the run watched under a name no
+   * run exists for: the run panel never rendered, so the stop button inside it never rendered either,
+   * and a re-submit was refused 409 by the run gate. A multi-hour run, invisible and unstoppable.
+   *
+   * Honest about what each half pins: the test BELOW (the field is frozen while sending) is the guard
+   * that makes the edit unreachable, and it fails if the `disabled` is removed. This one pins the
+   * plumbing - it fails if the identity stops travelling with the job - so the class of bug stays
+   * closed even if the freeze is ever relaxed.
+   */
+  it("watches the identity the job was sent under, not whatever the field says later", async () => {
+    let release: (value: IntegrationRunAccepted | null) => void = () => {};
+    submitJobMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    // The job that went out carries the identity as it was at the click.
+    expect(submitJobMock.mock.calls[0][1].integrationInstanceId).toBe("vehicle-network");
+
+    await act(async () => {
+      release(accepted());
+    });
+
+    await waitFor(() => expect(getRunMock).toHaveBeenCalled());
+    expect(getRunMock.mock.calls[0][1]).toBe("vehicle-network");
+  });
+
+  it("freezes the identity field while the job is going out", async () => {
+    submitJobMock.mockImplementation(() => new Promise(() => {}));
+
+    await stageOne();
+    expect(screen.getByTestId("integration-instance-id")).toBeEnabled();
+
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    // Not cosmetic: the job already carries the captured identity, so an edit could only make the
+    // field disagree with the run in progress, on the one field that decides what gets withdrawn.
+    expect(screen.getByTestId("integration-instance-id")).toBeDisabled();
+  });
+
+  /**
+   * THE CANCEL STOPS BEING OFFERED once the body is fully sent, and the copy stops claiming that
+   * nothing was started.
+   *
+   * The runtime may already have accepted the job by then, and a run deliberately does not die with
+   * its caller (`ExecuteAsync` passes `CancellationToken.None`), so aborting the request from here
+   * would stop nothing while looking like it stopped everything.
+   */
+  it("withdraws the cancel once everything has been sent, and says why", async () => {
+    let report: SendOptions["onProgress"];
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      report = options?.onProgress;
+      return new Promise(() => {});
+    });
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      report!({ sent: 400, total: 1000 });
+    });
+    expect(screen.getByTestId("integration-send-cancel")).toBeInTheDocument();
+    expect(screen.getByTestId("integration-send-progress")).toHaveTextContent(
+      "Cancelling now sends nothing and starts nothing",
+    );
+
+    await act(async () => {
+      report!({ sent: 1000, total: 1000 });
+    });
+
+    expect(screen.queryByTestId("integration-send-cancel")).toBeNull();
+    expect(screen.getByTestId("integration-send-progress")).toHaveTextContent(
+      "stopped from the run panel",
+    );
+    expect(screen.getByTestId("integration-send-progress")).not.toHaveTextContent(
+      "sends nothing and starts nothing",
+    );
+  });
+
+  it("withholds the strong claim when the browser will not say how much there is", async () => {
+    let report: SendOptions["onProgress"];
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      report = options?.onProgress;
+      return new Promise(() => {});
+    });
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      report!({ sent: 4096, total: null });
+    });
+
+    // With no total there is no way to know whether bytes are still outstanding, so the claim that
+    // nothing was sent is not made. The cancel stays, because it may still reach the send.
+    expect(screen.getByTestId("integration-send-cancel")).toBeInTheDocument();
+    expect(screen.getByTestId("integration-send-progress")).not.toHaveTextContent(
+      "sends nothing and starts nothing",
+    );
+  });
+
   it("reports bytes sent even when the browser will not say how many there are", async () => {
     let report: SendOptions["onProgress"];
     submitJobMock.mockImplementation((_i, _job, options) => {

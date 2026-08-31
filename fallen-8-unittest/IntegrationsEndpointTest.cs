@@ -1927,6 +1927,48 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   AN UNREADABLE CONTENT TYPE IS FORWARDED, so the answer names both accepted types.
+        ///
+        ///   <para>This proxy deliberately carries no <c>[Consumes]</c> list on the job route. One there
+        ///   answered 415 before the runtime could, with ASP.NET's bare body: the right status, and no
+        ///   statement of what IS accepted, which is the only part a caller can act on. The runtime owns
+        ///   the grammar that reads a job, so it owns the message about which shapes it reads, and there is
+        ///   one home for that rather than two to keep in step. Measured against two live processes before
+        ///   this was changed; see the feature's findings.md.</para>
+        ///
+        ///   <para>Asserted by FORWARDING, which is the load-bearing half: the test fails if a
+        ///   <c>[Consumes]</c> list comes back, because the request would then never reach the runtime at
+        ///   all. A status-only assertion would pass either way, since both answers are 415.</para>
+        /// </summary>
+        [TestMethod]
+        [DataRow("text/plain", DisplayName = "text")]
+        [DataRow("application/x-www-form-urlencoded", DisplayName = "a urlencoded form")]
+        public async Task AnUnreadableContentTypeReachesTheRuntime_WhichNamesBothAcceptedTypes(
+            String contentType)
+        {
+            using var runtime = new RecordingListener();
+            using var factory = new ProxyFactory(enabled: "true",
+                endpoint: "http://127.0.0.1:" + runtime.Port.ToString(CultureInfo.InvariantCulture));
+            using var client = factory.CreateClient();
+
+            using var content = new StringContent(
+                JobBody(CsvProviderId, "wrong-type", "{}"), Encoding.UTF8, contentType);
+            using var answer = await client.PostAsync(ProxyJobRoute, content);
+
+            // A urlencoded body is the dangerous one: it is form-shaped, so anything that read the form
+            // here would consume the body before the action ran. [StreamedBody] is what stops that, and
+            // this is the case that would catch its removal.
+            var forwarded = SplitRequest(await runtime.ReceivedAsync());
+            StringAssert.Contains(forwarded.Headers, contentType,
+                "the content type did not survive the hop, so the runtime cannot say which shape was " +
+                "actually sent: " + forwarded.Headers);
+            Assert.AreEqual(JobBody(CsvProviderId, "wrong-type", "{}"),
+                Encoding.UTF8.GetString(forwarded.Body),
+                "the body did not reach the runtime intact, which is what happens when anything upstream " +
+                "reads it first");
+        }
+
+        /// <summary>
         ///   A JSON job still goes through unchanged. The multipart arm is an addition, and the transport
         ///   every existing script and every no-file integration uses must be untouched by it.
         /// </summary>

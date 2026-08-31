@@ -433,11 +433,18 @@ namespace NoSQL.GraphDB.App.Controllers
         // Without this MVC reads the whole multipart form before this action runs, spooling every part over
         // 64 KiB to a temp file and leaving nothing to forward. The attribute owns the full story.
         [StreamedBody]
-        // Both transports, and the body is streamed through either way: this hop reads neither. Multipart
-        // is what makes a large extract submittable at all - the JSON form needs each file base64 in the
-        // document, and a browser composing that dies in its own encoder well below what the runtime
-        // accepts. The runtime's JobRequestReader owns the grammar and is the one home for the story.
-        [Consumes("application/json", "multipart/form-data")]
+        // NO [Consumes], deliberately, and it is the only action here without one. Two transports are
+        // accepted - application/json with each file base64 in the document, and multipart/form-data with
+        // each file's raw bytes in its own part - and the RUNTIME owns which, because it owns the grammar
+        // that reads them. A [Consumes] list here answered 415 before the runtime could, with ASP.NET's
+        // bare body: correct status, and no statement of what IS accepted, which is the only actionable
+        // part. Measured through two live processes (see the feature's findings.md). The attribute also
+        // bought nothing for the API document, because this route documents no requestBody at all: the
+        // body is streamed, never bound. So an unreadable content type is now forwarded and refused by
+        // the one place that can name both types.
+        //
+        // Safe only because of [StreamedBody] above: without it MVC would read a form-shaped body here
+        // before the action ran.
         [Produces("application/json")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status202Accepted)]

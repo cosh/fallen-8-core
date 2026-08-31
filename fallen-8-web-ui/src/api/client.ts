@@ -407,6 +407,19 @@ export function apiUpload<T>(
   return resolveAuthHeaders(instance).then(
     (headers) =>
       new Promise<T | null>((resolve, reject) => {
+        // Already cancelled before the send. Reachable because resolving the auth headers is
+        // asynchronous, so a `bearer` instance awaits its host's token provider first and a cancel
+        // can land in that window; without this the whole body would then be uploaded and only the
+        // ANSWER discarded. apiRequest's startDeadline makes the same pre-check for the same reason.
+        if (options.signal?.aborted) {
+          reject(
+            options.signal.reason instanceof Error
+              ? options.signal.reason
+              : new DOMException("The upload was cancelled.", "AbortError"),
+          );
+          return;
+        }
+
         const request = new XMLHttpRequest();
         request.open("POST", url);
         for (const [name, value] of Object.entries(headers)) {
