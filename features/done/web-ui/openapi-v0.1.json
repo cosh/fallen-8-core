@@ -18157,14 +18157,14 @@
               "null",
               "boolean"
             ],
-            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable, or a\r\n    backend with no residency API (OpenAI and Anthropic have none, so this stays null by\r\n    design). A point-in-time read, only set on GET /config."
+            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable. Only the\r\n    local Ollama sidecar can answer false, because only its /api/ps list is exhaustive: for a\r\n    backend with no residency API (OpenAI and Anthropic have none) and for a Nahil model Nahil\r\n    does not report on, this stays null by design rather than claiming the model is cold. A\r\n    point-in-time read, only set on GET /config."
           },
           "gpu": {
             "type": [
               "null",
               "boolean"
             ],
-            "description": "Best-effort GPU residency of the model: true/false when the backend reports it,\r\n    null when undeterminable (or not probed). A point-in-time read, only set on GET /config."
+            "description": "Best-effort GPU residency of the model: true/false when the backend reports a VRAM\r\n    figure, null when undeterminable (or not probed). Nahil reports none - the model runs on a\r\n    remote worker whose device this host cannot see - so a Nahil answer is always null rather\r\n    than a claim of CPU. A point-in-time read, only set on GET /config."
           }
         },
         "description": "The chat gateway state (feature instance-config), mirroring the embedding block's\r\n    shape: it lives on the cheap /status probe (capability discovery) and on GET /config (the\r\n    operator view). No endpoint is exposed, matching the embedding block's tag hygiene."
@@ -19506,14 +19506,14 @@
               "null",
               "boolean"
             ],
-            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable, or a\r\n    backend with no residency API (OpenAI has none, so this stays null by design). Only set\r\n    on GET /config (a point-in-time probe), never on /status or /statistics."
+            "description": "Whether the model is currently loaded in the backend (Ollama /api/ps): true =\r\n    warm, false = not loaded right now (loads on first use), null = undeterminable. Only the\r\n    local Ollama sidecar can answer false, because only its /api/ps list is exhaustive: for a\r\n    backend with no residency API (OpenAI has none) and for a Nahil model Nahil does not\r\n    report on, this stays null by design rather than claiming the model is cold. Only set\r\n    on GET /config (a point-in-time probe), never on /status or /statistics."
           },
           "gpu": {
             "type": [
               "null",
               "boolean"
             ],
-            "description": "Best-effort GPU residency (Ollama VRAM): true/false when reported, null when\r\n    undeterminable, not probed, or a backend with no residency API. Only set on\r\n    GET /config."
+            "description": "Best-effort GPU residency (Ollama VRAM): true/false when reported, null when\r\n    undeterminable, not probed, or a backend that publishes no VRAM figure - which includes\r\n    every Nahil answer, where the model runs on a remote worker whose device this host cannot\r\n    see. Only set on GET /config."
           }
         },
         "description": "The active embedding provider and its declared model identity (feature\r\n    embedding-provider). Cheap config/state reads only - surfacing it never loads a model.\r\n    Carried by both GET /status (the cheap discovery surface) and GET /statistics (the\r\n    full snapshot)."

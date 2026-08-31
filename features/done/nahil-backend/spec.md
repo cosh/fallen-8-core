@@ -1,7 +1,7 @@
 # Spec: Nahil backend
 
-**Status: implemented and merged to `main` (2026-08-20); amended 2026-08-22, see
-"Amendment" at the end.** Drafted the same day from an external
+**Status: implemented and merged to `main` (2026-08-20); amended 2026-08-22 and 2026-08-31, see
+the "Amendment" sections at the end.** Drafted the same day from an external
 change-request list, every claim of which was verified against the code before implementing (see
 the verification record below). The as-built deviations are recorded in "As built" at the end,
 which is the part to read if the rest of this document and the code disagree. This file is the
@@ -442,6 +442,83 @@ embeddings at Dimension 1024 / Cosine with `ModelName=bge-m3` untouched (nothing
 - **A single table ROW longer than `ChunkMaxChars` is still emitted whole.** A row-window always
   carries at least one body row, so the alternative is cutting a row in half. It is now a loud
   failure instead of a silent truncation, and it is documented as such.
+
+## Amendment (2026-08-31): `/api/ps` is not an exhaustive list on Nahil
+
+Reported from a running deployment: Studio's Connect → **Configuration** card showed both
+providers as "not loaded (loads on first use)" *after* both had been used. Not a UI bug - the
+server was saying it.
+
+### B-1: an absent model was reported as a cold model
+
+This spec's premise (see "Why", point 1) was that `/api/ps` "takes unchanged bodies", and it does.
+What was never checked is whether its ANSWER means the same thing. It does not, and the difference
+is exactly the one that matters to a probe: **the local sidecar's list is exhaustive, Nahil's is
+not.** Nahil reports only the model classes it keeps warm on a worker.
+
+Measured against `api.nahil.dev` on 2026-08-31, from the running compose stack:
+
+| Call | `/api/ps` afterwards |
+| --- | --- |
+| `POST /chat` → `phi4-f8-mini:latest` (class `S1`), 200 in 2.6 s | lists the model, with `nahil_workers_warm: 1` and an `expires_at` ~5 min out |
+| `POST /embedding/text` → `bge-m3:latest` (class `C2`), 200 in 0.37 s | **empty** |
+| `POST /api/embed` direct to Nahil, polled 8× DURING the in-flight request | **empty** every time |
+
+So `bge-m3` never appears, warm or not. `OllamaModelProbe` read that absence the way it reads the
+sidecar's ("the call answered and the model is NOT loaded right now, definitively not resident")
+and published `resident: false`. Every consumer treats a definite residency answer as outranking
+the provider's own lazy `loaded` flag - correctly, since residency is the more specific fact - so
+the one true signal on the card (`loaded: true`, the embedding client had been created and used)
+lost to a false negative that could never clear. Verbatim from the live instance before the fix:
+
+```json
+"embedding": { "backend": "Nahil", "loaded": true, "resident": false, "gpu": false }
+```
+
+**Fixed** by making the probe read a missing entry per backend: definitive on the sidecar
+(unchanged, bit-identical), `null` on Nahil. The status line then falls back to `loaded`, which is
+honest: "in use" / "not called yet". No client changed - Studio already renders `resident: null`
+that way, and had done since the feature shipped; it simply never received a `null`.
+
+### B-2: `gpu: false` was a claim about a machine this host cannot see
+
+Same probe, same root cause, found while confirming B-1. `Gpu = m.SizeVram > 0` cannot distinguish
+"zero VRAM" from "no `size_vram` field", and Nahil's `/api/ps` entries have no such field at all
+(see the warm entry above). A chat model that had just answered therefore reported `gpu: false`,
+which Studio renders as **"loaded · CPU"** - an assertion about a remote worker's device, made
+from a field that was never sent. `Gpu` is now tri-state and stays `null` on Nahil.
+
+### Why "unknown" and not a second call
+
+`/api/show` does answer the neighbouring question, with `nahil_routable_now` (verified `true` for
+both models the same day). It is a DIFFERENT question - "can a worker serve this" rather than "is
+it warm" - and it already has a home: `GET /chat/models` publishes it as `available` per model.
+Folding it into the residency field would give one field two meanings and put a second round trip
+inside the probe's 3 s bound. Residency stays "unknown", and the docs point at the read that does
+answer availability.
+
+### Amendment impact
+
+- **Engine**: untouched. This is apiApp-only (`Chat/OllamaModelProbe.cs`) plus the XML docs on the
+  two wire types that publish the fields (`ConfigREST`, `GraphStatisticsREST`).
+- **REST contract**: no shape change. `resident` and `gpu` were already nullable and already
+  documented as "null = undeterminable"; Nahil now uses that state instead of misusing `false`. The
+  OpenAPI snapshot moves only where those two descriptions did.
+- **MCP**: nothing to propagate - the bridge surfaces neither field.
+- **Studio**: no code change. `modelStatus()` already had the fallback; it was starved of the input.
+- **Tests**: `OllamaModelProbeTest` (new, 14 cases) pins the three-state contract, replaying the
+  Nahil bodies above verbatim. Mutation-checked: restoring both halves of the bug fails exactly the
+  three Nahil cases and leaves the eight sidecar/guarantee cases green, which is the evidence that
+  `Backend=Ollama` really is bit-identical. `OllamaModelProbe` and `OllamaModelState` became public
+  to be reachable, following the repository's no-`InternalsVisibleTo` convention.
+- **Screenshots**: none affected. `screen-connect.png` and `screen-configuration.png` are captured
+  against the local Ollama sidecar, whose branch did not change.
+- **Docs site**: `nahil.md` (what to expect, and where availability lives instead),
+  `model-providers.md` (the "honest gaps" paragraph, which claimed the gap was OpenAI/Anthropic
+  only), `studio.md` (the status-line sentence said "when the Ollama backend reports it").
+- **NL-assist dataset/eval**: no retrain, no `RETRAIN-LOG.md` entry - no prompt, model or
+  temperature changes.
+- **Browser probe**: not implicated - apiApp and docs only, no host-capability branch.
 
 ## Nahil-side dependencies (their side, acknowledged by them)
 
