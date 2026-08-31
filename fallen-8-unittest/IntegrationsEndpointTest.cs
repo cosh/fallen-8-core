@@ -30,6 +30,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -53,7 +54,7 @@ namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     /// Pins the HTTP surface of the integrations feature through both hosted pipelines: the
-    /// fallen-8-integrations runtime's own seven routes plus its health probe, and the apiApp's
+    /// fallen-8-integrations runtime's own eight routes plus its health probe, and the apiApp's
     /// authenticated proxy over them. Both halves run in process, the runtime under
     /// WebApplicationFactory over its deliberately namespaced entry point.
     /// </summary>
@@ -551,6 +552,164 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
+        /// <summary>
+        ///   A loopback socket that reads a WHOLE request, keeps it, and answers 200. It is how the proxy's
+        ///   forwarding is judged on what actually crossed the wire rather than on what the code appears to
+        ///   send: the boundary, the declared length and the body bytes are the three things a hop that is
+        ///   supposed not to look at the body can still break.
+        /// </summary>
+        private sealed class RecordingListener : IDisposable
+        {
+            private readonly TcpListener _listener;
+            private readonly TaskCompletionSource<Byte[]> _received =
+                new TaskCompletionSource<Byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public RecordingListener()
+            {
+                _listener = new TcpListener(IPAddress.Loopback, 0);
+                _listener.Start();
+                Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+                _ = Task.Run(AcceptAsync);
+            }
+
+            public Int32 Port { get; }
+
+            /// <summary>
+            ///   The raw request for the job route, headers and body, with a BOUND on the wait: a fixture
+            ///   that never hears anything must fail the test rather than hang the suite, because a hang
+            ///   costs the whole run and says nothing about what went wrong.
+            /// </summary>
+            public async Task<Byte[]> ReceivedAsync()
+            {
+                var finished = await Task.WhenAny(_received.Task, Task.Delay(TimeSpan.FromSeconds(20)));
+                Assert.AreSame(_received.Task, finished,
+                    "no request for the job route reached the runtime within 20 seconds, so the proxy " +
+                    "refused it, sent it somewhere else, or never sent it at all");
+                return await _received.Task;
+            }
+
+            /// <summary>The line terminator HTTP uses, spelled once so no literal here carries a raw one.</summary>
+            private static readonly String Crlf = new String(new[] { (Char)13, (Char)10 });
+
+            public void Dispose()
+            {
+                _listener.Stop();
+            }
+
+            /// <summary>
+            ///   Accepts in a LOOP and records the first request for the job route, because the connection
+            ///   that arrives first is not reliably the one under test: the sidecar client probes /health,
+            ///   and a pooling client can open a connection it then sends nothing on. Recording whichever
+            ///   arrived first made this test pass or fail on that race.
+            /// </summary>
+            private async Task AcceptAsync()
+            {
+                while (true)
+                {
+                    TcpClient socket;
+                    try
+                    {
+                        socket = await _listener.AcceptTcpClientAsync();
+                    }
+                    catch (Exception)
+                    {
+                        return;
+                    }
+
+                    using (socket)
+                    {
+                        try
+                        {
+                            await ServeAsync(socket);
+                        }
+                        catch (Exception)
+                        {
+                            // A client that hung up mid-exchange is not this fixture's problem. The waiting
+                            // assertion times out with its own message if nothing ever arrives.
+                        }
+                    }
+                }
+            }
+
+            private async Task ServeAsync(TcpClient socket)
+            {
+                var stream = socket.GetStream();
+                var buffer = new MemoryStream();
+                var chunk = new Byte[8192];
+                var contentLength = -1;
+                var headerEnd = -1;
+                var headers = String.Empty;
+
+                while (true)
+                {
+                    var read = await stream.ReadAsync(chunk, 0, chunk.Length);
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    buffer.Write(chunk, 0, read);
+                    var all = buffer.ToArray();
+
+                    if (headerEnd < 0)
+                    {
+                        headerEnd = IndexOfHeaderEnd(all);
+                        if (headerEnd >= 0)
+                        {
+                            headers = Encoding.ASCII.GetString(all, 0, headerEnd);
+                            contentLength = DeclaredLength(headers);
+                        }
+                    }
+
+                    // Read exactly as far as the declared length says, so the assertions can be about the
+                    // WHOLE body rather than about however much arrived in one segment.
+                    if (headerEnd >= 0 && all.Length >= headerEnd + Math.Max(contentLength, 0))
+                    {
+                        break;
+                    }
+                }
+
+                if (headers.Contains("integration/job", StringComparison.Ordinal))
+                {
+                    _received.TrySetResult(buffer.ToArray());
+                }
+
+                var response = Encoding.ASCII.GetBytes(
+                    "HTTP/1.1 200 OK" + Crlf + "Content-Type: application/json" + Crlf + "Content-Length: 2" + Crlf +
+                    "Connection: close" + Crlf + Crlf + "{}");
+                await stream.WriteAsync(response, 0, response.Length);
+                await stream.FlushAsync();
+            }
+
+            private static Int32 IndexOfHeaderEnd(Byte[] bytes)
+            {
+                for (var i = 0; i + 3 < bytes.Length; i++)
+                {
+                    if (bytes[i] == 13 && bytes[i + 1] == 10 && bytes[i + 2] == 13 && bytes[i + 3] == 10)
+                    {
+                        return i + 4;
+                    }
+                }
+
+                return -1;
+            }
+
+            private static Int32 DeclaredLength(String headers)
+            {
+                foreach (var line in headers.Split("\r\n"))
+                {
+                    if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase) &&
+                        Int32.TryParse(line.Substring("Content-Length:".Length).Trim(),
+                            NumberStyles.None, CultureInfo.InvariantCulture, out var value))
+                    {
+                        return value;
+                    }
+                }
+
+                return -1;
+            }
+        }
+
         /// <summary>A port nothing listens on: bound to learn a free one, then released.</summary>
         private static Int32 ClosedLoopbackPort()
         {
@@ -564,6 +723,148 @@ namespace NoSQL.GraphDB.Tests
         #endregion
 
         #region A. the runtime's own routes
+
+        /// <summary>
+        ///   A multipart job reaches the runner over real HTTP, not just through the reader in isolation.
+        ///   The grammar has its own file of tests; what this pins is the WIRING - that the route accepts
+        ///   the content type, and that nothing upstream consumes the body before the reader sees it.
+        ///
+        ///   <para>Asserted as a CONTRAST, because that is what makes it a statement about the file rather
+        ///   than about this host: the CSV integration declares its file setting required, so the same job
+        ///   without the file part is refused before the run, and with it gets past that refusal to the one
+        ///   phase this host cannot complete (its graph target is a name that does not resolve). A test that
+        ///   only looked at the second half would pass on a runtime that ignored the file entirely.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task AMultipartJobsFilePartIsWhatSatisfiesItsFileSetting()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var without = MultipartJob(CsvProviderId, "multipart-no-file");
+            using var refused = await client.PostAsync(RuntimeJobRoute, without);
+            var refusal = await ReadText(refused);
+            Assert.AreEqual(HttpStatusCode.BadRequest, refused.StatusCode,
+                "a multipart job with no file part was accepted for a provider whose file setting is " +
+                "required, so the file is not what satisfies it and the assertion below proves nothing: " +
+                refusal);
+
+            using var with = MultipartJob(CsvProviderId, "multipart-office",
+                ("devices.csv", "mac,name\n44:D2:44:AA:BB:CC,Reception AP\n"));
+            using var response = await client.PostAsync(RuntimeJobRoute, with);
+
+            var body = await ReadText(response);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "adding the file part did not get the job past its pre-run refusals. A 400 means the file " +
+                "did not arrive as the file setting; a 415 means the route did not accept the only " +
+                "transport a large extract can use: " + body);
+
+            var report = JsonDocument.Parse(body).RootElement;
+            Assert.AreEqual("graph", Text(report, "errorKind"),
+                "the run failed somewhere other than at its graph target, which is the only phase this " +
+                "host cannot complete: " + body);
+        }
+
+        /// <summary>
+        ///   The same job over both transports produces the same OUTCOME over real HTTP, which is the
+        ///   end-to-end form of the sameness guarantee the reader's tests make about the normalized job.
+        /// </summary>
+        [TestMethod]
+        public async Task TheSameJobOverBothTransportsFailsTheSameWay()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            const String text = "mac,name\n44:D2:44:AA:BB:CC,Reception AP\n";
+
+            using var form = MultipartJob(CsvProviderId, "same-both-ways-form", ("devices.csv", text));
+            using var viaForm = await client.PostAsync(RuntimeJobRoute, form);
+            using var viaJson = await client.PostAsync(RuntimeJobRoute,
+                Json(JobBody(CsvProviderId, "same-both-ways-json", "{}", files:
+                    "{\"file\":" + FileJson("devices.csv", text) + "}")));
+
+            Assert.AreEqual(viaJson.StatusCode, viaForm.StatusCode,
+                "the two transports answered different statuses for one job");
+            var formReport = JsonDocument.Parse(await ReadText(viaForm)).RootElement;
+            var jsonReport = JsonDocument.Parse(await ReadText(viaJson)).RootElement;
+            Assert.AreEqual(Text(jsonReport, "errorKind"), Text(formReport, "errorKind"),
+                "the two transports produced different outcomes for one job, so they have drifted and the " +
+                "difference is invisible from the graph");
+        }
+
+        /// <summary>
+        ///   An unreadable content type is 415 on the wire, naming both accepted types. A caller who sent
+        ///   the wrong one has not written a bad job, they have written a good one nobody read.
+        /// </summary>
+        [TestMethod]
+        public async Task AJobSentAsPlainTextIs415OnTheWire()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var content = new StringContent(JobBody(CsvProviderId, "wrong-type", "{}"),
+                Encoding.UTF8, "text/plain");
+            using var response = await client.PostAsync(RuntimeJobRoute, content);
+
+            var body = await ReadText(response);
+            Assert.AreEqual(HttpStatusCode.UnsupportedMediaType, response.StatusCode, body);
+            StringAssert.Contains(body, "multipart/form-data", body);
+        }
+
+        /// <summary>
+        ///   A credential sent on the multipart transport is still redacted out of everything the run
+        ///   reports. The redaction hold is applied where the credential is LEASED rather than where the job
+        ///   arrived, so this is a regression test for the wiring, and a leak here would put a caller's
+        ///   secret on a report and in the log.
+        /// </summary>
+        [TestMethod]
+        public async Task ACredentialOnTheMultipartTransportIsStillRedacted()
+        {
+            const String secret = "sup3r-s3cret-on-the-form";
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var form = MultipartJob(CsvProviderId, "redacted-form",
+                "{\"apiKey\":\"" + secret + "\"}",
+                new[] { ("devices.csv", "mac,name\n44:D2:44:AA:BB:CC,AP\n") });
+            using var response = await client.PostAsync(RuntimeJobRoute, form);
+
+            var body = await ReadText(response);
+            Assert.IsFalse(body.Contains(secret, StringComparison.Ordinal),
+                "the credential the job carried is echoed in what the run reported: " + body);
+        }
+
+        /// <summary>
+        ///   A multipart job whose form is composed by <c>MultipartFormDataContent</c> rather than by hand.
+        ///   Written this way on purpose: it is what a real client library produces, quoted part names and
+        ///   all, so a grammar that only accepted a hand-written fixture would be tested against itself.
+        /// </summary>
+        private static MultipartFormDataContent MultipartJob(String providerId, String instanceId,
+            params (String Name, String Text)[] files)
+        {
+            return MultipartJob(providerId, instanceId, null, files);
+        }
+
+        private static MultipartFormDataContent MultipartJob(String providerId, String instanceId,
+            String credentialValues, (String Name, String Text)[] files)
+        {
+            var form = new MultipartFormDataContent("----f8-endpoint-test");
+
+            // A STRING part, not a byte array: appending bytes declares a filename, and the job document is
+            // a value part. That is the mistake the reader refuses by name.
+            var document = new StringContent(
+                JobBody(providerId, instanceId, "{}", credentialValues), Encoding.UTF8, "application/json");
+            form.Add(document, "job");
+
+            for (var i = 0; i < files.Length; i++)
+            {
+                var content = new ByteArrayContent(Encoding.UTF8.GetBytes(files[i].Text));
+                form.Add(content, "files[file]" + (files.Length > 1 ? "[" + i + "]" : String.Empty),
+                    files[i].Name);
+            }
+
+            return form;
+        }
 
         /// <summary>
         /// The probe the apiApp's cached reachability check calls. It answers, and it says nothing
@@ -1499,6 +1800,103 @@ namespace NoSQL.GraphDB.Tests
             {
                 return Task.FromResult(true);
             }
+        }
+
+        #endregion
+
+        #region the proxy carries a multipart job through without reading it
+
+        /// <summary>
+        ///   A multipart job is forwarded VERBATIM, and this is asserted on the bytes that crossed the wire
+        ///   rather than on the status: the boundary, the declared length and the body are the three things a
+        ///   hop whose entire contract is not to look at the body can still break, and breaking any of them
+        ///   turns every large upload into a refusal from the runtime that nobody can explain.
+        /// </summary>
+        [TestMethod]
+        public async Task AMultipartJobIsForwardedByteForByte_WithItsBoundaryAndItsLength()
+        {
+            using var runtime = new RecordingListener();
+            using var factory = new ProxyFactory(enabled: "true",
+                endpoint: "http://127.0.0.1:" + runtime.Port.ToString(CultureInfo.InvariantCulture));
+            using var client = factory.CreateClient();
+
+            const String boundary = "----f8-proxy-boundary-9f3";
+            var payload = new List<Byte>();
+            payload.AddRange(Encoding.UTF8.GetBytes(
+                "--" + boundary + "\r\nContent-Disposition: form-data; name=\"job\"\r\n\r\n" +
+                "{\"providerId\":\"" + CsvProviderId + "\",\"integrationInstanceId\":\"office\"}\r\n" +
+                "--" + boundary + "\r\nContent-Disposition: form-data; name=\"files[file]\"; " +
+                "filename=\"devices.csv\"\r\n\r\n"));
+            // A zero byte and a stray CR, because a proxy that treated the body as text would eat both.
+            payload.AddRange(new Byte[] { 0x6D, 0x61, 0x63, 0x00, 0x0D, 0x0A });
+            payload.AddRange(Encoding.UTF8.GetBytes("\r\n--" + boundary + "--\r\n"));
+            var body = payload.ToArray();
+
+            using var content = new ByteArrayContent(body);
+            content.Headers.ContentType =
+                MediaTypeHeaderValue.Parse("multipart/form-data; boundary=" + boundary);
+
+            using var answer = await client.PostAsync(ProxyJobRoute, content);
+
+            Assert.AreNotEqual(HttpStatusCode.UnsupportedMediaType, answer.StatusCode,
+                "the proxy refused a multipart job as an unsupported type, which is the only transport a " +
+                "multi-gigabyte extract can arrive on: " + await ReadText(answer));
+            Assert.AreEqual(HttpStatusCode.OK, answer.StatusCode,
+                "the whole hop did not complete. A 503 here means the body reached the forward EMPTY, which " +
+                "is what happens when anything upstream reads the form first - see StreamedBodyAttribute: " +
+                await ReadText(answer));
+
+            var forwarded = await runtime.ReceivedAsync();
+            var split = SplitRequest(forwarded);
+
+            StringAssert.Contains(split.Headers, "boundary=" + boundary,
+                "the boundary did not survive the hop, so the runtime cannot find the parts at all: " +
+                split.Headers);
+            StringAssert.Contains(split.Headers,
+                "Content-Length: " + body.Length.ToString(CultureInfo.InvariantCulture),
+                "the forwarded request did not declare the body's length, which makes the runtime read a " +
+                "chunked body it cannot judge up front: " + split.Headers);
+            CollectionAssert.AreEqual(body, split.Body,
+                "the body changed on the way through a hop whose whole contract is not to look at it");
+        }
+
+        /// <summary>
+        ///   A JSON job still goes through unchanged. The multipart arm is an addition, and the transport
+        ///   every existing script and every no-file integration uses must be untouched by it.
+        /// </summary>
+        [TestMethod]
+        public async Task AJsonJobIsStillForwardedUnchanged()
+        {
+            using var runtime = new RecordingListener();
+            using var factory = new ProxyFactory(enabled: "true",
+                endpoint: "http://127.0.0.1:" + runtime.Port.ToString(CultureInfo.InvariantCulture));
+            using var client = factory.CreateClient();
+
+            var document = JobBody(CsvProviderId, "office", "{\"label\":\"desk\"}");
+            using var answer = await client.PostAsync(ProxyJobRoute, Json(document));
+
+            var split = SplitRequest(await runtime.ReceivedAsync());
+            StringAssert.Contains(split.Headers, "application/json", split.Headers);
+            Assert.AreEqual(document, Encoding.UTF8.GetString(split.Body),
+                "the JSON body changed on the way, so the transport that every existing caller uses has " +
+                "been altered by adding a second one");
+        }
+
+        private static (String Headers, Byte[] Body) SplitRequest(Byte[] request)
+        {
+            for (var i = 0; i + 3 < request.Length; i++)
+            {
+                if (request[i] == 13 && request[i + 1] == 10 && request[i + 2] == 13 && request[i + 3] == 10)
+                {
+                    var start = i + 4;
+                    var body = new Byte[request.Length - start];
+                    Array.Copy(request, start, body, 0, body.Length);
+                    return (Encoding.ASCII.GetString(request, 0, i), body);
+                }
+            }
+
+            Assert.Fail("the forwarded request had no header terminator, so it was never a whole request");
+            return (String.Empty, Array.Empty<Byte>());
         }
 
         #endregion

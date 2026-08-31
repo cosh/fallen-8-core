@@ -280,7 +280,7 @@ namespace NoSQL.GraphDB.Integrations.Run
 
                     names[name] = name;
 
-                    if (!TryDecodeContent(file.ContentBase64, pair.Key, maxFileBytes, out var content,
+                    if (!TryDecodeContent(file, pair.Key, maxFileBytes, out var content,
                             out var contentFailure))
                     {
                         failure = contentFailure;
@@ -343,16 +343,49 @@ namespace NoSQL.GraphDB.Integrations.Run
         }
 
         /// <summary>
-        ///   Base64 to bytes, with the ceiling checked on the DECODED length. The check is on the decoded
-        ///   length because that is what the run holds and what the provider parses; refusing on the
-        ///   encoded length would state a limit a third smaller than the one configured.
+        ///   The file's bytes, however it arrived, with the ceiling checked on the DECODED length. The check
+        ///   is on the decoded length because that is what the run holds and what the provider parses;
+        ///   refusing on the encoded length would state a limit a third smaller than the one configured.
+        ///
+        ///   <para>Two arms and ONE tail, deliberately. A multipart part is already bytes and a JSON job's
+        ///   file is base64, so only the way the bytes are obtained differs; everything a caller can be told
+        ///   about them - empty, oversized - is decided below, once. That is what makes the guarantee that
+        ///   one job over either transport produces one identical report structural rather than careful.</para>
         /// </summary>
-        private static Boolean TryDecodeContent(String? contentBase64, String settingKey, Int64 maxFileBytes,
+        private static Boolean TryDecodeContent(JobFile file, String settingKey, Int64 maxFileBytes,
             out Byte[]? content, out String? failure)
         {
             content = null;
 
-            if (contentBase64 == null)
+            Byte[] decoded;
+            if (file.Content != null)
+            {
+                if (file.ContentBase64 != null)
+                {
+                    failure = String.Format(
+                        "The file supplied for setting '{0}' carries its bytes twice, once raw and once as " +
+                        "contentBase64. Which one is the file is not a thing to guess: a job says it once.",
+                        settingKey);
+                    return false;
+                }
+
+                if (file.Truncated)
+                {
+                    // The reader stopped at the ceiling, so the honest statement is "more than", not a size.
+                    // A multipart part declares no length, so there is no number to report other than the
+                    // one it was measured against.
+                    failure = String.Format(
+                        "The file supplied for setting '{0}' is more than {1} bytes " +
+                        "(Integrations:MaxFileBytes); the runtime stopped reading at the ceiling rather than " +
+                        "holding a file it was going to refuse. The ceiling belongs to this runtime's own " +
+                        "configuration and not to the instance you submitted through.",
+                        settingKey, maxFileBytes);
+                    return false;
+                }
+
+                decoded = file.Content;
+            }
+            else if (file.ContentBase64 == null)
             {
                 failure = String.Format(
                     "The file supplied for setting '{0}' carries no contentBase64. A file's bytes arrive " +
@@ -360,40 +393,37 @@ namespace NoSQL.GraphDB.Integrations.Run
                     "could look up instead.", settingKey);
                 return false;
             }
+            else
+            {
+                try
+                {
+                    decoded = Convert.FromBase64String(file.ContentBase64);
+                }
+                catch (FormatException)
+                {
+                    failure = String.Format(
+                        "The contentBase64 supplied for setting '{0}' is not valid base64. The file travels " +
+                        "as bytes rather than as text so that an extract written in UTF-16 arrives intact.",
+                        settingKey);
+                    return false;
+                }
+            }
 
             // An EMPTY file is refused rather than read as one. Every shipped file provider treats an
             // unreadable source as a failed run precisely so that "I could not look" never becomes "there
             // is nothing there", and a zero-byte upload - a form submitted before the file was chosen, a
-            // truncated copy - is the same statement wearing a different hat: parsed as a complete
-            // snapshot it would withdraw every element the identity ever claimed.
-            if (contentBase64.Length == 0)
+            // truncated copy - is the same statement wearing a different hat: parsed as a complete snapshot
+            // it would withdraw every element the identity ever claimed.
+            //
+            // Checked HERE and nowhere else, for both arms: an empty base64 string decodes to an empty array
+            // rather than throwing, and an empty multipart part is an empty array too, so one check on the
+            // bytes covers both and there is one message to keep true instead of two to keep in step.
+            if (decoded.Length == 0)
             {
                 failure = String.Format(
                     "The file supplied for setting '{0}' is empty. An empty file is refused rather than " +
                     "read as an empty source, because a complete snapshot describing nothing withdraws " +
                     "everything this identity ever claimed.", settingKey);
-                return false;
-            }
-
-            Byte[] decoded;
-            try
-            {
-                decoded = Convert.FromBase64String(contentBase64);
-            }
-            catch (FormatException)
-            {
-                failure = String.Format(
-                    "The contentBase64 supplied for setting '{0}' is not valid base64. The file travels as " +
-                    "bytes rather than as text so that an extract written in UTF-16 arrives intact.",
-                    settingKey);
-                return false;
-            }
-
-            if (decoded.Length == 0)
-            {
-                failure = String.Format(
-                    "The file supplied for setting '{0}' decodes to nothing. An empty file is refused " +
-                    "rather than read as an empty source.", settingKey);
                 return false;
             }
 
@@ -431,6 +461,33 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <summary>The file's bytes, base64. <c>base64 -w0 devices.csv</c> produces exactly this.</summary>
         [JsonPropertyName("contentBase64")]
         public String? ContentBase64 { get; set; }
+
+        /// <summary>
+        ///   The file's bytes as they arrived, set only by the multipart reader
+        ///   (<see cref="Hosting.JobRequestReader" />).
+        ///
+        ///   <para>Exactly one of this and <see cref="ContentBase64" /> is ever set, and a job with both is
+        ///   refused rather than resolved by precedence: the two would be two statements about one file's
+        ///   content, and picking one silently is how a caller ends up importing the other.</para>
+        ///
+        ///   <para><see cref="JsonIgnoreAttribute" /> is what keeps this off the wire in both directions. It
+        ///   is not a second JSON field for bytes - that is what base64 is for - it is the same file arriving
+        ///   without being expanded by a third on the way.</para>
+        /// </summary>
+        [JsonIgnore]
+        public Byte[]? Content { get; set; }
+
+        /// <summary>
+        ///   Set when the reader stopped at the per-file ceiling instead of reading the whole part, in which
+        ///   case <see cref="Content" /> is deliberately EMPTY: the bytes are not kept, because the job is
+        ///   going to be refused and holding them would be paying the very cost the ceiling exists to avoid.
+        ///
+        ///   <para>It exists so the refusal can say "is more than N bytes" rather than a size it never
+        ///   measured. A multipart part declares no length, so the only honest thing the reader knows about a
+        ///   file it stopped reading is that it was over.</para>
+        /// </summary>
+        [JsonIgnore]
+        public Boolean Truncated { get; set; }
     }
 
     /// <summary>

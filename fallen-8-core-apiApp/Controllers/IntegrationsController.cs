@@ -42,7 +42,7 @@ namespace NoSQL.GraphDB.App.Controllers
 {
     /// <summary>
     ///   The instance's door to the integration runtime (feature integrations): an authenticated
-    ///   proxy for the seven routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
+    ///   proxy for the eight routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
     ///   on the operator's own network and writes what it saw into one namespace. The runtime's
     ///   container port is not published, because jobs hand that container third-party credentials, so
     ///   this proxy is the only way in and needs no second auth story on the runtime side.
@@ -396,7 +396,18 @@ namespace NoSQL.GraphDB.App.Controllers
         /// because the clock runs at the caller's send rate while the body is streamed through.</para>
         /// <para>A file setting the provider declares <c>multiple</c> takes an ARRAY of files rather than
         /// one, and the order is preserved because a provider composing several files may depend on it. A
-        /// single object stays valid everywhere.</para></remarks>
+        /// single object stays valid everywhere.</para>
+        /// <para>TWO TRANSPORTS, one job. As application/json, the document carries each file's bytes
+        /// base64 in a <c>files</c> map - the original contract, unchanged, and what a script with
+        /// <c>curl</c> and <c>base64 -w0</c> writes. As multipart/form-data, a first part named
+        /// <c>job</c> carries the same document with <c>files</c> ABSENT, and each file follows as its own
+        /// part carrying raw bytes: <c>files[settingKey]</c> for one, or <c>files[settingKey][n]</c>
+        /// numbered from 0 for a setting given several. Every part is named and checked, and an unknown one
+        /// is refused rather than ignored. Multipart is the only shape that scales to a large extract,
+        /// because base64 in a document forces the sender to hold the file, its encoding and the request at
+        /// once. Anything else is 415. One job submitted either way produces an identical run and an
+        /// identical report; the grammar is defined once by the runtime, at
+        /// https://docs.fallen-8.com/integrations/.</para></remarks>
         /// <response code="200">The report, for a run that ended before it had a phase or when wait=true</response>
         /// <response code="202">The run was accepted; watch it at /integrations/run/{instanceId}</response>
         /// <response code="400">The runtime refused the job as written, its own message saying why</response>
@@ -408,7 +419,14 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="503">No runtime is configured, or it did not answer</response>
         [HttpPost("/integrations/job")]
         [RequestSizeLimit(JobTransportLimit)]
-        [Consumes("application/json")]
+        // Without this MVC reads the whole multipart form before this action runs, spooling every part over
+        // 64 KiB to a temp file and leaving nothing to forward. The attribute owns the full story.
+        [StreamedBody]
+        // Both transports, and the body is streamed through either way: this hop reads neither. Multipart
+        // is what makes a large extract submittable at all - the JSON form needs each file base64 in the
+        // document, and a browser composing that dies in its own encoder well below what the runtime
+        // accepts. The runtime's JobRequestReader owns the grammar and is the one home for the story.
+        [Consumes("application/json", "multipart/form-data")]
         [Produces("application/json")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status202Accepted)]

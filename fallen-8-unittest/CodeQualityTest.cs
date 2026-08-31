@@ -224,6 +224,43 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void IntegrationsRuntime_ReadsAFormWithoutSpoolingItToDisk()
+        {
+            // The integrations runtime's published contract is that it mounts no directory for files and
+            // opens nothing on disk: a file arrives with the job that needs it and is dropped when the run
+            // ends. ReadFormAsync and the IFormFile family make that quietly false - the form reader spools
+            // any part over 64 KiB (FormOptions.MemoryBufferThreshold) to a temp file, so a caller's extract
+            // would be written into the container's filesystem by the transport rather than by any code
+            // anyone reviewed. MultipartReader, which JobRequestReader uses, does not.
+            //
+            // The apiApp's integrations proxy is held to the same rule for a different reason: an IFormFile
+            // parameter there would buffer the whole body in the one hop whose entire contract is not to
+            // look at it.
+            var root = TestRepo.Root();
+            var banned = new Regex(@"\b(ReadFormAsync|IFormFileCollection|IFormFile|IFormCollection)\b");
+            var violations = new List<string>();
+
+            foreach (var file in SourceFiles("fallen-8-integrations"))
+            {
+                if (CodeLines(file).Any(l => banned.IsMatch(l)))
+                {
+                    violations.Add(Path.GetRelativePath(root, file));
+                }
+            }
+
+            var proxy = Path.Combine(root, "fallen-8-core-apiApp", "Controllers", "IntegrationsController.cs");
+            if (CodeLines(proxy).Any(l => banned.IsMatch(l)))
+            {
+                violations.Add(Path.GetRelativePath(root, proxy));
+            }
+
+            AssertNoViolations(violations,
+                "no ReadFormAsync / IFormFile / IFormFileCollection / IFormCollection in fallen-8-integrations " +
+                "or in the apiApp's integrations proxy - the form reader spools parts over 64 KiB to a temp " +
+                "file, which would falsify the runtime's no-disk contract; read parts with MultipartReader");
+        }
+
+        [TestMethod]
         public void EveryPackageReference_PinsAnExactVersion()
         {
             // The repo's pin-everything rule, enforced: no floating ('1.*') or range versions,
