@@ -126,7 +126,7 @@ namespace NoSQL.GraphDB.Integrations.Run
             }
 
             if (!job.TryNormalize(out var normalized, out var normalizeFailure, _files.MaxFileBytes,
-                    _files.MaxJobFileBytes))
+                    _files.MaxJobFileBytes, _files.MaxJobFiles))
             {
                 throw new JobRejectedException(JobErrorKinds.Configuration, normalizeFailure!);
             }

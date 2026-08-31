@@ -26,27 +26,36 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.App.Controllers;
+using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.App.Integrations;
 using NoSQL.GraphDB.Integrations.Conformance;
 using NoSQL.GraphDB.Integrations.Configuration;
+using NoSQL.GraphDB.Integrations.Hosting;
 
 namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     /// Pins the HTTP surface of the integrations feature through both hosted pipelines: the
-    /// fallen-8-integrations runtime's own seven routes plus its health probe, and the apiApp's
+    /// fallen-8-integrations runtime's own eight routes plus its health probe, and the apiApp's
     /// authenticated proxy over them. Both halves run in process, the runtime under
     /// WebApplicationFactory over its deliberately namespaced entry point.
     /// </summary>
@@ -341,6 +350,7 @@ namespace NoSQL.GraphDB.Tests
         private const String RuntimeJobRoute = "/integration/job?wait=true";
 
         private const String ProxyProvidersRoute = "/integrations/providers";
+        private const String ProxyLimitsRoute = "/integrations/limits";
         private const String ProxyVocabularyRoute = "/integrations/vocabulary";
         private const String ProxyValidateRoute = "/integrations/snapshot/validate";
         private const String ProxyJobRoute = "/integrations/job";
@@ -544,6 +554,164 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
+        /// <summary>
+        ///   A loopback socket that reads a WHOLE request, keeps it, and answers 200. It is how the proxy's
+        ///   forwarding is judged on what actually crossed the wire rather than on what the code appears to
+        ///   send: the boundary, the declared length and the body bytes are the three things a hop that is
+        ///   supposed not to look at the body can still break.
+        /// </summary>
+        private sealed class RecordingListener : IDisposable
+        {
+            private readonly TcpListener _listener;
+            private readonly TaskCompletionSource<Byte[]> _received =
+                new TaskCompletionSource<Byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public RecordingListener()
+            {
+                _listener = new TcpListener(IPAddress.Loopback, 0);
+                _listener.Start();
+                Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
+                _ = Task.Run(AcceptAsync);
+            }
+
+            public Int32 Port { get; }
+
+            /// <summary>
+            ///   The raw request for the job route, headers and body, with a BOUND on the wait: a fixture
+            ///   that never hears anything must fail the test rather than hang the suite, because a hang
+            ///   costs the whole run and says nothing about what went wrong.
+            /// </summary>
+            public async Task<Byte[]> ReceivedAsync()
+            {
+                var finished = await Task.WhenAny(_received.Task, Task.Delay(TimeSpan.FromSeconds(20)));
+                Assert.AreSame(_received.Task, finished,
+                    "no request for the job route reached the runtime within 20 seconds, so the proxy " +
+                    "refused it, sent it somewhere else, or never sent it at all");
+                return await _received.Task;
+            }
+
+            /// <summary>The line terminator HTTP uses, spelled once so no literal here carries a raw one.</summary>
+            private static readonly String Crlf = new String(new[] { (Char)13, (Char)10 });
+
+            public void Dispose()
+            {
+                _listener.Stop();
+            }
+
+            /// <summary>
+            ///   Accepts in a LOOP and records the first request for the job route, because the connection
+            ///   that arrives first is not reliably the one under test: the sidecar client probes /health,
+            ///   and a pooling client can open a connection it then sends nothing on. Recording whichever
+            ///   arrived first made this test pass or fail on that race.
+            /// </summary>
+            private async Task AcceptAsync()
+            {
+                while (true)
+                {
+                    TcpClient socket;
+                    try
+                    {
+                        socket = await _listener.AcceptTcpClientAsync();
+                    }
+                    catch (Exception)
+                    {
+                        return;
+                    }
+
+                    using (socket)
+                    {
+                        try
+                        {
+                            await ServeAsync(socket);
+                        }
+                        catch (Exception)
+                        {
+                            // A client that hung up mid-exchange is not this fixture's problem. The waiting
+                            // assertion times out with its own message if nothing ever arrives.
+                        }
+                    }
+                }
+            }
+
+            private async Task ServeAsync(TcpClient socket)
+            {
+                var stream = socket.GetStream();
+                var buffer = new MemoryStream();
+                var chunk = new Byte[8192];
+                var contentLength = -1;
+                var headerEnd = -1;
+                var headers = String.Empty;
+
+                while (true)
+                {
+                    var read = await stream.ReadAsync(chunk, 0, chunk.Length);
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    buffer.Write(chunk, 0, read);
+                    var all = buffer.ToArray();
+
+                    if (headerEnd < 0)
+                    {
+                        headerEnd = IndexOfHeaderEnd(all);
+                        if (headerEnd >= 0)
+                        {
+                            headers = Encoding.ASCII.GetString(all, 0, headerEnd);
+                            contentLength = DeclaredLength(headers);
+                        }
+                    }
+
+                    // Read exactly as far as the declared length says, so the assertions can be about the
+                    // WHOLE body rather than about however much arrived in one segment.
+                    if (headerEnd >= 0 && all.Length >= headerEnd + Math.Max(contentLength, 0))
+                    {
+                        break;
+                    }
+                }
+
+                if (headers.Contains("integration/job", StringComparison.Ordinal))
+                {
+                    _received.TrySetResult(buffer.ToArray());
+                }
+
+                var response = Encoding.ASCII.GetBytes(
+                    "HTTP/1.1 200 OK" + Crlf + "Content-Type: application/json" + Crlf + "Content-Length: 2" + Crlf +
+                    "Connection: close" + Crlf + Crlf + "{}");
+                await stream.WriteAsync(response, 0, response.Length);
+                await stream.FlushAsync();
+            }
+
+            private static Int32 IndexOfHeaderEnd(Byte[] bytes)
+            {
+                for (var i = 0; i + 3 < bytes.Length; i++)
+                {
+                    if (bytes[i] == 13 && bytes[i + 1] == 10 && bytes[i + 2] == 13 && bytes[i + 3] == 10)
+                    {
+                        return i + 4;
+                    }
+                }
+
+                return -1;
+            }
+
+            private static Int32 DeclaredLength(String headers)
+            {
+                foreach (var line in headers.Split("\r\n"))
+                {
+                    if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase) &&
+                        Int32.TryParse(line.Substring("Content-Length:".Length).Trim(),
+                            NumberStyles.None, CultureInfo.InvariantCulture, out var value))
+                    {
+                        return value;
+                    }
+                }
+
+                return -1;
+            }
+        }
+
         /// <summary>A port nothing listens on: bound to learn a free one, then released.</summary>
         private static Int32 ClosedLoopbackPort()
         {
@@ -557,6 +725,148 @@ namespace NoSQL.GraphDB.Tests
         #endregion
 
         #region A. the runtime's own routes
+
+        /// <summary>
+        ///   A multipart job reaches the runner over real HTTP, not just through the reader in isolation.
+        ///   The grammar has its own file of tests; what this pins is the WIRING - that the route accepts
+        ///   the content type, and that nothing upstream consumes the body before the reader sees it.
+        ///
+        ///   <para>Asserted as a CONTRAST, because that is what makes it a statement about the file rather
+        ///   than about this host: the CSV integration declares its file setting required, so the same job
+        ///   without the file part is refused before the run, and with it gets past that refusal to the one
+        ///   phase this host cannot complete (its graph target is a name that does not resolve). A test that
+        ///   only looked at the second half would pass on a runtime that ignored the file entirely.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task AMultipartJobsFilePartIsWhatSatisfiesItsFileSetting()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var without = MultipartJob(CsvProviderId, "multipart-no-file");
+            using var refused = await client.PostAsync(RuntimeJobRoute, without);
+            var refusal = await ReadText(refused);
+            Assert.AreEqual(HttpStatusCode.BadRequest, refused.StatusCode,
+                "a multipart job with no file part was accepted for a provider whose file setting is " +
+                "required, so the file is not what satisfies it and the assertion below proves nothing: " +
+                refusal);
+
+            using var with = MultipartJob(CsvProviderId, "multipart-office",
+                ("devices.csv", "mac,name\n44:D2:44:AA:BB:CC,Reception AP\n"));
+            using var response = await client.PostAsync(RuntimeJobRoute, with);
+
+            var body = await ReadText(response);
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "adding the file part did not get the job past its pre-run refusals. A 400 means the file " +
+                "did not arrive as the file setting; a 415 means the route did not accept the only " +
+                "transport a large extract can use: " + body);
+
+            var report = JsonDocument.Parse(body).RootElement;
+            Assert.AreEqual("graph", Text(report, "errorKind"),
+                "the run failed somewhere other than at its graph target, which is the only phase this " +
+                "host cannot complete: " + body);
+        }
+
+        /// <summary>
+        ///   The same job over both transports produces the same OUTCOME over real HTTP, which is the
+        ///   end-to-end form of the sameness guarantee the reader's tests make about the normalized job.
+        /// </summary>
+        [TestMethod]
+        public async Task TheSameJobOverBothTransportsFailsTheSameWay()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            const String text = "mac,name\n44:D2:44:AA:BB:CC,Reception AP\n";
+
+            using var form = MultipartJob(CsvProviderId, "same-both-ways-form", ("devices.csv", text));
+            using var viaForm = await client.PostAsync(RuntimeJobRoute, form);
+            using var viaJson = await client.PostAsync(RuntimeJobRoute,
+                Json(JobBody(CsvProviderId, "same-both-ways-json", "{}", files:
+                    "{\"file\":" + FileJson("devices.csv", text) + "}")));
+
+            Assert.AreEqual(viaJson.StatusCode, viaForm.StatusCode,
+                "the two transports answered different statuses for one job");
+            var formReport = JsonDocument.Parse(await ReadText(viaForm)).RootElement;
+            var jsonReport = JsonDocument.Parse(await ReadText(viaJson)).RootElement;
+            Assert.AreEqual(Text(jsonReport, "errorKind"), Text(formReport, "errorKind"),
+                "the two transports produced different outcomes for one job, so they have drifted and the " +
+                "difference is invisible from the graph");
+        }
+
+        /// <summary>
+        ///   An unreadable content type is 415 on the wire, naming both accepted types. A caller who sent
+        ///   the wrong one has not written a bad job, they have written a good one nobody read.
+        /// </summary>
+        [TestMethod]
+        public async Task AJobSentAsPlainTextIs415OnTheWire()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var content = new StringContent(JobBody(CsvProviderId, "wrong-type", "{}"),
+                Encoding.UTF8, "text/plain");
+            using var response = await client.PostAsync(RuntimeJobRoute, content);
+
+            var body = await ReadText(response);
+            Assert.AreEqual(HttpStatusCode.UnsupportedMediaType, response.StatusCode, body);
+            StringAssert.Contains(body, "multipart/form-data", body);
+        }
+
+        /// <summary>
+        ///   A credential sent on the multipart transport is still redacted out of everything the run
+        ///   reports. The redaction hold is applied where the credential is LEASED rather than where the job
+        ///   arrived, so this is a regression test for the wiring, and a leak here would put a caller's
+        ///   secret on a report and in the log.
+        /// </summary>
+        [TestMethod]
+        public async Task ACredentialOnTheMultipartTransportIsStillRedacted()
+        {
+            const String secret = "sup3r-s3cret-on-the-form";
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var form = MultipartJob(CsvProviderId, "redacted-form",
+                "{\"apiKey\":\"" + secret + "\"}",
+                new[] { ("devices.csv", "mac,name\n44:D2:44:AA:BB:CC,AP\n") });
+            using var response = await client.PostAsync(RuntimeJobRoute, form);
+
+            var body = await ReadText(response);
+            Assert.IsFalse(body.Contains(secret, StringComparison.Ordinal),
+                "the credential the job carried is echoed in what the run reported: " + body);
+        }
+
+        /// <summary>
+        ///   A multipart job whose form is composed by <c>MultipartFormDataContent</c> rather than by hand.
+        ///   Written this way on purpose: it is what a real client library produces, quoted part names and
+        ///   all, so a grammar that only accepted a hand-written fixture would be tested against itself.
+        /// </summary>
+        private static MultipartFormDataContent MultipartJob(String providerId, String instanceId,
+            params (String Name, String Text)[] files)
+        {
+            return MultipartJob(providerId, instanceId, null, files);
+        }
+
+        private static MultipartFormDataContent MultipartJob(String providerId, String instanceId,
+            String credentialValues, (String Name, String Text)[] files)
+        {
+            var form = new MultipartFormDataContent("----f8-endpoint-test");
+
+            // A STRING part, not a byte array: appending bytes declares a filename, and the job document is
+            // a value part. That is the mistake the reader refuses by name.
+            var document = new StringContent(
+                JobBody(providerId, instanceId, "{}", credentialValues), Encoding.UTF8, "application/json");
+            form.Add(document, "job");
+
+            for (var i = 0; i < files.Length; i++)
+            {
+                var content = new ByteArrayContent(Encoding.UTF8.GetBytes(files[i].Text));
+                form.Add(content, "files[file]" + (files.Length > 1 ? "[" + i + "]" : String.Empty),
+                    files[i].Name);
+            }
+
+            return form;
+        }
 
         /// <summary>
         /// The probe the apiApp's cached reachability check calls. It answers, and it says nothing
@@ -1233,7 +1543,7 @@ namespace NoSQL.GraphDB.Tests
         #region B. the apiApp's proxy
 
         /// <summary>
-        /// The apiApp, whose four /integrations routes proxy the runtime.
+        /// The apiApp, whose eight /integrations routes proxy the runtime.
         /// </summary>
         private sealed class ProxyFactory : VolatileAppFactory
         {
@@ -1303,6 +1613,7 @@ namespace NoSQL.GraphDB.Tests
             var answers = new List<HttpResponseMessage>
             {
                 await client.GetAsync(ProxyProvidersRoute),
+                await client.GetAsync(ProxyLimitsRoute),
                 await client.GetAsync(ProxyVocabularyRoute),
                 await client.PostAsync(ProxyValidateRoute, Json(SnapshotBody("complete"))),
                 await client.PostAsync(ProxyJobRoute, Json(JobBody(CsvProviderId, "garage", null))),
@@ -1316,9 +1627,540 @@ namespace NoSQL.GraphDB.Tests
 
         private static readonly String[] ProxyRoutes =
         {
-            ProxyProvidersRoute, ProxyVocabularyRoute, ProxyValidateRoute, ProxyJobRoute,
-            ProxyRunsRoute, ProxyRunRoute, ProxyCancelRoute,
+            ProxyProvidersRoute, ProxyLimitsRoute, ProxyVocabularyRoute, ProxyValidateRoute,
+            ProxyJobRoute, ProxyRunsRoute, ProxyRunRoute, ProxyCancelRoute,
         };
+
+        #region the startup banner announces every ceiling it enforces
+
+        /// <summary>
+        ///   The runtime's startup banner names ALL THREE file ceilings.
+        ///
+        ///   <para>This test exists because its absence let a real omission through: the file-count
+        ///   ceiling was added, enforced and documented, and the banner kept announcing two of three, so an
+        ///   operator reading their own container's log could not see the third at all. The banner is the
+        ///   only place a deployment's posture is stated to whoever runs it, which makes a silently missing
+        ///   line worse than a wrong one.</para>
+        /// </summary>
+        [TestMethod]
+        public void TheStartupBanner_NamesEveryFileCeilingItEnforces()
+        {
+            var sink = new TestLogSink();
+            using var factory = sink.CreateFactory();
+
+            IntegrationsHost.LogStartupPosture(factory.CreateLogger("posture"),
+                new IntegrationsOptions(), new Fallen8TargetOptions());
+
+            foreach (var key in new[]
+                     {
+                         "Integrations:MaxFileBytes",
+                         "Integrations:MaxJobFileBytes",
+                         "Integrations:MaxJobFiles",
+                     })
+            {
+                Assert.IsTrue(sink.Entries.Any(entry => entry.Message.Contains(key, StringComparison.Ordinal)),
+                    "the startup banner never mentions " + key + ", so an operator cannot see a ceiling " +
+                    "their deployment enforces from the log it prints on every start");
+            }
+        }
+
+        /// <summary>
+        ///   A ceiling switched OFF is a WARNING naming the key, for each of the three. Off is a legitimate
+        ///   configuration and an alarming one - what a job may cost is then whoever submits it to decide -
+        ///   so it may not read like an ordinary informational line.
+        /// </summary>
+        [TestMethod]
+        public void TheStartupBanner_WarnsForEachCeilingThatIsSwitchedOff()
+        {
+            var sink = new TestLogSink();
+            using var factory = sink.CreateFactory();
+
+            IntegrationsHost.LogStartupPosture(factory.CreateLogger("posture"),
+                new IntegrationsOptions { MaxFileBytes = 0, MaxJobFileBytes = 0, MaxJobFiles = 0 },
+                new Fallen8TargetOptions());
+
+            foreach (var key in new[]
+                     {
+                         "Integrations:MaxFileBytes",
+                         "Integrations:MaxJobFileBytes",
+                         "Integrations:MaxJobFiles",
+                     })
+            {
+                Assert.IsTrue(sink.Contains(LogLevel.Warning, key),
+                    "switching " + key + " off is not announced as a warning, so a deployment with no " +
+                    "ceiling at all looks exactly like one with the shipped defaults");
+            }
+        }
+
+        #endregion
+
+        #region the instance serves the ceilings a caller has to respect
+
+        /// <summary>
+        ///   The shipped defaults, pinned here rather than only in the options type. A changed default has
+        ///   to fail a test, because these three numbers are published in the docs, drawn in a screenshot
+        ///   and used by Studio to refuse a job before uploading it: changing one quietly makes all three
+        ///   of those wrong at once.
+        /// </summary>
+        [TestMethod]
+        public void TheShippedFileCeilings_AreTheOnesEveryClientAndDocumentAssumes()
+        {
+            var options = new IntegrationsOptions();
+
+            Assert.AreEqual(134_217_728L, options.MaxFileBytes, "Integrations:MaxFileBytes changed");
+            Assert.AreEqual(536_870_912L, options.MaxJobFileBytes, "Integrations:MaxJobFileBytes changed");
+            Assert.AreEqual(256, options.MaxJobFiles, "Integrations:MaxJobFiles changed");
+        }
+
+        /// <summary>
+        ///   The runtime reports what it is CONFIGURED with, not a constant. This host sets a deliberately
+        ///   odd per-file ceiling, so the assertion below cannot pass on a route that returns the shipped
+        ///   default while ignoring the operator's configuration entirely.
+        /// </summary>
+        [TestMethod]
+        public async Task TheRuntimeLimitsRoute_ReportsTheConfiguredNumbersRatherThanConstants()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/integration/limits");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await ReadText(response));
+
+            var body = await ReadJson(response);
+            Assert.AreEqual(RuntimeFactory.MaxFileBytes, body.GetProperty("maxFileBytes").GetInt64(),
+                "the runtime reported a per-file ceiling that is not the one this host configured, so the " +
+                "route is answering from a constant and an operator's setting would never reach a client");
+            Assert.AreEqual(536_870_912L, body.GetProperty("maxJobFileBytes").GetInt64(),
+                "the job-total ceiling is not the shipped default this host leaves alone");
+            Assert.AreEqual(256, body.GetProperty("maxJobFiles").GetInt32(),
+                "the file count ceiling is not the shipped default this host leaves alone");
+        }
+
+        /// <summary>
+        ///   The proxy answers the ceiling that BINDS, which is the smaller of the runtime's own and this
+        ///   proxy's transport bound. A caller told four gigabytes and then refused at 768 MiB has been
+        ///   given the wrong answer to the only question they asked, and a caller that has to combine two
+        ///   ceilings itself is the shape that let Studio carry one BELOW the runtime's.
+        ///
+        ///   <para>Asserted on the action with a stub client, because this is the one integrations route
+        ///   whose answer the proxy computes: what is under test is the arithmetic, not the hop.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task TheProxyLimitsRoute_LowersARuntimeCeilingAboveItsOwnTransportBound()
+        {
+            // Both byte ceilings far above the proxy's 768 MiB, and the COUNT switched off.
+            var controller = new IntegrationsController(new CannedLimitsClient(
+                "{\"maxFileBytes\":4294967296,\"maxJobFileBytes\":4294967296,\"maxJobFiles\":0}"))
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            var result = await controller.Limits(CancellationToken.None) as OkObjectResult;
+            Assert.IsNotNull(result, "the limits route did not answer 200 with a body");
+            var limits = (IntegrationLimitsREST)result.Value;
+
+            var expected = ProxyJobTransportLimit - 1_048_576;
+            Assert.AreEqual(expected, limits.MaxFileBytes,
+                "a runtime per-file ceiling above the proxy's transport bound was passed through, so a " +
+                "caller is promised more than this instance can carry");
+            Assert.AreEqual(expected, limits.MaxJobFileBytes,
+                "a runtime job-total ceiling above the proxy's transport bound was passed through");
+            Assert.AreEqual(0, limits.MaxJobFiles,
+                "the count is the one number this proxy does not bound, so a switched-off count has to " +
+                "survive as zero rather than being replaced by a byte figure");
+        }
+
+        /// <summary>
+        ///   A ceiling the proxy CAN carry is passed through untouched. Without this the test above would
+        ///   also pass on a proxy that ignored the runtime and always answered its own bound, which would
+        ///   hide the operator's configuration just as thoroughly.
+        /// </summary>
+        [TestMethod]
+        public async Task TheProxyLimitsRoute_PassesThroughACeilingItCanCarry()
+        {
+            var controller = new IntegrationsController(new CannedLimitsClient(
+                "{\"maxFileBytes\":134217728,\"maxJobFileBytes\":536870912,\"maxJobFiles\":256}"))
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            var result = await controller.Limits(CancellationToken.None) as OkObjectResult;
+            Assert.IsNotNull(result);
+            var limits = (IntegrationLimitsREST)result.Value;
+
+            Assert.AreEqual(134_217_728L, limits.MaxFileBytes,
+                "the shipped per-file ceiling was altered, so the proxy is answering its own bound rather " +
+                "than the runtime's configuration");
+            Assert.AreEqual(536_870_912L, limits.MaxJobFileBytes, "the shipped job-total ceiling was altered");
+            Assert.AreEqual(256, limits.MaxJobFiles, "the shipped count ceiling was altered");
+        }
+
+        /// <summary>
+        ///   A runtime too old to serve this route, or answering something else: the proxy says it could not
+        ///   read the limits rather than inventing ceilings a client would then trust and refuse against.
+        /// </summary>
+        [TestMethod]
+        public async Task TheProxyLimitsRoute_RefusesToInventCeilingsItCouldNotRead()
+        {
+            var controller = new IntegrationsController(new CannedLimitsClient("<html>not this</html>"))
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            var result = await controller.Limits(CancellationToken.None) as ObjectResult;
+            Assert.IsNotNull(result);
+            Assert.AreEqual(StatusCodes.Status503ServiceUnavailable, result.StatusCode,
+                "an unreadable limits answer produced something other than 503, so a client may be given " +
+                "numbers this instance never established");
+        }
+
+        [TestMethod]
+        [DataRow("", DisplayName = "an empty body")]
+        [DataRow("   ", DisplayName = "whitespace")]
+        [DataRow("null", DisplayName = "a literal null")]
+        public async Task TheProxyLimitsRoute_TreatsAnEmptyAnswerAsUnreadableRatherThanAsNoCeilings(
+            String body)
+        {
+            // These three deserialize to nothing rather than to a failure, so the tempting shape is to
+            // default them to an all-zero record. That would report this proxy's transport bound (the
+            // substitution a zero triggers) as though the runtime had agreed to it, and a caller would
+            // then stage a job against a ceiling nobody established.
+            var controller = new IntegrationsController(new CannedLimitsClient(body))
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            var result = await controller.Limits(CancellationToken.None) as ObjectResult;
+            Assert.IsNotNull(result);
+            Assert.AreEqual(StatusCodes.Status503ServiceUnavailable, result.StatusCode,
+                "an empty limits answer was turned into ceilings instead of a refusal");
+            Assert.IsNotInstanceOfType(result.Value, typeof(IntegrationLimitsREST),
+                "the refusal carried a limits record, so a client could read ceilings off a failure");
+        }
+
+        /// <summary>A client that answers the limits route with one canned body and nothing else.</summary>
+        private sealed class CannedLimitsClient : IIntegrationsClient
+        {
+            private readonly String _body;
+
+            public CannedLimitsClient(String body)
+            {
+                _body = body;
+            }
+
+            public Boolean Configured => true;
+
+            public Task<SidecarResponse> ForwardAsync(HttpMethod method, String path, String jsonBody,
+                CancellationToken cancellationToken)
+            {
+                return Task.FromResult(new SidecarResponse(200, _body, "application/json"));
+            }
+
+            public Task<SidecarResponse> ForwardStreamAsync(HttpMethod method, String path, Stream body,
+                String contentType, Int64? contentLength, CancellationToken cancellationToken)
+            {
+                throw new NotSupportedException("the limits route does not stream");
+            }
+
+            public Task<Boolean> IsReachableAsync(CancellationToken cancellationToken)
+            {
+                return Task.FromResult(true);
+            }
+        }
+
+        #endregion
+
+        #region the proxy carries a multipart job through without reading it
+
+        /// <summary>
+        ///   A multipart job is forwarded VERBATIM, and this is asserted on the bytes that crossed the wire
+        ///   rather than on the status: the boundary, the declared length and the body are the three things a
+        ///   hop whose entire contract is not to look at the body can still break, and breaking any of them
+        ///   turns every large upload into a refusal from the runtime that nobody can explain.
+        /// </summary>
+        [TestMethod]
+        public async Task AMultipartJobIsForwardedByteForByte_WithItsBoundaryAndItsLength()
+        {
+            using var runtime = new RecordingListener();
+            using var factory = new ProxyFactory(enabled: "true",
+                endpoint: "http://127.0.0.1:" + runtime.Port.ToString(CultureInfo.InvariantCulture));
+            using var client = factory.CreateClient();
+
+            const String boundary = "----f8-proxy-boundary-9f3";
+            var payload = new List<Byte>();
+            payload.AddRange(Encoding.UTF8.GetBytes(
+                "--" + boundary + "\r\nContent-Disposition: form-data; name=\"job\"\r\n\r\n" +
+                "{\"providerId\":\"" + CsvProviderId + "\",\"integrationInstanceId\":\"office\"}\r\n" +
+                "--" + boundary + "\r\nContent-Disposition: form-data; name=\"files[file]\"; " +
+                "filename=\"devices.csv\"\r\n\r\n"));
+            // A zero byte and a stray CR, because a proxy that treated the body as text would eat both.
+            payload.AddRange(new Byte[] { 0x6D, 0x61, 0x63, 0x00, 0x0D, 0x0A });
+            payload.AddRange(Encoding.UTF8.GetBytes("\r\n--" + boundary + "--\r\n"));
+            var body = payload.ToArray();
+
+            using var content = new ByteArrayContent(body);
+            content.Headers.ContentType =
+                MediaTypeHeaderValue.Parse("multipart/form-data; boundary=" + boundary);
+
+            using var answer = await client.PostAsync(ProxyJobRoute, content);
+
+            Assert.AreNotEqual(HttpStatusCode.UnsupportedMediaType, answer.StatusCode,
+                "the proxy refused a multipart job as an unsupported type, which is the only transport a " +
+                "multi-gigabyte extract can arrive on: " + await ReadText(answer));
+            Assert.AreEqual(HttpStatusCode.OK, answer.StatusCode,
+                "the whole hop did not complete. A 503 here means the body reached the forward EMPTY, which " +
+                "is what happens when anything upstream reads the form first - see StreamedBodyAttribute: " +
+                await ReadText(answer));
+
+            var forwarded = await runtime.ReceivedAsync();
+            var split = SplitRequest(forwarded);
+
+            StringAssert.Contains(split.Headers, "boundary=" + boundary,
+                "the boundary did not survive the hop, so the runtime cannot find the parts at all: " +
+                split.Headers);
+            StringAssert.Contains(split.Headers,
+                "Content-Length: " + body.Length.ToString(CultureInfo.InvariantCulture),
+                "the forwarded request did not declare the body's length, which makes the runtime read a " +
+                "chunked body it cannot judge up front: " + split.Headers);
+            CollectionAssert.AreEqual(body, split.Body,
+                "the body changed on the way through a hop whose whole contract is not to look at it");
+        }
+
+        /// <summary>
+        ///   AN UNREADABLE CONTENT TYPE IS FORWARDED, so the answer names both accepted types.
+        ///
+        ///   <para>This proxy deliberately carries no <c>[Consumes]</c> list on the job route. One there
+        ///   answered 415 before the runtime could, with ASP.NET's bare body: the right status, and no
+        ///   statement of what IS accepted, which is the only part a caller can act on. The runtime owns
+        ///   the grammar that reads a job, so it owns the message about which shapes it reads, and there is
+        ///   one home for that rather than two to keep in step. Measured against two live processes before
+        ///   this was changed; see the feature's findings.md.</para>
+        ///
+        ///   <para>Asserted by FORWARDING, which is the load-bearing half: the test fails if a
+        ///   <c>[Consumes]</c> list comes back, because the request would then never reach the runtime at
+        ///   all. A status-only assertion would pass either way, since both answers are 415.</para>
+        /// </summary>
+        [TestMethod]
+        [DataRow("text/plain", DisplayName = "text")]
+        [DataRow("application/x-www-form-urlencoded", DisplayName = "a urlencoded form")]
+        public async Task AnUnreadableContentTypeReachesTheRuntime_WhichNamesBothAcceptedTypes(
+            String contentType)
+        {
+            using var runtime = new RecordingListener();
+            using var factory = new ProxyFactory(enabled: "true",
+                endpoint: "http://127.0.0.1:" + runtime.Port.ToString(CultureInfo.InvariantCulture));
+            using var client = factory.CreateClient();
+
+            using var content = new StringContent(
+                JobBody(CsvProviderId, "wrong-type", "{}"), Encoding.UTF8, contentType);
+            using var answer = await client.PostAsync(ProxyJobRoute, content);
+
+            // A urlencoded body is the dangerous one: it is form-shaped, so anything that read the form
+            // here would consume the body before the action ran. [StreamedBody] is what stops that, and
+            // this is the case that would catch its removal.
+            var forwarded = SplitRequest(await runtime.ReceivedAsync());
+            StringAssert.Contains(forwarded.Headers, contentType,
+                "the content type did not survive the hop, so the runtime cannot say which shape was " +
+                "actually sent: " + forwarded.Headers);
+            Assert.AreEqual(JobBody(CsvProviderId, "wrong-type", "{}"),
+                Encoding.UTF8.GetString(forwarded.Body),
+                "the body did not reach the runtime intact, which is what happens when anything upstream " +
+                "reads it first");
+        }
+
+        /// <summary>
+        ///   A JSON job still goes through unchanged. The multipart arm is an addition, and the transport
+        ///   every existing script and every no-file integration uses must be untouched by it.
+        /// </summary>
+        [TestMethod]
+        public async Task AJsonJobIsStillForwardedUnchanged()
+        {
+            using var runtime = new RecordingListener();
+            using var factory = new ProxyFactory(enabled: "true",
+                endpoint: "http://127.0.0.1:" + runtime.Port.ToString(CultureInfo.InvariantCulture));
+            using var client = factory.CreateClient();
+
+            var document = JobBody(CsvProviderId, "office", "{\"label\":\"desk\"}");
+            using var answer = await client.PostAsync(ProxyJobRoute, Json(document));
+
+            var split = SplitRequest(await runtime.ReceivedAsync());
+            StringAssert.Contains(split.Headers, "application/json", split.Headers);
+            Assert.AreEqual(document, Encoding.UTF8.GetString(split.Body),
+                "the JSON body changed on the way, so the transport that every existing caller uses has " +
+                "been altered by adding a second one");
+        }
+
+        private static (String Headers, Byte[] Body) SplitRequest(Byte[] request)
+        {
+            for (var i = 0; i + 3 < request.Length; i++)
+            {
+                if (request[i] == 13 && request[i + 1] == 10 && request[i + 2] == 13 && request[i + 3] == 10)
+                {
+                    var start = i + 4;
+                    var body = new Byte[request.Length - start];
+                    Array.Copy(request, start, body, 0, body.Length);
+                    return (Encoding.ASCII.GetString(request, 0, i), body);
+                }
+            }
+
+            Assert.Fail("the forwarded request had no header terminator, so it was never a whole request");
+            return (String.Empty, Array.Empty<Byte>());
+        }
+
+        #endregion
+
+        #region the job route refuses an oversized body itself, instead of blaming the runtime
+
+        /// <summary>The bound on <c>POST /integrations/job</c>, mirrored from the controller's own private
+        /// const so a change there fails a test instead of quietly moving what a caller may send.</summary>
+        private const Int64 ProxyJobTransportLimit = 805_306_368;
+
+        /// <summary>
+        ///   A body whose DECLARED length is over the bound is refused here, with a 413, and the endpoint
+        ///   points at a CLOSED port while it happens. That is what makes this a real assertion rather than
+        ///   a restatement: nothing could have been forwarded, so a 413 can only have come from the header
+        ///   check, and the 503 this used to answer was measured against a runtime that was serving
+        ///   providers a second earlier (feature integration-file-transport, findings.md).
+        ///
+        ///   <para>The length is declared rather than sent. A test that really uploaded 768 MiB would
+        ///   measure the machine, not the contract, and the contract is precisely that no upload happens.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task AJobBodyOverTheTransportBound_Answers413AndNeverBlamesTheRuntime()
+        {
+            using var factory = new ProxyFactory(enabled: "true", endpoint: "http://127.0.0.1:1");
+            using var client = factory.CreateClient();
+
+            using var content = new StringContent("{}", Encoding.UTF8, "application/json");
+            content.Headers.ContentLength = ProxyJobTransportLimit + 1;
+
+            using var answer = await client.PostAsync(ProxyJobRoute, content);
+            var body = await ReadText(answer);
+
+            Assert.AreEqual(HttpStatusCode.RequestEntityTooLarge, answer.StatusCode,
+                "an oversized job body did not answer 413. If this is a 503, the refusal has gone back to " +
+                "happening while the body is FORWARDED, which reports the caller's own request as a " +
+                "runtime that did not answer and sends them to inspect a healthy sidecar: " + body);
+            Assert.IsFalse(body.Contains("Integration runtime unavailable", StringComparison.Ordinal),
+                "the 413 body still accuses the runtime, which was never contacted: " + body);
+            StringAssert.Contains(body, ProxyJobTransportLimit.ToString(CultureInfo.InvariantCulture),
+                "the refusal does not name the bound it broke, so the caller cannot tell how much to cut: " + body);
+        }
+
+        /// <summary>
+        ///   No Content-Length, no judgement: a chunked body cannot be measured before it is read, and one
+        ///   over the bound cannot be refused with a status that reliably reaches the caller at all. So it
+        ///   is refused up front instead, which is the contract narrowing this feature took deliberately.
+        ///
+        ///   <para>Asserted on the ACTION rather than over HTTP because the in-memory test transport
+        ///   always supplies a length, so it cannot express a chunked request at all. Testing the branch
+        ///   directly also buys a stronger claim than a status: the client is one that fails the test if
+        ///   it is called, which proves nothing was forwarded. The wire behaviour is verified live with
+        ///   curl and recorded in the feature's findings.md.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task AJobBodyWithNoDeclaredLength_Answers411AndForwardsNothing()
+        {
+            var never = new NeverForwardsClient();
+            var controller = new IntegrationsController(never)
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            // DefaultHttpContext declares no Content-Length, which is exactly the chunked case.
+            var result = await controller.Job(wait: null, CancellationToken.None) as ObjectResult;
+
+            Assert.IsNotNull(result, "the 411 branch did not produce a problem result");
+            Assert.AreEqual(StatusCodes.Status411LengthRequired, result.StatusCode,
+                "a body with no declared length was not refused with 411, so an oversized one is judged " +
+                "mid-upload again and its refusal may never reach the caller");
+            StringAssert.Contains(((ProblemDetails)result.Value).Detail, "Content-Length",
+                "the 411 does not say what is missing, which is the one thing a caller can act on");
+            Assert.IsFalse(never.WasCalled,
+                "the runtime was contacted for a request this proxy had already decided to refuse");
+        }
+
+        /// <summary>
+        ///   The same claim for the oversized case, at the same level: refused without the runtime being
+        ///   asked. The HTTP test above proves the status travels; this one proves no forward happened,
+        ///   which is the property that makes the refusal cheap enough to be worth having.
+        /// </summary>
+        [TestMethod]
+        public async Task AnOversizedJobBody_IsRefusedWithoutContactingTheRuntime()
+        {
+            var never = new NeverForwardsClient();
+            var context = new DefaultHttpContext();
+            context.Request.ContentLength = ProxyJobTransportLimit + 1;
+            var controller = new IntegrationsController(never)
+            {
+                ControllerContext = new ControllerContext { HttpContext = context }
+            };
+
+            var result = await controller.Job(wait: null, CancellationToken.None) as ObjectResult;
+
+            Assert.IsNotNull(result, "the 413 branch did not produce a problem result");
+            Assert.AreEqual(StatusCodes.Status413PayloadTooLarge, result.StatusCode,
+                "an oversized declared length was not refused with 413");
+            Assert.IsFalse(never.WasCalled,
+                "the runtime was contacted for an oversized body, which is how a caller's own request " +
+                "came to be reported as a runtime that did not answer");
+        }
+
+        /// <summary>A client that fails the test if the proxy forwards anything to it.</summary>
+        private sealed class NeverForwardsClient : IIntegrationsClient
+        {
+            internal Boolean WasCalled
+            {
+                get; private set;
+            }
+
+            public Boolean Configured => true;
+
+            public Task<SidecarResponse> ForwardAsync(HttpMethod method, String path, String jsonBody,
+                CancellationToken cancellationToken)
+            {
+                WasCalled = true;
+                return Task.FromResult(new SidecarResponse(200, "{}", "application/json"));
+            }
+
+            public Task<SidecarResponse> ForwardStreamAsync(HttpMethod method, String path, Stream body,
+                String contentType, Int64? contentLength, CancellationToken cancellationToken)
+            {
+                WasCalled = true;
+                return Task.FromResult(new SidecarResponse(200, "{}", "application/json"));
+            }
+
+            public Task<Boolean> IsReachableAsync(CancellationToken cancellationToken)
+            {
+                return Task.FromResult(true);
+            }
+        }
+
+        /// <summary>
+        ///   The pre-check must not swallow a legal job. A body inside the bound still reaches the forward,
+        ///   which against a closed port is the honest 503 - and that 503 naming a connection is what
+        ///   distinguishes "your request was too big" from "the runtime is not there", the two answers this
+        ///   route used to give in the same words.
+        /// </summary>
+        [TestMethod]
+        public async Task ALegalJobBody_StillReachesTheForwardAndFailsAsAnAbsentRuntime()
+        {
+            using var factory = new ProxyFactory(enabled: "true", endpoint: "http://127.0.0.1:1");
+            using var client = factory.CreateClient();
+
+            using var answer = await client.PostAsync(ProxyJobRoute,
+                Json(JobBody(CsvProviderId, "legal-body", null)));
+            var body = await ReadText(answer);
+
+            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, answer.StatusCode,
+                "a legal job body no longer reaches the runtime, so the size pre-check is refusing " +
+                "requests it was never meant to see: " + body);
+            StringAssert.Contains(body, "Integration runtime unavailable",
+                "an absent runtime stopped saying so, which is the half of this distinction that was " +
+                "already correct: " + body);
+        }
+
+        #endregion
 
         /// <summary>
         /// Off is the default, and that 403 IS the opt-out a client gates the feature on. The caller is

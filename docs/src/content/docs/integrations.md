@@ -147,7 +147,76 @@ screen for it arrives.
 An integration that reads a file gets it **from you, with the run**. In [F8 Studio](/studio/)
 that is a dropzone and a file picker on the Integrations screen, the same gesture the
 [Knowledge](/unstructured-ingestion/) screen uses for documents; over the API it is the `files`
-map above, one entry per file setting, carrying the file's own name and its **bytes as base64**.
+map above, one entry per file setting, carrying the file's own name and its bytes.
+
+There are two ways to send those bytes and it matters which you pick for anything large. See
+[Sending the bytes](#sending-the-bytes).
+
+### Sending the bytes
+
+**As base64, in the document.** The `files` map above, one string per file. It is the original
+contract, it is what a shell script with `base64 -w0` writes, and it is fine for a CSV inventory or
+anything up to a few tens of megabytes.
+
+It does not scale, and the reason is not the third that base64 adds. Whatever composes that request
+has to hold the file's bytes, its base64 string and the serialised request at the same time, so the
+peak is several times the file. In a browser it is worse than slow: a JavaScript string caps at
+512 MiB, so the encoder itself fails at roughly 384 MiB of input, below what the runtime is
+configured to accept, and no setting anywhere reaches that. A vehicle's AUTOSAR extract is several
+gigabytes.
+
+**As `multipart/form-data`, one part per file.** Nothing expands, nothing is held twice, and the
+sender streams straight from the file. Studio always uses this. The first part is named `job` and
+carries the same document with `files` **absent**; each file follows as its own part with its bytes
+verbatim:
+
+```
+POST /integrations/job
+Content-Type: multipart/form-data; boundary=X
+
+--X
+Content-Disposition: form-data; name="job"
+
+{"providerId":"autosar-arxml","integrationInstanceId":"vehicle-7","settings":{}}
+--X
+Content-Disposition: form-data; name="files[file][0]"; filename="chassis.arxml"
+
+<AUTOSAR>...
+--X
+Content-Disposition: form-data; name="files[file][1]"; filename="body.arxml"
+
+<AUTOSAR>...
+--X--
+```
+
+With `curl` that is one `-F` per file:
+
+```bash
+curl -sS -X POST http://localhost:8080/integrations/job \
+  -F 'job={"providerId":"autosar-arxml","integrationInstanceId":"vehicle-7","settings":{}};type=application/json' \
+  -F 'files[file][0]=@chassis.arxml' \
+  -F 'files[file][1]=@body.arxml'
+```
+
+The rules, each of which is a `400` naming the part it is about:
+
+- The `job` part is **first**, appears once, and is a value part with no `filename`. The files are
+  read as they stream past, so the document that says which setting each belongs to cannot arrive
+  after them.
+- `files[<settingKey>]` carries one file. `files[<settingKey>][<n>]` is the **list** form, numbered
+  from 0, ascending, with no gaps and no repeats. The two forms are not mixed for one setting, and
+  the numbering is explicit rather than implied by part order because a list of one is a different
+  statement from one file - a setting that takes exactly one file refuses the list form, and that
+  refusal is load-bearing.
+- Every file part declares a `filename`, which becomes the file's name. `filename*` is honoured.
+- **An unknown part name is refused, never ignored.** A misspelled file part that was quietly
+  dropped would submit a snapshot that does not mention whatever that file described, and a complete
+  snapshot withdraws what it does not mention.
+- The document in the `job` part may not carry a `files` map of its own: on this transport the parts
+  *are* the files.
+
+Anything other than these two content types is a `415`. One job sent either way produces an
+identical run and an identical report.
 
 ### One setting, several files
 
@@ -184,9 +253,9 @@ Two more consequences of the union:
   with one name make each of those messages ambiguous, and the commonest cause is the same file
   picked twice by mistake.
 
-Bytes rather than text, because the encoding is not yours to guess: an AUTOSAR extract a vendor
-tool wrote as UTF-16 decodes correctly, where a transport carrying "the text" would have handed
-the integration mojibake and written that into your graph without a word on the report.
+Bytes rather than text on both transports, because the encoding is not yours to guess: an AUTOSAR
+extract a vendor tool wrote as UTF-16 decodes correctly, where a transport carrying "the text" would
+have handed the integration mojibake and written that into your graph without a word on the report.
 
 The runtime **mounts no files and opens none on disk**. There is no directory to prepare, no
 staged upload to clean up and no file name that could point somewhere it should not: a file lives
@@ -200,27 +269,45 @@ knowing:
 - An **empty** file is refused rather than read as an empty source, because a complete snapshot
   describing nothing withdraws every element the integration ever claimed.
 
-There are **two** ceilings, both measured on the decoded bytes and both belonging to the **runtime's**
-configuration rather than the instance you submit through. A refusal names the size and the ceiling it
-broke.
+### The ceilings, and how to read them before you send
 
-- `Integrations:MaxFileBytes`, default **128 MiB**, per file. Sized for the real thing: an AUTOSAR
-  system extract for one vehicle platform runs to tens of megabytes.
-- `Integrations:MaxJobFileBytes`, default **512 MiB**, for the job **total** across every file on it.
-  Not a restatement of the first: several extracts can each be legal while their sum is what this
-  process has to hold at once, and one request carries a whole run.
+There are **three** ceilings, all belonging to the **runtime's** configuration rather than to the
+instance you submit through. A refusal names what it saw and the ceiling it broke.
 
-Above them sits a fixed 768 MiB bound on the request body itself, at the API's proxy, which no legal
-job reaches. It is deliberately not configurable, so about **576 MiB is the effective total**: raising
-`Integrations:MaxJobFileBytes` past it has no effect, because the proxy is the only way in.
+- `Integrations:MaxFileBytes`, default **128 MiB**, per file, on the decoded bytes. Sized for the
+  real thing: an AUTOSAR system extract for one vehicle platform runs to tens of megabytes.
+- `Integrations:MaxJobFileBytes`, default **512 MiB**, for the job **total** across every file
+  setting on it. Not a restatement of the first: several extracts can each be legal while their sum
+  is what this process has to hold at once, and one request carries a whole run.
+- `Integrations:MaxJobFiles`, default **256**, for **how many** files one job carries, counted the
+  same way. The byte ceilings cannot bound this on their own, because a one-byte file is legal: a
+  set can satisfy both of them and still ask the runtime for an unreasonable number of entries.
 
-Files that size are not free. They arrive base64, are decoded to bytes, and each is decoded again to
-text for the integration - two bytes per character for XML - so a run over a maximal job peaks well
-over a gigabyte before anything is parsed, and the elements it produces are written to the graph in
-batches rather than one enormous transaction. The runtime reads its files **one at a time** to keep
-only one of them decoded at once, but the bytes of all of them are held for the whole run. Budget
-memory for the runtime container accordingly; the ceilings exist precisely because the caller, not the
-operator, picks the size.
+Above them sits a fixed 768 MiB bound on the request body itself, at the API's proxy, which is
+deliberately not configurable and is the only way in. Over multipart it puts the effective total at
+about **767 MiB**, so raising `Integrations:MaxJobFileBytes` past that has no effect; over the
+base64 transport the same bound carries about **576 MiB** of files, because the encoding adds a
+third.
+
+**Ask the instance rather than assuming.** `GET /integrations/limits` answers the three numbers as
+they actually bind for you - the proxy reconciles its own bound with the runtime's configuration, so
+there is one number per question and nothing to combine:
+
+```bash
+curl -sS http://localhost:8080/integrations/limits
+# {"maxFileBytes":134217728,"maxJobFileBytes":536870912,"maxJobFiles":256}
+```
+
+Zero or less means that ceiling is off. Studio reads this before you stage anything, which is why an
+oversized set is refused in the form: refusing at the far end works, but it costs the whole upload
+first, since the connection has to finish sending before it can read the answer.
+
+Files that size are not free. Each is decoded to text for the integration - two bytes per character
+for XML - so a run over a maximal job peaks well over a gigabyte before anything is parsed, and the
+elements it produces are written to the graph in batches rather than one enormous transaction. The
+runtime reads its files **one at a time** to keep only one of them decoded at once, but the bytes of
+all of them are held for the whole run. Budget memory for the runtime container accordingly; the
+ceilings exist precisely because the caller, not the operator, picks the size.
 
 There is deliberately **no schedule, no interval and no list of past runs** anywhere in the runtime.
 Timing belongs to whoever wants the data: run a job from cron, from a CI pipeline, from a

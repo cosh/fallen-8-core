@@ -30,8 +30,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using NoSQL.GraphDB.App.Configuration;
+using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Integrations;
 using NoSQL.GraphDB.App.Namespaces;
@@ -40,7 +42,7 @@ namespace NoSQL.GraphDB.App.Controllers
 {
     /// <summary>
     ///   The instance's door to the integration runtime (feature integrations): an authenticated
-    ///   proxy for the seven routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
+    ///   proxy for the eight routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
     ///   on the operator's own network and writes what it saw into one namespace. The runtime's
     ///   container port is not published, because jobs hand that container third-party credentials, so
     ///   this proxy is the only way in and needs no second auth story on the runtime side.
@@ -59,17 +61,20 @@ namespace NoSQL.GraphDB.App.Controllers
     public class IntegrationsController : ControllerBase
     {
         /// <summary>
-        ///   The transport bound on a job body, which carries a provider's files as base64 (features
-        ///   integration-file-upload and integration-run-lifecycle). 768 MiB, and both of its relations
-        ///   are load-bearing:
+        ///   The transport bound on a job body, which carries a provider's files (features
+        ///   integration-file-upload, integration-run-lifecycle and integration-file-transport).
+        ///   768 MiB, and both of its relations are load-bearing:
         ///
-        ///   <para>ABOVE any legal job. What sets the size is no longer one file but the job TOTAL: a
-        ///   file setting a provider declares <c>multiple</c> takes a whole vehicle's system extracts at
-        ///   once, the runtime's default <c>Integrations:MaxJobFileBytes</c> is 512 MiB of decoded bytes,
-        ///   and base64 costs a third, so a maximal legal job arrives at about 683 MiB and this bound
-        ///   never fires for one the runtime would accept. Real files set both numbers: the first extract
-        ///   anybody pointed at this feature was a large size, an earlier 48 MiB bound refused it with a bare
-        ///   transport 413, and a vehicle arrives as several such extracts that reference each other.</para>
+        ///   <para>ABOVE any legal job. What sets the size is not one file but the job TOTAL: a file
+        ///   setting a provider declares <c>multiple</c> takes a whole vehicle's system extracts at once,
+        ///   and the runtime's default <c>Integrations:MaxJobFileBytes</c> is 512 MiB of decoded bytes.
+        ///   How much of this bound that consumes depends on the TRANSPORT, and both are accepted: over
+        ///   <c>multipart/form-data</c> the files travel as raw bytes, so a maximal legal job is 512 MiB
+        ///   plus part framing; over <c>application/json</c> they are base64, which costs a third, so the
+        ///   same job arrives at about 683 MiB. Either way this bound never fires for a job the runtime
+        ///   would accept. Real files set both numbers: the first extract anybody pointed at this feature
+        ///   was a large size, an earlier 48 MiB bound refused it with a bare transport 413, and a vehicle
+        ///   arrives as several such extracts that reference each other.</para>
         ///
         ///   <para>BELOW the runtime's own transport bound (832 MiB, fixed). That ordering is the point:
         ///   an absurd body has to be refused HERE, with a 413 whose meaning is plain, because a body
@@ -81,8 +86,16 @@ namespace NoSQL.GraphDB.App.Controllers
         ///   <c>DocumentController</c>'s upload bound is: the real ceiling lives in the OTHER
         ///   deployable's configuration, so a key here would be a second number to keep in step with it
         ///   and a caller could not tell which one refused them. The consequence, stated rather than
-        ///   hidden: raising <c>Integrations:MaxJobFileBytes</c> past about 576 MiB has no effect through
-        ///   this proxy, and the proxy is the only way in because the runtime publishes no port.</para>
+        ///   hidden: this bound caps what raising <c>Integrations:MaxJobFileBytes</c> can achieve through
+        ///   this proxy, at about 767 MiB of files over multipart and about 576 MiB over JSON, and the
+        ///   proxy is the only way in because the runtime publishes no port. A caller does not have to
+        ///   work that out: <c>GET /integrations/limits</c> serves the reconciled numbers, which is
+        ///   where <c>Binding</c> below applies exactly this cap.</para>
+        ///
+        ///   <para>Two OTHER ceilings bound a job and are not this one, both the runtime's and both
+        ///   reported by that route: <c>Integrations:MaxFileBytes</c> per file, and
+        ///   <c>Integrations:MaxJobFiles</c> on how many files one job carries, which the byte ceilings
+        ///   cannot bound because a one-byte file is legal.</para>
         /// </summary>
         private const Int32 JobTransportLimit = 805_306_368;
 
@@ -163,6 +176,111 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             return Forward(HttpMethod.Get, "integration/providers", null, cancellationToken);
         }
+
+        /// <summary>
+        /// Reports what a job may carry, as the ceiling that actually binds (feature integration-file-transport)
+        /// </summary>
+        /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
+        /// <remarks>Three numbers: maxFileBytes per file, maxJobFileBytes for their total, and maxJobFiles
+        /// for how many. Zero or less means that ceiling is switched off. A client reads them so it can
+        /// refuse a job BEFORE uploading it, which is the only refusal that costs nothing.
+        /// <para>This is the ONE integrations route whose answer this proxy composes rather than forwarding
+        /// verbatim, and the reason is that the binding ceiling genuinely is the smaller of two: the runtime
+        /// owns its configuration, but every request arrives through this route's own transport bound. A
+        /// runtime number above what this proxy would accept is lowered to what it would, so a caller
+        /// learns one number for one question instead of two it has to combine.</para></remarks>
+        /// <response code="200">The ceilings that bind, already reconciled with this proxy's own</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>
+        /// <response code="503">No runtime is configured, or it did not answer</response>
+        [HttpGet("/integrations/limits")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(IntegrationLimitsREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<IActionResult> Limits(CancellationToken cancellationToken)
+        {
+            SidecarResponse response;
+            try
+            {
+                response = await _client.ForwardAsync(HttpMethod.Get, "integration/limits", null,
+                    cancellationToken);
+            }
+            catch (IntegrationsUnavailableException ex)
+            {
+                return RuntimeProblem(ex);
+            }
+
+            if (response.Status != StatusCodes.Status200OK)
+            {
+                // Anything the runtime did not answer 200 to is its own answer, handed back untouched, as
+                // every other route does.
+                return new ContentResult
+                {
+                    StatusCode = response.Status,
+                    Content = response.Body,
+                    ContentType = String.IsNullOrEmpty(response.ContentType)
+                        ? "application/json"
+                        : response.ContentType
+                };
+            }
+
+            IntegrationLimitsREST runtimeLimits = null;
+            if (!String.IsNullOrWhiteSpace(response.Body))
+            {
+                try
+                {
+                    runtimeLimits = JsonSerializer.Deserialize<IntegrationLimitsREST>(response.Body,
+                        LimitsJson);
+                }
+                catch (JsonException)
+                {
+                    // Falls through to the refusal below.
+                }
+            }
+
+            if (runtimeLimits == null)
+            {
+                // A runtime too old to serve this route, or one answering something else: say the proxy
+                // could not read it rather than invent ceilings a caller would then trust. An empty body
+                // and a literal "null" land here too, deliberately - defaulting them to an all-zero
+                // record would report this proxy's transport bound as if the runtime had agreed to it.
+                return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                    "Integration runtime unavailable",
+                    "The integrations runtime did not report its limits in a shape this instance can read, " +
+                    "so no ceiling can be stated. It may predate the limits route.");
+            }
+
+            return Ok(new IntegrationLimitsREST
+            {
+                MaxFileBytes = Binding(runtimeLimits.MaxFileBytes),
+                MaxJobFileBytes = Binding(runtimeLimits.MaxJobFileBytes),
+                MaxJobFiles = runtimeLimits.MaxJobFiles,
+            });
+        }
+
+        /// <summary>
+        ///   The allowance for the multipart framing and the job envelope around the files themselves, so a
+        ///   caller told "you may send N bytes of files" is not refused by the transport for the wrapper.
+        ///   1 MiB, which is orders of magnitude more than the part headers of a legal job need.
+        /// </summary>
+        private const Int64 JobEnvelopeAllowance = 1_048_576;
+
+        /// <summary>
+        ///   The ceiling that binds for one of the byte numbers: the runtime's, unless this proxy's own
+        ///   transport bound is tighter, in which case a caller has to hear that one instead. A runtime
+        ///   ceiling that is switched off (zero or less) is NOT passed through as "unlimited": every
+        ///   request still arrives through here, so the transport bound is the real answer.
+        /// </summary>
+        private static Int64 Binding(Int64 runtimeCeiling)
+        {
+            var transport = JobTransportLimit - JobEnvelopeAllowance;
+            return runtimeCeiling <= 0 || runtimeCeiling > transport ? transport : runtimeCeiling;
+        }
+
+        private static readonly JsonSerializerOptions LimitsJson =
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         /// <summary>
         /// Reports every integration run this runtime knows about (feature integration-run-visibility)
@@ -278,25 +396,55 @@ namespace NoSQL.GraphDB.App.Controllers
         /// integration instance id, which nothing can validate: a run under an identity that
         /// integration has not always used withdraws and deletes what the real one claimed.</para>
         /// <para>Because the files travel in the body, this route carries a 768 MiB body bound rather than
-        /// the 1 MiB every other endpoint has, and a body over it is refused here with a 413. An oversized
+        /// the 1 MiB every other endpoint has, and a body over it is refused here with a 413 read from the
+        /// declared Content-Length, before any of it is uploaded. That header is therefore REQUIRED: a
+        /// chunked body cannot be judged before it is read, so one is refused with 411. An oversized
         /// FILE inside a legal body, or a legal set of files whose total is too large, is the runtime's
         /// refusal instead, naming the size and the ceiling it broke. Why that number and what it means for
         /// the runtime's own Integrations:MaxFileBytes and Integrations:MaxJobFileBytes is stated once on
         /// this controller's <c>JobTransportLimit</c>.</para>
+        /// <para>The upload has its own budget, Fallen8:Integrations:JobTimeoutSeconds (default 900),
+        /// because the clock runs at the caller's send rate while the body is streamed through.</para>
         /// <para>A file setting the provider declares <c>multiple</c> takes an ARRAY of files rather than
         /// one, and the order is preserved because a provider composing several files may depend on it. A
-        /// single object stays valid everywhere.</para></remarks>
+        /// single object stays valid everywhere.</para>
+        /// <para>TWO TRANSPORTS, one job. As application/json, the document carries each file's bytes
+        /// base64 in a <c>files</c> map - the original contract, unchanged, and what a script with
+        /// <c>curl</c> and <c>base64 -w0</c> writes. As multipart/form-data, a first part named
+        /// <c>job</c> carries the same document with <c>files</c> ABSENT, and each file follows as its own
+        /// part carrying raw bytes: <c>files[settingKey]</c> for one, or <c>files[settingKey][n]</c>
+        /// numbered from 0 for a setting given several. Every part is named and checked, and an unknown one
+        /// is refused rather than ignored. Multipart is the only shape that scales to a large extract,
+        /// because base64 in a document forces the sender to hold the file, its encoding and the request at
+        /// once. Anything else is 415. One job submitted either way produces an identical run and an
+        /// identical report; the grammar is defined once by the runtime, at
+        /// https://docs.fallen-8.com/integrations/.</para></remarks>
         /// <response code="200">The report, for a run that ended before it had a phase or when wait=true</response>
         /// <response code="202">The run was accepted; watch it at /integrations/run/{instanceId}</response>
         /// <response code="400">The runtime refused the job as written, its own message saying why</response>
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>
         /// <response code="409">A job is already running under this identity</response>
+        /// <response code="411">The body was sent without a Content-Length, which this route requires</response>
         /// <response code="413">The body exceeds this route's transport bound (see the remarks)</response>
         /// <response code="503">No runtime is configured, or it did not answer</response>
         [HttpPost("/integrations/job")]
         [RequestSizeLimit(JobTransportLimit)]
-        [Consumes("application/json")]
+        // Without this MVC reads the whole multipart form before this action runs, spooling every part over
+        // 64 KiB to a temp file and leaving nothing to forward. The attribute owns the full story.
+        [StreamedBody]
+        // NO [Consumes], deliberately, and it is the only action here without one. Two transports are
+        // accepted - application/json with each file base64 in the document, and multipart/form-data with
+        // each file's raw bytes in its own part - and the RUNTIME owns which, because it owns the grammar
+        // that reads them. A [Consumes] list here answered 415 before the runtime could, with ASP.NET's
+        // bare body: correct status, and no statement of what IS accepted, which is the only actionable
+        // part. Measured through two live processes (see the feature's findings.md). The attribute also
+        // bought nothing for the API document, because this route documents no requestBody at all: the
+        // body is streamed, never bound. So an unreadable content type is now forwarded and refused by
+        // the one place that can name both types.
+        //
+        // Safe only because of [StreamedBody] above: without it MVC would read a form-shaped body here
+        // before the action ran.
         [Produces("application/json")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status202Accepted)]
@@ -304,10 +452,53 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status411LengthRequired)]
         [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public async Task<IActionResult> Job([FromQuery] Boolean? wait, CancellationToken cancellationToken)
         {
+            // Refused on the HEADER, before a byte of body is read. This is what makes the 413 above a
+            // real answer rather than a declaration: [RequestSizeLimit] alone fires while Kestrel is
+            // READING the body, and because the read happens inside the forward the failure arrived as
+            // 503 "the integrations runtime did not answer" - about a runtime that was serving
+            // providers a second earlier. Measured, not theorised (see the feature's findings.md).
+            //
+            // A caller with no Content-Length is refused too, with 411. That is a deliberate contract
+            // narrowing: a chunked body cannot be judged before it is read, and a chunked body over the
+            // bound cannot be refused with a status that reliably reaches the caller at all. Browsers
+            // and curl always declare a length, and a caller who declares one and then sends more is
+            // caught by the backstop below.
+            if (!Request.ContentLength.HasValue)
+            {
+                return ProblemResults.Create(StatusCodes.Status411LengthRequired,
+                    "Length required",
+                    String.Format(
+                        "This route needs a Content-Length so an oversized job can be refused before it " +
+                        "is uploaded, and its bound is {0} bytes. Send the body with a declared length " +
+                        "rather than chunked.", JobTransportLimit));
+            }
+
+            if (Request.ContentLength.Value > JobTransportLimit)
+            {
+                return ProblemResults.Create(StatusCodes.Status413PayloadTooLarge,
+                    "Job body too large",
+                    String.Format(
+                        "The job body is {0} bytes, over this route's {1}-byte transport bound. The bound " +
+                        "belongs to this instance's proxy, not to the integrations runtime, which was not " +
+                        "asked. A single file over the runtime's own per-file ceiling, or a legal set whose " +
+                        "total is too large, is refused by the runtime instead and names both numbers.",
+                        Request.ContentLength.Value, JobTransportLimit));
+            }
+
+            // The backstop for a caller who declares a small length and sends more: lowered to what they
+            // declared, so the body is cut off at their own number instead of the route's. Same
+            // mechanism BulkController uses for its import carve-out.
+            var bodySize = HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
+            if (bodySize != null && !bodySize.IsReadOnly)
+            {
+                bodySize.MaxRequestBodySize = Request.ContentLength.Value;
+            }
+
             // The body is STREAMED, not bound. There is deliberately no [FromBody] parameter: a job can
             // carry a 128 MiB file, and binding it would leave the whole thing resident here about four
             // times over (the parsed document, the UTF-16 string of a re-serialisation, and the UTF-8
@@ -324,7 +515,13 @@ namespace NoSQL.GraphDB.App.Controllers
                 // asked for would otherwise be silently dropped and they would get a 202 they cannot use.
                 response = await _client.ForwardStreamAsync(HttpMethod.Post,
                     wait == true ? "integration/job?wait=true" : "integration/job",
-                    Request.Body, Request.ContentType, cancellationToken);
+                    Request.Body, Request.ContentType, Request.ContentLength, cancellationToken);
+            }
+            catch (IntegrationsRequestRejectedException ex)
+            {
+                // The caller's own body, not the runtime. Answered with the status Kestrel chose and
+                // never through RuntimeProblem, which would blame a sidecar that never saw the request.
+                return ProblemResults.Create(ex.Status, "Job body rejected", ex.Message);
             }
             catch (IntegrationsUnavailableException ex)
             {

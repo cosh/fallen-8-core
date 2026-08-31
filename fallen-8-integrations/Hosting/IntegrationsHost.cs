@@ -209,6 +209,23 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                     "process holds all of them at once.", options.MaxJobFileBytes);
             }
 
+            // The third, at a different unit: bytes were never the only thing a caller can spend. Half a
+            // gigabyte of one-byte files satisfies both ceilings above and still asks this process for an
+            // absurd number of payloads, so an operator reading this banner has to see all three.
+            if (options.MaxJobFiles > 0)
+            {
+                logger.LogInformation(
+                    "One job may carry {MaxJobFiles} files, counted across every file setting on it " +
+                    "(Integrations:MaxJobFiles).", options.MaxJobFiles);
+            }
+            else
+            {
+                logger.LogWarning(
+                    "Integrations:MaxJobFiles is {MaxJobFiles}, which switches the file-count ceiling OFF: " +
+                    "the two byte ceilings do not bound this on their own, because a file of one byte is " +
+                    "legal.", options.MaxJobFiles);
+            }
+
             var allowedHosts = options.Credentials.AllowedHostSet();
             if (allowedHosts.Count == 0)
             {

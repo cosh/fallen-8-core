@@ -68,6 +68,22 @@ test("capture the Integrations screen rendered from the shipped descriptors", as
     }),
   );
 
+  // The ceilings the form states before anything is picked (feature integration-file-transport).
+  // The SHIPPED defaults, so the capture photographs what a stock instance says rather than whatever
+  // this capture app happens to be configured with; without the stub the route 503s (there is no
+  // sidecar here) and the screen would show the "this instance did not report" note instead.
+  await page.route("**/integrations/limits", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        maxFileBytes: 134217728,
+        maxJobFileBytes: 536870912,
+        maxJobFiles: 256,
+      }),
+    }),
+  );
+
   // Stand in for an instance whose embedding provider is ON, which is what the compose default
   // gives (F8_EMBEDDINGS defaults true). The capture app deliberately has no provider configured, so
   // without this the page would photograph the embed opt-in in its DISABLED state - a dead control,
@@ -111,6 +127,10 @@ test("capture the Integrations screen rendered from the shipped descriptors", as
   // rather than inferred after it - and the template only renders once the opt-in is on.
   await page.getByTestId("integration-embed-toggle").click();
   await expect(page.getByTestId("integration-embed-template")).toBeVisible();
+
+  // The ceilings line has to be in frame, because the page's claim that an oversized set is refused
+  // BEFORE the upload is exactly the kind of claim a screenshot either supports or contradicts.
+  await expect(page.getByTestId("integration-setting-file-ceilings")).toContainText("128.0 MiB");
 
   await page.screenshot({
     path: "../docs/src/assets/images/screen-integrations.png",

@@ -24,12 +24,13 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "../src/api/client";
 import type { InstanceConfig } from "../src/instances/types";
 import type {
+  FileLimits,
   IntegrationJobFile,
   IntegrationJobReport,
   IntegrationJobRequest,
@@ -58,8 +59,19 @@ import { ListCapNote } from "../src/components/ListCapNote";
 const listProvidersMock = vi.fn<(i: InstanceConfig) => Promise<IntegrationProvider[] | null>>();
 // The POST answers a run ID now, not a report: the report is read afterwards from the run, because a
 // real import outlives the connection that would have carried it.
+/** What the screen passes for progress and cancellation (feature integration-file-transport). */
+type SendOptions = {
+  signal?: AbortSignal;
+  onProgress?: (progress: { sent: number; total: number | null }) => void;
+};
 const submitJobMock =
-  vi.fn<(i: InstanceConfig, job: IntegrationJobRequest) => Promise<IntegrationRunAccepted | null>>();
+  vi.fn<
+    (
+      i: InstanceConfig,
+      job: IntegrationJobRequest,
+      options?: SendOptions,
+    ) => Promise<IntegrationRunAccepted | null>
+  >();
 const getRunMock =
   vi.fn<(i: InstanceConfig, instanceId: string) => Promise<IntegrationRunState | null>>();
 // The cancel answers the run as it was when the stop was RECORDED, so the panel can show the stop as
@@ -68,16 +80,22 @@ const cancelRunMock =
   vi.fn<(i: InstanceConfig, instanceId: string) => Promise<IntegrationRunState | null>>();
 const getStatusMock =
   vi.fn<(i: InstanceConfig, signal?: AbortSignal) => Promise<StatusREST | null>>();
+// What a job may carry on this instance (feature integration-file-transport). The form reads it so
+// an oversized set is refused before the upload rather than after it.
+const getLimitsMock =
+  vi.fn<(i: InstanceConfig, signal?: AbortSignal) => Promise<FileLimits | null>>();
 
 vi.mock("../src/api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/api/endpoints")>();
   return {
     ...original,
     listIntegrationProviders: (i: InstanceConfig) => listProvidersMock(i),
-    submitIntegrationJob: (i: InstanceConfig, job: IntegrationJobRequest) => submitJobMock(i, job),
+    submitIntegrationJob: (i: InstanceConfig, job: IntegrationJobRequest, options?: SendOptions) =>
+      submitJobMock(i, job, options),
     getIntegrationRun: (i: InstanceConfig, instanceId: string) => getRunMock(i, instanceId),
     cancelIntegrationRun: (i: InstanceConfig, instanceId: string) => cancelRunMock(i, instanceId),
     getStatus: (i: InstanceConfig, s?: AbortSignal) => getStatusMock(i, s),
+    getIntegrationLimits: (i: InstanceConfig, s?: AbortSignal) => getLimitsMock(i, s),
   };
 });
 
@@ -290,7 +308,24 @@ beforeEach(() => {
   getRunMock.mockReset().mockResolvedValue(finishedRun(report()));
   cancelRunMock.mockReset().mockResolvedValue(stoppingRun());
   getStatusMock.mockReset().mockResolvedValue(status(true));
+  getLimitsMock.mockReset().mockResolvedValue(shippedLimits());
 });
+
+/** The ceilings as a shipped instance serves them: 128 MiB per file, 512 MiB per job, 256 files. */
+function shippedLimits(): FileLimits {
+  return { maxFileBytes: 134217728, maxJobFileBytes: 536870912, maxJobFiles: 256 };
+}
+
+/**
+ * A file of a stated size with no bytes behind it. `size` is what every ceiling check reads, so
+ * spoofing it runs the gigabytes scenario in microseconds instead of allocating it - and allocating
+ * it is not merely slow, it is the exact thing this feature stopped doing.
+ */
+function sized(name: string, bytes: number): File {
+  const file = new File(["x"], name, { type: "application/xml" });
+  Object.defineProperty(file, "size", { value: bytes });
+  return file;
+}
 
 describe("the settings form is rendered from the descriptor alone", () => {
   it("renders one input per setting, of the kind the descriptor declares, with the descriptor's own help", async () => {
@@ -363,7 +398,7 @@ describe("a file setting takes the file itself", () => {
     expect(screen.getByTestId("integration-missing")).toHaveTextContent("Extract");
   });
 
-  it("sends the file's BYTES in files, and its name never in settings", async () => {
+  it("sends the file HANDLE in files, and its name never in settings", async () => {
     renderScreen();
     await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
 
@@ -371,10 +406,10 @@ describe("a file setting takes the file itself", () => {
     await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
     await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
 
-    await userEvent.upload(
-      screen.getByTestId("integration-setting-extract"),
-      new File(["mac,name\nAA:BB:CC:DD:EE:01,Reception\n"], "devices.csv", { type: "text/csv" }),
-    );
+    const picked = new File(["mac,name\nAA:BB:CC:DD:EE:01,Reception\n"], "devices.csv", {
+      type: "text/csv",
+    });
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), picked);
 
     // Staging, not sending: a run also needs an identity and the other settings, so the file waits.
     await waitFor(() =>
@@ -388,7 +423,11 @@ describe("a file setting takes the file itself", () => {
     const job = submitJobMock.mock.calls[0][1];
     const sent = oneFile(job, "extract");
     expect(sent.name).toBe("devices.csv");
-    expect(atob(sent.contentBase64)).toBe("mac,name\nAA:BB:CC:DD:EE:01,Reception\n");
+    // IDENTICALLY the object that was picked. Not a copy, not bytes, not a re-encode - and asserted
+    // by identity on purpose: a test comparing CONTENT would pass just as well against the version
+    // this replaced, which read every file into memory at pick time and base64'd it at send time.
+    // Reference equality is the only assertion that fails if anyone reintroduces that.
+    expect(sent.file).toBe(picked);
     // The name in `settings` is what the runtime refuses, and putting it there would be the one
     // mistake that looks like it works right up to the 400.
     expect(job.settings).not.toHaveProperty("extract");
@@ -494,11 +533,8 @@ describe("a file setting can take a SET of files (feature integration-run-lifecy
   it("stages several files and sends them as ONE ordered array", async () => {
     await selectAndFill(multiFileIntegration());
 
-    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
-      extract("body.arxml"),
-      extract("chassis.arxml"),
-      extract("powertrain.arxml"),
-    ]);
+    const picked = [extract("body.arxml"), extract("chassis.arxml"), extract("powertrain.arxml")];
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), picked);
     await waitFor(() => expect(rows()).toHaveLength(3));
 
     await userEvent.click(screen.getByTestId("integration-run"));
@@ -513,7 +549,8 @@ describe("a file setting can take a SET of files (feature integration-run-lifecy
       "chassis.arxml",
       "powertrain.arxml",
     ]);
-    expect(atob(sent[2].contentBase64)).toBe("<AUTOSAR>powertrain.arxml</AUTOSAR>");
+    // The same handles, in that order: identity again, so a copy or a re-encode fails here.
+    expect(sent.map((file) => file.file)).toEqual(picked);
   });
 
   it("ADDS a second drop to the set rather than replacing it", async () => {
@@ -1402,5 +1439,503 @@ describe("a run picked up after a restart says so (feature integration-run-lifec
     expect(screen.queryByTestId("integration-run-cancel")).toBeNull();
     expect(screen.queryByTestId("run-cancelled")).toBeNull();
     expect(screen.queryByTestId("run-cancel-too-late")).toBeNull();
+  });
+});
+
+/**
+ * WHAT THE SEND LOOKS LIKE WHILE IT HAPPENS (feature integration-file-transport).
+ *
+ * The failure that prompted all of this: an operator staged several gigabytes of extracts, pressed
+ * run, saw one unchanging word for minutes, and got an error. So a send now reports its progress,
+ * can be cancelled, and never encodes a file into memory on the way.
+ */
+describe("sending a job is visible while it happens", () => {
+  /** Selects the multi-file provider and fills everything a run needs except the files. */
+  async function ready() {
+    listProvidersMock.mockResolvedValue([multiFileIntegration()]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "vehicle-network");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+  }
+
+  function extract(name: string): File {
+    return new File([`<AUTOSAR>${name}</AUTOSAR>`], name, { type: "application/xml" });
+  }
+
+  const staged = () => screen.getAllByTestId("integration-setting-extract-staged-file");
+
+  /** Stages one extract, which is all most of these need. */
+  async function stageOne() {
+    await ready();
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml"),
+    ]);
+    await waitFor(() => expect(staged()).toHaveLength(1));
+  }
+
+  it("walks the button through starting, sending a share, and starting the run", async () => {
+    let release: (value: IntegrationRunAccepted | null) => void = () => {};
+    let report: SendOptions["onProgress"];
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      report = options?.onProgress;
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    });
+
+    await stageOne();
+
+    const button = () => screen.getByTestId("integration-run");
+    expect(button()).toHaveTextContent("run now");
+
+    await userEvent.click(button());
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+    // Before the first progress event there is genuinely nothing to report, so the old word stands.
+    expect(button()).toHaveTextContent("starting");
+
+    await act(async () => {
+      report!({ sent: 250, total: 1000 });
+    });
+    expect(button()).toHaveTextContent("sending 25%");
+    expect(screen.getByTestId("integration-send-progress")).toHaveTextContent("250 B of 1000 B");
+
+    // Everything sent, but the runtime has not answered: the label says starting the RUN rather than
+    // claiming the run is under way, because this call ends when the job is ACCEPTED and the run
+    // outlives it.
+    await act(async () => {
+      report!({ sent: 1000, total: 1000 });
+    });
+    expect(button()).toHaveTextContent("starting the run");
+
+    await act(async () => {
+      release(accepted());
+    });
+    await waitFor(() => expect(button()).toHaveTextContent("run now"));
+    // And the progress row is gone rather than left showing a finished send.
+    expect(screen.queryByTestId("integration-send-progress")).toBeNull();
+  });
+
+  /**
+   * THE IDENTITY TRAVELS WITH THE JOB, as a mutation variable, rather than being read again when the
+   * upload ends.
+   *
+   * react-query keeps the latest render's callbacks, so an `onSuccess` reading the field armed the
+   * watch on whatever it said minutes later. Editing it mid-send left the run watched under a name no
+   * run exists for: the run panel never rendered, so the stop button inside it never rendered either,
+   * and a re-submit was refused 409 by the run gate. A multi-hour run, invisible and unstoppable.
+   *
+   * Honest about what each half pins: the test BELOW (the field is frozen while sending) is the guard
+   * that makes the edit unreachable, and it fails if the `disabled` is removed. This one pins the
+   * plumbing - it fails if the identity stops travelling with the job - so the class of bug stays
+   * closed even if the freeze is ever relaxed.
+   */
+  it("watches the identity the job was sent under, not whatever the field says later", async () => {
+    let release: (value: IntegrationRunAccepted | null) => void = () => {};
+    submitJobMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    // The job that went out carries the identity as it was at the click.
+    expect(submitJobMock.mock.calls[0][1].integrationInstanceId).toBe("vehicle-network");
+
+    await act(async () => {
+      release(accepted());
+    });
+
+    await waitFor(() => expect(getRunMock).toHaveBeenCalled());
+    expect(getRunMock.mock.calls[0][1]).toBe("vehicle-network");
+  });
+
+  it("freezes the identity field while the job is going out", async () => {
+    submitJobMock.mockImplementation(() => new Promise(() => {}));
+
+    await stageOne();
+    expect(screen.getByTestId("integration-instance-id")).toBeEnabled();
+
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    // Not cosmetic: the job already carries the captured identity, so an edit could only make the
+    // field disagree with the run in progress, on the one field that decides what gets withdrawn.
+    expect(screen.getByTestId("integration-instance-id")).toBeDisabled();
+  });
+
+  /**
+   * THE CANCEL STOPS BEING OFFERED once the body is fully sent, and the copy stops claiming that
+   * nothing was started.
+   *
+   * The runtime may already have accepted the job by then, and a run deliberately does not die with
+   * its caller (`ExecuteAsync` passes `CancellationToken.None`), so aborting the request from here
+   * would stop nothing while looking like it stopped everything.
+   */
+  it("withdraws the cancel once everything has been sent, and says why", async () => {
+    let report: SendOptions["onProgress"];
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      report = options?.onProgress;
+      return new Promise(() => {});
+    });
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      report!({ sent: 400, total: 1000 });
+    });
+    expect(screen.getByTestId("integration-send-cancel")).toBeInTheDocument();
+    expect(screen.getByTestId("integration-send-progress")).toHaveTextContent(
+      "Cancelling now sends nothing and starts nothing",
+    );
+
+    await act(async () => {
+      report!({ sent: 1000, total: 1000 });
+    });
+
+    expect(screen.queryByTestId("integration-send-cancel")).toBeNull();
+    expect(screen.getByTestId("integration-send-progress")).toHaveTextContent(
+      "stopped from the run panel",
+    );
+    expect(screen.getByTestId("integration-send-progress")).not.toHaveTextContent(
+      "sends nothing and starts nothing",
+    );
+  });
+
+  it("withholds the strong claim when the browser will not say how much there is", async () => {
+    let report: SendOptions["onProgress"];
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      report = options?.onProgress;
+      return new Promise(() => {});
+    });
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      report!({ sent: 4096, total: null });
+    });
+
+    // With no total there is no way to know whether bytes are still outstanding, so the claim that
+    // nothing was sent is not made. The cancel stays, because it may still reach the send.
+    expect(screen.getByTestId("integration-send-cancel")).toBeInTheDocument();
+    expect(screen.getByTestId("integration-send-progress")).not.toHaveTextContent(
+      "sends nothing and starts nothing",
+    );
+  });
+
+  it("reports bytes sent even when the browser will not say how many there are", async () => {
+    let report: SendOptions["onProgress"];
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      report = options?.onProgress;
+      return new Promise(() => {});
+    });
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      report!({ sent: 4096, total: null });
+    });
+
+    // No percentage and no bar, because inventing a denominator would show one that never fills.
+    expect(screen.getByTestId("integration-send-progress")).toHaveTextContent("sending 4.0 KiB");
+    expect(screen.getByTestId("integration-run")).toHaveTextContent("sending");
+    expect(screen.getByTestId("integration-run")).not.toHaveTextContent("%");
+  });
+
+  it("cancelling the send aborts it, watches nothing, and shows no error", async () => {
+    let signal: AbortSignal | undefined;
+    submitJobMock.mockImplementation((_i, _job, options) => {
+      signal = options?.signal;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("The upload was cancelled.", "AbortError")),
+        );
+      });
+    });
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    expect(signal?.aborted).toBe(false);
+    await userEvent.click(screen.getByTestId("integration-send-cancel"));
+
+    await waitFor(() => expect(signal?.aborted).toBe(true));
+    // Nothing started, so nothing is watched and nothing is polled: arming the watch optimistically
+    // would show the identity's PREVIOUS finished run as this run's outcome.
+    expect(getRunMock).not.toHaveBeenCalled();
+    // And no error box: somebody who pressed cancel does not need to be told that it failed.
+    await waitFor(() => expect(screen.getByTestId("integration-run")).toHaveTextContent("run now"));
+    expect(screen.queryByTestId("integration-run-error")).toBeNull();
+  });
+
+  it("arms the watch only once the runtime has accepted the job", async () => {
+    let release: (value: IntegrationRunAccepted | null) => void = () => {};
+    submitJobMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    expect(getRunMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      release(accepted());
+    });
+    await waitFor(() => expect(getRunMock).toHaveBeenCalled());
+  });
+
+  /**
+   * The point of the feature, asserted where it cannot be argued away: nothing base64-encodes a file
+   * any more. `btoa` over a set of extracts is what capped a job at about 384 MiB - a JavaScript
+   * string maxes at 512 MiB - whatever the instance would have accepted.
+   */
+  it("base64-encodes nothing at all across a three-file submit", async () => {
+    const btoaSpy = vi.spyOn(globalThis, "btoa");
+
+    await ready();
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      extract("body.arxml"),
+      extract("chassis.arxml"),
+      extract("powertrain.arxml"),
+    ]);
+    await waitFor(() => expect(staged()).toHaveLength(3));
+    await userEvent.click(screen.getByTestId("integration-run"));
+    await waitFor(() => expect(submitJobMock).toHaveBeenCalledTimes(1));
+
+    expect(btoaSpy).not.toHaveBeenCalled();
+    btoaSpy.mockRestore();
+  });
+
+  /**
+   * Staging reads ONE BYTE and no more. The read exists to catch a handle that cannot be opened, at
+   * the pick rather than minutes into a send; reading the whole file to learn that would restore the
+   * memory cost this feature removed, so the SIZE of the read is what is asserted.
+   */
+  it("reads exactly one byte per file at staging time", async () => {
+    const slices: Array<[number, number]> = [];
+    const original = Blob.prototype.slice;
+    const sliceSpy = vi
+      .spyOn(Blob.prototype, "slice")
+      .mockImplementation(function (this: Blob, start?: number, end?: number) {
+        slices.push([start ?? 0, end ?? this.size]);
+        return original.call(this, start, end);
+      });
+
+    await stageOne();
+
+    expect(slices).toEqual([[0, 1]]);
+    sliceSpy.mockRestore();
+  });
+
+  it("says a staged file is read at send time when the send fails", async () => {
+    submitJobMock.mockRejectedValue(new TypeError("Failed to reach http://f8.test"));
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    const note = await screen.findByTestId("integration-send-stale-note");
+    // The honest regression this transport introduces: a file moved or edited after staging fails
+    // HERE rather than at the picker, so the copy has to say where to look.
+    expect(note).toHaveTextContent("read while the job is sent");
+    expect(note).toHaveTextContent("nothing was withdrawn");
+  });
+
+  it("names the missing capability when an instance refuses multipart outright", async () => {
+    submitJobMock.mockRejectedValue(
+      new ApiError(415, "/integrations/job", "Unsupported Media Type"),
+    );
+
+    await stageOne();
+    await userEvent.click(screen.getByTestId("integration-run"));
+
+    // Studio keeps no base64 fallback on purpose, so this is a real state an older instance can
+    // produce, and it has to say what to do rather than show a bare 415.
+    const note = await screen.findByTestId("integration-no-multipart");
+    expect(note).toHaveTextContent("does not accept multipart");
+  });
+});
+
+/**
+ * THE FORM REFUSES BEFORE IT SENDS (feature integration-file-transport, FR-8).
+ *
+ * Not a nicety. A refusal from the instance costs the whole upload first, because Kestrel drains the
+ * rest of an unread body before the answer is read - so the person who staged gigabytes of extracts
+ * waits out all of it to be told the set is too large. Every number here comes FROM the instance;
+ * the one thing this form must never do is keep a ceiling of its own, which is how it came to refuse
+ * jobs the instance would have accepted.
+ */
+describe("a set too large for the instance is refused in the form", () => {
+  async function ready(provider = multiFileIntegration()) {
+    listProvidersMock.mockResolvedValue([provider]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "vehicle-network");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+  }
+
+  const problem = () => screen.getByTestId("integration-setting-extract-problem");
+  const staged = () => screen.queryAllByTestId("integration-setting-extract-staged-file");
+
+  it("states what the instance accepts before anything is picked", async () => {
+    await ready();
+
+    // Up front, and in the instance's units, so nobody has to discover a ceiling by breaking it.
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-ceilings")).toHaveTextContent(
+        "128.0 MiB per file, 512.0 MiB per job, 256 files per job",
+      ),
+    );
+  });
+
+  it("refuses a single file over the per-file ceiling and keeps the rest", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("small.arxml", 1024),
+      sized("huge.arxml", 200 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(staged()).toHaveLength(1));
+    expect(staged()[0]).toHaveTextContent("small.arxml");
+    // Named, sized, and against the ceiling it broke: "too large" alone leaves the one question a
+    // caller has to answer - how much to cut - unanswerable.
+    expect(problem()).toHaveTextContent("huge.arxml");
+    expect(problem()).toHaveTextContent("200.0 MiB");
+    expect(problem()).toHaveTextContent("128.0 MiB");
+    expect(submitJobMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses the whole batch on the job total, and says the set cannot be split", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    // Six files of 100 MiB: each legal, 600 MiB together, over the 512 MiB job total.
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      Array.from({ length: 6 }, (_, i) => sized(`part${i}.arxml`, 100 * 1024 * 1024)),
+    );
+
+    await waitFor(() => expect(problem()).toHaveTextContent("600.0 MiB"));
+    // NOTHING staged: no single file is at fault, so picking whichever prefix fits would drop the
+    // tail on a decision the person picking never made.
+    expect(staged()).toHaveLength(0);
+    expect(problem()).toHaveTextContent("512.0 MiB");
+    // And the dangerous workaround is foreclosed in the same breath, because splitting a claimed set
+    // over two runs is not slower, it is destructive.
+    expect(problem()).toHaveTextContent("ONE set");
+    expect(problem()).toHaveTextContent("withdraws");
+  });
+
+  it("refuses on the number of files even when every byte ceiling is satisfied", async () => {
+    getLimitsMock.mockResolvedValue({ ...shippedLimits(), maxJobFiles: 3 });
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      Array.from({ length: 4 }, (_, i) => sized(`tiny${i}.arxml`, 8)),
+    );
+
+    await waitFor(() => expect(problem()).toHaveTextContent("4 files in this job"));
+    expect(problem()).toHaveTextContent("3 files one job may carry");
+    expect(staged()).toHaveLength(0);
+  });
+
+  it("counts what is already staged, so a second drop that breaks the total is refused", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    // Five files of 100 MiB: each under the 128 MiB per-file ceiling, 500 MiB together, which fits.
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      Array.from({ length: 5 }, (_, i) => sized(`held${i}.arxml`, 100 * 1024 * 1024)),
+    );
+    await waitFor(() => expect(staged()).toHaveLength(5));
+
+    // A sixth would make 600 MiB, over the job total - and it is legal on its own, so only the
+    // running total can catch it.
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("one-too-many.arxml", 100 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(problem()).toHaveTextContent("600.0 MiB"));
+    // Already-staged files are KEPT: the refusal is about what was just added.
+    expect(staged()).toHaveLength(5);
+    expect(staged()[0]).toHaveTextContent("held0.arxml");
+  });
+
+  it("names no configuration key, because the binding number may be the proxy's", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("huge.arxml", 900 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(problem()).toHaveTextContent("huge.arxml"));
+    expect(problem()).not.toHaveTextContent("MaxFileBytes");
+    expect(problem()).not.toHaveTextContent("Integrations:");
+    expect(problem()).toHaveTextContent("this instance");
+  });
+
+  /**
+   * THE PIN AGAINST A HARDCODED FALLBACK, and the most important test in this block.
+   *
+   * With the ceilings unreadable, the form must check NOTHING and say so. A default substituted here
+   * is precisely the bug the feature removed: Studio carried about 384 MiB, below the instance's
+   * 512 MiB, and refused jobs the instance would have accepted with no way to configure it away.
+   */
+  it("checks nothing and invents nothing when the instance will not say", async () => {
+    getLimitsMock.mockRejectedValue(new ApiError(404, "/integrations/limits", "Not Found"));
+    await ready();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-ceilings")).toHaveTextContent(
+        "did not report what a job may carry",
+      ),
+    );
+
+    // 700 MiB, over every shipped ceiling there is. It stages, because this form has no number of
+    // its own to refuse it with, and the instance is the one that gets to say no.
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("enormous.arxml", 700 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(staged()).toHaveLength(1));
+    expect(screen.queryByTestId("integration-setting-extract-problem")).toBeNull();
+  });
+
+  it("stages a set that fits, saying nothing", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("a.arxml", 100 * 1024 * 1024),
+      sized("b.arxml", 100 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(staged()).toHaveLength(2));
+    expect(screen.queryByTestId("integration-setting-extract-problem")).toBeNull();
+    // The total is shown beside the rows, because it is a ceiling of its own.
+    expect(screen.getByTestId("integration-setting-extract-total")).toHaveTextContent("200.0 MiB");
   });
 });

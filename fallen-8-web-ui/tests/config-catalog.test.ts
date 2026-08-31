@@ -96,7 +96,7 @@ describe("configuration section taxonomy", () => {
       embedding: 24,
       chat: 16,
       ingestion: 29, // Ingestion 23 + Nlp 6
-      integrations: 3,
+      integrations: 4, // Enabled, Endpoint, TimeoutSeconds, JobTimeoutSeconds
       observability: 6,
       identity: 4,
       security: 8,

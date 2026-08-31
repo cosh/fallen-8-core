@@ -37,7 +37,7 @@ using NoSQL.GraphDB.Integrations.Validation;
 namespace NoSQL.GraphDB.Integrations.Hosting
 {
     /// <summary>
-    ///   The runtime's whole HTTP surface: a health probe and the seven routes the apiApp proxies. Nothing here is
+    ///   The runtime's whole HTTP surface: a health probe and the eight routes the apiApp proxies. Nothing here is
     ///   authenticated, and nothing needs to be: the container's port is not published, so the only way in is
     ///   through the apiApp, which is already the authenticated front door. A second auth story on this container
     ///   would be a second thing to get wrong.
@@ -62,6 +62,26 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             app.MapGet("/integration/vocabulary",
                 (IdentifierVocabulary vocabulary) => Results.Ok(VocabularyDto.From(vocabulary)));
 
+            // What this runtime will actually accept, so a client can refuse a job BEFORE uploading it
+            // rather than after (feature integration-file-transport).
+            //
+            // A route rather than a field on each provider descriptor, because these are three
+            // runtime-global numbers: putting the per-file one on every file setting of every provider
+            // would copy one configured value into many places, there is no honest home on a descriptor
+            // for the job TOTAL at all, and the descriptors are pinned by a snapshot whose gate hosts
+            // this runtime in process - so a developer with the ceiling set locally would commit theirs.
+            //
+            // Zero or less means "no ceiling" here exactly as it does in the options, and is passed
+            // through unchanged: inventing a number for a switched-off ceiling would make a client
+            // refuse what this runtime would have accepted.
+            app.MapGet("/integration/limits",
+                (IJobFilesFactory files) => Results.Ok(new
+                {
+                    maxFileBytes = files.MaxFileBytes,
+                    maxJobFileBytes = files.MaxJobFileBytes,
+                    maxJobFiles = files.MaxJobFiles,
+                }));
+
             app.MapPost("/integration/snapshot/validate",
                 (SnapshotDocument? document, SnapshotValidator validator) =>
                 {
@@ -83,13 +103,20 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             // What is still synchronous is every judgement that can REJECT the job - its shape, the
             // provider, the identity, the files, and the run gate. An accepted job is one that really
             // started; a rejected one never ran, exactly as before.
-            app.MapPost("/integration/job", async (IntegrationJob? job, JobRunner runner, RunTracker tracker,
-                Boolean? wait, CancellationToken cancellationToken) =>
+            // The body is read by JobRequestReader rather than bound, because a job may arrive as JSON or as
+            // a multipart form and that type is the one home for what the difference is and why both exist.
+            app.MapPost("/integration/job", async (HttpRequest request, JobRunner runner, RunTracker tracker,
+                IJobFilesFactory files, Boolean? wait, CancellationToken cancellationToken) =>
             {
-                if (job == null)
+                var read = await JobRequestReader
+                    .ReadAsync(request, files.MaxFileBytes, files.MaxJobFiles, cancellationToken)
+                    .ConfigureAwait(false);
+                if (read.Job == null)
                 {
-                    return Problem(StatusCodes.Status400BadRequest, "A job definition is required.");
+                    return Problem(read.Status, read.Failure ?? "A job definition is required.");
                 }
+
+                var job = read.Job;
 
                 // The old contract, on request. Kept for scripts and small sources, and NOT the default,
                 // because the proxy timeout still applies to it.

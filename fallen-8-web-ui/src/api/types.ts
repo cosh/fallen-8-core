@@ -1316,12 +1316,24 @@ export interface IntegrationDiagnostic {
   subject?: string | null;
 }
 
-/** One file a job carries: its own name, and its bytes base64. */
+/**
+ * One file a job carries: the browser's own handle on it.
+ *
+ * A `File` and NOT its bytes, which is the whole of feature integration-file-transport on this side.
+ * The version this replaced carried `contentBase64`, so the tab had to hold every file's bytes, the
+ * base64 expansion of them and the serialised request all at once; a set of AUTOSAR extracts left
+ * gigabytes resident before the send even started, and the encoder failed outright at about 384 MiB
+ * of input because a JavaScript string caps at 512 MiB. A handle costs nothing until the browser
+ * streams it off disk.
+ *
+ * The price, and it is real: the file is read at SEND time, so one moved, renamed or edited after
+ * being staged fails then rather than at pick time. The form says so.
+ */
 export interface IntegrationJobFile {
   /** The file's own name, used verbatim in the run's messages. Never a path. */
   name: string;
-  /** The file's BYTES, base64 - not its text, so a UTF-16 extract survives the trip. */
-  contentBase64: string;
+  /** The handle. Nothing reads it until the request is sent. */
+  file: File;
 }
 
 /**
@@ -1329,6 +1341,25 @@ export interface IntegrationJobFile {
  * a file setting's file in `files`, never in `settings`: the runtime leases and redacts the first,
  * holds the second for the run and drops it, and treats `settings` as ordinary data.
  */
+/**
+ * What a job may carry on one instance (feature integration-file-transport), from
+ * `GET /integrations/limits`. Already the ceiling that BINDS: the runtime owns the configuration,
+ * but every request arrives through the apiApp's transport bound, so the proxy reconciles the two
+ * and serves one number per question. Nothing here is combined client-side, on purpose - a client
+ * that computes its own ceiling is how Studio ended up with one below the runtime's.
+ *
+ * Zero or less means that ceiling is switched off, which only `maxJobFiles` can report: the byte
+ * ceilings always have the proxy's transport bound behind them.
+ */
+export interface FileLimits {
+  /** The most decoded bytes ONE file may carry. */
+  maxFileBytes: number;
+  /** The most decoded bytes one job's files may come to in TOTAL, across every file setting. */
+  maxJobFileBytes: number;
+  /** How many files one job may carry, counted across every file setting. */
+  maxJobFiles: number;
+}
+
 export interface IntegrationJobRequest {
   providerId: string;
   integrationInstanceId: string;

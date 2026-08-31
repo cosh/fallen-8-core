@@ -317,6 +317,13 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// </summary>
         Int64 MaxJobFileBytes { get; }
 
+        /// <summary>
+        ///   The ceiling on the NUMBER of files across every file setting of one job. A third bound
+        ///   because the two byte ceilings leave a gap: a one-byte file is legal, so a set can satisfy
+        ///   both and still ask for an unreasonable number of payloads. Zero or less means no ceiling.
+        /// </summary>
+        Int32 MaxJobFiles { get; }
+
         /// <summary>The files for one run.</summary>
         JobFiles Create(IReadOnlyDictionary<String, JobFileSet>? filesBySettingKey);
     }
@@ -336,6 +343,9 @@ namespace NoSQL.GraphDB.Integrations.Run
 
         /// <inheritdoc />
         public Int64 MaxJobFileBytes => _options.Value.MaxJobFileBytes;
+
+        /// <inheritdoc />
+        public Int32 MaxJobFiles => _options.Value.MaxJobFiles;
 
         /// <inheritdoc />
         public JobFiles Create(IReadOnlyDictionary<String, JobFileSet>? filesBySettingKey)

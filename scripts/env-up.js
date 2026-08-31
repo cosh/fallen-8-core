@@ -209,7 +209,7 @@ function main() {
   // "integrations" profile, default ON like the rest of the environment. Standalone rather than
   // nested under ingestion (unlike nlp): an integration reads a live system on the user's own
   // network, which has nothing to do with document conversion. F8_INTEGRATIONS=false is a true
-  // opt-out - no sidecar, and the apiApp's four /integrations routes answer 403 (the fallen8
+  // opt-out - no sidecar, and the apiApp's /integrations routes answer 403 (the fallen8
   // service reads the same variable).
   const integrations = process.env.F8_INTEGRATIONS !== 'false';
   if (integrations) profiles.push('--profile', 'integrations');

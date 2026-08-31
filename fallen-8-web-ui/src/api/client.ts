@@ -208,24 +208,34 @@ export async function throwIfNotOk(response: Response, url: string): Promise<voi
       // keep the status-only error
     }
 
-    // The server marks a missing namespace with a "namespace" extension on its 404
-    // problem+json (feature graph-namespaces); announce it so the recover state renders
-    // immediately instead of waiting for the next inventory poll.
-    if (response.status === 404 && typeof window !== "undefined") {
-      try {
-        const problem = JSON.parse(body) as { namespace?: unknown };
-        if (typeof problem.namespace === "string") {
-          window.dispatchEvent(
-            new CustomEvent("f8:namespace-missing", { detail: { namespace: problem.namespace } }),
-          );
-        }
-      } catch {
-        // not a problem+json body
-      }
-    }
-
-    throw new ApiError(response.status, url, body);
+    raiseApiError(response.status, url, body);
   }
+}
+
+/**
+ * Turns one non-ok answer into an {@link ApiError}, whatever transport read it. Separate from
+ * {@link throwIfNotOk} because {@link apiUpload} goes through XMLHttpRequest and has no
+ * `Response`, and a second copy of this would be a second place for the namespace announcement
+ * below to go stale.
+ */
+export function raiseApiError(status: number, url: string, body: string): never {
+  // The server marks a missing namespace with a "namespace" extension on its 404
+  // problem+json (feature graph-namespaces); announce it so the recover state renders
+  // immediately instead of waiting for the next inventory poll.
+  if (status === 404 && typeof window !== "undefined") {
+    try {
+      const problem = JSON.parse(body) as { namespace?: unknown };
+      if (typeof problem.namespace === "string") {
+        window.dispatchEvent(
+          new CustomEvent("f8:namespace-missing", { detail: { namespace: problem.namespace } }),
+        );
+      }
+    } catch {
+      // not a problem+json body
+    }
+  }
+
+  throw new ApiError(status, url, body);
 }
 
 /**
@@ -334,4 +344,147 @@ export async function apiForm<T>(
   const text = await response.text();
   if (text === "" || text === "null") return null;
   return JSON.parse(text) as T;
+}
+
+/**
+ * Whether a failure is somebody having cancelled rather than something having gone wrong.
+ *
+ * It exists because react-query does NOT treat an aborted MUTATION as a cancellation the way it
+ * treats an aborted query: the mutation moves to `isError` with the abort as its error, so a call
+ * site that renders `isError` puts a red box on the screen of the person who just pressed cancel.
+ *
+ * Matched on the NAME alone, deliberately. Neither `instanceof DOMException` nor `instanceof Error`
+ * can be relied on here: jsdom's `DOMException` does not extend `Error`, so an `instanceof Error`
+ * check passes in a browser and fails in the test suite - which is the worst of both, a guard that
+ * is only absent where it is being verified. Every abort reason carries this name, whatever its
+ * class.
+ */
+export function wasCancelled(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
+
+/** How far a send has got. `total` is null when the browser will not say how much there is. */
+export interface UploadProgress {
+  sent: number;
+  total: number | null;
+}
+
+/**
+ * Multipart POST that reports how far the SEND has got (feature integration-file-transport).
+ *
+ * XMLHttpRequest and not `fetch`, for one reason: fetch cannot report upload progress. A
+ * `ReadableStream` request body can, but it requires HTTP/2 and `duplex: "half"`, is unsupported in
+ * Safari, and would make progress depend on the transport an instance happens to be reached over.
+ * XHR reports it everywhere, so this is a deliberate exception rather than legacy code, and it is
+ * the ONLY one: everything without a progress bar goes through {@link apiForm}.
+ *
+ * The progress matters because of what this carries. An integration job may be gigabytes of
+ * extracts, and a send with no feedback is indistinguishable from a hang - which is exactly what
+ * the operator who prompted this feature reported: they pressed run, saw nothing for minutes, and
+ * then got an error.
+ *
+ * Failures are shaped like every other call's: an {@link ApiError} for a status, an abort rethrown
+ * as an abort so react-query reads it as a cancellation, and a `TypeError` for a transport failure,
+ * which is the same class `fetch` throws and which `ErrorBox` renders as an unreachable instance.
+ */
+export function apiUpload<T>(
+  instance: InstanceConfig,
+  path: string,
+  form: FormData,
+  options: {
+    signal?: AbortSignal;
+    scope?: "namespace" | "fallen8";
+    onProgress?: (progress: UploadProgress) => void;
+  } = {},
+): Promise<T | null> {
+  const effectivePath = options.scope === "fallen8" ? path : scopedPath(instance, path);
+  const url = buildUrl(instance.baseUrl, effectivePath);
+
+  return resolveAuthHeaders(instance).then(
+    (headers) =>
+      new Promise<T | null>((resolve, reject) => {
+        // Already cancelled before the send. Reachable because resolving the auth headers is
+        // asynchronous, so a `bearer` instance awaits its host's token provider first and a cancel
+        // can land in that window; without this the whole body would then be uploaded and only the
+        // ANSWER discarded. apiRequest's startDeadline makes the same pre-check for the same reason.
+        if (options.signal?.aborted) {
+          reject(
+            options.signal.reason instanceof Error
+              ? options.signal.reason
+              : new DOMException("The upload was cancelled.", "AbortError"),
+          );
+          return;
+        }
+
+        const request = new XMLHttpRequest();
+        request.open("POST", url);
+        for (const [name, value] of Object.entries(headers)) {
+          request.setRequestHeader(name, value);
+        }
+
+        // No Content-Type is set here on purpose: the browser writes it, boundary and all. Setting
+        // one would send a boundary nothing matches, and the server would find no parts at all.
+        if (options.onProgress) {
+          request.upload.addEventListener("progress", (event) => {
+            options.onProgress!({
+              sent: event.loaded,
+              total: event.lengthComputable ? event.total : null,
+            });
+          });
+        }
+
+        const abort = () => request.abort();
+        options.signal?.addEventListener("abort", abort, { once: true });
+        const finish = () => options.signal?.removeEventListener("abort", abort);
+
+        request.addEventListener("load", () => {
+          finish();
+          if (request.status < 200 || request.status >= 300) {
+            try {
+              raiseApiError(request.status, url, request.responseText ?? "");
+            } catch (error) {
+              reject(error);
+            }
+            return;
+          }
+
+          const text = request.responseText ?? "";
+          if (request.status === 204 || text === "" || text === "null") {
+            resolve(null);
+            return;
+          }
+
+          try {
+            resolve(JSON.parse(text) as T);
+          } catch (error) {
+            reject(error);
+          }
+        });
+
+        request.addEventListener("error", () => {
+          finish();
+          // The same class fetch throws for a failed connection, so one error taxonomy covers both
+          // transports and the caller needs no special case.
+          reject(new TypeError(`Failed to reach ${url}`));
+        });
+
+        request.addEventListener("abort", () => {
+          finish();
+          // Rethrown as an ABORT rather than an error: react-query treats an aborted mutation as
+          // cancelled, and reporting it as a failure would put an error box on the screen of
+          // somebody who pressed cancel themselves.
+          reject(
+            options.signal?.reason instanceof Error
+              ? options.signal.reason
+              : new DOMException("The upload was cancelled.", "AbortError"),
+          );
+        });
+
+        request.send(form);
+      }),
+  );
 }

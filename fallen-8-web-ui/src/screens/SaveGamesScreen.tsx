@@ -45,7 +45,7 @@ import { ApiError } from "../api/client";
 import { invalidateInstanceQueries } from "../api/queries";
 import { getInstanceStore, purgeAllInstanceStores } from "../state/instanceStore";
 import { shapeSuggestions, useGraphShape } from "../state/graphShape";
-import { formatExact } from "../lib/format";
+import { formatBytes, formatExact } from "../lib/format";
 import { ErrorBox } from "../components/ErrorBox";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ListCapNote } from "../components/ListCapNote";
@@ -64,13 +64,6 @@ import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
  * caps its height / scrolls once it grows past SCROLL_ROWS.saveGames rows, so a long save history
  * never grows the page.
  */
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return "0 B";
-  const units = ["B", "KiB", "MiB", "GiB"];
-  const exp = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
-  return `${(bytes / 1024 ** exp).toFixed(exp === 0 ? 0 : 1)} ${units[exp]}`;
-}
 
 function formatSavedAt(iso: string): string {
   const t = Date.parse(iso);

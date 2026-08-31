@@ -1784,6 +1784,8 @@ namespace NoSQL.GraphDB.Tests
 
             public Int64 MaxJobFileBytes => 0;
 
+            public Int32 MaxJobFiles => 0;
+
             public JobFiles Create(IReadOnlyDictionary<String, JobFileSet> filesBySettingKey)
             {
                 return new JobFiles(filesBySettingKey);
@@ -1799,6 +1801,8 @@ namespace NoSQL.GraphDB.Tests
             public Int64 MaxFileBytes => 0;
 
             public Int64 MaxJobFileBytes => 0;
+
+            public Int32 MaxJobFiles => 0;
 
             public JobFiles Create(IReadOnlyDictionary<String, JobFileSet> filesBySettingKey)
             {
