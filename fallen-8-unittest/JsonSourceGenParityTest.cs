@@ -757,6 +757,30 @@ namespace NoSQL.GraphDB.Tests
                         TokensPerSecond = 37.5
                     }
                 }, "ChatResultREST"),
+                // Every field the wire carries, and both null shapes: a backend that reports a
+                // capability/routability/class, and one that reports none. The "class" JSON name is
+                // a C# keyword, so this is also what proves the JsonPropertyName survives source gen.
+                (new ChatModelsREST
+                {
+                    Backend = "Nahil",
+                    Models = new List<ChatModelREST>
+                    {
+                        new ChatModelREST
+                        {
+                            Name = "phi4-f8-mini:latest",
+                            Capability = "completion",
+                            Available = true,
+                            ModelClass = "S1"
+                        },
+                        new ChatModelREST
+                        {
+                            Name = "unknown:latest",
+                            Capability = null,
+                            Available = null,
+                            ModelClass = null
+                        }
+                    }
+                }, "ChatModelsREST"),
                 (new ChatStatsREST
                 {
                     PromptTokens = 3,

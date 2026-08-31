@@ -23,16 +23,26 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
+import { useQuery } from "@tanstack/react-query";
 import { usePortalContainer } from "../app/studioConfig";
-import type { ApiError } from "../api/client";
-import type { ObservabilityConfigREST, PendingRestartREST, SettingREST } from "../api/types";
+import { ApiError } from "../api/client";
+import { getChatModels } from "../api/endpoints";
+import type { InstanceConfig } from "../instances/types";
+import type {
+  ChatModelREST,
+  ChatProviderStatsREST,
+  ObservabilityConfigREST,
+  PendingRestartREST,
+  SettingREST,
+} from "../api/types";
 import {
   CONFIG_FILTERS,
   CONFIG_GROUPS,
   CONFIG_SECTIONS,
   groupSettings,
+  isEnvironmentLocked,
   matchesFilter,
   matchesQuery,
   type ConfigFilterId,
@@ -40,7 +50,7 @@ import {
 } from "../lib/configCatalog";
 import { ErrorBox } from "./ErrorBox";
 import { ObservabilitySection } from "./ObservabilitySection";
-import { SettingRow } from "./SettingRow";
+import { SettingRow, type SettingSuggestion } from "./SettingRow";
 
 /**
  * The configuration surface (feature configuration-surface): one dialog holding everything this
@@ -56,6 +66,11 @@ import { SettingRow } from "./SettingRow";
  * a value under a half-typed field here, which is exactly what the poll suspension exists to prevent.
  * What this component does own is where you are looking: the section, the query and the filter. Those
  * live under Dialog.Content, which Radix unmounts on close, so they reset without an effect.
+ *
+ * The ONE server read it does own is the chat model catalog (feature chat-model-catalog), because it
+ * only makes sense once the operator has navigated to one particular section: it sits on its own cache
+ * key, is never polled, fetches at most once per visit and unmounts with this subtree. The draft still
+ * belongs to the card, so this cannot replace a value under a half-typed field.
  */
 
 export interface ConfigurationSurfaceProps {
@@ -63,6 +78,13 @@ export interface ConfigurationSurfaceProps {
   onClose: () => void;
   /** Named in the header, because the settings behind it belong to one instance and not the next. */
   instanceName: string;
+  /**
+   * The instance the catalog read addresses (feature chat-model-catalog). A PROP rather than a
+   * registry subscription: everything else here is prop-driven, and subscribing re-rendered this
+   * subtree during an instance switch instead of letting it unmount, so it could paint one pass
+   * addressing the new instance while every other prop still described the old one.
+   */
+  instance: InstanceConfig | null;
   settings: readonly SettingREST[];
   pendingRestart: readonly PendingRestartREST[];
   observability: ObservabilityConfigREST;
@@ -81,6 +103,14 @@ export interface ConfigurationSurfaceProps {
   isRowDisabled: (key: string) => boolean;
   /** A blanked numeric field the server would refuse the whole batch over, if there is one. */
   blankNumericKey?: string;
+  /**
+   * The chat gateway's RUNNING state (feature chat-model-catalog), absent or null when the instance
+   * reports none. Two facts live only here: whether chat is on at all, and which backend is actually
+   * serving. Neither is derivable from the inventory - Fallen8:Chat:Enabled is never-writable so its
+   * value is withheld, and the Backend descriptor publishes the STORED value, which after a write is
+   * the pending one. The picker follows what is running.
+   */
+  chat?: ChatProviderStatsREST | null;
 }
 
 export function ConfigurationSurface(props: ConfigurationSurfaceProps) {
@@ -111,6 +141,7 @@ export function ConfigurationSurface(props: ConfigurationSurfaceProps) {
 function SurfaceBody({
   onClose,
   instanceName,
+  instance,
   settings,
   pendingRestart,
   observability,
@@ -125,6 +156,7 @@ function SurfaceBody({
   editable,
   isRowDisabled,
   blankNumericKey,
+  chat,
 }: ConfigurationSurfaceProps) {
   const [sectionId, setSectionId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -164,6 +196,91 @@ function SurfaceBody({
     : selected
       ? [selected]
       : [];
+
+  // The chat model picker (feature chat-model-catalog). One read fans out to the backend's own
+  // catalog carrying the operator's credential, so it happens only where the answer is actionable:
+  // chat is on, this instance accepts writes, and the row is one this operator could actually change
+  // and can see. Merely opening this surface fetches nothing.
+  const modelKey =
+    chat?.enabled === true && chat.backend ? `Fallen8:Chat:${chat.backend}:Model` : null;
+  // The row as the pane on screen actually RENDERS it, filter chip included, and not just as the
+  // descriptor the instance published: with "not writable" selected the Chat pane shows only rows a
+  // rule excludes, and a credentialed read whose answer nothing on screen could consume is precisely
+  // the fan-out FR-4 forbids.
+  const chatPane = panes.find((entry) => entry.section.id === "chat");
+  const modelRow =
+    modelKey === null
+      ? undefined
+      : chatPane?.settings.find((entry) => entry.key === modelKey && matchesFilter(entry, filter));
+  // Null when there is no row to offer anything to. Every reason a row cannot be typed into is
+  // checked, because a list of names beside a dead control is worse than no list.
+  const pickerKey =
+    modelRow !== undefined &&
+    modelRow.kind === "string" &&
+    modelRow.tier !== "notWritable" &&
+    !isEnvironmentLocked(modelRow) &&
+    writesAllowed &&
+    editable &&
+    !isRowDisabled(modelRow.key)
+      ? modelRow.key
+      : null;
+
+  // One refusal per visit, per backend. An errored query holds no data, so react-query counts it
+  // stale whatever staleTime says and fetches again the moment `enabled` flips back to true: without
+  // this latch, every trip out of the Chat section and back would fan out to the operator's backend
+  // again. Closing the surface unmounts this subtree, which is what clears it.
+  const catalogKey = `${instance?.id ?? ""}|${chat?.backend ?? ""}`;
+  const [refused, setRefused] = useState<string | null>(null);
+
+  const catalog = useQuery({
+    // Keyed by the RUNNING backend, so switching it (a restart) cannot offer the previous backend's
+    // names out of the cache.
+    queryKey: [instance?.id, "chatModels", chat?.backend ?? null],
+    queryFn: ({ signal }) => getChatModels(instance!, signal),
+    // Not searching, so the pane holding that row is the section the operator NAVIGATED to: a search
+    // spans every section and matches a key, its rule and its reason, so one incidental character
+    // ("d", typed at the Durability keys) puts the Chat pane on screen with no chat intent behind it.
+    // Only the FETCH waits for that; names already in hand stay on offer while a search narrows the
+    // pane, because offering them costs nothing.
+    enabled: instance !== null && pickerKey !== null && !searching && refused !== catalogKey,
+    // At most once per visit: staleTime keeps coming back to the section off the wire, and retry: 0
+    // stops a refused read fanning out a second time (the client default retries once).
+    retry: 0,
+    staleTime: Infinity,
+  });
+
+  useEffect(() => {
+    if (catalog.isError) {
+      setRefused(catalogKey);
+    }
+  }, [catalog.isError, catalogKey]);
+
+  const picker = useMemo<RowPicker | null>(() => {
+    if (pickerKey === null) {
+      return null;
+    }
+    if (catalog.isError) {
+      return { key: pickerKey, note: catalogUnavailable(catalog.error) };
+    }
+    // Reached by SEARCH and never navigated to, so the fetch above was deliberately withheld. Say so
+    // rather than rendering a bare field: search is the affordance for an operator who does NOT know
+    // which section a key lives in, which is exactly the person hunting for this row, and a list that
+    // vanishes with no reason given reads as a broken picker. Names already fetched in this visit are
+    // not affected; they survive a search narrowing the pane.
+    // `!isFetching` matters: a fetch triggered by NAVIGATING here is still in flight for a moment,
+    // and a search typed during that window would otherwise tell an operator who is already in the
+    // Chat section to open the Chat section.
+    if (catalog.data === undefined && searching && !catalog.isFetching) {
+      return { key: pickerKey, note: "Open the Chat section to load catalogued names; or type one." };
+    }
+    // Studio filters, the route does not (decision 8): an embedding model written here is a refusal
+    // at the first completion. An UNKNOWN capability stays, because "the backend did not say" is not
+    // "the backend said no", and the name may still be the right one.
+    const offered = (catalog.data?.models ?? [])
+      .filter((model) => model.capability !== "embedding")
+      .map((model) => ({ value: model.name, label: modelOptionLabel(model) }));
+    return offered.length > 0 ? { key: pickerKey, suggestions: offered } : null;
+  }, [pickerKey, catalog.data, catalog.isError, catalog.error, catalog.isFetching, searching]);
 
   return (
     <>
@@ -306,6 +423,7 @@ function SurfaceBody({
                   onChange={onChange}
                   onClear={onClear}
                   isRowDisabled={isRowDisabled}
+                  picker={picker}
                 />
               ))}
             </div>
@@ -338,6 +456,46 @@ function SurfaceBody({
       </div>
     </>
   );
+}
+
+/**
+ * What the model picker adds to exactly ONE row: the names to offer, or the one line saying why there
+ * are none. ONE object, because SettingRow is memoised and both halves have to be stable references
+ * across a keystroke in any other row.
+ */
+type RowPicker = { key: string; suggestions?: readonly SettingSuggestion[]; note?: string };
+
+/**
+ * What is known about a catalogued model, shown beside its name: the backend's own class string
+ * (verbatim, since it carries no published legend) and whether a worker can serve it right now.
+ * Undefined when the backend said neither, because an empty label reads as a rendering fault.
+ */
+function modelOptionLabel(model: ChatModelREST): string | undefined {
+  const known: string[] = [];
+  if (model.class) {
+    known.push(model.class);
+  }
+  if (model.available === true) {
+    known.push("warm");
+  } else if (model.available === false) {
+    known.push("cold start");
+  }
+  return known.length > 0 ? known.join(" · ") : undefined;
+}
+
+/**
+ * Why there is no list, in one line. Names the reason the instance gave and nothing else: ApiError.body
+ * is already the problem+json detail, which this route is required to keep free of any endpoint value.
+ * Typing is never blocked, so the line ends with what to do rather than with the failure.
+ */
+function catalogUnavailable(error: unknown): string {
+  const reason =
+    error instanceof ApiError
+      ? error.body || `HTTP ${error.status}`
+      : error instanceof Error && error.message
+        ? error.message
+        : "the instance did not answer";
+  return `No model list to offer (${reason}); type the name.`;
 }
 
 const OBSERVABILITY_SECTION = CONFIG_SECTIONS.find((section) => section.id === "observability")!;
@@ -401,6 +559,7 @@ function SectionPane({
   onChange,
   onClear,
   isRowDisabled,
+  picker,
 }: {
   entry: SectionGroup;
   query: string;
@@ -410,6 +569,8 @@ function SectionPane({
   onChange: (key: string, value: string) => void;
   onClear: (key: string) => void;
   isRowDisabled: (key: string) => boolean;
+  /** For at most one row in the whole surface, whichever pane that row lands in. */
+  picker: RowPicker | null;
 }) {
   const searching = query.trim().length > 0;
   // A search flattens the sub-groups: their headers are orientation within a section, and under a
@@ -474,6 +635,8 @@ function SectionPane({
                 disabled={isRowDisabled(setting.key)}
                 onChange={onChange}
                 onClear={onClear}
+                suggestions={picker?.key === setting.key ? picker.suggestions : undefined}
+                note={picker?.key === setting.key ? picker.note : undefined}
               />
             ))}
           </div>

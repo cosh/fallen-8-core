@@ -58,15 +58,25 @@ function SourceBadge({ setting }: { setting: SettingREST }) {
   );
 }
 
+/** One value a string row can OFFER without requiring it (feature chat-model-catalog). */
+export interface SettingSuggestion {
+  value: string;
+  /** What is known about it, shown beside the value; omitted when nothing is known. */
+  label?: string;
+}
+
 // Memoised, and the callbacks carry the key so the surface can pass ONE stable pair: without that,
 // every keystroke into any field re-renders every row in the open section because each would get
-// fresh closures. Anything rendering these must keep its callbacks stable across a keystroke.
+// fresh closures. Anything rendering these must keep its callbacks stable across a keystroke. The
+// same rule binds `suggestions`: a fresh array per render defeats the memo for that row.
 export const SettingRow = memo(function SettingRow({
   setting,
   draft,
   onChange,
   onClear,
   disabled,
+  suggestions,
+  note,
 }: {
   setting: SettingREST;
   /** The unsaved value, or undefined when this row is untouched. */
@@ -75,6 +85,14 @@ export const SettingRow = memo(function SettingRow({
   onClear: (key: string) => void;
   /** True when the whole editable region is gated off (an embed host locked it). */
   disabled?: boolean;
+  /**
+   * Values to offer on a `string` row, as a native combobox. OFFER is the whole contract: a typed
+   * value outside the list is not an error, because for a model name the list is not the whole
+   * resolvable set. Absent (or empty) leaves the row exactly as it was.
+   */
+  suggestions?: readonly SettingSuggestion[];
+  /** One line under the control, for whoever supplied the suggestions to say why it could not. */
+  note?: string;
 }) {
   const locked = isEnvironmentLocked(setting);
   const writable = setting.tier !== "notWritable" && !locked && !disabled;
@@ -107,6 +125,11 @@ export const SettingRow = memo(function SettingRow({
         ) : (
           <>
             {renderControl()}
+            {note && (
+              <div className="text-fg-faint mt-1 text-[10px]" data-testid={`${testId}-note`}>
+                {note}
+              </div>
+            )}
             {locked && (
               <div className="text-fg-faint mt-1 text-[10px]" data-testid={`${testId}-env`}>
                 set by <code className="text-fg-faint text-[10px]">{environmentSpelling(setting.key)}</code> in
@@ -186,9 +209,28 @@ export const SettingRow = memo(function SettingRow({
       );
     }
 
-    // string, and array (which the server never marks writable, so it arrives disabled).
+    // string, and array (which the server never marks writable, so it arrives disabled). A string row
+    // with suggestions becomes a native combobox - `list` only OFFERS, so free text still wins, and a
+    // datalist needs no CSS, which is what keeps this out of the surface's visual language.
+    const offered = setting.kind === "string" && suggestions && suggestions.length > 0 ? suggestions : null;
+    const listId = offered ? `${testId}-options` : undefined;
     return (
-      <input {...common} type="text" value={current} onChange={(event) => onChange(setting.key, event.target.value)} />
+      <>
+        <input
+          {...common}
+          type="text"
+          list={listId}
+          value={current}
+          onChange={(event) => onChange(setting.key, event.target.value)}
+        />
+        {offered && (
+          <datalist id={listId}>
+            {offered.map((suggestion) => (
+              <option key={suggestion.value} value={suggestion.value} label={suggestion.label} />
+            ))}
+          </datalist>
+        )}
+      </>
     );
   }
 });

@@ -99,6 +99,7 @@ namespace NoSQL.GraphDB.App
     [JsonSerializable(typeof(ChatMessageSpecification))]
     [JsonSerializable(typeof(ChatOptionsSpecification))]
     [JsonSerializable(typeof(ChatResultREST))]
+    [JsonSerializable(typeof(ChatModelsREST))]
     [JsonSerializable(typeof(ChatStatsREST))]
     [JsonSerializable(typeof(ConfigREST))]
     [JsonSerializable(typeof(SemanticConfigREST))]
