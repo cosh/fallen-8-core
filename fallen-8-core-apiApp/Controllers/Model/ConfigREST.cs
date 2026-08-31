@@ -83,17 +83,21 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>Whether the model is currently loaded in the backend (Ollama /api/ps): true =
-        /// warm, false = not loaded right now (loads on first use), null = undeterminable, or a
-        /// backend with no residency API (OpenAI and Anthropic have none, so this stays null by
-        /// design). A point-in-time read, only set on GET /config.</summary>
+        /// warm, false = not loaded right now (loads on first use), null = undeterminable. Only the
+        /// local Ollama sidecar can answer false, because only its /api/ps list is exhaustive: for a
+        /// backend with no residency API (OpenAI and Anthropic have none) and for a Nahil model Nahil
+        /// does not report on, this stays null by design rather than claiming the model is cold. A
+        /// point-in-time read, only set on GET /config.</summary>
         [JsonPropertyName("resident")]
         public Boolean? Resident
         {
             get; set;
         }
 
-        /// <summary>Best-effort GPU residency of the model: true/false when the backend reports it,
-        /// null when undeterminable (or not probed). A point-in-time read, only set on GET /config.</summary>
+        /// <summary>Best-effort GPU residency of the model: true/false when the backend reports a VRAM
+        /// figure, null when undeterminable (or not probed). Nahil reports none - the model runs on a
+        /// remote worker whose device this host cannot see - so a Nahil answer is always null rather
+        /// than a claim of CPU. A point-in-time read, only set on GET /config.</summary>
         [JsonPropertyName("gpu")]
         public Boolean? Gpu
         {

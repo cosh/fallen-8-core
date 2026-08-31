@@ -234,3 +234,14 @@ that backend - the chat block naming the model it will ask for, the embedding bl
 identity stamped beside your vectors. Residency is a best-effort probe with a 3 s bound: it authenticates like
 everything else, and answers "unknown" rather than delaying the page. F8 Studio shows the same
 thing in Connect → **Configuration**.
+
+**Expect "unknown" for the embedding model on Nahil, and read it as "no answer" rather than
+"cold".** Nahil's `/api/ps` reports only the model classes it keeps warm on a worker: the chat
+model shows up there once it has served a request (with a warm-worker count and an expiry a few
+minutes out), while the embedding model never does - measured, including during a request that
+succeeded. So a residency probe cannot see it, `resident` stays `null`, and the status line falls
+back to the honest thing it does know: whether the provider has been called at all ("in use" /
+"not called yet"). `gpu` is `null` on Nahil for the same kind of reason - the model runs on a
+remote worker whose device this host cannot see, and Nahil publishes no VRAM figure, so nothing
+here claims GPU or CPU. Whether a model can be served at all is a different question, and
+`GET /chat/models` answers it: that read carries Nahil's own routable-now flag per model.

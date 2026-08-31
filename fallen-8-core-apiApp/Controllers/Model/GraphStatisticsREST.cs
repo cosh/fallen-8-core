@@ -413,8 +413,10 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>Whether the model is currently loaded in the backend (Ollama /api/ps): true =
-        /// warm, false = not loaded right now (loads on first use), null = undeterminable, or a
-        /// backend with no residency API (OpenAI has none, so this stays null by design). Only set
+        /// warm, false = not loaded right now (loads on first use), null = undeterminable. Only the
+        /// local Ollama sidecar can answer false, because only its /api/ps list is exhaustive: for a
+        /// backend with no residency API (OpenAI has none) and for a Nahil model Nahil does not
+        /// report on, this stays null by design rather than claiming the model is cold. Only set
         /// on GET /config (a point-in-time probe), never on /status or /statistics.</summary>
         [JsonPropertyName("resident")]
         public Boolean? Resident
@@ -423,8 +425,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         }
 
         /// <summary>Best-effort GPU residency (Ollama VRAM): true/false when reported, null when
-        /// undeterminable, not probed, or a backend with no residency API. Only set on
-        /// GET /config.</summary>
+        /// undeterminable, not probed, or a backend that publishes no VRAM figure - which includes
+        /// every Nahil answer, where the model runs on a remote worker whose device this host cannot
+        /// see. Only set on GET /config.</summary>
         [JsonPropertyName("gpu")]
         public Boolean? Gpu
         {

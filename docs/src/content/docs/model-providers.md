@@ -295,6 +295,11 @@ would rewrite the history of every answer that arrived before the switch. Fallen
 
 Two honest gaps, both by contract. `resident` and `gpu` stay **null** for OpenAI, Anthropic and
 any other backend with no residency API: there is nothing to probe, and "unknown" beats a guess.
+The same rule applies one level in on Nahil, which *has* the API but does not report on every
+model: only the local Ollama sidecar's `/api/ps` list is exhaustive, so only there does an absent
+model mean `resident: false`. On Nahil an absent model is `null`, and `gpu` is always `null`
+because a remote worker publishes no VRAM figure this host could read
+([nahil.md](/nahil/#checking-it-works)).
 And `POST /path` returns a bare JSON array with no envelope to carry a summary, so its semantic
 provenance is the ambient `/status` answer rather than a per-call field; `/subgraph`, which does
 have a summary, echoes it.
