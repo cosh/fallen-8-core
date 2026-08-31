@@ -355,6 +355,42 @@ describe("per-type creation options", () => {
   });
 });
 
+// The other half of the shared guard in lib/vectorIndexCreate.ts. Only the Query screen's
+// on-ramp twin was pinned, and this panel had the same hole: an emptied dimension travelled as
+// "" against System.Int32, which the server cannot convert.
+describe("the shared dimension guard", () => {
+  it("refuses to submit a dimension the engine cannot take", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await findTypeSelect();
+    await user.selectOptions(screen.getByTestId("index-type"), "VectorIndex");
+    await user.type(screen.getByLabelText(/index id/i), "vec");
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+
+    await user.clear(screen.getByTestId("vector-dimension-opt"));
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+    expect(screen.getByTestId("vector-dimension-invalid")).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("vector-dimension-opt"), "9999");
+    expect(screen.getByRole("button", { name: "Create" })).toBeDisabled();
+
+    await user.clear(screen.getByTestId("vector-dimension-opt"));
+    await user.type(screen.getByTestId("vector-dimension-opt"), "768");
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+    expect(screen.queryByTestId("vector-dimension-invalid")).not.toBeInTheDocument();
+    expect(createIndexMock).not.toHaveBeenCalled();
+  });
+
+  it("leaves a non-vector create alone, which has no dimension at all", async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    await findTypeSelect();
+    await user.type(screen.getByLabelText(/index id/i), "byName");
+    expect(screen.queryByTestId("vector-dimension-invalid")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create" })).toBeEnabled();
+  });
+});
+
 describe("create outcome", () => {
   it("a false answer reads as NOT created and does not refetch the inventory", async () => {
     const user = userEvent.setup();

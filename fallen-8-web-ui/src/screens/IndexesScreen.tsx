@@ -43,6 +43,7 @@ import { toIndexKey, type TypedValue } from "../lib/literals";
 import { parseVector } from "../lib/vector";
 import { indexCapabilities } from "../lib/indexCapabilities";
 import {
+  VECTOR_DIMENSION_RANGE,
   isValidVectorDimension,
   vectorIndexDefaults,
   vectorIndexPluginOptions,
@@ -395,22 +396,23 @@ function CreatePanel({ onCreated }: { onCreated: () => void }) {
           <>
             <Field
               helpKey="vectorDimension"
-              label="dimension (1–4096)"
+              label={`dimension (${VECTOR_DIMENSION_RANGE.min}–${VECTOR_DIMENSION_RANGE.max})`}
               htmlFor="vector-dimension-opt"
             >
               <input
                 id="vector-dimension-opt"
                 className="input w-24"
                 type="number"
-                min={1}
-                max={4096}
+                min={VECTOR_DIMENSION_RANGE.min}
+                max={VECTOR_DIMENSION_RANGE.max}
                 data-testid="vector-dimension-opt"
                 value={dimension}
                 onChange={(e) => setDimensionEdit(e.target.value)}
               />
               {!isValidVectorDimension(dimension) && (
                 <div className="text-warn text-[11px]" data-testid="vector-dimension-invalid">
-                  a whole number from 1 to 4096
+                  a whole number from {VECTOR_DIMENSION_RANGE.min} to{" "}
+                  {VECTOR_DIMENSION_RANGE.max}
                 </div>
               )}
             </Field>

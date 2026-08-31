@@ -665,6 +665,10 @@ describe("the on-ramp: embeddings present, no vector index to rank them", () => 
     expect(screen.getByTestId("semantic-onramp-provider-off")).toHaveTextContent(
       /provider is also off/,
     );
+    // ONE statement of the problem. The general provider-off line sends the operator to the
+    // vector (kNN) form, and that form needs a vector index, which is exactly what is missing
+    // here: stacking the two narrated one fact twice and pointed at an absent control.
+    expect(screen.queryByTestId("semantic-provider-off")).not.toBeInTheDocument();
   });
 
   it("makes no claim while the status request is still in flight", async () => {

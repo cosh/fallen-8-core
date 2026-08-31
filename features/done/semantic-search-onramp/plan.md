@@ -73,8 +73,8 @@ codes through cmd with delayed expansion:
    - `powershell -File scripts/update-openapi-snapshot.ps1` must print an empty diff;
    - `npm --prefix docs ci && npm --prefix docs run build` (link check);
    - repo hygiene grep for the two forbidden words before any commit.
-3. Feature record: move `features/open/semantic-search-onramp/` to `features/done/` in
-   the landing PR/merge, status line updated.
+3. Feature record: move this directory from `features/open/` to `features/done/` as the work
+   lands, status line updated. (Done, in the landing merge.)
 
 ## What was actually run
 
@@ -110,6 +110,30 @@ executable probes into the worktree rather than arguing, which is why the findin
 their leftovers had to be swept out of a commit); and one gate here is a trap, since the repo has
 no prettier config, so running `npx prettier` on a file silently reformats it to an 80-column
 style the codebase does not use and tripled one diff before it was reverted.
+
+**Council gate.** Convened on the state that would actually land (origin/main merged in first),
+five seats (contract, regression, honesty, quality, docs) and a chair reconciling them against
+the code. Verdict: BLOCK, on five items, all addressed before merge:
+
+1. Provider off with zero vector indexes stacked two provider-off paragraphs, and the surviving
+   one pointed at a vector (kNN) form that cannot exist in that state. All four non-regression
+   seats measured it; the chair upgraded it from the regression seat's "cosmetic" because a
+   pointer at an absent control is the dead end this feature deletes.
+2. The one provider-off test without a pin on the second paragraph, which is why it escaped.
+3. `studio.md` promised the pasted-vector form unconditionally.
+4. The feature record was still under `features/open/`.
+5. Three false sentences in the spec, which freezes as history on the move - including a claim
+   that `screen-indexes.png` shows the FR-4 pointer. Checking it disproved the recapture as well:
+   the frame on main was already correct, so that image is restored and the pointer is recorded
+   as unphotographed.
+
+Four follow-ups the chair listed as non-blocking were taken anyway, being cheap and about
+accuracy: the k and dimension bounds now come from constants rather than five hand-typed copies,
+the bind-embedding field states why it disables the create, the Indexes half of the shared
+dimension guard got the test its twin already had, and a README bullet stopped implying the
+on-ramp checks for embeddings. The rest stay recorded as follow-ups, the largest being the
+`query-semantic-search.png` recapture (needs a bge-m3-identity provider) and photographing the
+FR-4 pointer with one non-vector index present.
 
 ## Out of the plan, recorded
 

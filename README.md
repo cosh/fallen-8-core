@@ -42,7 +42,7 @@ Each feature has a deep-dive doc — follow the link.
 - **[Semantic search](https://docs.fallen-8.com/studio/)** - type what you mean and get vertices or
   edges ranked by it: the embedding provider turns the words into the query vector server-side, so
   no vector ever reaches your hands. Its own mode on the Query screen, which offers to build the
-  bound index when embeddings are on the elements but nothing exists yet to rank them.
+  bound index the ranking needs when the instance has none.
 - **[Find similar](https://docs.fallen-8.com/studio/)** — from any element carrying an embedding a
   bound vector index projects, search by that element's own vector instead of describing it in
   words; the search inherits its label and drops the element itself from the hits.

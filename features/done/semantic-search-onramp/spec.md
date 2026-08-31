@@ -1,14 +1,15 @@
 # Semantic search on-ramp: specification
 
-> **Status:** implemented on branch `feature/semantic-search-onramp`. Studio-only: no .NET file
-> changed, so the OpenAPI snapshot, the MCP coverage gate, the provider-descriptor snapshot and
-> the browser probe are untouched by construction. Contract points refined during
-> implementation are marked *(refined)* inline; [plan.md](./plan.md) carries the phase record.
+> **Status:** implemented and merged from `feature/semantic-search-onramp`. Studio-only: no .NET
+> file changed, so the OpenAPI snapshot, the MCP coverage gate, the provider-descriptor snapshot
+> and the browser probe are untouched by construction. Contract points refined during
+> implementation are marked *(refined)* inline; §6 records what the adversarial review changed
+> and [plan.md](./plan.md) carries the phase record, the gate results and the council outcome.
 >
-> **Builds on:** [studio-semantics](../../done/studio-semantics/) (the text-in search box and
-> provider gating), [element-similarity-search](../../done/element-similarity-search/) (find
+> **Builds on:** [studio-semantics](../studio-semantics/) (the text-in search box and
+> provider gating), [element-similarity-search](../element-similarity-search/) (find
 > similar, index-form prefill, empty-index honesty) and
-> [vector-index](../../done/vector-index/) / [element-embeddings](../../done/element-embeddings/)
+> [vector-index](../vector-index/) / [element-embeddings](../element-embeddings/)
 > (bound indices as self-maintaining projections). Server side is complete; this feature
 > changes F8 Studio only.
 
@@ -75,7 +76,10 @@ mode's vector form unchanged - it is the bring-your-own-vector and find-similar 
 untouched: a prefill always carries a vector, so there is nothing to type). Persisted
 `QueryDraft` state migrates: a stored draft with `vectorSource: "text"` re-opens as the
 semantic mode with its text, k, kind and label carried over, so nobody's saved work is
-dropped by the move.
+dropped by the move. *(Refined: only when that form was the one actually on screen, i.e. the
+draft also had `mode === "index"` and `form === "vector"`. A stale `"text"` left behind while
+the operator had moved on to a property scan is not a request to reopen a semantic search, so
+such a draft is left exactly where it was.)*
 
 *(Refined, two points. First, the persisted store has no `version`/`migrate` pair; it
 deep-merges through a `merge` function whose only precedent for a restructure is "reset rather
@@ -125,6 +129,11 @@ under the table: text-in semantic search needs a vector index bound to an embedd
 with the create form below already able to make one. No new form, no duplicate create -
 one sentence that turns the dead end the operator actually hit into a pointer.
 
+*(Refined: it also requires a NON-EMPTY inventory. On an instance with no indexes at all the
+paragraph above already says "create one below", so the pointer restated it in the first state a
+newcomer sees; the dead end it exists for is other families present and this one absent, which
+is the state the operator was actually in. See §6.10.)*
+
 ### FR-5 Docs follow the UI
 
 - `docs/src/content/docs/studio.md`: the Query section describes the semantic mode and
@@ -145,12 +154,15 @@ came back byte-identical, rather than by guessing.*
   the control and shifts the row beside it. **Recaptured.** Its committed predecessor also
   contradicted its own spec by being shot against a graph with 117 vertices where the comment
   says "empty graph on purpose"; the new frame is empty as intended.*
-- *`screen-indexes.png` is captured against an inventory left deliberately empty, so the FR-4
-  pointer lands in it. **Recaptured.** Doing so exposed a latent race in its capture spec: it
-  waited for the plugin-type control to be VISIBLE, which the free-form fallback satisfies
-  before `/status` answers, so the frame could be, and was, shot with the header still reading
-  "checking" and every status-derived line absent. The spec now waits for the control to be a
-  `SELECT`; the published frame gained an "online" header as a side effect.*
+- *`screen-indexes.png` is NOT recaptured, and the FR-4 pointer is consequently **unphotographed**
+  anywhere on the docs site. That spec captures an inventory left deliberately empty, and the
+  refinement above means the pointer does not render there. Its capture spec was still hardened:
+  it waited for the plugin-type control to be VISIBLE, which the free-form fallback satisfies
+  before `/status` answers, so a frame could be shot with the header reading "checking" and every
+  status-derived line absent; it now waits for the control to be a `SELECT`. A recapture under
+  that fix came back visually identical to the committed frame (119 bytes of antialiasing), which
+  is why the image is left alone: the hardening is preventative, not a repair. Photographing the
+  pointer needs a capture with one non-vector index present, listed as a follow-up.*
 - *`query-semantic-search.png` shows the removed toggle and **could NOT be recaptured**: Movie
   Night's baked plot vectors are 1024-dimensional bge-m3, so the frame needs a provider of
   matching model identity or the search answers 409. No such backend is available in this
@@ -166,8 +178,10 @@ came back byte-identical, rather than by guessing.*
 - **MCP:** untouched; `f8_search mode=semantic` already bridges `POST /embedding/search`.
   No new coverage entry needed.
 - **studio-semantics (done):** its shipped placement (text toggle inside index mode)
-  is superseded by FR-1/FR-2. Historical spec is not rewritten; this spec is the living
-  record of where text-in search lives now.
+  is superseded by FR-1/FR-2. Its spec is a historical record and is not rewritten. This one is
+  historical too, so it is not the place to look either: where text-in search lives now is
+  documented in [`docs/src/content/docs/studio.md`](../../../docs/src/content/docs/studio.md)
+  and in the living feature doc [index-workspace/README.md](../index-workspace/README.md).
 - **element-similarity-search (done):** find-similar keeps prefilling the index-mode
   vector form (explicit vector); unaffected. Its FR-5 prefill and FR-8 empty-index
   honesty are reused by FR-3/FR-1.

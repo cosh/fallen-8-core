@@ -56,6 +56,7 @@ import {
   type IndexCapability,
 } from "../lib/indexCapabilities";
 import {
+  VECTOR_DIMENSION_RANGE,
   isValidVectorDimension,
   vectorIndexDefaults,
   vectorIndexPluginOptions,
@@ -87,6 +88,14 @@ const MODE_LABELS: Record<QueryMode, string> = {
 };
 
 const VECTOR_KINDS = ["any", "vertex", "edge"] as const;
+
+/**
+ * The engine's own ceiling on k. Module scope because the shared parameter fields, the readiness
+ * check and the find-similar over-fetch all have to agree on it: the over-fetch has to respect
+ * it or a find-similar search at the advertised maximum answers 400 instead of dropping one hit,
+ * which is the same clamp the MCP bridge applies to that trick.
+ */
+const MAX_K = 1024;
 
 const OPERATORS = Object.keys(BINARY_OPERATORS) as BinaryOperatorName[];
 
@@ -227,10 +236,6 @@ export function QueryScreen() {
   // search returns the source element at rank 1 every time. Visible and clearable rather than
   // hidden, because a silently filtered result set is one nobody can reason about.
   const [excludeElementId, setExcludeElementId] = useState<number | null>(null);
-  // The engine's own ceiling. The over-fetch has to respect it or a find-similar search at the
-  // advertised maximum k answers 400 instead of dropping one hit - the same clamp the MCP bridge
-  // already applies to this trick.
-  const MAX_K = 1024;
   // The exclusion belongs to the find-similar QUESTION, "elements like this element's vector",
   // and that question lives only in the vector form the prefill lands in. Allowed to follow the
   // operator into the semantic mode, it dropped a hit from a TEXT search, spent one of their k
@@ -678,7 +683,11 @@ export function QueryScreen() {
                     connection state in the header is the thing to look at.
                   </p>
                 )}
-                {providerEnabled !== true && providerVerdictKnown && (
+                {/* Not while the on-ramp is up: it states the provider problem itself, in the
+                    only wording that is true there. This one sends the operator to the vector
+                    (kNN) form, which needs a vector index to exist - and the on-ramp renders
+                    precisely when none does, so stacking the two pointed at an absent control. */}
+                {providerEnabled !== true && providerVerdictKnown && !semanticOnRamp && (
                   <p
                     className="text-warn basis-full text-[11px]"
                     data-testid="semantic-provider-off"
@@ -1034,19 +1043,19 @@ function KnnParamFields({
 }) {
   return (
     <>
-      <Field helpKey="vectorK" label="k (1–1024)" htmlFor="vector-k">
+      <Field helpKey="vectorK" label={`k (1–${MAX_K})`} htmlFor="vector-k">
         <input
           id="vector-k"
           className="input w-20"
           type="number"
           min={1}
-          max={1024}
+          max={MAX_K}
           value={vectorK}
           onChange={(e) => setQueryDraft({ vectorK: e.target.value })}
         />
         {!kValid && (
           <div className="text-warn text-[11px]" data-testid="k-invalid">
-            a whole number from 1 to 1024
+            a whole number from 1 to {MAX_K}
           </div>
         )}
       </Field>
@@ -1183,6 +1192,11 @@ function SemanticOnRamp({
             onChange={(e) => setEmbeddingName(e.target.value)}
             placeholder="default"
           />
+          {!embeddingName.trim() && (
+            <div className="text-warn text-[11px]" data-testid="onramp-binding-required">
+              required here: an unbound index would hold nothing to rank
+            </div>
+          )}
         </Field>
         <Field helpKey="vectorDimension" label="dimension" htmlFor="onramp-dimension">
           <input
@@ -1190,14 +1204,14 @@ function SemanticOnRamp({
             data-testid="onramp-dimension"
             className="input w-24"
             type="number"
-            min={1}
-            max={4096}
+            min={VECTOR_DIMENSION_RANGE.min}
+            max={VECTOR_DIMENSION_RANGE.max}
             value={dimension}
             onChange={(e) => setDimensionEdit(e.target.value)}
           />
           {!dimensionValid && (
             <div className="text-warn text-[11px]" data-testid="onramp-dimension-invalid">
-              a whole number from 1 to 4096
+              a whole number from {VECTOR_DIMENSION_RANGE.min} to {VECTOR_DIMENSION_RANGE.max}
             </div>
           )}
         </Field>
