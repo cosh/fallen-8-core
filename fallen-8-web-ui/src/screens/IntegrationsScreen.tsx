@@ -38,7 +38,7 @@ import type {
   IntegrationSetting,
   SettingKind,
 } from "../api/types";
-import { capabilityOf, useIntegrationProviders } from "../state/integrations";
+import { capabilityOf, useIntegrationLimits, useIntegrationProviders } from "../state/integrations";
 import { useEmbeddingProvider } from "../state/graphShape";
 import { ApiError, wasCancelled } from "../api/client";
 import { ErrorBox } from "../components/ErrorBox";
@@ -46,6 +46,7 @@ import { FileDropzone } from "../components/FileDropzone";
 import { ListCapNote } from "../components/ListCapNote";
 import { Truncated } from "../components/Truncated";
 import { formatBytes } from "../lib/format";
+import { checkStaging, describeLimits, LIMITS_UNKNOWN_NOTE } from "../lib/fileLimits";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { capList, SCROLL_ROWS, scrollRows } from "../lib/listCaps";
 import { RUN_PHASES } from "../api/types";
@@ -93,6 +94,15 @@ export function IntegrationsScreen() {
   // the previous run's cache.
   const [expectedRunId, setExpectedRunId] = useState<string | null>(null);
   const submitStartedRef = useRef(false);
+
+  // What a job may carry HERE, read once so a set that cannot be sent is refused in this form
+  // rather than after the upload. Refusing at the far end works, but Kestrel drains the rest of the
+  // body before the answer is read, so it costs the whole upload first (see the feature's
+  // findings.md). Unknown is a real state - an older instance, or the capability off - and it means
+  // check NOTHING: a fallback number here is the bug this feature exists to remove.
+  const limitsQuery = useIntegrationLimits(instance);
+  const limits = limitsQuery.data ?? undefined;
+  const limitsUnknown = limitsQuery.isError || (limitsQuery.isSuccess && !limitsQuery.data);
 
   const catalog = useMemo(() => providers.data ?? [], [providers.data]);
   const selected = catalog.find((provider) => provider.id === selectedId) ?? null;
@@ -236,7 +246,23 @@ export function IntegrationsScreen() {
     const accepted: StagedFile[] = [];
     const problems: string[] = [];
 
-    for (const file of multiple ? picked : picked.slice(0, 1)) {
+    // The instance's OWN three ceilings, applied to what is being added together with what every
+    // other file setting of this job already holds: the total and the count are job-wide, so a
+    // per-setting check here would pass a job the instance then refuses.
+    const verdict = checkStaging({
+      limits,
+      incoming: multiple ? picked : picked.slice(0, 1),
+      staged: multiple ? (files[setting.key] ?? []) : [],
+      elsewhere: Object.entries(files)
+        .filter(([key]) => key !== setting.key)
+        .flatMap(([, held]) => held),
+      claimedSet: multiple,
+    });
+    if (verdict.problem) {
+      problems.push(verdict.problem);
+    }
+
+    for (const file of verdict.accepted as File[]) {
       if (file.size === 0) {
         // Refused here as well as by the runtime, because the round trip for this one is pure
         // latency: an empty file is the mistake somebody makes when they pick before saving.
@@ -391,6 +417,7 @@ export function IntegrationsScreen() {
                 onChange={(next) => setValues((current) => ({ ...current, [setting.key]: next }))}
                 files={files[setting.key] ?? []}
                 problem={fileProblems[setting.key]}
+                ceilings={limitsUnknown ? LIMITS_UNKNOWN_NOTE : describeLimits(limits)}
                 onFiles={(picked) => void stage(setting, picked)}
                 onRemoveFile={(index) => {
                   setFiles((current) => {
@@ -607,6 +634,8 @@ function SettingField(props: {
   files?: StagedFile[];
   /** File settings only: why the last pick could not be used. */
   problem?: string;
+  /** File settings only: what this instance accepts, in one line. */
+  ceilings?: string;
   /** File settings only: files were picked or dropped. */
   onFiles?: (files: File[]) => void;
   /** File settings only: forget the staged file at this position. */
@@ -614,7 +643,8 @@ function SettingField(props: {
   /** File settings only: forget all of them. */
   onClearFiles?: () => void;
 }) {
-  const { setting, value, onChange, files, problem, onFiles, onRemoveFile, onClearFiles } = props;
+  const { setting, value, onChange, files, problem, ceilings, onFiles, onRemoveFile, onClearFiles } =
+    props;
   const testid = `integration-setting-${setting.key}`;
 
   if (setting.kind === "Credential") {
@@ -629,6 +659,7 @@ function SettingField(props: {
         setting={setting}
         files={files ?? []}
         problem={problem}
+        ceilings={ceilings ?? ""}
         onFiles={onFiles!}
         onRemove={onRemoveFile!}
         onClear={onClearFiles!}
@@ -728,12 +759,14 @@ function FileField(props: {
   setting: IntegrationSetting;
   files: StagedFile[];
   problem?: string;
+  /** What this instance accepts, stated up front rather than only when refusing. */
+  ceilings: string;
   onFiles: (files: File[]) => void;
   onRemove: (index: number) => void;
   onClear: () => void;
   testid: string;
 }) {
-  const { setting, files, problem, onFiles, onRemove, onClear, testid } = props;
+  const { setting, files, problem, ceilings, onFiles, onRemove, onClear, testid } = props;
   const pickRef = useRef<HTMLInputElement>(null);
   const multiple = setting.multiple === true;
   const staged = files.length > 0;
@@ -855,9 +888,18 @@ function FileField(props: {
             thing, the one listed first wins.{" "}
           </>
         )}
-        What you stage is read in your browser and travels with the run, so nothing is mounted and
-        nothing is stored: the runtime drops it when the run ends. This tab keeps it for a re-run
-        until you change it or pick another integration.
+        {/* Deliberately NOT restating the descriptor's own help, which already says the file
+            travels with the run and is dropped after it. Only what this screen knows: where it is
+            kept, and when it is read. */}
+        This tab keeps it for a re-run until you change it or pick another integration, and reads it
+        when the run is SENT - so one you move or edit in the meantime fails then.
+      </span>
+
+      {/* The ceilings up front, not only inside a refusal. They are the INSTANCE's numbers, read
+          from it, because a number kept here is how this form came to refuse jobs the instance
+          would have accepted. */}
+      <span className="text-fg-faint block text-[11px]" data-testid={`${testid}-ceilings`}>
+        {ceilings}
       </span>
     </div>
   );

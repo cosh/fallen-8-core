@@ -149,6 +149,60 @@ environment has it on unless you set `F8_EMBEDDINGS=false`. A 409 means the prov
 name/dimension/metric does not match the vectors baked into your data. Bring-your-own-vector
 scans work regardless. Full rules: [Semantic traversal](/semantic-traversal/).
 
+## An integration job with big files failed, or seemed to do nothing
+
+**Symptom.** You staged a directory of large files (say an AUTOSAR handover of several gigabytes),
+pressed **run now**, got no visible feedback at all, and minutes later an error. Or a job was refused
+with a size complaint whose numbers you cannot find in any setting you have.
+
+**Cause.** Two different things, and it is worth telling them apart.
+
+Older builds sent a job as one JSON body with every file base64 in it. That capped a job at roughly
+384 MiB regardless of configuration, because the browser had to hold the bytes, their base64 and the
+whole request at once and a JavaScript string maxes out at 512 MiB. The failure arrived as
+`Invalid string length` or as an out-of-memory, after minutes of encoding, with no progress shown
+because nothing had been sent yet.
+
+Current builds send a **multipart** job and stream each file from disk, so the browser holds nothing
+and the size of what you can send is the instance's business. The Integrations screen states the
+ceilings before you pick anything and reports the send as it happens, with a cancel.
+
+**Fix.**
+
+1. Ask the instance what it accepts, rather than guessing:
+
+   ```bash
+   curl -sS http://localhost:8080/integrations/limits
+   # {"maxFileBytes":134217728,"maxJobFileBytes":536870912,"maxJobFiles":256}
+   ```
+
+   Those are the numbers that BIND for you: the ceiling is the smaller of the runtime's own
+   configuration and the API's fixed 768 MiB request bound, reconciled for you so there is nothing to
+   combine. Zero or less means that ceiling is off.
+
+2. If a set is over the total, **narrow the set** rather than splitting it across runs. For an
+   integration whose files are one source together, this is the trap that matters: a later run given
+   fewer files declares a complete snapshot over what it was given and withdraws whatever only the
+   missing files described. Raise `Integrations:MaxJobFileBytes` on the runtime instead, up to the
+   768 MiB bound above it.
+
+3. A file over the per-file ceiling is refused on its own and named. A job with too many files is
+   refused on the count, which exists because a great many tiny files satisfy both byte ceilings.
+
+4. If Studio says the instance **did not report** what a job may carry, it is an older instance or one
+   with the integrations capability off. Nothing is checked before the send in that case, on purpose:
+   Studio holds no ceiling of its own, since one kept there was previously LOWER than the instance's
+   and refused jobs the instance would have accepted.
+
+5. `413` from the API means the request body exceeded its fixed transport bound and was refused from
+   the declared length, before a byte was uploaded. `411` means the body arrived with no
+   `Content-Length`, which this one route requires so an oversized job can be refused before it is
+   sent. `415` means the instance does not accept multipart jobs and predates this transport; upgrade
+   it, or submit over the API as JSON.
+
+Ceilings, the part naming and the set-is-the-source rule are all in
+[Files](/integrations/#files).
+
 ## An integration run vanished, or timed out while the graph kept changing
 
 **Symptom.** You started a run, the call failed or timed out after a couple of minutes, and yet the

@@ -30,6 +30,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "../src/api/client";
 import type { InstanceConfig } from "../src/instances/types";
 import type {
+  FileLimits,
   IntegrationJobFile,
   IntegrationJobReport,
   IntegrationJobRequest,
@@ -79,6 +80,10 @@ const cancelRunMock =
   vi.fn<(i: InstanceConfig, instanceId: string) => Promise<IntegrationRunState | null>>();
 const getStatusMock =
   vi.fn<(i: InstanceConfig, signal?: AbortSignal) => Promise<StatusREST | null>>();
+// What a job may carry on this instance (feature integration-file-transport). The form reads it so
+// an oversized set is refused before the upload rather than after it.
+const getLimitsMock =
+  vi.fn<(i: InstanceConfig, signal?: AbortSignal) => Promise<FileLimits | null>>();
 
 vi.mock("../src/api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/api/endpoints")>();
@@ -90,6 +95,7 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
     getIntegrationRun: (i: InstanceConfig, instanceId: string) => getRunMock(i, instanceId),
     cancelIntegrationRun: (i: InstanceConfig, instanceId: string) => cancelRunMock(i, instanceId),
     getStatus: (i: InstanceConfig, s?: AbortSignal) => getStatusMock(i, s),
+    getIntegrationLimits: (i: InstanceConfig, s?: AbortSignal) => getLimitsMock(i, s),
   };
 });
 
@@ -302,7 +308,24 @@ beforeEach(() => {
   getRunMock.mockReset().mockResolvedValue(finishedRun(report()));
   cancelRunMock.mockReset().mockResolvedValue(stoppingRun());
   getStatusMock.mockReset().mockResolvedValue(status(true));
+  getLimitsMock.mockReset().mockResolvedValue(shippedLimits());
 });
+
+/** The ceilings as a shipped instance serves them: 128 MiB per file, 512 MiB per job, 256 files. */
+function shippedLimits(): FileLimits {
+  return { maxFileBytes: 134217728, maxJobFileBytes: 536870912, maxJobFiles: 256 };
+}
+
+/**
+ * A file of a stated size with no bytes behind it. `size` is what every ceiling check reads, so
+ * spoofing it runs the gigabytes scenario in microseconds instead of allocating it - and allocating
+ * it is not merely slow, it is the exact thing this feature stopped doing.
+ */
+function sized(name: string, bytes: number): File {
+  const file = new File(["x"], name, { type: "application/xml" });
+  Object.defineProperty(file, "size", { value: bytes });
+  return file;
+}
 
 describe("the settings form is rendered from the descriptor alone", () => {
   it("renders one input per setting, of the kind the descriptor declares, with the descriptor's own help", async () => {
@@ -1631,5 +1654,173 @@ describe("sending a job is visible while it happens", () => {
     // produce, and it has to say what to do rather than show a bare 415.
     const note = await screen.findByTestId("integration-no-multipart");
     expect(note).toHaveTextContent("does not accept multipart");
+  });
+});
+
+/**
+ * THE FORM REFUSES BEFORE IT SENDS (feature integration-file-transport, FR-8).
+ *
+ * Not a nicety. A refusal from the instance costs the whole upload first, because Kestrel drains the
+ * rest of an unread body before the answer is read - so the person who staged gigabytes of extracts
+ * waits out all of it to be told the set is too large. Every number here comes FROM the instance;
+ * the one thing this form must never do is keep a ceiling of its own, which is how it came to refuse
+ * jobs the instance would have accepted.
+ */
+describe("a set too large for the instance is refused in the form", () => {
+  async function ready(provider = multiFileIntegration()) {
+    listProvidersMock.mockResolvedValue([provider]);
+    renderScreen();
+    await userEvent.click(await screen.findByTestId("integration-select-hypothetical-fourth"));
+    await userEvent.type(screen.getByTestId("integration-instance-id"), "vehicle-network");
+    await userEvent.type(screen.getByTestId("integration-setting-baseUrl"), "https://thing.invalid");
+    await userEvent.type(screen.getByTestId("integration-setting-apiKey"), "secret");
+  }
+
+  const problem = () => screen.getByTestId("integration-setting-extract-problem");
+  const staged = () => screen.queryAllByTestId("integration-setting-extract-staged-file");
+
+  it("states what the instance accepts before anything is picked", async () => {
+    await ready();
+
+    // Up front, and in the instance's units, so nobody has to discover a ceiling by breaking it.
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-ceilings")).toHaveTextContent(
+        "128.0 MiB per file, 512.0 MiB per job, 256 files per job",
+      ),
+    );
+  });
+
+  it("refuses a single file over the per-file ceiling and keeps the rest", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("small.arxml", 1024),
+      sized("huge.arxml", 200 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(staged()).toHaveLength(1));
+    expect(staged()[0]).toHaveTextContent("small.arxml");
+    // Named, sized, and against the ceiling it broke: "too large" alone leaves the one question a
+    // caller has to answer - how much to cut - unanswerable.
+    expect(problem()).toHaveTextContent("huge.arxml");
+    expect(problem()).toHaveTextContent("200.0 MiB");
+    expect(problem()).toHaveTextContent("128.0 MiB");
+    expect(submitJobMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses the whole batch on the job total, and says the set cannot be split", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    // Six files of 100 MiB: each legal, 600 MiB together, over the 512 MiB job total.
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      Array.from({ length: 6 }, (_, i) => sized(`part${i}.arxml`, 100 * 1024 * 1024)),
+    );
+
+    await waitFor(() => expect(problem()).toHaveTextContent("600.0 MiB"));
+    // NOTHING staged: no single file is at fault, so picking whichever prefix fits would drop the
+    // tail on a decision the person picking never made.
+    expect(staged()).toHaveLength(0);
+    expect(problem()).toHaveTextContent("512.0 MiB");
+    // And the dangerous workaround is foreclosed in the same breath, because splitting a claimed set
+    // over two runs is not slower, it is destructive.
+    expect(problem()).toHaveTextContent("ONE set");
+    expect(problem()).toHaveTextContent("withdraws");
+  });
+
+  it("refuses on the number of files even when every byte ceiling is satisfied", async () => {
+    getLimitsMock.mockResolvedValue({ ...shippedLimits(), maxJobFiles: 3 });
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      Array.from({ length: 4 }, (_, i) => sized(`tiny${i}.arxml`, 8)),
+    );
+
+    await waitFor(() => expect(problem()).toHaveTextContent("4 files in this job"));
+    expect(problem()).toHaveTextContent("3 files one job may carry");
+    expect(staged()).toHaveLength(0);
+  });
+
+  it("counts what is already staged, so a second drop that breaks the total is refused", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    // Five files of 100 MiB: each under the 128 MiB per-file ceiling, 500 MiB together, which fits.
+    await userEvent.upload(
+      screen.getByTestId("integration-setting-extract"),
+      Array.from({ length: 5 }, (_, i) => sized(`held${i}.arxml`, 100 * 1024 * 1024)),
+    );
+    await waitFor(() => expect(staged()).toHaveLength(5));
+
+    // A sixth would make 600 MiB, over the job total - and it is legal on its own, so only the
+    // running total can catch it.
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("one-too-many.arxml", 100 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(problem()).toHaveTextContent("600.0 MiB"));
+    // Already-staged files are KEPT: the refusal is about what was just added.
+    expect(staged()).toHaveLength(5);
+    expect(staged()[0]).toHaveTextContent("held0.arxml");
+  });
+
+  it("names no configuration key, because the binding number may be the proxy's", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("huge.arxml", 900 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(problem()).toHaveTextContent("huge.arxml"));
+    expect(problem()).not.toHaveTextContent("MaxFileBytes");
+    expect(problem()).not.toHaveTextContent("Integrations:");
+    expect(problem()).toHaveTextContent("this instance");
+  });
+
+  /**
+   * THE PIN AGAINST A HARDCODED FALLBACK, and the most important test in this block.
+   *
+   * With the ceilings unreadable, the form must check NOTHING and say so. A default substituted here
+   * is precisely the bug the feature removed: Studio carried about 384 MiB, below the instance's
+   * 512 MiB, and refused jobs the instance would have accepted with no way to configure it away.
+   */
+  it("checks nothing and invents nothing when the instance will not say", async () => {
+    getLimitsMock.mockRejectedValue(new ApiError(404, "/integrations/limits", "Not Found"));
+    await ready();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("integration-setting-extract-ceilings")).toHaveTextContent(
+        "did not report what a job may carry",
+      ),
+    );
+
+    // 700 MiB, over every shipped ceiling there is. It stages, because this form has no number of
+    // its own to refuse it with, and the instance is the one that gets to say no.
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("enormous.arxml", 700 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(staged()).toHaveLength(1));
+    expect(screen.queryByTestId("integration-setting-extract-problem")).toBeNull();
+  });
+
+  it("stages a set that fits, saying nothing", async () => {
+    await ready();
+    await waitFor(() => expect(getLimitsMock).toHaveBeenCalled());
+
+    await userEvent.upload(screen.getByTestId("integration-setting-extract"), [
+      sized("a.arxml", 100 * 1024 * 1024),
+      sized("b.arxml", 100 * 1024 * 1024),
+    ]);
+
+    await waitFor(() => expect(staged()).toHaveLength(2));
+    expect(screen.queryByTestId("integration-setting-extract-problem")).toBeNull();
+    // The total is shown beside the rows, because it is a ceiling of its own.
+    expect(screen.getByTestId("integration-setting-extract-total")).toHaveTextContent("200.0 MiB");
   });
 });
