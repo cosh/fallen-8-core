@@ -131,9 +131,22 @@ Four follow-ups the chair listed as non-blocking were taken anyway, being cheap 
 accuracy: the k and dimension bounds now come from constants rather than five hand-typed copies,
 the bind-embedding field states why it disables the create, the Indexes half of the shared
 dimension guard got the test its twin already had, and a README bullet stopped implying the
-on-ramp checks for embeddings. The rest stay recorded as follow-ups, the largest being the
-`query-semantic-search.png` recapture (needs a bge-m3-identity provider) and photographing the
-FR-4 pointer with one non-vector index present.
+on-ramp checks for embeddings.
+
+**The screenshot follow-up is closed too.** `query-semantic-search.png` was recaptured against a
+real bge-m3 provider and restored to `samples.md`. What made it possible was that the weights were
+already in the `f8-ollama-models` volume, so it took a container start rather than a 1.2 GB pull:
+serve that volume with the repo's own Ollama image, run the apiApp natively against it with the
+compose environment's `Fallen8__Embedding__*` values, and the capture spec does the rest (it
+asserts the top row is vertex 0, so a wrong model fails the run instead of publishing a wrong
+ranking). Recorded here because the next person to need a provider-backed capture will assume a
+download.
+
+Still open, and the only piece of this feature that is: the FR-4 pointer is photographed nowhere.
+`screenshot-indexes.spec.ts` deliberately leaves the inventory empty, and the pointer requires a
+non-empty one. Seeding a single dictionary index in that capture would picture the pointer AND
+give that frame the inventory table it currently lacks, which is a change to another frame's
+subject and so was left for its own decision.
 
 ## Out of the plan, recorded
 

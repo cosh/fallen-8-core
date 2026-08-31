@@ -163,13 +163,16 @@ came back byte-identical, rather than by guessing.*
   that fix came back visually identical to the committed frame (119 bytes of antialiasing), which
   is why the image is left alone: the hardening is preventative, not a repair. Photographing the
   pointer needs a capture with one non-vector index present, listed as a follow-up.*
-- *`query-semantic-search.png` shows the removed toggle and **could NOT be recaptured**: Movie
-  Night's baked plot vectors are 1024-dimensional bge-m3, so the frame needs a provider of
-  matching model identity or the search answers 409. No such backend is available in this
-  environment (no Ollama, no remote credential), and per the capture spec's own documented rule
-  a skip that leaves the good image alone beats a degraded overwrite. The spec's driving code IS
-  updated, so the capture produces the new frame the next time it runs against a provider-backed
-  app. **This is the one piece of FR-5 outstanding.**)*
+- *`query-semantic-search.png` showed the removed toggle. **Recaptured** against a real bge-m3
+  provider, which the frame needs: Movie Night's plot vectors carry the stamp `bge-m3#1024#Cosine`,
+  and a different model would rank a different film even though the index declares no model and so
+  only checks the dimension. The weights were already in the `f8-ollama-models` volume from an
+  earlier `env:up`, so serving them was a container start rather than a download; the apiApp ran
+  natively against it with the compose environment's own `Fallen8__Embedding__*` values. The new
+  frame is a better one than it replaces: it shows the mode, the `bound:default` picker, the
+  provenance caption naming Ollama and bge-m3, and the full ranked table, with Inception first at
+  0.6111 followed by Eternal Sunshine of the Spotless Mind, Arrival and Spirited Away. The capture
+  spec's own assertion (top row id === 0) is what proves the ranking rather than the picture.)*
 
 ## 3. Impact on existing features (mandatory sweep)
 
@@ -286,10 +289,10 @@ support, and the first draft did exactly that in four new places.
     still said "two modes" with `/embedding/search` reachable from the index mode.
     `docs/src/content/docs/studio.md` contradicted itself (its screen table omitted the new mode)
     and did not mention the FR-4 pointer that the recaptured screenshot shows.
-13. **`query-semantic-search.png` was removed from `samples.md`.** It pictures the deleted toggle
-    directly under prose describing the new mode, and cannot be recaptured here (see FR-5). A
-    screenshot that contradicts its own caption is worse than none; the capture spec is updated,
-    so the frame returns the next time it runs against a bge-m3 provider.
+13. **`query-semantic-search.png` pictured the deleted toggle** directly under prose describing
+    the new mode. It was dropped from `samples.md` at review time, on the rule that a screenshot
+    contradicting its own caption is worse than none, and **restored once it was recaptured
+    against a real bge-m3 provider** (see FR-5).
 
 One flagged item was deliberately NOT changed: the placeholder `— pick a vector index —` keeps its
 em dashes to match the `— pick an index —` two controls away. Both reviewers who raised it noted

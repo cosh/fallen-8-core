@@ -245,6 +245,12 @@ Load **Movie Night**, open **Query**, choose the **semantic search** mode, and s
 selected. "mind-bending sci-fi about dreams" ranks Inception top by cosine similarity: the
 query text is embedded once server-side, then run as exact kNN.
 
+![Semantic search on Movie Night: the semantic query mode against the bound 'embeddings' index, ten hits ranked by cosine with Inception first at 0.6111, then Eternal Sunshine of the Spotless Mind, Arrival and Spirited Away.](../../assets/images/query-semantic-search.png)
+
+Nothing in that ranking matches the words typed: it is the plots that are close in embedding
+space. The caption under the query box names the backend and model that turned the sentence
+into a vector, so a result always says where its query came from.
+
 The mechanics (element embeddings, bound indices, the model-identity contract) are in
 [semantic traversal](/semantic-traversal/); the kNN scan itself in [vector search](/vector-search/).
 
