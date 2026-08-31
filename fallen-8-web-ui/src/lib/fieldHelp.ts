@@ -67,7 +67,7 @@ export const FIELD_HELP = {
 
   // ---- query: scans ----
   scanKind:
-    "Property scan walks all elements (no index needed); 'ask an index' picks a registered index and offers the query forms its type answers.",
+    "Property scan walks all elements (no index needed); 'ask an index' picks a registered index and offers the query forms its type answers; 'semantic search' types words instead, and the embedding provider turns them into the query vector.",
   propertyScope:
     "Specific key: scan one named property with an operator and typed literal. Any property: a case-insensitive substring search across EVERY property value (numbers and dates included, compared as text) - a cold, un-indexed full-graph discovery scan.",
   searchTerm:
@@ -118,6 +118,10 @@ export const FIELD_HELP = {
     "Optional model-identity string this index expects its vectors to come from (e.g. 'bge-micro-v2#384#Cosine'). The embedding provider refuses to write mismatched vectors; a search whose provider identity differs answers 409. Diagnostic only for a raw index.",
   embeddingSearchText:
     "Search text. The embedding provider embeds it once (server-side), then runs kNN — you never handle the vector. Needs the provider enabled on this instance.",
+  semanticIndexId:
+    "The vector index the search ranks against. The list is narrowed to the indices that report the vector family, since only they hold vectors to rank; one bound to an embedding name projects that embedding off your elements and maintains itself.",
+  semanticBindEmbedding:
+    "Required here, unlike on the Indexes screen: this index exists so a typed query can rank the embeddings ALREADY on your elements, and only a bound index projects them. Name the embedding they carry ('default' unless you chose otherwise). An unbound index would hold nothing until you pasted vectors into it by hand.",
 
   // ---- browser: element embeddings ----
   embeddingName:

@@ -230,13 +230,25 @@ export const DEFAULT_PATH_DRAFT: PathDraft = {
   semantic: { ...DEFAULT_SEMANTIC_DRAFT },
 };
 
+/** The Query screen's three ways of asking (feature index-workspace / semantic-search-onramp). */
+export const QUERY_MODES = ["property", "index", "semantic"] as const;
+
+export type QueryMode = (typeof QUERY_MODES)[number];
+
 /**
  * The Query screen's whole input form (feature index-workspace). Persisted per instance
  * so leaving for the Canvas and coming back restores it exactly — results are re-run on
  * demand (kept out of the lean persisted store). Reset via the screen's Clear button.
  */
 export interface QueryDraft {
-  mode: "property" | "index";
+  /**
+   * "semantic" is text-in kNN (feature semantic-search-onramp): its own mode rather than a
+   * source toggle inside the index mode's vector form, because a capability reachable only
+   * after picking the right index is one nobody finds. It shares the kNN parameters below
+   * with that form - same question, different query source - but NOT the index, which is
+   * drawn from a different set (see semanticIndexId).
+   */
+  mode: QueryMode;
   /** Property-scan scope: one named "key" (typed operator) or "any" property (contains search). */
   propertyScope: "key" | "any";
   propertyId: string;
@@ -245,6 +257,13 @@ export interface QueryDraft {
   /** All-property search label restrictor (propertyScope === "any"); empty scans every label. */
   searchLabel: string;
   indexId: string;
+  /**
+   * The semantic mode's index, kept apart from `indexId` because the two modes choose from
+   * different sets: every registered index there, only the ones that can rank a vector here.
+   * Sharing one field meant picking a vector index for a semantic search silently replaced the
+   * operator's index-mode selection AND the query form that went with it.
+   */
+  semanticIndexId: string;
   form: IndexCapability;
   operator: BinaryOperatorName;
   resultType: "Vertices" | "Edges" | "Both";
@@ -256,11 +275,12 @@ export interface QueryDraft {
   fulltextQuery: string;
   spatialElementId: string;
   spatialDistance: string;
+  /** The pasted query vector (index mode, vector form); the semantic mode never uses it. */
   vectorText: string;
   vectorK: string;
   vectorKind: "any" | "vertex" | "edge";
   vectorLabel: string;
-  vectorSource: "vector" | "text";
+  /** The query text of the semantic mode, embedded once server-side. */
   vectorSearchText: string;
 }
 
@@ -271,6 +291,7 @@ export const DEFAULT_QUERY_DRAFT: QueryDraft = {
   searchTerm: "",
   searchLabel: "",
   indexId: "",
+  semanticIndexId: "",
   form: "equality",
   operator: "Equals",
   resultType: "Both",
@@ -286,9 +307,31 @@ export const DEFAULT_QUERY_DRAFT: QueryDraft = {
   vectorK: "10",
   vectorKind: "any",
   vectorLabel: "",
-  vectorSource: "vector",
   vectorSearchText: "",
 };
+
+/**
+ * Rehydrates a persisted Query draft. Text-in kNN used to be a `vectorSource` toggle INSIDE the
+ * index mode's vector form; feature semantic-search-onramp made it its own mode, so a draft
+ * written by an older build is LIFTED rather than dropped: the text, k, kind and label are the
+ * same question asked the same way, and only the route to the form changed. The stale key is
+ * stripped instead of spread through, so nothing carries a field this build has no meaning for.
+ */
+export function migrateQueryDraft(persisted: Partial<QueryDraft> | undefined): QueryDraft {
+  const { vectorSource, ...rest } = (persisted ?? {}) as Partial<QueryDraft> & {
+    vectorSource?: "vector" | "text";
+  };
+  const draft: QueryDraft = { ...DEFAULT_QUERY_DRAFT, ...rest };
+  // Normalized, not trusted: a mode this build does not know (hand-edited storage) would leave
+  // the screen with no form rendered and a Run button that queries whatever the last branch is.
+  if (!QUERY_MODES.includes(draft.mode)) draft.mode = DEFAULT_QUERY_DRAFT.mode;
+  // Only when that form was the one actually on screen: a stale "text" left behind while the
+  // operator moved to a property scan is not a request to reopen a semantic search. The index
+  // travels with it, since back then there was only one field holding it.
+  return vectorSource === "text" && draft.mode === "index" && draft.form === "vector"
+    ? { ...draft, mode: "semantic", semanticIndexId: draft.semanticIndexId || draft.indexId }
+    : draft;
+}
 
 /**
  * One pattern row of the subgraph builder: a pattern spec plus a stable list key and the
@@ -636,7 +679,7 @@ function createWorkspaceStore(instanceId: string) {
               // an older pathDraft picks up every semantic field instead of a partial.
               semantic: { ...DEFAULT_SEMANTIC_DRAFT, ...(p.pathDraft?.semantic ?? {}) },
             },
-            queryDraft: { ...DEFAULT_QUERY_DRAFT, ...(p.queryDraft ?? {}) },
+            queryDraft: migrateQueryDraft(p.queryDraft),
             // A subgraph draft persisted before the slot-mode restructure (feature
             // subgraph-semantic-thresholds) carried a block-local `semantic` object and no
             // slot modes; it is RESET rather than migrated - a draft is a session

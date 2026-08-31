@@ -1,5 +1,9 @@
 # Semantic search on-ramp: implementation plan
 
+> **Outcome:** all three phases done. What the code settled differently from this plan is
+> recorded in [spec.md](./spec.md) as *(refined)* notes, not rewritten here. Gate results and
+> the live verification are in "What was actually run" at the foot of this file.
+
 > Spec: [spec.md](./spec.md). Branch `feature/semantic-search-onramp` (worktree
 > `.claude/worktrees/studio-semantic-search`). Studio-only change: everything below lives
 > in `fallen-8-web-ui/` and `docs/`; the .NET solution, OpenAPI snapshot and MCP bridge
@@ -71,6 +75,41 @@ codes through cmd with delayed expansion:
    - repo hygiene grep for the two forbidden words before any commit.
 3. Feature record: move `features/open/semantic-search-onramp/` to `features/done/` in
    the landing PR/merge, status line updated.
+
+## What was actually run
+
+Gates, all from the worktree (`node_modules` junctioned from the main checkout for both
+`fallen-8-web-ui` and `docs`):
+
+| Gate | Result |
+|---|---|
+| `npx tsc -b --force` | exit 0 |
+| `npx vitest run` | 98 files, 1267 tests pass (baseline before the change: 98 / 1235) |
+| `npm run build:lib` | exit 0, artifact check passed (QueryScreen's new imports pull nothing into the canvas bundle) |
+| `npm --prefix docs run build` | exit 0, 41 pages, "All internal links are valid" |
+| `dotnet build fallen-8-core.sln` | exit 0 |
+| OpenAPI / provider-descriptor / MCP-coverage / browser probe | not run, and not needed: `git status` shows no file outside `fallen-8-web-ui/` and `docs/` changed, so no input to any of them moved |
+
+**Live verification, not just mocks.** A mocked client cannot catch a wrong wire body, so the
+flow was driven against two real apiApp instances (volatile, keyed, SPA built into `wwwroot`,
+Playwright pointed at them with `F8_UI_URL`): one with no embedding provider, one with the
+provider enabled at 1024 dimensions and a deliberately unloadable Onnx backend. Confirmed on the
+real thing: the query-type control offers `property | index | semantic`; the on-ramp prefills
+1024 / Cosine / `default` / `embeddings` from the provider's own numbers; its create posts a real
+`POST /index` that the server turns into a genuinely bound projection
+(`{"indexId":"embeddings","pluginType":"VectorIndex","embeddingName":"default","capabilities":["vector"],"keys":0,"values":0}`);
+the on-ramp then disappears with the new index selected; the empty-index line fires because
+nothing is embedded yet; running the search renders the server's actual `503` naming the
+unloadable model path rather than a generic failure; and the Indexes screen's pointer is gone now
+that a vector index exists. Re-checked on the real server after the review changed the create
+hand-off. The throwaway probe specs were deleted afterwards.
+
+**Review.** Five lenses plus a refuting skeptic each; thirteen confirmed defects, all fixed and
+pinned, listed in [spec.md](./spec.md) §6. Two process notes worth keeping: the reviewers wrote
+executable probes into the worktree rather than arguing, which is why the findings held up (and
+their leftovers had to be swept out of a commit); and one gate here is a trap, since the repo has
+no prettier config, so running `npx prettier` on a file silently reformats it to an 80-column
+style the codebase does not use and tripled one diff before it was reverted.
 
 ## Out of the plan, recorded
 
