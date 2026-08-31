@@ -23,19 +23,30 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { ApiError } from "../api/client";
+import { ApiError, ApiTimeoutError } from "../api/client";
 
 /**
  * Every failed request shows HTTP status + server message (NFR: never a silent console
  * error). A network-level failure renders as the disconnected state with a retry.
+ *
+ * The fallback title is deliberately NOT about requests. This box also renders throws from the
+ * client side of a mutation, where no request was made at all: an integration submit that could
+ * not build its body reported "Request failed / Invalid string length", which sent the reader
+ * looking for a server fault that did not exist. A title is a claim, so the generic one claims
+ * only what is always true.
  */
 export function ErrorBox({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
-  let title = "Request failed";
+  let title = "Cannot continue";
   let detail = "";
 
   if (error instanceof ApiError) {
     title = `HTTP ${error.status}`;
     detail = error.body || "(no response body)";
+  } else if (error instanceof ApiTimeoutError) {
+    // Above the TypeError arm on purpose: it extends Error, so without its own arm it would fall
+    // to the generic one and lose the one thing worth saying about it.
+    title = "No answer from the instance";
+    detail = error.message;
   } else if (error instanceof TypeError) {
     title = "Instance unreachable";
     detail = "The endpoint did not respond. Is the server running?";
