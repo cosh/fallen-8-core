@@ -44,6 +44,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Controllers;
+using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Integrations;
 using NoSQL.GraphDB.Integrations.Conformance;
 using NoSQL.GraphDB.Integrations.Configuration;
@@ -1325,6 +1326,182 @@ namespace NoSQL.GraphDB.Tests
             ProxyProvidersRoute, ProxyVocabularyRoute, ProxyValidateRoute, ProxyJobRoute,
             ProxyRunsRoute, ProxyRunRoute, ProxyCancelRoute,
         };
+
+        #region the instance serves the ceilings a caller has to respect
+
+        /// <summary>
+        ///   The shipped defaults, pinned here rather than only in the options type. A changed default has
+        ///   to fail a test, because these three numbers are published in the docs, drawn in a screenshot
+        ///   and used by Studio to refuse a job before uploading it: changing one quietly makes all three
+        ///   of those wrong at once.
+        /// </summary>
+        [TestMethod]
+        public void TheShippedFileCeilings_AreTheOnesEveryClientAndDocumentAssumes()
+        {
+            var options = new IntegrationsOptions();
+
+            Assert.AreEqual(134_217_728L, options.MaxFileBytes, "Integrations:MaxFileBytes changed");
+            Assert.AreEqual(536_870_912L, options.MaxJobFileBytes, "Integrations:MaxJobFileBytes changed");
+            Assert.AreEqual(256, options.MaxJobFiles, "Integrations:MaxJobFiles changed");
+        }
+
+        /// <summary>
+        ///   The runtime reports what it is CONFIGURED with, not a constant. This host sets a deliberately
+        ///   odd per-file ceiling, so the assertion below cannot pass on a route that returns the shipped
+        ///   default while ignoring the operator's configuration entirely.
+        /// </summary>
+        [TestMethod]
+        public async Task TheRuntimeLimitsRoute_ReportsTheConfiguredNumbersRatherThanConstants()
+        {
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/integration/limits");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await ReadText(response));
+
+            var body = await ReadJson(response);
+            Assert.AreEqual(RuntimeFactory.MaxFileBytes, body.GetProperty("maxFileBytes").GetInt64(),
+                "the runtime reported a per-file ceiling that is not the one this host configured, so the " +
+                "route is answering from a constant and an operator's setting would never reach a client");
+            Assert.AreEqual(536_870_912L, body.GetProperty("maxJobFileBytes").GetInt64(),
+                "the job-total ceiling is not the shipped default this host leaves alone");
+            Assert.AreEqual(256, body.GetProperty("maxJobFiles").GetInt32(),
+                "the file count ceiling is not the shipped default this host leaves alone");
+        }
+
+        /// <summary>
+        ///   The proxy answers the ceiling that BINDS, which is the smaller of the runtime's own and this
+        ///   proxy's transport bound. A caller told four gigabytes and then refused at 768 MiB has been
+        ///   given the wrong answer to the only question they asked, and a caller that has to combine two
+        ///   ceilings itself is the shape that let Studio carry one BELOW the runtime's.
+        ///
+        ///   <para>Asserted on the action with a stub client, because this is the one integrations route
+        ///   whose answer the proxy computes: what is under test is the arithmetic, not the hop.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task TheProxyLimitsRoute_LowersARuntimeCeilingAboveItsOwnTransportBound()
+        {
+            // Both byte ceilings far above the proxy's 768 MiB, and the COUNT switched off.
+            var controller = new IntegrationsController(new CannedLimitsClient(
+                "{\"maxFileBytes\":4294967296,\"maxJobFileBytes\":4294967296,\"maxJobFiles\":0}"))
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            var result = await controller.Limits(CancellationToken.None) as OkObjectResult;
+            Assert.IsNotNull(result, "the limits route did not answer 200 with a body");
+            var limits = (IntegrationLimitsREST)result.Value;
+
+            var expected = ProxyJobTransportLimit - 1_048_576;
+            Assert.AreEqual(expected, limits.MaxFileBytes,
+                "a runtime per-file ceiling above the proxy's transport bound was passed through, so a " +
+                "caller is promised more than this instance can carry");
+            Assert.AreEqual(expected, limits.MaxJobFileBytes,
+                "a runtime job-total ceiling above the proxy's transport bound was passed through");
+            Assert.AreEqual(0, limits.MaxJobFiles,
+                "the count is the one number this proxy does not bound, so a switched-off count has to " +
+                "survive as zero rather than being replaced by a byte figure");
+        }
+
+        /// <summary>
+        ///   A ceiling the proxy CAN carry is passed through untouched. Without this the test above would
+        ///   also pass on a proxy that ignored the runtime and always answered its own bound, which would
+        ///   hide the operator's configuration just as thoroughly.
+        /// </summary>
+        [TestMethod]
+        public async Task TheProxyLimitsRoute_PassesThroughACeilingItCanCarry()
+        {
+            var controller = new IntegrationsController(new CannedLimitsClient(
+                "{\"maxFileBytes\":134217728,\"maxJobFileBytes\":536870912,\"maxJobFiles\":256}"))
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            var result = await controller.Limits(CancellationToken.None) as OkObjectResult;
+            Assert.IsNotNull(result);
+            var limits = (IntegrationLimitsREST)result.Value;
+
+            Assert.AreEqual(134_217_728L, limits.MaxFileBytes,
+                "the shipped per-file ceiling was altered, so the proxy is answering its own bound rather " +
+                "than the runtime's configuration");
+            Assert.AreEqual(536_870_912L, limits.MaxJobFileBytes, "the shipped job-total ceiling was altered");
+            Assert.AreEqual(256, limits.MaxJobFiles, "the shipped count ceiling was altered");
+        }
+
+        /// <summary>
+        ///   A runtime too old to serve this route, or answering something else: the proxy says it could not
+        ///   read the limits rather than inventing ceilings a client would then trust and refuse against.
+        /// </summary>
+        [TestMethod]
+        public async Task TheProxyLimitsRoute_RefusesToInventCeilingsItCouldNotRead()
+        {
+            var controller = new IntegrationsController(new CannedLimitsClient("<html>not this</html>"))
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            var result = await controller.Limits(CancellationToken.None) as ObjectResult;
+            Assert.IsNotNull(result);
+            Assert.AreEqual(StatusCodes.Status503ServiceUnavailable, result.StatusCode,
+                "an unreadable limits answer produced something other than 503, so a client may be given " +
+                "numbers this instance never established");
+        }
+
+        [TestMethod]
+        [DataRow("", DisplayName = "an empty body")]
+        [DataRow("   ", DisplayName = "whitespace")]
+        [DataRow("null", DisplayName = "a literal null")]
+        public async Task TheProxyLimitsRoute_TreatsAnEmptyAnswerAsUnreadableRatherThanAsNoCeilings(
+            String body)
+        {
+            // These three deserialize to nothing rather than to a failure, so the tempting shape is to
+            // default them to an all-zero record. That would report this proxy's transport bound (the
+            // substitution a zero triggers) as though the runtime had agreed to it, and a caller would
+            // then stage a job against a ceiling nobody established.
+            var controller = new IntegrationsController(new CannedLimitsClient(body))
+            {
+                ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
+            };
+
+            var result = await controller.Limits(CancellationToken.None) as ObjectResult;
+            Assert.IsNotNull(result);
+            Assert.AreEqual(StatusCodes.Status503ServiceUnavailable, result.StatusCode,
+                "an empty limits answer was turned into ceilings instead of a refusal");
+            Assert.IsNotInstanceOfType(result.Value, typeof(IntegrationLimitsREST),
+                "the refusal carried a limits record, so a client could read ceilings off a failure");
+        }
+
+        /// <summary>A client that answers the limits route with one canned body and nothing else.</summary>
+        private sealed class CannedLimitsClient : IIntegrationsClient
+        {
+            private readonly String _body;
+
+            public CannedLimitsClient(String body)
+            {
+                _body = body;
+            }
+
+            public Boolean Configured => true;
+
+            public Task<SidecarResponse> ForwardAsync(HttpMethod method, String path, String jsonBody,
+                CancellationToken cancellationToken)
+            {
+                return Task.FromResult(new SidecarResponse(200, _body, "application/json"));
+            }
+
+            public Task<SidecarResponse> ForwardStreamAsync(HttpMethod method, String path, Stream body,
+                String contentType, Int64? contentLength, CancellationToken cancellationToken)
+            {
+                throw new NotSupportedException("the limits route does not stream");
+            }
+
+            public Task<Boolean> IsReachableAsync(CancellationToken cancellationToken)
+            {
+                return Task.FromResult(true);
+            }
+        }
+
+        #endregion
 
         #region the job route refuses an oversized body itself, instead of blaming the runtime
 

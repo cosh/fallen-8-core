@@ -34,6 +34,7 @@ import type {
   DocumentSearchResult,
   DocumentSearchSpecification,
   DocumentSummary,
+  FileLimits,
   IngestTextSpecification,
   IntegrationJobRequest,
   IntegrationRunAccepted,
@@ -800,6 +801,18 @@ export const listEntities = (
 /** The integrations this instance's runtime ships. A 403 or 401 means the capability is off. */
 export const listIntegrationProviders = (i: InstanceConfig, signal?: AbortSignal) =>
   apiRequest<IntegrationProvider[]>(i, "/integrations/providers", { signal, scope: "fallen8" });
+
+/**
+ * What a job may carry on THIS instance: the ceilings already reconciled with the proxy's own
+ * transport bound, so there is one number per question and nothing to combine here. Read before
+ * staging so an oversized set is refused in the form rather than after an upload.
+ *
+ * An instance too old to serve it answers 404, which is why every caller has to treat "unknown"
+ * as "check nothing" rather than substituting a guess: a hardcoded ceiling here is how Studio
+ * came to carry one BELOW the runtime's and refuse jobs the instance would have accepted.
+ */
+export const getIntegrationLimits = (i: InstanceConfig, signal?: AbortSignal) =>
+  apiRequest<FileLimits>(i, "/integrations/limits", { signal, scope: "fallen8" });
 
 /** Runs one job and returns its report. A job that RAN and failed still answers 200. */
 /**

@@ -141,6 +141,10 @@ namespace NoSQL.GraphDB.Tests
             // used withdraws and deletes every element the real integration claimed, nothing can detect
             // it, and an agent composing a job is the caller most likely to invent a plausible-looking
             // identifier. Revisit when the runtime can tell a new identity from a mistyped one.
+            // Feature integration-file-transport added a FOURTH declaration, the file ceilings, deferred
+            // with the other three and for a sharper reason than "it only describes": those ceilings exist
+            // so a caller can refuse a job BEFORE uploading it, and a caller that cannot submit a job has
+            // nothing to refuse. It is bridged in the same change the job route is.
             // Since feature integration-file-upload there is a SECOND, independent leg to withholding
             // the job route, the same one POST /document is deferred for: a file-taking integration now
             // needs the file's bytes as base64 IN the tool call, which is token-hostile over MCP and
@@ -161,7 +165,7 @@ namespace NoSQL.GraphDB.Tests
             // that cannot launch one. It is bridged in the same change the job route is, never before.
             // Contains, not StartsWith: the predicate matches "METHOD /path".
             new(op => op.Contains("/integrations"),
-                "the integration runtime proxy is deferred: three routes are declarations, a job run is a complete-snapshot write no unverifiable identity may trigger, and the run-observation and cancel routes are withheld with it because an agent that cannot start a run has little use for watching one and no business stopping somebody else's"),
+                "the integration runtime proxy is deferred: four routes are declarations, a job run is a complete-snapshot write no unverifiable identity may trigger, and the run-observation, cancel and file-ceiling routes are withheld with it because an agent that cannot start a run has little use for watching one, nothing to check ceilings against, and no business stopping somebody else's"),
         };
 
         [TestMethod]

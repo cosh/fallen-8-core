@@ -138,8 +138,10 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// constructing a job by hand in a test gets.</param>
         /// <param name="maxJobFileBytes">The ceiling on the DECODED TOTAL across every file of the job
         /// (<c>Integrations:MaxJobFileBytes</c>). Zero or less means no ceiling.</param>
+        /// <param name="maxJobFiles">The ceiling on the NUMBER of files across every file setting
+        /// (<c>Integrations:MaxJobFiles</c>). Zero or less means no ceiling.</param>
         public Boolean TryNormalize(out NormalizedJob? normalized, out String? failure,
-            Int64 maxFileBytes = 0, Int64 maxJobFileBytes = 0)
+            Int64 maxFileBytes = 0, Int64 maxJobFileBytes = 0, Int32 maxJobFiles = 0)
         {
             normalized = null;
 
@@ -210,6 +212,10 @@ namespace NoSQL.GraphDB.Integrations.Run
             // has to hold at once is their sum. Enforced here, among the refusals a caller can act on, rather
             // than discovered as an allocation failure in the middle of a run.
             var totalBytes = 0L;
+
+            // And the COUNT, for the same reason at a different unit: bytes were never the only thing a
+            // caller can spend, and an empty file being refused does not make a one-byte file free.
+            var fileCount = 0;
 
             foreach (var pair in Files ?? new Dictionary<String, JobFileGroup>(StringComparer.Ordinal))
             {
@@ -284,11 +290,32 @@ namespace NoSQL.GraphDB.Integrations.Run
                     totalBytes += content!.Length;
                     if (maxJobFileBytes > 0 && totalBytes > maxJobFileBytes)
                     {
+                        // The MEASURED total as well as the ceiling. Naming only the ceiling left the one
+                        // question a caller has to answer - how much to cut - unanswerable from the
+                        // refusal, and made the published claim that a refusal "names the size and the
+                        // ceiling it broke" true of the per-file case only. The total is "at least",
+                        // because the accumulation stops at the first file that crosses the line rather
+                        // than decoding the rest to report a number nobody needs.
                         failure = String.Format(
-                            "The files this job carries come to more than the {0}-byte total ceiling " +
-                            "(Integrations:MaxJobFileBytes). One request carries a whole run, so every file " +
-                            "on it is held at once; the ceiling belongs to this runtime's own configuration " +
-                            "and not to the instance you submitted through.", maxJobFileBytes);
+                            "The files this job carries come to at least {0} bytes, more than the {1}-byte " +
+                            "total ceiling (Integrations:MaxJobFileBytes). One request carries a whole run, " +
+                            "so every file on it is held at once; the ceiling belongs to this runtime's own " +
+                            "configuration and not to the instance you submitted through.",
+                            totalBytes, maxJobFileBytes);
+                        return false;
+                    }
+
+                    fileCount++;
+                    if (maxJobFiles > 0 && fileCount > maxJobFiles)
+                    {
+                        // Counted across every file setting, not per setting: the cost this bounds is the
+                        // number of payloads this process holds at once, and a provider with two file
+                        // settings would otherwise get twice the allowance for the same memory.
+                        failure = String.Format(
+                            "This job carries more than {0} files (Integrations:MaxJobFiles), counted across " +
+                            "every file setting on it. The two byte ceilings do not bound this on their own: " +
+                            "a file of one byte is legal, so a set can satisfy both of them and still ask this " +
+                            "runtime for an unreasonable number of entries.", maxJobFiles);
                         return false;
                     }
 

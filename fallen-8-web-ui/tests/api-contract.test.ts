@@ -270,6 +270,7 @@ const ENDPOINT_CALLS: Record<string, () => Promise<unknown>> = {
   ensureDocumentBinding: () => endpoints.ensureDocumentBinding(instance),
   listEntities: () => endpoints.listEntities(instance),
   listIntegrationProviders: () => endpoints.listIntegrationProviders(instance),
+  getIntegrationLimits: () => endpoints.getIntegrationLimits(instance),
   getIntegrationRun: () => endpoints.getIntegrationRun(instance, "office-inventory"),
   cancelIntegrationRun: () => endpoints.cancelIntegrationRun(instance, "office-inventory"),
   submitIntegrationJob: () =>
@@ -441,6 +442,18 @@ describe("API client route correctness vs openapi-v0.1.json", () => {
     expect(recorded[0].path).toBe("/ns/analytics/activate");
     expect(recorded[0].rawBody).toBeUndefined();
     expect(recorded[0].query.has("loadOnStartup")).toBe(false);
+  });
+
+  it("the integration limits route stays bare on a namespace-bound instance", async () => {
+    // One runtime serves the whole instance, so its ceilings are Fallen-8-level: a namespace
+    // prefix here would 404 on every instance whose Studio has a namespace selected, and the form
+    // would then treat its own limits as unknown and check nothing.
+    const bound: InstanceConfig = { ...instance, namespace: "analytics" };
+    await endpoints.getIntegrationLimits(bound);
+
+    expect(recorded[0].method).toBe("GET");
+    expect(recorded[0].path).toBe("/integrations/limits");
+    expect(recorded[0].rawBody).toBeUndefined();
   });
 
   it("the integration cancel is a bodiless POST on the run's own sub-route", async () => {

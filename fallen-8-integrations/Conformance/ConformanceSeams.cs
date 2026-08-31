@@ -172,6 +172,9 @@ namespace NoSQL.GraphDB.Integrations.Conformance
         /// <inheritdoc />
         public Int64 MaxJobFileBytes => 0;
 
+        /// <inheritdoc />
+        public Int32 MaxJobFiles => 0;
+
         /// <summary>Every setting key any run asked a file for, across every run. Readable after the runs
         /// have ended: ending a run drops the bytes, not the note of what was asked for.</summary>
         public IReadOnlyList<String> Requested

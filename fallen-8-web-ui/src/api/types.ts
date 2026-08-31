@@ -1329,6 +1329,25 @@ export interface IntegrationJobFile {
  * a file setting's file in `files`, never in `settings`: the runtime leases and redacts the first,
  * holds the second for the run and drops it, and treats `settings` as ordinary data.
  */
+/**
+ * What a job may carry on one instance (feature integration-file-transport), from
+ * `GET /integrations/limits`. Already the ceiling that BINDS: the runtime owns the configuration,
+ * but every request arrives through the apiApp's transport bound, so the proxy reconciles the two
+ * and serves one number per question. Nothing here is combined client-side, on purpose - a client
+ * that computes its own ceiling is how Studio ended up with one below the runtime's.
+ *
+ * Zero or less means that ceiling is switched off, which only `maxJobFiles` can report: the byte
+ * ceilings always have the proxy's transport bound behind them.
+ */
+export interface FileLimits {
+  /** The most decoded bytes ONE file may carry. */
+  maxFileBytes: number;
+  /** The most decoded bytes one job's files may come to in TOTAL, across every file setting. */
+  maxJobFileBytes: number;
+  /** How many files one job may carry, counted across every file setting. */
+  maxJobFiles: number;
+}
+
 export interface IntegrationJobRequest {
   providerId: string;
   integrationInstanceId: string;

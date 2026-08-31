@@ -25,9 +25,9 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { ApiError } from "../api/client";
-import { listIntegrationProviders } from "../api/endpoints";
+import { getIntegrationLimits, listIntegrationProviders } from "../api/endpoints";
 import type { InstanceConfig } from "../instances/types";
-import type { IntegrationProvider } from "../api/types";
+import type { FileLimits, IntegrationProvider } from "../api/types";
 
 /**
  * The integrations capability of one instance (feature integrations), read from the one route that
@@ -51,6 +51,25 @@ export function useIntegrationProviders(instance: InstanceConfig | null) {
     enabled: instance !== null,
     retry: 0,
     staleTime: 30_000,
+  });
+}
+
+/**
+ * What a job may carry on this instance (feature integration-file-transport). Read once per
+ * instance and held for the session: the ceilings come from configuration, so they change when the
+ * instance is redeployed and never while a screen is open.
+ *
+ * It fails softly on purpose. An instance too old to serve the route answers 404, and a form that
+ * cannot read the ceilings must check NOTHING rather than fall back to a number of its own - see
+ * `lib/fileLimits.ts`, which is the only place allowed to interpret the absence.
+ */
+export function useIntegrationLimits(instance: InstanceConfig | null) {
+  return useQuery<FileLimits | null, unknown>({
+    queryKey: [instance?.id, "integration-limits"],
+    queryFn: ({ signal }) => getIntegrationLimits(instance!, signal),
+    enabled: instance !== null,
+    retry: 0,
+    staleTime: Infinity,
   });
 }
 

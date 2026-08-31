@@ -98,6 +98,23 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         public Int64 MaxJobFileBytes { get; set; } = 536_870_912;
 
         /// <summary>
+        ///   How many files one job may carry in total, across every file setting on it.
+        ///
+        ///   <para>A third ceiling because the two byte ceilings leave a hole between them: an EMPTY file
+        ///   is already refused, but a file of one byte is legal, and half a gigabyte of one-byte files
+        ///   satisfies both of the numbers above while asking this process for on the order of 10^8
+        ///   dictionary entries, payload objects and name strings. Bytes were never the only cost.</para>
+        ///
+        ///   <para>256, which is about four times the largest set anybody has actually staged (66 ARXML
+        ///   extracts for one vehicle). It is a bound on the absurd rather than a budget to plan against,
+        ///   and it is deliberately easier to raise later than to lower once callers depend on the
+        ///   refusal.</para>
+        ///
+        ///   <para>Zero or less switches it OFF, like its siblings.</para>
+        /// </summary>
+        public Int32 MaxJobFiles { get; set; } = 256;
+
+        /// <summary>
         ///   Where a run IN FLIGHT is written down, so a restart continues it instead of losing it. Empty is
         ///   the default and writes nothing at all.
         ///

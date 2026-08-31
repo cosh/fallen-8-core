@@ -44,6 +44,7 @@ import { ErrorBox } from "../components/ErrorBox";
 import { FileDropzone } from "../components/FileDropzone";
 import { ListCapNote } from "../components/ListCapNote";
 import { Truncated } from "../components/Truncated";
+import { formatBytes } from "../lib/format";
 import { DISPLAY_CAP } from "../lib/truncate";
 import { capList, SCROLL_ROWS, scrollRows } from "../lib/listCaps";
 import { RUN_PHASES } from "../api/types";
@@ -1143,12 +1144,6 @@ function base64Of(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
   return btoa(binary);
-}
-
-function formatBytes(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
 function describeReadFailure(error: unknown): string {

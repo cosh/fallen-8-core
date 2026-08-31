@@ -4601,6 +4601,72 @@
         }
       }
     },
+    "/integrations/limits": {
+      "get": {
+        "tags": [
+          "Integrations"
+        ],
+        "summary": "Reports what a job may carry, as the ceiling that actually binds (feature integration-file-transport)",
+        "description": "Three numbers: maxFileBytes per file, maxJobFileBytes for their total, and maxJobFiles\r\n    for how many. Zero or less means that ceiling is switched off. A client reads them so it can\r\n    refuse a job BEFORE uploading it, which is the only refusal that costs nothing.\r\n    This is the ONE integrations route whose answer this proxy composes rather than forwarding\r\n    verbatim, and the reason is that the binding ceiling genuinely is the smaller of two: the runtime\r\n    owns its configuration, but every request arrives through this route's own transport bound. A\r\n    runtime number above what this proxy would accept is lowered to what it would, so a caller\r\n    learns one number for one question instead of two it has to combine.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The ceilings that bind, already reconciled with this proxy's own",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationLimitsREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Integrations are disabled (Fallen8:Integrations:Enabled)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No runtime is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/integrations/providers": {
       "get": {
         "tags": [
@@ -20786,6 +20852,42 @@
           }
         },
         "description": "Raw-text ingestion (spec unstructured-ingestion FR-3) - works without the\r\n    docling sidecar."
+      },
+      "IntegrationLimitsREST": {
+        "type": "object",
+        "properties": {
+          "maxFileBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The most DECODED bytes one file may carry.",
+            "format": "int64",
+            "example": 134217728
+          },
+          "maxJobFileBytes": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "The most DECODED bytes one job's files may come to in total, across every file\r\n    setting on it. One request carries a whole run, so this is the sum the runtime holds at once.",
+            "format": "int64",
+            "example": 536870912
+          },
+          "maxJobFiles": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many files one job may carry, counted across every file setting. Bounds the\r\n    number of payloads rather than their size, which the byte ceilings cannot: a one-byte file is\r\n    legal, so a set can satisfy both of them and still be unreasonable.",
+            "format": "int32",
+            "example": 256
+          }
+        },
+        "description": "What a job may carry, as the ceiling that actually BINDS for a caller of this instance\r\n(feature integration-file-transport).\r\n\r\nThe numbers originate in the other deployable's configuration\r\n(Integrations:MaxFileBytes, Integrations:MaxJobFileBytes,\r\nIntegrations:MaxJobFiles), but every request arrives through this proxy's own transport\r\nbound, so a runtime ceiling above that bound is not what a caller would experience. The two\r\nbyte numbers are therefore reconciled here and served as one answer per question. A caller\r\ncombining two ceilings itself was the shape that let Studio carry a ceiling of its own,\r\nBELOW the runtime's, and refuse jobs the instance would have accepted.\r\n\r\nZero or less means that ceiling is switched off, which only the count can report: the\r\nbyte ceilings always have this proxy's transport bound behind them."
       },
       "JsonElement": { },
       "LinkSpecificationREST": {

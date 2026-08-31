@@ -62,6 +62,26 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             app.MapGet("/integration/vocabulary",
                 (IdentifierVocabulary vocabulary) => Results.Ok(VocabularyDto.From(vocabulary)));
 
+            // What this runtime will actually accept, so a client can refuse a job BEFORE uploading it
+            // rather than after (feature integration-file-transport).
+            //
+            // A route rather than a field on each provider descriptor, because these are three
+            // runtime-global numbers: putting the per-file one on every file setting of every provider
+            // would copy one configured value into many places, there is no honest home on a descriptor
+            // for the job TOTAL at all, and the descriptors are pinned by a snapshot whose gate hosts
+            // this runtime in process - so a developer with the ceiling set locally would commit theirs.
+            //
+            // Zero or less means "no ceiling" here exactly as it does in the options, and is passed
+            // through unchanged: inventing a number for a switched-off ceiling would make a client
+            // refuse what this runtime would have accepted.
+            app.MapGet("/integration/limits",
+                (IJobFilesFactory files) => Results.Ok(new
+                {
+                    maxFileBytes = files.MaxFileBytes,
+                    maxJobFileBytes = files.MaxJobFileBytes,
+                    maxJobFiles = files.MaxJobFiles,
+                }));
+
             app.MapPost("/integration/snapshot/validate",
                 (SnapshotDocument? document, SnapshotValidator validator) =>
                 {

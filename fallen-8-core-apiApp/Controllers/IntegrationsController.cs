@@ -33,6 +33,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using NoSQL.GraphDB.App.Configuration;
+using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
 using NoSQL.GraphDB.App.Integrations;
 using NoSQL.GraphDB.App.Namespaces;
@@ -164,6 +165,111 @@ namespace NoSQL.GraphDB.App.Controllers
         {
             return Forward(HttpMethod.Get, "integration/providers", null, cancellationToken);
         }
+
+        /// <summary>
+        /// Reports what a job may carry, as the ceiling that actually binds (feature integration-file-transport)
+        /// </summary>
+        /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
+        /// <remarks>Three numbers: maxFileBytes per file, maxJobFileBytes for their total, and maxJobFiles
+        /// for how many. Zero or less means that ceiling is switched off. A client reads them so it can
+        /// refuse a job BEFORE uploading it, which is the only refusal that costs nothing.
+        /// <para>This is the ONE integrations route whose answer this proxy composes rather than forwarding
+        /// verbatim, and the reason is that the binding ceiling genuinely is the smaller of two: the runtime
+        /// owns its configuration, but every request arrives through this route's own transport bound. A
+        /// runtime number above what this proxy would accept is lowered to what it would, so a caller
+        /// learns one number for one question instead of two it has to combine.</para></remarks>
+        /// <response code="200">The ceilings that bind, already reconciled with this proxy's own</response>
+        /// <response code="401">No valid credential was supplied</response>
+        /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>
+        /// <response code="503">No runtime is configured, or it did not answer</response>
+        [HttpGet("/integrations/limits")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(IntegrationLimitsREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<IActionResult> Limits(CancellationToken cancellationToken)
+        {
+            SidecarResponse response;
+            try
+            {
+                response = await _client.ForwardAsync(HttpMethod.Get, "integration/limits", null,
+                    cancellationToken);
+            }
+            catch (IntegrationsUnavailableException ex)
+            {
+                return RuntimeProblem(ex);
+            }
+
+            if (response.Status != StatusCodes.Status200OK)
+            {
+                // Anything the runtime did not answer 200 to is its own answer, handed back untouched, as
+                // every other route does.
+                return new ContentResult
+                {
+                    StatusCode = response.Status,
+                    Content = response.Body,
+                    ContentType = String.IsNullOrEmpty(response.ContentType)
+                        ? "application/json"
+                        : response.ContentType
+                };
+            }
+
+            IntegrationLimitsREST runtimeLimits = null;
+            if (!String.IsNullOrWhiteSpace(response.Body))
+            {
+                try
+                {
+                    runtimeLimits = JsonSerializer.Deserialize<IntegrationLimitsREST>(response.Body,
+                        LimitsJson);
+                }
+                catch (JsonException)
+                {
+                    // Falls through to the refusal below.
+                }
+            }
+
+            if (runtimeLimits == null)
+            {
+                // A runtime too old to serve this route, or one answering something else: say the proxy
+                // could not read it rather than invent ceilings a caller would then trust. An empty body
+                // and a literal "null" land here too, deliberately - defaulting them to an all-zero
+                // record would report this proxy's transport bound as if the runtime had agreed to it.
+                return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                    "Integration runtime unavailable",
+                    "The integrations runtime did not report its limits in a shape this instance can read, " +
+                    "so no ceiling can be stated. It may predate the limits route.");
+            }
+
+            return Ok(new IntegrationLimitsREST
+            {
+                MaxFileBytes = Binding(runtimeLimits.MaxFileBytes),
+                MaxJobFileBytes = Binding(runtimeLimits.MaxJobFileBytes),
+                MaxJobFiles = runtimeLimits.MaxJobFiles,
+            });
+        }
+
+        /// <summary>
+        ///   The allowance for the multipart framing and the job envelope around the files themselves, so a
+        ///   caller told "you may send N bytes of files" is not refused by the transport for the wrapper.
+        ///   1 MiB, which is orders of magnitude more than the part headers of a legal job need.
+        /// </summary>
+        private const Int64 JobEnvelopeAllowance = 1_048_576;
+
+        /// <summary>
+        ///   The ceiling that binds for one of the byte numbers: the runtime's, unless this proxy's own
+        ///   transport bound is tighter, in which case a caller has to hear that one instead. A runtime
+        ///   ceiling that is switched off (zero or less) is NOT passed through as "unlimited": every
+        ///   request still arrives through here, so the transport bound is the real answer.
+        /// </summary>
+        private static Int64 Binding(Int64 runtimeCeiling)
+        {
+            var transport = JobTransportLimit - JobEnvelopeAllowance;
+            return runtimeCeiling <= 0 || runtimeCeiling > transport ? transport : runtimeCeiling;
+        }
+
+        private static readonly JsonSerializerOptions LimitsJson =
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
         /// <summary>
         /// Reports every integration run this runtime knows about (feature integration-run-visibility)

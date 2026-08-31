@@ -424,6 +424,61 @@ namespace NoSQL.GraphDB.Tests
                 "and the refusal names WHICH ceiling was broken, because a caller shown the per-file number " +
                 "would shrink files that were never the problem: " + failure);
             StringAssert.Contains(failure, "MaxJobFileBytes", failure);
+
+            // And the MEASURED total, not only the ceiling. Naming one number left the only question a
+            // caller has to answer, how much to cut, unanswerable from the refusal, and made the published
+            // claim that a refusal "names the size and the ceiling it broke" true of the per-file case only.
+            // "at least", because the accumulation stops at the first file that crosses the line rather
+            // than decoding the rest to report a number nobody needs.
+            StringAssert.Contains(failure, "at least",
+                "the refusal does not say how big the files actually came to, so a caller cannot tell " +
+                "whether they are over by one byte or by a gigabyte: " + failure);
+            StringAssert.Contains(failure, "100", failure);
+        }
+
+        [TestMethod]
+        public void ACeilingOnTheNumberOfFilesClosesTheGapBetweenTheTwoByteCeilings()
+        {
+            // An empty file is already refused, but a one-byte file is legal, so a set can satisfy both
+            // byte ceilings and still ask this runtime for an unreasonable number of payloads. Bytes were
+            // never the only cost a caller can impose. Four files here: the multiple setting's three plus
+            // the single setting the fixture provider requires.
+            var job = JobWithMany(FileOf("a.arxml", "a"), FileOf("b.arxml", "b"), FileOf("c.arxml", "c"));
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure, maxFileBytes: 64,
+                    maxJobFileBytes: 1_000_000, maxJobFiles: 2),
+                "a job carrying more files than the count ceiling was accepted while both byte ceilings " +
+                "were satisfied, which is exactly the gap this third ceiling exists to close");
+            StringAssert.Contains(failure, "MaxJobFiles",
+                "the refusal does not name the knob that produced it: " + failure);
+            StringAssert.Contains(failure, "2", failure);
+        }
+
+        [TestMethod]
+        public void TheFileCountCeilingCountsAcrossEverySettingRatherThanPerSetting()
+        {
+            // What is bounded is how many payloads this process holds at once, so a provider with two file
+            // settings must not get twice the allowance for the same memory. Three files here, two of them
+            // in the multiple setting: a ceiling of two has to refuse this, and would not if the count
+            // restarted per setting.
+            var job = JobWithMany(FileOf("a.arxml", "a"), FileOf("b.arxml", "b"));
+
+            Assert.IsFalse(job.TryNormalize(out _, out var failure, maxFileBytes: 64,
+                    maxJobFileBytes: 1_000_000, maxJobFiles: 2),
+                "three files across two settings were accepted under a ceiling of two, so the count is " +
+                "being applied per setting and a second file setting doubles what one caller may spend");
+            StringAssert.Contains(failure, "every file setting", failure);
+        }
+
+        [TestMethod]
+        public void ACountCeilingOfZeroSwitchesTheCheckOffLikeItsSiblings()
+        {
+            var job = JobWithMany(FileOf("a.arxml", "a"), FileOf("b.arxml", "b"), FileOf("c.arxml", "c"));
+
+            Assert.IsTrue(job.TryNormalize(out _, out var failure, maxFileBytes: 64,
+                    maxJobFileBytes: 1_000_000, maxJobFiles: 0),
+                "a switched-off count ceiling refused a job anyway, which is the opposite of what zero " +
+                "means for the two byte ceilings beside it: " + failure);
         }
 
         [TestMethod]
