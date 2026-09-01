@@ -233,7 +233,7 @@ namespace NoSQL.GraphDB.Tests
                 "one cluster path is one network however many files declare it");
 
             // BOTH halves' frames reached the graph. Under the old rule the second extract contributed
-            // nothing at all, which on one real vehicle lost many of many cluster-internal triggerings.
+            // nothing at all, losing most of a split cluster's triggerings.
             Assert.IsNotNull(Element(network, "/Frames/FRM_First"));
             Assert.IsNotNull(Element(network, "/Frames/FRM_Second"));
             Assert.AreEqual("11", Element(network, "/Frames/FRM_First")[ArxmlProperties.CanId]);

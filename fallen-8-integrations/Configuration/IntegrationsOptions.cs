@@ -62,7 +62,7 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   else. It was first sized like the instance's document-upload ceiling
         ///   (<c>Fallen8:Ingestion:MaxUploadBytes</c>, 32 MiB), which turned out to refuse the very thing
         ///   this feature exists to read: an AUTOSAR system extract for one vehicle platform runs to tens
-        ///   of megabytes, and the first one anybody pointed at it was a large size.</para>
+        ///   of megabytes, so a ceiling picked for document upload refused the ordinary case.</para>
         ///
         ///   <para>Zero or less switches the ceiling OFF rather than refusing every file, and the runtime
         ///   warns at startup when it is. Raising it past about 144 MiB has no effect in the shipped

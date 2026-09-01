@@ -254,8 +254,8 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // Everything past the first graph write gets RunAbort instead, which cannot be handed to
                     // a call.
                     //
-                    // The shutdown token belongs here as much as the other two: an a large size extract parses for
-                    // minutes, and a container told to stop should not spend its whole grace period finishing
+                    // The shutdown token belongs here as much as the other two: a system extract of any size
+                    // parses for minutes, and a container told to stop should not spend its whole grace period finishing
                     // a parse whose result it is about to throw away.
                     using var reading = CancellationTokenSource
                         .CreateLinkedTokenSource(cancellationToken, stopToken, _shutdown.Token);
@@ -268,7 +268,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                         key => runFiles.TryResolve(key, out var failure) ? null : failure,
                         runFiles.NamesOf, runFiles.ReadAtAsync);
 
-                    // Named before the call, because this is the phase that looks like a hang: an a large size
+                    // Named before the call, because this is the phase that looks like a hang: a large
                     // extract parses for minutes and writes nothing, so "observe" is the only thing that
                     // distinguishes working from stuck.
                     progress.EnterPhase(RunPhases.Observe);
@@ -365,7 +365,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // phase is different: interrupting it midway leaves a half-applied snapshot.
                     //
                     // It used to be fair to call it "seconds of work". Summary embedding ended that: the embed
-                    // phase is model inference, and a many-entity extract against a CPU-backed model is
+                    // phase is model inference, and a large extract against a CPU-backed model is
                     // HOURS. The decision below is unchanged and now matters far more - but it is also why the
                     // run has to be observable from outside, because nobody can hold a connection that long. That is not a rollback but a
                     // repairable-yet-invisible state, so the run finishes what it started even if nobody is left

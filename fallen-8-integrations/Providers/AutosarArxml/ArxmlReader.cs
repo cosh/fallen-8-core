@@ -567,9 +567,9 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   One bus, and everything the standard hangs inside its cluster.
         ///
         ///   <para>A CONTAINER, so it carries on into its children even when an earlier file already owns
-        ///   the element. One real vehicle has three extracts declaring one cluster path with different
-        ///   channel contents; under the old skip-the-subtree rule two of them contributed nothing, losing
-        ///   many of many cluster-internal triggerings. Where that happens the element stays the first
+        ///   the element. A vehicle's extracts commonly declare one cluster path with different channel
+        ///   contents in each; under the old skip-the-subtree rule every declaration after the first
+        ///   contributed nothing, losing most of the cluster's triggerings. Where that happens the element stays the first
         ///   file's and its properties are the first file's, which is why the collision is REPORTED
         ///   (<see cref="ArxmlDiagnosticKind.RedeclaredCluster" />): merging two extracts' channels into one
         ///   network node is right when they describe one bus and lossy when they describe two, and this
