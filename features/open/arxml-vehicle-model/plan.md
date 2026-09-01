@@ -4,7 +4,10 @@ Phases 1 to 3 are done. What follows is phases 4 and 5 of
 [findings.md](findings.md) section 7, broken into steps that each leave the suite green and the
 graph usable.
 
-## Step 1 - the channel becomes first-class
+**Where this stands:** steps 1 to 4 are DONE. Step 4 was brought forward ahead of step 3, because it
+is the deliverable and does not depend on the socket layer. Step 5 is open.
+
+## Step 1 - the channel becomes first-class (DONE)
 
 The structural change, and the one that touches existing behaviour.
 
@@ -22,7 +25,7 @@ Tests: a channel per channel and not per cluster variant (the counting bug the r
 `attachedTo` reaches both the network and the channel; and the existing CAN/FlexRay assertions that
 change do so deliberately.
 
-## Step 2 - the Ethernet cluster reads
+## Step 2 - the Ethernet cluster reads (DONE)
 
 6. A third `BusProtocol` entry with **no frame layer**: `ETHERNET-CLUSTER`,
    `ETHERNET-PHYSICAL-CHANNEL`, and nothing for frame or frame triggering. The table's own
@@ -39,21 +42,30 @@ Tests: an Ethernet-only extract produces a network, its channels, and PDUs and s
 without a frame; a query for frames on an Ethernet network finds none rather than failing; the
 unread-cluster diagnostic no longer names Ethernet.
 
-## Step 3 - the socket layer, normalised
+## Step 3 - the socket layer, normalised (DONE)
 
 10. `endpoint`, `socket`, `connection`, with `partOf`, `boundTo`, `serverPort`, `clientPort`, and
     `carries` from a connection to a PDU.
 11. One vocabulary table per revision spelling, read onto those three kinds, with `sourceSpelling`
     kept on the element.
-12. Revision detection from `xsi:schemaLocation`, falling back to which vocabulary is present.
+12. `xsi:schemaLocation` is read from the document element, because the XML namespace does not
+    identify the revision. **The vocabulary fallback was dropped**, and the reason is worth keeping:
+    nothing branches on the revision. The spellings do not overlap, so reading for both is
+    unambiguous and a detector would be a second thing to get wrong for no gain. What the file
+    declared still matters for the report below, and the report already lists the vocabulary it saw,
+    which is the same information and more actionable.
 13. The wrong-guess report of spec 4.5: an Ethernet channel whose socket layer yielded nothing
     reports what it did see.
 
-Tests: both spellings produce one shape; both detection paths; a channel with an unrecognised socket
-layer reports rather than importing an empty bus; a socket bound to an endpoint on another channel is
-reported rather than silently joined.
+Tests: each spelling reads onto the three kinds; the two produce one SHAPE, guarded against passing
+vacuously (two empty shapes are equal, which is what a reader recognising neither would produce); a
+port reference naming the application endpoint rather than the socket address still lands on the
+socket, while one that is neither is reported rather than resolved onto its parent; a channel with an
+unrecognised socket layer reports what it saw rather than importing an empty bus, once per run; and a
+CAN bus is never asked about a socket layer, so it never reports one missing. Mutation-checked by
+removing the newer spelling from the table: the two tests that must fail do.
 
-## Step 4 - the three-bus traversal (the deliverable)
+## Step 4 - the three-bus traversal (the deliverable) (DONE)
 
 14. A fixture of three extracts - CAN, FlexRay, Ethernet - sharing two system signals, imported as
     one source.
@@ -62,7 +74,7 @@ reported rather than silently joined.
     differ.
 16. The docs' AUTOSAR section gains the kinds, the relations and that traversal as its example.
 
-## Step 5 - the detail layer (phase 5)
+## Step 5 - the detail layer (phase 5) (open)
 
 17. `service`: SOME/IP provided and consumed service instances, and what they reference.
 18. `coupling`: switch coupling ports, so the topology below an Ethernet cluster is visible.

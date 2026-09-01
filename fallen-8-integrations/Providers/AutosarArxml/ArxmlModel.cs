@@ -55,9 +55,9 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   seen, each with how many files it appeared in.
         ///
         ///   <para>Not the same as a diagnostic, though it produces one: the provider needs the list itself
-        ///   to decide what to SAY when nothing readable was found, so that a set of Ethernet extracts is
-        ///   refused with "this version reads FlexRay and CAN, and the set carries Ethernet" rather than
-        ///   with a bare "no bus".</para>
+        ///   to decide what to SAY when nothing readable was found, so that a set of unreadable extracts is
+        ///   refused with "this version reads CAN, FlexRay and Ethernet, and the set carries LIN" rather
+        ///   than with a bare "no bus".</para>
         /// </summary>
         public List<UnreadCluster> UnreadClusters { get; } = new List<UnreadCluster>();
     }
@@ -202,6 +202,24 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   because the run is declared COMPLETE over what it did read.
         /// </summary>
         UnreadCluster = 5,
+
+        /// <summary>
+        ///   An Ethernet channel was read and its SOCKET LAYER yielded nothing: no endpoint, no socket, no
+        ///   connection. Reported with the element names actually seen under it, and with whatever schema
+        ///   the file declared.
+        ///
+        ///   <para>It exists because this is where the reader is most likely to be WRONG rather than where
+        ///   the file is. The socket layer's element names differ between AUTOSAR revisions with no
+        ///   overlap, and this reader is built against the standard rather than against a corpus of
+        ///   exports, so a spelling it has not met would otherwise be silent data loss on a bus that
+        ///   imported and looked fine. Naming what it saw turns a wrong guess into something an operator
+        ///   can report and a maintainer can read a fix out of.</para>
+        ///
+        ///   <para>Aggregated over the run rather than one per channel: a channel legitimately carrying no
+        ///   socket layer is possible, and a diagnostic per channel would bury everything else on a
+        ///   backbone with a couple of dozen VLANs.</para>
+        /// </summary>
+        SocketLayerUnrecognised = 6,
     }
 
     /// <summary>
@@ -260,6 +278,25 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         /// <summary>A COMPU-METHOD: how raw bits become a physical quantity.</summary>
         public const String CompuMethod = "compu-method";
+
+        /// <summary>
+        ///   A NETWORK ENDPOINT: an address on a channel. ETHERNET only, where it is the bottom of the
+        ///   addressing that replaces a frame.
+        /// </summary>
+        public const String Endpoint = "endpoint";
+
+        /// <summary>
+        ///   A SOCKET ADDRESS with its application endpoint: a port over UDP or TCP, bound to an
+        ///   <see cref="Endpoint" />. Ethernet only.
+        /// </summary>
+        public const String Socket = "socket";
+
+        /// <summary>
+        ///   A SOCKET CONNECTION: the pairing of sockets that carries PDUs, with the header ids that
+        ///   identify them inside it. Ethernet only, and the one kind here that is NORMALISED rather than
+        ///   mirrored - see <see cref="ArxmlProperties.SourceSpelling" />.
+        /// </summary>
+        public const String Connection = "connection";
     }
 
     /// <summary>The relation types this provider emits, which become edge types.</summary>
@@ -302,6 +339,19 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         /// <summary>System signal to the compu method that scales it.</summary>
         public const String ScaledBy = "scaledBy";
+
+        /// <summary>Socket to the network endpoint whose address it uses.</summary>
+        public const String BoundTo = "boundTo";
+
+        /// <summary>
+        ///   Connection to the socket on its SERVER side, and <see cref="ClientPort" /> to the sockets on
+        ///   the client side. The standard's own role names, kept because a connection is not symmetric even
+        ///   where the transport is: which end listens is the part an engineer is asking about.
+        /// </summary>
+        public const String ServerPort = "serverPort";
+
+        /// <summary>Connection to a socket on its CLIENT side. See <see cref="ServerPort" />.</summary>
+        public const String ClientPort = "clientPort";
     }
 
     /// <summary>
@@ -412,6 +462,45 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         /// <summary>A compu method's category, such as LINEAR.</summary>
         public const String Category = "category";
+
+        /// <summary>A network endpoint's address, as the file writes it.</summary>
+        public const String Address = "address";
+
+        /// <summary>Which IP version that address is: <c>ipv4</c> or <c>ipv6</c>.</summary>
+        public const String IpVersion = "ipVersion";
+
+        /// <summary>Where the address comes from, as the standard's own word: fixed, DHCP and so on.</summary>
+        public const String AddressSource = "addressSource";
+
+        /// <summary>The endpoint's network mask (IPv4) or prefix length (IPv6), whichever it carries.</summary>
+        public const String NetworkMask = "networkMask";
+
+        /// <summary>A socket's port number.</summary>
+        public const String Port = "port";
+
+        /// <summary>A socket's or connection's transport: <c>udp</c> or <c>tcp</c>.</summary>
+        public const String Transport = "transport";
+
+        /// <summary>
+        ///   THE SOURCE'S OWN ELEMENT NAME for a normalised element, and the reason the normalisation is
+        ///   honest rather than lossy.
+        ///
+        ///   <para>The Ethernet socket layer is spelled differently by different AUTOSAR revisions, with no
+        ///   overlap: one names a connection bundle, another a static socket connection. Mirroring both
+        ///   faithfully would make the graph's SHAPE a function of which revision an extract was written
+        ///   against, so the same vehicle exported twice would import as two different graphs and every
+        ///   query would need writing twice. So they are read onto ONE kind - and this property keeps what
+        ///   the file actually said, so nothing is hidden and an operator can still tell which they
+        ///   have.</para>
+        /// </summary>
+        public const String SourceSpelling = "sourceSpelling";
+
+        /// <summary>
+        ///   How many PDU header ids a connection carries. A COUNT rather than the ids: a connection
+        ///   carrying several PDUs has one id each, they are only meaningful against their own PDU, and the
+        ///   PDU is already reached by <c>carries</c>.
+        /// </summary>
+        public const String HeaderIdCount = "headerIdCount";
 
         /// <summary>
         ///   The physical unit, as the unit's DISPLAY NAME ("km") rather than its short name ("UNIT_KM").

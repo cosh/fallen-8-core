@@ -633,6 +633,33 @@ and the protocol-neutral route - the PDU - is the one to write. A frame is bette
 CAN and FlexRay **address** a PDU, exactly as a socket connection and a header id is how Ethernet
 addresses one.
 
+### The socket layer
+
+What addresses a PDU on Ethernet lands as three more kinds, all `partOf` their channel:
+
+| kind | what it is | properties |
+|---|---|---|
+| `endpoint` | a network endpoint: an address on the channel | `address`, `ipVersion`, `addressSource`, `networkMask` |
+| `socket` | a socket address and its application endpoint | `port`, `transport` (`udp` or `tcp`), `boundTo` its endpoint |
+| `connection` | the pairing of sockets that carries PDUs | `serverPort` and `clientPort` to its two ends, `carries` to each PDU, `headerIdCount`, `sourceSpelling` |
+
+**`sourceSpelling` is there because this layer is normalised.** Its element names differ between
+AUTOSAR revisions **with no overlap**: one revision names a connection bundle under the channel,
+another a static socket connection hanging off the serving socket. Mirroring each faithfully would
+make the graph's *shape* depend on which revision an extract was written against, so the same vehicle
+exported twice would import as two different graphs and every query would need writing twice. They
+are read onto the one `connection` kind instead, and `sourceSpelling` keeps the element name the file
+actually used, so nothing is hidden. Both spellings are read unconditionally - there is nothing to
+detect, since a document can only be using one of them.
+
+**If a channel's socket layer comes up empty, the run says so** (`arxmlSocketLayerUnrecognised`),
+naming the schema the file declared and the element names it actually found under that channel. This
+is the one diagnostic here more likely to be about the *reader* than about your file: a spelling this
+version has not met would otherwise be silent data loss on a bus that imported and looked complete.
+An extract that genuinely carries no socket layer produces it too, which is why it is reported once
+per run rather than once per channel. If those names look like a socket layer, they are worth
+reporting: adding one is a table entry.
+
 ### One value, several buses
 
 This is what makes importing a vehicle worth more than importing its buses one at a time. A value

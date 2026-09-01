@@ -71,6 +71,13 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         private const String ShortNameElement = "SHORT-NAME";
 
+        /// <summary>
+        ///   The XML Schema instance namespace, which is where <c>schemaLocation</c> lives. Its value is the
+        ///   only statement of the AUTOSAR REVISION a document was written against: the AUTOSAR namespace is
+        ///   the same across revisions of the classic platform.
+        /// </summary>
+        private const String SchemaInstance = "http://www.w3.org/2001/XMLSchema-instance";
+
         // The PDU kinds worth describing. A PDU is a PDU whatever its flavour, so the flavour becomes a
         // property rather than a kind: a query for "what does this frame carry" must not have to enumerate
         // one label per flavour, and the next flavour the standard adds must not become another kind.
@@ -99,6 +106,38 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         /// <summary>The unread bus kinds as a set, for the membership test in <c>Collect</c>.</summary>
         private static readonly HashSet<String> UnreadClusters;
+
+        /// <summary>
+        ///   Every element name that IS a socket connection, across AUTOSAR revisions. Both are here rather
+        ///   than one being chosen by a detected revision: the spellings do not overlap, so a document can
+        ///   only be using one, and reading for both is unambiguous. See <c>CollectSocketLayer</c>.
+        /// </summary>
+        private static readonly HashSet<String> ConnectionElements = new HashSet<String>(StringComparer.Ordinal)
+        {
+            "SOCKET-CONNECTION-BUNDLE",
+            "STATIC-SOCKET-CONNECTION",
+        };
+
+        /// <summary>
+        ///   Every element name that identifies a PDU inside a connection, across revisions. Each carries a
+        ///   PDU triggering reference and a header id.
+        /// </summary>
+        private static readonly HashSet<String> PduIdentifierElements = new HashSet<String>(StringComparer.Ordinal)
+        {
+            "SOCKET-CONNECTION-IPDU-IDENTIFIER",
+            "SO-CON-I-PDU-IDENTIFIER",
+        };
+
+        /// <summary>
+        ///   Every reference element that names one END of a connection. A socket address reference is here
+        ///   as well as the port spellings, because the newer form names remote ADDRESSES rather than ports.
+        /// </summary>
+        private static readonly HashSet<String> PortReferenceElements = new HashSet<String>(StringComparer.Ordinal)
+        {
+            "SERVER-PORT-REF",
+            "CLIENT-PORT-REF",
+            "SOCKET-ADDRESS-REF",
+        };
 
         /// <summary>
         ///   EVERY DERIVED STATIC IS BUILT HERE, IN ORDER, and none of them is a field initialiser.
@@ -337,6 +376,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     if (!sawRoot)
                     {
                         Gate(reader, name, fileName);
+
+                        // The document element is also the only place the AUTOSAR REVISION is stated, and
+                        // it is stated in xsi:schemaLocation rather than in the namespace: every revision of
+                        // the classic platform uses the same namespace, so the namespace says nothing about
+                        // which one this is. Read here because the reader is standing on the root exactly
+                        // once. Nothing branches on it - see CollectSocketLayer - it makes a diagnostic
+                        // actionable.
+                        collected.DeclaresSchema(reader.GetAttribute("schemaLocation", SchemaInstance));
                         sawRoot = true;
                     }
 
@@ -412,13 +459,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         private sealed class BusProtocol
         {
             public BusProtocol(String cluster, String channel, String? frame, String? frameTriggering,
-                String protocol)
+                String protocol, Boolean socketLayer)
             {
                 ClusterElement = cluster;
                 ChannelElement = channel;
                 FrameElement = frame;
                 FrameTriggeringElement = frameTriggering;
                 Protocol = protocol;
+                HasSocketLayer = socketLayer;
             }
 
             public String ClusterElement { get; }
@@ -433,6 +481,15 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
             /// <summary>Whether this protocol has a frame layer at all. Ethernet does not.</summary>
             public Boolean HasFrames => FrameElement != null;
+
+            /// <summary>
+            ///   Whether this protocol has a SOCKET LAYER to read. Declared rather than derived from
+            ///   <see cref="HasFrames" />: "no frames" and "has sockets" are two different facts about a
+            ///   protocol, and deriving one from the other would make the next protocol without frames
+            ///   silently searched for endpoints it does not have. It also keeps the scan off the buses that
+            ///   have none, which matters because a CAN channel's materialised subtree is large.
+            /// </summary>
+            public Boolean HasSocketLayer { get; }
 
             /// <summary>The value written to <see cref="ArxmlProperties.Protocol" />.</summary>
             public String Protocol { get; }
@@ -471,9 +528,9 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         private static readonly BusProtocol[] BusProtocols =
         {
             new BusProtocol("FLEXRAY-CLUSTER", "FLEXRAY-PHYSICAL-CHANNEL", "FLEXRAY-FRAME",
-                "FLEXRAY-FRAME-TRIGGERING", ArxmlProperties.FlexRayProtocol),
+                "FLEXRAY-FRAME-TRIGGERING", ArxmlProperties.FlexRayProtocol, socketLayer: false),
             new BusProtocol("CAN-CLUSTER", "CAN-PHYSICAL-CHANNEL", "CAN-FRAME",
-                "CAN-FRAME-TRIGGERING", ArxmlProperties.CanProtocol),
+                "CAN-FRAME-TRIGGERING", ArxmlProperties.CanProtocol, socketLayer: false),
 
             // NO FRAME LAYER, which is the whole reason this is a table. An Ethernet channel carries
             // PDU-TRIGGERING directly: the socket layer does what a frame does elsewhere, so there is no
@@ -481,7 +538,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             // empty strings, so a missing name is a case the code has to handle rather than a search for an
             // element called "".
             new BusProtocol("ETHERNET-CLUSTER", "ETHERNET-PHYSICAL-CHANNEL", null, null,
-                ArxmlProperties.EthernetProtocol),
+                ArxmlProperties.EthernetProtocol, socketLayer: true),
         };
 
         /// <summary>
@@ -715,7 +772,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
                 if (collected.Claim(channelElement, collected.Channels) == PathClaim.Recorded)
                 {
-                    collected.Pending.Add(new Pending(channelPath, ArxmlRelations.PartOf, path, false));
+                    collected.Pending.Add(new Pending(channelPath, ArxmlRelations.PartOf, path));
                 }
 
                 foreach (var reference in Descendants(channel, n => n == "COMMUNICATION-CONNECTOR-REF"))
@@ -737,6 +794,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     {
                         CollectFrameTriggering(triggering, collected, bus);
                     }
+                }
+
+                if (bus.HasSocketLayer)
+                {
+                    CollectSocketLayer(channelPath, channel, collected);
                 }
 
                 foreach (var triggering in Descendants(channel, n => n == "I-SIGNAL-TRIGGERING"))
@@ -785,6 +847,300 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     }
                 }
             }
+        }
+
+        /// <summary>
+        ///   THE ETHERNET SOCKET LAYER: what addresses a PDU where the other protocols use a frame.
+        ///
+        ///   <para>Three kinds come out of it - an <c>endpoint</c> (an address on this channel), a
+        ///   <c>socket</c> (a port over UDP or TCP, bound to one) and a <c>connection</c> (the pairing that
+        ///   carries PDUs). NORMALISED onto those three, which is the one place this reader deliberately does
+        ///   not mirror the standard: the socket layer is spelled differently by different AUTOSAR revisions
+        ///   with NO overlap, so a faithful mirror of each would make the graph's shape a function of which
+        ///   revision an extract was written against. Each element keeps the source's own element name in
+        ///   <see cref="ArxmlProperties.SourceSpelling" />, so nothing is hidden.</para>
+        ///
+        ///   <para>Both spellings are read UNCONDITIONALLY, and no revision detection decides between them.
+        ///   That follows from the no-overlap fact: a document can only be using one of them, so reading for
+        ///   both is unambiguous, and a detector would be a second thing to get wrong for no gain. What the
+        ///   file DECLARED is still captured, and appears in the diagnostic below where it is actionable.</para>
+        ///
+        ///   <para>Paths are composed from each element's OWN ancestors rather than from the channel
+        ///   (<see cref="PathWithin" />), because the revisions nest these at different depths - one puts a
+        ///   connection under the channel, another under a socket address - and a path composed from the
+        ///   wrong depth is a wrong IDENTITY, which is the one error here that cannot be noticed downstream.</para>
+        /// </summary>
+        private static void CollectSocketLayer(String channelPath, XElement channel, Collected collected)
+        {
+            var found = 0;
+
+            foreach (var endpoint in Descendants(channel, n => n == "NETWORK-ENDPOINT"))
+            {
+                var path = PathWithin(channel, channelPath, endpoint);
+                if (path == null)
+                {
+                    continue;
+                }
+
+                found++;
+                var element = new ArxmlElement(path, ArxmlKinds.Endpoint)
+                {
+                    [ArxmlProperties.Name] = Text(endpoint.Element(Ar + ShortNameElement)),
+                };
+                AddressOf(endpoint, element);
+                Describe(element, endpoint);
+
+                if (collected.Claim(element, collected.Endpoints) == PathClaim.Recorded)
+                {
+                    collected.Pending.Add(new Pending(path, ArxmlRelations.PartOf, channelPath));
+                }
+            }
+
+            foreach (var socket in Descendants(channel, n => n == "SOCKET-ADDRESS"))
+            {
+                var path = PathWithin(channel, channelPath, socket);
+                if (path == null)
+                {
+                    continue;
+                }
+
+                found++;
+                var element = new ArxmlElement(path, ArxmlKinds.Socket)
+                {
+                    [ArxmlProperties.Name] = Text(socket.Element(Ar + ShortNameElement)),
+                };
+                PortOf(socket, element);
+
+                if (collected.Claim(element, collected.Sockets) != PathClaim.Recorded)
+                {
+                    continue;
+                }
+
+                collected.Pending.Add(new Pending(path, ArxmlRelations.PartOf, channelPath));
+
+                // The address it uses. A REF and not a nesting: several sockets on one endpoint is the
+                // ordinary case, since one address serves every port on it.
+                var endpointRef = Clean(First(socket, "NETWORK-ENDPOINT-REF"));
+                if (endpointRef != null)
+                {
+                    collected.Pending.Add(new Pending(path, ArxmlRelations.BoundTo, endpointRef));
+                }
+            }
+
+            foreach (var connection in Descendants(channel, n => ConnectionElements.Contains(n)))
+            {
+                var path = PathWithin(channel, channelPath, connection);
+                if (path == null)
+                {
+                    continue;
+                }
+
+                found++;
+                CollectConnection(channelPath, path, connection, collected);
+            }
+
+            if (found == 0)
+            {
+                collected.SocketLayerUnrecognised(channelPath, VocabularyUnder(channel));
+            }
+        }
+
+        /// <summary>One socket connection, whichever of the two spellings it arrived in.</summary>
+        private static void CollectConnection(String channelPath, String path, XElement connection,
+            Collected collected)
+        {
+            var headerIds = 0;
+            foreach (var identifier in Descendants(connection, n => PduIdentifierElements.Contains(n)))
+            {
+                if (First(identifier, "HEADER-ID") != null)
+                {
+                    headerIds++;
+                }
+            }
+
+            var element = new ArxmlElement(path, ArxmlKinds.Connection)
+            {
+                [ArxmlProperties.Name] = Text(connection.Element(Ar + ShortNameElement)),
+                // The source's own word, so a normalised element still says what the file called it.
+                [ArxmlProperties.SourceSpelling] = connection.Name.LocalName,
+                [ArxmlProperties.HeaderIdCount] = headerIds == 0
+                    ? null
+                    : headerIds.ToString(CultureInfo.InvariantCulture),
+            };
+
+            if (collected.Claim(element, collected.Connections) != PathClaim.Recorded)
+            {
+                // A LEAF, so an already-owned path means stop: the work below records this element's own
+                // references under the same path and would hand them to the surviving twin.
+                return;
+            }
+
+            collected.Pending.Add(new Pending(path, ArxmlRelations.PartOf, channelPath));
+
+            // THE PDUS IT CARRIES, through the triggering: a PDU identifier points at a PDU TRIGGERING and
+            // never at a PDU, exactly as a container PDU's contained references do, so it resolves through
+            // the same indirection.
+            foreach (var identifier in Descendants(connection, n => PduIdentifierElements.Contains(n)))
+            {
+                var triggering = Clean(First(identifier, "PDU-TRIGGERING-REF"));
+                if (triggering != null)
+                {
+                    collected.Pending.Add(new Pending(path, ArxmlRelations.Carries, triggering,
+                        Indirection.Triggering));
+                }
+            }
+
+            // THE TWO ENDS. Classified by the reference's own NAME rather than by where it sits, because
+            // that is what the two revisions agree on: one names a server port and bundles client ports
+            // under it, the other hangs the connection off the serving socket and names remote addresses.
+            // Anything that is not the server side is a client side, which is the standard's own dichotomy.
+            foreach (var reference in Descendants(connection, n => PortReferenceElements.Contains(n)))
+            {
+                var port = Clean(reference.Value);
+                if (port == null)
+                {
+                    continue;
+                }
+
+                var type = reference.Name.LocalName.Contains("SERVER", StringComparison.Ordinal)
+                    ? ArxmlRelations.ServerPort
+                    : ArxmlRelations.ClientPort;
+                collected.Pending.Add(new Pending(path, type, port, Indirection.SocketPort));
+            }
+
+            // The newer spelling states no server port at all: the connection HANGS OFF the serving socket,
+            // so the parent is the server. Emitted only when the file named none, so the two spellings
+            // produce one shape without either being guessed at.
+            var named = false;
+            foreach (var reference in Descendants(connection, n => PortReferenceElements.Contains(n)))
+            {
+                if (reference.Name.LocalName.Contains("SERVER", StringComparison.Ordinal))
+                {
+                    named = true;
+                    break;
+                }
+            }
+
+            if (!named && Parent(path) is { } parent && !String.Equals(parent, channelPath,
+                    StringComparison.Ordinal))
+            {
+                collected.Pending.Add(new Pending(path, ArxmlRelations.ServerPort, parent,
+                    Indirection.SocketPort));
+            }
+        }
+
+        /// <summary>
+        ///   A network endpoint's address, whichever IP version it carries. Both are read, the version is
+        ///   recorded, and the mask and prefix land on ONE property: they answer the same question and a
+        ///   query that had to know the version to ask it would be written twice for no reason.
+        /// </summary>
+        private static void AddressOf(XElement endpoint, ArxmlElement element)
+        {
+            foreach (var configuration in Descendants(endpoint, n => n == "IPV-4-CONFIGURATION"))
+            {
+                element[ArxmlProperties.IpVersion] = "ipv4";
+                element[ArxmlProperties.Address] = First(configuration, "IPV-4-ADDRESS");
+                element[ArxmlProperties.AddressSource] = First(configuration, "IPV-4-ADDRESS-SOURCE");
+                element[ArxmlProperties.NetworkMask] = First(configuration, "NETWORK-MASK");
+                return;
+            }
+
+            foreach (var configuration in Descendants(endpoint, n => n == "IPV-6-CONFIGURATION"))
+            {
+                element[ArxmlProperties.IpVersion] = "ipv6";
+                element[ArxmlProperties.Address] = First(configuration, "IPV-6-ADDRESS");
+                element[ArxmlProperties.AddressSource] = First(configuration, "IPV-6-ADDRESS-SOURCE");
+                element[ArxmlProperties.NetworkMask] = First(configuration, "ADDRESS-PREFIX");
+                return;
+            }
+        }
+
+        /// <summary>
+        ///   A socket's port and transport, from the application endpoint's transport configuration. The
+        ///   TRANSPORT is why this is not one lookup: UDP and TCP are different elements rather than a value,
+        ///   so which one is present IS the answer, and the port number sits inside whichever it is.
+        /// </summary>
+        private static void PortOf(XElement socket, ArxmlElement element)
+        {
+            foreach (var transport in Descendants(socket, n => n == "UDP-TP" || n == "TCP-TP"))
+            {
+                element[ArxmlProperties.Transport] =
+                    String.Equals(transport.Name.LocalName, "UDP-TP", StringComparison.Ordinal)
+                        ? "udp"
+                        : "tcp";
+                element[ArxmlProperties.Port] = First(transport, "PORT-NUMBER")
+                                                ?? First(transport, "DYNAMICALLY-ASSIGNED");
+                return;
+            }
+        }
+
+        /// <summary>
+        ///   The reference path of an element inside a materialised subtree, composed the way the streaming
+        ///   pass composes one: this element's short name, preceded by every named ancestor up to the
+        ///   subtree's root, whose own path is <paramref name="rootPath" />. Null when the element has no
+        ///   short name, which in the standard's terms means it has no identity to be referenced by.
+        /// </summary>
+        private static String? PathWithin(XElement root, String rootPath, XElement element)
+        {
+            var own = Text(element.Element(Ar + ShortNameElement));
+            if (own == null)
+            {
+                return null;
+            }
+
+            var segments = new List<String> { own };
+            for (var ancestor = element.Parent; ancestor != null && ancestor != root;
+                 ancestor = ancestor.Parent)
+            {
+                var name = Text(ancestor.Element(Ar + ShortNameElement));
+                if (name != null)
+                {
+                    segments.Add(name);
+                }
+            }
+
+            var path = new StringBuilder(rootPath);
+            for (var i = segments.Count - 1; i >= 0; i--)
+            {
+                path.Append('/').Append(segments[i]);
+            }
+
+            return path.ToString();
+        }
+
+        /// <summary>
+        ///   The distinct element names under a channel, in first-seen order and BOUNDED - the actionable
+        ///   half of the socket-layer diagnostic. A maintainer reading "this channel contains
+        ///   SOME-OTHER-SPELLING" can add a table entry; a maintainer reading "nothing was found" cannot do
+        ///   anything at all.
+        /// </summary>
+        private static IReadOnlyList<String> VocabularyUnder(XElement channel)
+        {
+            const Int32 most = 12;
+            var names = new List<String>();
+            var seen = new HashSet<String>(StringComparer.Ordinal);
+            foreach (var descendant in channel.Descendants())
+            {
+                var name = descendant.Name.LocalName;
+                if (name.EndsWith("-REF", StringComparison.Ordinal) ||
+                    String.Equals(name, ShortNameElement, StringComparison.Ordinal))
+                {
+                    // References and short names say nothing about which VOCABULARY this is, and there are
+                    // hundreds of them: they would fill the bound with noise.
+                    continue;
+                }
+
+                if (seen.Add(name))
+                {
+                    names.Add(name);
+                    if (names.Count == most)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            return names;
         }
 
         /// <summary>
@@ -888,7 +1244,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 var pduRef = Text(mapping.Element(Ar + "PDU-REF"));
                 if (pduRef != null)
                 {
-                    collected.Pending.Add(new Pending(path, ArxmlRelations.Contains, pduRef, false));
+                    collected.Pending.Add(new Pending(path, ArxmlRelations.Contains, pduRef));
                 }
             }
         }
@@ -913,7 +1269,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 var signalRef = Text(mapping.Element(Ar + "I-SIGNAL-REF"));
                 if (signalRef != null)
                 {
-                    collected.Pending.Add(new Pending(path, ArxmlRelations.Contains, signalRef, false));
+                    collected.Pending.Add(new Pending(path, ArxmlRelations.Contains, signalRef));
                 }
             }
 
@@ -924,7 +1280,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 var contained = Clean(reference.Value);
                 if (contained != null)
                 {
-                    collected.Pending.Add(new Pending(path, ArxmlRelations.Carries, contained, true));
+                    collected.Pending.Add(new Pending(path, ArxmlRelations.Carries, contained, Indirection.Triggering));
                 }
             }
 
@@ -932,7 +1288,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             var payload = Text(element.Element(Ar + "PAYLOAD-REF"));
             if (payload != null)
             {
-                collected.Pending.Add(new Pending(path, ArxmlRelations.Secures, payload, true));
+                collected.Pending.Add(new Pending(path, ArxmlRelations.Secures, payload, Indirection.Triggering));
             }
         }
 
@@ -955,7 +1311,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             var systemSignalRef = Text(element.Element(Ar + "SYSTEM-SIGNAL-REF"));
             if (systemSignalRef != null)
             {
-                collected.Pending.Add(new Pending(path, ArxmlRelations.Implements, systemSignalRef, false));
+                collected.Pending.Add(new Pending(path, ArxmlRelations.Implements, systemSignalRef));
                 collected.SignalToSystemSignal[path] = systemSignalRef;
             }
         }
@@ -976,7 +1332,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             var compuRef = First(element, "COMPU-METHOD-REF");
             if (compuRef != null)
             {
-                collected.Pending.Add(new Pending(path, ArxmlRelations.ScaledBy, compuRef, false));
+                collected.Pending.Add(new Pending(path, ArxmlRelations.ScaledBy, compuRef));
                 collected.SystemSignalToCompuMethod[path] = compuRef;
             }
         }
@@ -1158,14 +1514,42 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
             foreach (var pending in collected.Pending)
             {
-                var target = pending.ThroughTriggering
-                    ? Lookup(collected.PduTriggerings, pending.ToReference)
-                    : pending.ToReference;
-
-                if (target == null)
+                String? target;
+                switch (pending.Through)
                 {
-                    network.Diagnostics.Add(Unresolved("a PDU triggering", pending.ToReference));
-                    continue;
+                    case Indirection.Triggering:
+                        target = Lookup(collected.PduTriggerings, pending.ToReference);
+                        if (target == null)
+                        {
+                            network.Diagnostics.Add(Unresolved("a PDU triggering", pending.ToReference));
+                            continue;
+                        }
+
+                        break;
+
+                    case Indirection.SocketPort:
+                        // The path as written, else its parent: a port reference names either the socket
+                        // address or the application endpoint inside it, and both mean the socket. Checked
+                        // against the SOCKETS rather than every element, so a reference that happens to
+                        // have a parent path cannot resolve onto something that is not a socket.
+                        target = collected.Sockets.ContainsKey(pending.ToReference)
+                            ? pending.ToReference
+                            : Parent(pending.ToReference) is { } parent
+                              && collected.Sockets.ContainsKey(parent)
+                                ? parent
+                                : null;
+                        if (target == null)
+                        {
+                            network.Diagnostics.Add(Unresolved("a socket connection's port",
+                                pending.ToReference));
+                            continue;
+                        }
+
+                        break;
+
+                    default:
+                        target = pending.ToReference;
+                        break;
                 }
 
                 Relate(network, pending.FromPath, pending.Type, target);
@@ -1516,12 +1900,13 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         private sealed class Pending
         {
-            public Pending(String fromPath, String type, String toReference, Boolean throughTriggering)
+            public Pending(String fromPath, String type, String toReference,
+                Indirection through = Indirection.None)
             {
                 FromPath = fromPath;
                 Type = type;
                 ToReference = toReference;
-                ThroughTriggering = throughTriggering;
+                Through = through;
             }
 
             public String FromPath { get; }
@@ -1530,7 +1915,32 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
             public String ToReference { get; }
 
-            public Boolean ThroughTriggering { get; }
+            public Indirection Through { get; }
+        }
+
+        /// <summary>
+        ///   What stands between a reference as the file writes it and the element it means.
+        /// </summary>
+        private enum Indirection
+        {
+            /// <summary>The reference IS the element's path. Most of them.</summary>
+            None,
+
+            /// <summary>
+            ///   The reference names a PDU TRIGGERING, so the PDU is whatever that triggering triggers. The
+            ///   standard's own indirection: a container PDU, a secured PDU's payload and a socket
+            ///   connection's PDU identifiers all point at a triggering rather than at a PDU.
+            /// </summary>
+            Triggering,
+
+            /// <summary>
+            ///   The reference names a socket's PORT, which is either the socket address itself or the
+            ///   application endpoint inside it depending on the revision and the construct. Resolved as
+            ///   the path, falling back to its PARENT - which is the socket address when the path was the
+            ///   application endpoint. Two spellings of one thing rather than a guess: both land on the
+            ///   socket, and a reference that resolves to neither is reported like any other.
+            /// </summary>
+            SocketPort,
         }
 
         /// <summary>
@@ -1556,6 +1966,19 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             /// <summary>Cluster paths already reported as re-declared, so the diagnostic is once per path.</summary>
             private readonly HashSet<String> _redeclaredClusters = new HashSet<String>(StringComparer.Ordinal);
 
+            /// <summary>How many Ethernet channels had no socket layer at all. Reported once, on the first.</summary>
+            private Int32 _socketLayerEmpty;
+
+            /// <summary>
+            ///   What the CURRENT document declares as its schema, from <c>xsi:schemaLocation</c> on the
+            ///   document element. Captured because the XML NAMESPACE does not identify the AUTOSAR revision -
+            ///   every revision of the classic platform uses the same one - so this is the only thing in the
+            ///   file that says which it is. Nothing branches on it: it exists to make the socket-layer
+            ///   diagnostic actionable, since "which revision is this" is the first question anybody chasing
+            ///   an unrecognised spelling will ask.
+            /// </summary>
+            private String _schemaLocation = String.Empty;
+
             /// <summary>Attachments and flows already recorded, so the union cannot repeat a relation.</summary>
             private readonly HashSet<String> _attachmentsSeen = new HashSet<String>(StringComparer.Ordinal);
 
@@ -1576,6 +1999,12 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             public Dictionary<String, ArxmlElement> SystemSignals { get; } = New();
 
             public Dictionary<String, ArxmlElement> CompuMethods { get; } = New();
+
+            public Dictionary<String, ArxmlElement> Endpoints { get; } = New();
+
+            public Dictionary<String, ArxmlElement> Sockets { get; } = New();
+
+            public Dictionary<String, ArxmlElement> Connections { get; } = New();
 
             public Dictionary<String, String> UnitDisplayNames { get; } =
                 new Dictionary<String, String>(StringComparer.Ordinal);
@@ -1626,6 +2055,12 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             private Dictionary<String, ArxmlElement> All { get; } = New();
 
             /// <summary>Starts a document. Its name is what its own diagnostics name.</summary>
+            /// <summary>What this document declared as its schema, for the diagnostics that need it.</summary>
+            public void DeclaresSchema(String? schemaLocation)
+            {
+                _schemaLocation = schemaLocation == null ? String.Empty : schemaLocation.Trim();
+            }
+
             public void BeginDocument(String fileName)
             {
                 _documents++;
@@ -1726,8 +2161,41 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             }
 
             /// <summary>
+            ///   Notes that an Ethernet channel's SOCKET LAYER yielded nothing, and reports it ONCE for the
+            ///   whole read - naming how many channels it happened to, the schema the first such file
+            ///   declared, and the vocabulary actually present under the first of them.
+            ///
+            ///   <para>Aggregated rather than per channel because a channel may legitimately carry no socket
+            ///   layer, and a backbone has a couple of dozen: one line per channel would bury every
+            ///   diagnostic that means something. Aggregated on the FIRST occurrence's detail rather than the
+            ///   union of all of them, because a reader chasing an unrecognised spelling needs one concrete
+            ///   example, not a merged list from twenty channels that may not even agree.</para>
+            /// </summary>
+            public void SocketLayerUnrecognised(String channelPath, IReadOnlyList<String> vocabulary)
+            {
+                _socketLayerEmpty++;
+                if (_socketLayerEmpty > 1)
+                {
+                    return;
+                }
+
+                Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.SocketLayerUnrecognised,
+                    String.Format(CultureInfo.InvariantCulture,
+                        "This Ethernet channel was read and its SOCKET LAYER yielded nothing: no network " +
+                        "endpoint, no socket and no connection, so the PDUs on it have no addressing in the " +
+                        "graph. Either the extract carries none - which is legal - or this reader does not " +
+                        "know the spelling this one uses: the socket layer's element names differ between " +
+                        "AUTOSAR revisions with no overlap. The file declares schema '{0}' and the channel " +
+                        "contains: {1}. Everything else on the bus imported normally. If those names look " +
+                        "like a socket layer, report them: it is a table entry, not a redesign.",
+                        _schemaLocation.Length == 0 ? "(none stated)" : _schemaLocation,
+                        vocabulary.Count == 0 ? "(nothing)" : String.Join(", ", vocabulary)),
+                    channelPath));
+            }
+
+            /// <summary>
             ///   Notes that this file declared a bus of a kind this version does not read. Counted per KIND
-            ///   and per FILE, so the report is "Ethernet, in 18 files" rather than one line per cluster.
+            ///   and per FILE, so the report is "LIN, in 18 files" rather than one line per cluster.
             /// </summary>
             public void UnreadCluster(String element)
             {

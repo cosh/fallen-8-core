@@ -160,9 +160,17 @@ Phase 1  engine: cheap withdrawal, batched claim indexing        DONE
 Phase 2  vehicle-scoped identity, per-scope completeness         DONE
 Phase 3  streaming parse                                         DONE
          staged resumable upload                                 deferred (N3, with a trigger)
-Phase 4  the three-bus faithful model                            open
+Phase 4  the three-bus faithful model                            DONE
 Phase 5  the Ethernet detail layer                               open
 ```
+
+Phase 4 landed as four steps, recorded in [plan.md](plan.md): the channel became an element, the
+Ethernet cluster reads, the socket layer is read onto three kinds whichever revision spelled it, and
+a value produced on CAN traverses to its consumers on FlexRay and Ethernet. Two departures from N1
+and N5 as written, both deliberate: 13 kinds rather than "roughly 20", because that count treated the
+socket layer's per-revision spellings as distinct kinds and normalising them away is the point; and
+no revision DETECTION, because nothing branches on the revision - the spellings do not overlap, so
+both are read unconditionally.
 
 The transport step that section 8 called for landed with phase 3: a file's bytes arrive as a multipart
 part and nowhere else, and the job ceiling rose to what the transport actually carries (760 MiB, from
@@ -177,10 +185,9 @@ warns against.
 
 ## 8. Next steps
 
-1. **Phase 4**, the faithful model (N1, N4, N5): roughly 20 entity kinds across CAN, FlexRay and
-   Ethernet, with the socket layer normalised onto one set of kinds and the AUTOSAR revision detected
-   from `xsi:schemaLocation` rather than from the XML namespace, which does not carry it.
-2. **Phase 5**, the Ethernet detail layer.
+1. **Phase 5**, the Ethernet detail layer: SOME/IP service instances, and switch coupling ports so
+   the topology below an Ethernet cluster is visible. Both additive, neither changing a shape the
+   three-bus traversal depends on.
 
 ## 9. Scope of what is known
 

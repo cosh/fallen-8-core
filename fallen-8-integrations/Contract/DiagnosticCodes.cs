@@ -285,6 +285,21 @@ namespace NoSQL.GraphDB.Integrations.Contract
         public const String ArxmlUnreadCluster = "arxmlUnreadCluster";
 
         /// <summary>
+        ///   <c>autosar-arxml</c>: an ETHERNET channel was read and its socket layer yielded nothing - no
+        ///   network endpoint, no socket, no connection - so the PDUs on it have no addressing in the graph.
+        ///   The message names the schema the file declared and the element names actually found under the
+        ///   channel.
+        ///
+        ///   <para>The one diagnostic here that is more likely to be about the READER than about the file.
+        ///   The socket layer's element names differ between AUTOSAR revisions with no overlap, and this
+        ///   reader is built against the standard rather than against a corpus of exports, so a spelling it
+        ///   has not met would otherwise be silent data loss on a bus that imported and looked complete. An
+        ///   extract that genuinely carries no socket layer produces it too, which is why it is reported
+        ///   ONCE for a run rather than once per channel.</para>
+        /// </summary>
+        public const String ArxmlSocketLayerUnrecognised = "arxmlSocketLayerUnrecognised";
+
+        /// <summary>
         ///   <c>autosar-arxml</c>: a port exists but declares no direction the reader understands, so the
         ///   flow edge is dropped rather than pointed by a guess. A guessed direction would invert a
         ///   sender and a receiver, and a wrong edge answers a query confidently.

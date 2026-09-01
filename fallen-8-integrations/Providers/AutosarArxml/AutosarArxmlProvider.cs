@@ -114,8 +114,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 "and describes the communication matrix they hold: each bus, its channels, its ECUs, " +
                 "frames, PDUs, signals, system signals and scaling methods, with the send and receive " +
                 "flow between them. CAN, FlexRay and ETHERNET buses are read. An Ethernet bus has no " +
-                "frame layer, so its signals are reached through the PDU instead, and each of its " +
-                "channels is a VLAN an ECU is or is not on. Several extracts of one vehicle are read as " +
+                "frame layer, so its signals are reached through the PDU instead, each of its channels is " +
+                "a VLAN an ECU is or is not on, and what addresses a PDU there is the socket layer: " +
+                "network endpoints, sockets over UDP or TCP, and the connections between them, read onto " +
+                "one set of kinds whichever AUTOSAR revision's spelling the extract uses. Several " +
+                "extracts of one vehicle are read as " +
                 "one source, so a frame in one of them can carry a signal defined in another and an ECU " +
                 "on two buses is one element attached to both; a value carried on several buses is one " +
                 "system signal with a per-bus signal each, which is what joins the buses to each other. " +
@@ -171,6 +174,9 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 ArxmlKinds.Signal,
                 ArxmlKinds.SystemSignal,
                 ArxmlKinds.CompuMethod,
+                ArxmlKinds.Endpoint,
+                ArxmlKinds.Socket,
+                ArxmlKinds.Connection,
             },
             ClaimTypes = new[] { VehiclePathClaimType },
             RelationTypes = new[]
@@ -184,6 +190,9 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 ArxmlRelations.Secures,
                 ArxmlRelations.Implements,
                 ArxmlRelations.ScaledBy,
+                ArxmlRelations.BoundTo,
+                ArxmlRelations.ServerPort,
+                ArxmlRelations.ClientPort,
             },
             CanObserveCompleteState = true,
             ReadOnly = true,
@@ -298,16 +307,17 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 // perfectly ordinary beside a chassis extract that has one, and failing per file would
                 // refuse exactly the jobs this provider now exists to accept.
                 //
-                // Narrowed rather than removed when CAN arrived. It still has to fail, for the reason
-                // above; what changed is that "no FlexRay cluster" is no longer the same statement as "no
-                // bus", so the message names what WAS found when the set turns out to carry a bus of a
-                // kind this version skips - which is the difference between an operator upgrading and an
-                // operator hunting for a corrupt file.
+                // Narrowed rather than removed as protocols arrived. It still has to fail, for the reason
+                // above; what changed is that "no cluster of the one kind we read" is no longer the same
+                // statement as "no bus", so the message names what WAS found when the set turns out to
+                // carry a bus of a kind this version skips - which is the difference between an operator
+                // upgrading and an operator hunting for a corrupt file.
                 var unread = DescribeUnread(network.UnreadClusters);
                 throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
                     "Nothing in '{0}', the extract set named by setting '{1}', carries a bus this version " +
                     "reads, though every file in it read as AUTOSAR, so there is no communication matrix " +
-                    "in the set to describe. This version reads FlexRay and CAN clusters.{2} The run fails " +
+                    "in the set to describe. This version reads CAN, FlexRay and Ethernet clusters.{2} The " +
+                    "run fails " +
                     "rather than reporting an empty network, because a complete snapshot with nothing in " +
                     "it withdraws every element this identity claimed.",
                     settingValue, FileSetting, unread));
@@ -408,6 +418,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     return DiagnosticCodes.ArxmlRedeclaredCluster;
                 case ArxmlDiagnosticKind.UnreadCluster:
                     return DiagnosticCodes.ArxmlUnreadCluster;
+                case ArxmlDiagnosticKind.SocketLayerUnrecognised:
+                    return DiagnosticCodes.ArxmlSocketLayerUnrecognised;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(kind), kind,
                         "Every reader diagnostic kind needs a wire code, or a report would carry one " +

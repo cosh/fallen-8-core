@@ -174,7 +174,255 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region the socket layer, normalised across revisions (step 3)
+
+        /// <summary>
+        ///   THE OLDER SPELLING: a connection BUNDLE under the channel, naming a server port and bundling
+        ///   client connections under it.
+        /// </summary>
+        [TestMethod]
+        public void TheOlderSocketLayerSpellingReadsOntoTheThreeKinds()
+        {
+            var network = ArxmlReader.Read(BundleExtract);
+
+            var endpoint = Element(network, "/Clusters/BACKBONE/CH_SOCKETS/EP_Hub");
+            Assert.AreEqual(ArxmlKinds.Endpoint, endpoint.Kind);
+            Assert.AreEqual("10.0.7.1", endpoint[ArxmlProperties.Address]);
+            Assert.AreEqual("ipv4", endpoint[ArxmlProperties.IpVersion]);
+            Assert.AreEqual("FIXED", endpoint[ArxmlProperties.AddressSource],
+                "the standard's own word, not a boolean: a reader that decided what FIXED means would be " +
+                "deciding for every future value too");
+            Assert.AreEqual("255.255.255.0", endpoint[ArxmlProperties.NetworkMask]);
+
+            var server = Element(network, "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer");
+            Assert.AreEqual(ArxmlKinds.Socket, server.Kind);
+            Assert.AreEqual("30490", server[ArxmlProperties.Port]);
+            Assert.AreEqual("udp", server[ArxmlProperties.Transport],
+                "UDP and TCP are different ELEMENTS in the standard rather than a value, so which one is " +
+                "present is the answer");
+            CollectionAssert.AreEqual(new[] { "/Clusters/BACKBONE/CH_SOCKETS/EP_Hub" },
+                Targets(network, "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer", ArxmlRelations.BoundTo)
+                    .ToArray(),
+                "and it says which address it is on");
+
+            var connection = Element(network, "/Clusters/BACKBONE/CH_SOCKETS/SCB_Sensors");
+            Assert.AreEqual(ArxmlKinds.Connection, connection.Kind);
+            Assert.AreEqual("SOCKET-CONNECTION-BUNDLE", connection[ArxmlProperties.SourceSpelling],
+                "the source's own element name is KEPT, which is what makes the normalisation honest rather " +
+                "than lossy: a query is written once, and an operator can still see which revision they have");
+            Assert.AreEqual("1", connection[ArxmlProperties.HeaderIdCount]);
+
+            CollectionAssert.AreEqual(new[] { "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer" },
+                Targets(network, "/Clusters/BACKBONE/CH_SOCKETS/SCB_Sensors", ArxmlRelations.ServerPort)
+                    .ToArray());
+            CollectionAssert.AreEqual(new[] { "/Clusters/BACKBONE/CH_SOCKETS/SA_DriveClient" },
+                Targets(network, "/Clusters/BACKBONE/CH_SOCKETS/SCB_Sensors", ArxmlRelations.ClientPort)
+                    .ToArray(),
+                "the two ends are told apart by the REFERENCE's own name, which is what the two revisions " +
+                "agree on");
+
+            CollectionAssert.AreEqual(new[] { "/Pdus/PDU_Sensors" },
+                Targets(network, "/Clusters/BACKBONE/CH_SOCKETS/SCB_Sensors", ArxmlRelations.Carries)
+                    .ToArray(),
+                "and the PDU it carries is reached THROUGH the triggering, because that is what a PDU " +
+                "identifier points at - the same indirection a container PDU uses");
+        }
+
+        /// <summary>
+        ///   THE NEWER SPELLING: a STATIC socket connection hanging off the serving socket, with no server
+        ///   port reference at all because the nesting says it.
+        ///
+        ///   <para>The two together are the whole point of N5. Their element names do not overlap, so both
+        ///   are read unconditionally and no revision detection has to be right for either to work.</para>
+        /// </summary>
+        [TestMethod]
+        public void TheNewerSocketLayerSpellingReadsOntoTheSameThreeKinds()
+        {
+            var network = ArxmlReader.Read(StaticExtract);
+
+            var connection = Element(network,
+                "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer/SSC_Sensors");
+            Assert.AreEqual(ArxmlKinds.Connection, connection.Kind,
+                "the newer spelling is the same KIND, which is the entire deliverable of the normalisation: " +
+                "a query written against one revision's export works on the other's");
+            Assert.AreEqual("STATIC-SOCKET-CONNECTION", connection[ArxmlProperties.SourceSpelling]);
+
+            CollectionAssert.AreEqual(new[] { "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer" },
+                Targets(network, "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer/SSC_Sensors",
+                    ArxmlRelations.ServerPort).ToArray(),
+                "this spelling names NO server port: the connection hangs off the serving socket, so the " +
+                "parent IS the server. Read from the nesting rather than guessed, and only when the file " +
+                "named none");
+            CollectionAssert.AreEqual(new[] { "/Clusters/BACKBONE/CH_SOCKETS/SA_DriveClient" },
+                Targets(network, "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer/SSC_Sensors",
+                    ArxmlRelations.ClientPort).ToArray(),
+                "and the remote address is the client end");
+            CollectionAssert.AreEqual(new[] { "/Pdus/PDU_Sensors" },
+                Targets(network, "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer/SSC_Sensors",
+                    ArxmlRelations.Carries).ToArray());
+        }
+
+        /// <summary>
+        ///   The two spellings produce the SAME SHAPE, which is asserted as a shape rather than element by
+        ///   element: what N5 exists to prevent is the graph's structure being a function of which revision
+        ///   an extract was written against.
+        /// </summary>
+        [TestMethod]
+        public void BothSpellingsProduceTheSameShape()
+        {
+            var older = Shape(ArxmlReader.Read(BundleExtract));
+            var newer = Shape(ArxmlReader.Read(StaticExtract));
+
+            // Non-vacuity first: two EMPTY shapes are equal, and that is exactly what a reader that
+            // recognised neither spelling would produce.
+            CollectionAssert.Contains(older, "connection -carries-> pdu");
+            CollectionAssert.Contains(older, "socket -boundTo-> endpoint");
+
+            CollectionAssert.AreEqual(older, newer,
+                "the two revisions' socket layers must import as the same kinds joined by the same " +
+                "relations. Older: [" + String.Join(", ", older) + "] newer: [" +
+                String.Join(", ", newer) + "]");
+        }
+
+        /// <summary>
+        ///   A port reference naming the APPLICATION ENDPOINT rather than the socket address still lands on
+        ///   the socket. Both spellings exist in the wild, and the alternative to accepting them is an
+        ///   unresolved-reference diagnostic on a file that is perfectly clear about what it means.
+        /// </summary>
+        [TestMethod]
+        public void APortReferenceNamingTheApplicationEndpointResolvesToItsSocket()
+        {
+            var network = ArxmlReader.Read(BundleExtract.Replace(
+                "<CLIENT-PORT-REF DEST=\"SOCKET-ADDRESS\">/Clusters/BACKBONE/CH_SOCKETS/SA_DriveClient</CLIENT-PORT-REF>",
+                "<CLIENT-PORT-REF DEST=\"APPLICATION-ENDPOINT\">/Clusters/BACKBONE/CH_SOCKETS/SA_DriveClient/AE_Drive</CLIENT-PORT-REF>",
+                StringComparison.Ordinal));
+
+            CollectionAssert.AreEqual(new[] { "/Clusters/BACKBONE/CH_SOCKETS/SA_DriveClient" },
+                Targets(network, "/Clusters/BACKBONE/CH_SOCKETS/SCB_Sensors", ArxmlRelations.ClientPort)
+                    .ToArray(),
+                "a reference to the application endpoint means its socket, and resolving it there is the " +
+                "difference between reading the file and reporting it as broken");
+            Assert.AreEqual(0,
+                network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.UnresolvedReference),
+                "and nothing is reported as unresolved: " + String.Join("; ",
+                    network.Diagnostics.Select(d => d.Kind + " " + d.Subject)));
+        }
+
+        /// <summary>
+        ///   A port reference that resolves to neither a socket nor a socket's parent is REPORTED. The
+        ///   parent fallback must not become a way for any dangling reference to land on something: it is
+        ///   checked against the SOCKETS, not against every element.
+        /// </summary>
+        [TestMethod]
+        public void APortReferenceThatIsNoSocketIsReported()
+        {
+            var network = ArxmlReader.Read(BundleExtract.Replace(
+                "/Clusters/BACKBONE/CH_SOCKETS/SA_DriveClient</CLIENT-PORT-REF>",
+                "/Clusters/BACKBONE/CH_SOCKETS/SA_NoSuchSocket</CLIENT-PORT-REF>",
+                StringComparison.Ordinal));
+
+            var reported = network.Diagnostics
+                .Where(d => d.Kind == ArxmlDiagnosticKind.UnresolvedReference)
+                .ToList();
+            Assert.AreEqual(1, reported.Count,
+                "one named diagnostic, not a wrong edge: " + String.Join("; ",
+                    network.Diagnostics.Select(d => d.Kind + " " + d.Subject)));
+            StringAssert.Contains(reported[0].Message, "socket connection's port", reported[0].Message);
+            Assert.AreEqual(0,
+                network.Relations.Count(r => r.Type == ArxmlRelations.ClientPort),
+                "and no client edge was invented from the reference's parent, which happens to be a real " +
+                "channel: the fallback resolves against the sockets and nothing else");
+        }
+
+        #endregion
+
+        #region a socket layer this reader does not recognise
+
+        /// <summary>
+        ///   THE WRONG-GUESS REPORT, which is the part of this feature most likely to earn its keep. The
+        ///   socket layer's names differ by revision with no overlap, so a spelling this reader has not met
+        ///   would otherwise be silent data loss on a bus that imported and looked complete.
+        /// </summary>
+        [TestMethod]
+        public void AChannelWhoseSocketLayerYieldsNothingIsReported_WithWhatItSaw()
+        {
+            var network = ArxmlReader.Read(StrangeSocketExtract);
+
+            var said = network.Diagnostics.Single(d =>
+                d.Kind == ArxmlDiagnosticKind.SocketLayerUnrecognised);
+
+            Assert.AreEqual("/Clusters/BACKBONE/CH_STRANGE", said.Subject,
+                "the subject is the channel, which is what an operator can go and look at");
+            StringAssert.Contains(said.Message, "SOME-FUTURE-CONNECTION", said.Message);
+            StringAssert.Contains(said.Message, "AUTOSAR_00099.xsd", said.Message);
+            StringAssert.Contains(said.Message, "table entry", said.Message);
+        }
+
+        /// <summary>
+        ///   Reported ONCE for a run however many channels it happens to. A backbone has a couple of dozen
+        ///   VLANs, and one line each would bury every diagnostic that means something.
+        /// </summary>
+        [TestMethod]
+        public void TheUnrecognisedSocketLayerIsReportedOncePerRun()
+        {
+            var network = ArxmlReader.Read(StrangeSocketExtract.Replace(
+                "<SHORT-NAME>CH_STRANGE</SHORT-NAME>",
+                "<SHORT-NAME>CH_STRANGE</SHORT-NAME>", StringComparison.Ordinal));
+
+            // Two channels, both without a recognisable socket layer.
+            var twoChannels = ArxmlReader.Read(StrangeSocketExtract.Replace(
+                "</ETHERNET-PHYSICAL-CHANNEL>",
+                "</ETHERNET-PHYSICAL-CHANNEL><ETHERNET-PHYSICAL-CHANNEL><SHORT-NAME>CH_ALSO_STRANGE" +
+                "</SHORT-NAME><SOME-FUTURE-CONNECTION/></ETHERNET-PHYSICAL-CHANNEL>",
+                StringComparison.Ordinal));
+
+            Assert.AreEqual(1,
+                network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.SocketLayerUnrecognised));
+            Assert.AreEqual(2, twoChannels.Elements.Count(e => e.Kind == ArxmlKinds.Channel),
+                "the fixture really does have two channels now");
+            Assert.AreEqual(1,
+                twoChannels.Diagnostics.Count(d =>
+                    d.Kind == ArxmlDiagnosticKind.SocketLayerUnrecognised),
+                "and two silent channels are still one diagnostic");
+        }
+
+        /// <summary>
+        ///   A CAN bus is never asked about its socket layer, so it never reports one missing. The flag is
+        ///   declared on the protocol rather than derived from "has no frames", which is what makes this
+        ///   assertion about a decision rather than a coincidence.
+        /// </summary>
+        [TestMethod]
+        public void ABusWithNoSocketLayerIsNotAskedAboutOne()
+        {
+            var network = ArxmlReader.Read(EthernetExtract.Replace("ETHERNET-", "CAN-",
+                StringComparison.Ordinal));
+
+            Assert.AreEqual(ArxmlProperties.CanProtocol,
+                Element(network, "/Clusters/BACKBONE")[ArxmlProperties.Protocol],
+                "the fixture is now a CAN bus, which is what makes the next assertion mean anything");
+            Assert.AreEqual(0,
+                network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.SocketLayerUnrecognised),
+                "a CAN channel has no socket layer to be missing");
+        }
+
+        #endregion
+
         #region helpers
+
+        /// <summary>
+        ///   The socket layer as a SHAPE: every relation as "kind -type-> kind", sorted. What N5 protects is
+        ///   that the structure does not depend on the revision, and comparing paths would fail on the names
+        ///   the two spellings legitimately differ in.
+        /// </summary>
+        private static String[] Shape(ArxmlNetwork network)
+        {
+            var kinds = network.Elements.ToDictionary(e => e.Path, e => e.Kind, StringComparer.Ordinal);
+            return network.Relations
+                .Where(r => kinds.ContainsKey(r.FromPath) && kinds.ContainsKey(r.ToPath))
+                .Select(r => kinds[r.FromPath] + " -" + r.Type + "-> " + kinds[r.ToPath])
+                .OrderBy(s => s, StringComparer.Ordinal)
+                .ToArray();
+        }
 
         private static ArxmlElement Element(ArxmlNetwork network, String path)
         {
@@ -195,6 +443,215 @@ namespace NoSQL.GraphDB.Tests
         #endregion
 
         #region the fixture
+
+        /// <summary>
+        ///   The socket-layer fixture, with the CONNECTION left out: the two AUTOSAR revisions put it in
+        ///   different places, so each spelling fills one placeholder and leaves the other empty.
+        ///
+        ///   <para>ONE fixture with two holes rather than two fixtures, deliberately. What the
+        ///   normalisation has to guarantee is that the same network imports as the same shape whichever
+        ///   spelling it arrived in, and two hand-written fixtures could differ somewhere else and make that
+        ///   comparison meaningless.</para>
+        /// </summary>
+        private const String SocketFixture = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00048.xsd">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Shared</SHORT-NAME>
+                  <ELEMENTS>
+                    <SYSTEM-SIGNAL>
+                      <SHORT-NAME>SYS_WheelSpeed</SHORT-NAME>
+                    </SYSTEM-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>ISignals</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL>
+                      <SHORT-NAME>SIG_WheelSpeed</SHORT-NAME>
+                      <LENGTH>16</LENGTH>
+                      <SYSTEM-SIGNAL-REF DEST="SYSTEM-SIGNAL">/Shared/SYS_WheelSpeed</SYSTEM-SIGNAL-REF>
+                    </I-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Pdus</SHORT-NAME>
+                  <ELEMENTS>
+                    <I-SIGNAL-I-PDU>
+                      <SHORT-NAME>PDU_Sensors</SHORT-NAME>
+                      <LENGTH>8</LENGTH>
+                      <I-SIGNAL-TO-PDU-MAPPINGS>
+                        <I-SIGNAL-TO-I-PDU-MAPPING>
+                          <SHORT-NAME>MAP_WheelSpeed</SHORT-NAME>
+                          <I-SIGNAL-REF DEST="I-SIGNAL">/ISignals/SIG_WheelSpeed</I-SIGNAL-REF>
+                        </I-SIGNAL-TO-I-PDU-MAPPING>
+                      </I-SIGNAL-TO-PDU-MAPPINGS>
+                    </I-SIGNAL-I-PDU>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <ETHERNET-CLUSTER>
+                      <SHORT-NAME>BACKBONE</SHORT-NAME>
+                      <ETHERNET-CLUSTER-VARIANTS>
+                        <ETHERNET-CLUSTER-CONDITIONAL>
+                          <BAUDRATE>1000</BAUDRATE>
+                          <PHYSICAL-CHANNELS>
+                            <ETHERNET-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>CH_SOCKETS</SHORT-NAME>
+                              <PDU-TRIGGERINGS>
+                                <PDU-TRIGGERING>
+                                  <SHORT-NAME>PT_Sensors</SHORT-NAME>
+                                  <I-PDU-REF DEST="I-SIGNAL-I-PDU">/Pdus/PDU_Sensors</I-PDU-REF>
+                                </PDU-TRIGGERING>
+                              </PDU-TRIGGERINGS>
+                              <NETWORK-ENDPOINTS>
+                                <NETWORK-ENDPOINT>
+                                  <SHORT-NAME>EP_Hub</SHORT-NAME>
+                                  <NETWORK-ENDPOINT-ADDRESSES>
+                                    <IPV-4-CONFIGURATION>
+                                      <IPV-4-ADDRESS>10.0.7.1</IPV-4-ADDRESS>
+                                      <IPV-4-ADDRESS-SOURCE>FIXED</IPV-4-ADDRESS-SOURCE>
+                                      <NETWORK-MASK>255.255.255.0</NETWORK-MASK>
+                                    </IPV-4-CONFIGURATION>
+                                  </NETWORK-ENDPOINT-ADDRESSES>
+                                </NETWORK-ENDPOINT>
+                                <NETWORK-ENDPOINT>
+                                  <SHORT-NAME>EP_Drive</SHORT-NAME>
+                                  <NETWORK-ENDPOINT-ADDRESSES>
+                                    <IPV-4-CONFIGURATION>
+                                      <IPV-4-ADDRESS>10.0.7.2</IPV-4-ADDRESS>
+                                      <IPV-4-ADDRESS-SOURCE>FIXED</IPV-4-ADDRESS-SOURCE>
+                                      <NETWORK-MASK>255.255.255.0</NETWORK-MASK>
+                                    </IPV-4-CONFIGURATION>
+                                  </NETWORK-ENDPOINT-ADDRESSES>
+                                </NETWORK-ENDPOINT>
+                              </NETWORK-ENDPOINTS>
+                              <SO-AD-CONFIG>
+                                <SOCKET-ADDRESSS>
+                                  <SOCKET-ADDRESS>
+                                    <SHORT-NAME>SA_HubServer</SHORT-NAME>
+                                    <APPLICATION-ENDPOINT>
+                                      <SHORT-NAME>AE_Hub</SHORT-NAME>
+                                      <NETWORK-ENDPOINT-REF DEST="NETWORK-ENDPOINT">/Clusters/BACKBONE/CH_SOCKETS/EP_Hub</NETWORK-ENDPOINT-REF>
+                                      <TP-CONFIGURATION>
+                                        <UDP-TP>
+                                          <PORT-NUMBER>30490</PORT-NUMBER>
+                                        </UDP-TP>
+                                      </TP-CONFIGURATION>
+                                    </APPLICATION-ENDPOINT>
+            __SOCKET_CONNECTION__
+                                  </SOCKET-ADDRESS>
+                                  <SOCKET-ADDRESS>
+                                    <SHORT-NAME>SA_DriveClient</SHORT-NAME>
+                                    <APPLICATION-ENDPOINT>
+                                      <SHORT-NAME>AE_Drive</SHORT-NAME>
+                                      <NETWORK-ENDPOINT-REF DEST="NETWORK-ENDPOINT">/Clusters/BACKBONE/CH_SOCKETS/EP_Drive</NETWORK-ENDPOINT-REF>
+                                      <TP-CONFIGURATION>
+                                        <UDP-TP>
+                                          <PORT-NUMBER>30491</PORT-NUMBER>
+                                        </UDP-TP>
+                                      </TP-CONFIGURATION>
+                                    </APPLICATION-ENDPOINT>
+                                  </SOCKET-ADDRESS>
+                                </SOCKET-ADDRESSS>
+            __CHANNEL_CONNECTION__
+                              </SO-AD-CONFIG>
+                            </ETHERNET-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </ETHERNET-CLUSTER-CONDITIONAL>
+                      </ETHERNET-CLUSTER-VARIANTS>
+                    </ETHERNET-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        /// <summary>The older revisions' spelling: a bundle under the channel, naming its server port.</summary>
+        private const String ConnectionBundle = """
+                                <CONNECTION-BUNDLES>
+                                  <SOCKET-CONNECTION-BUNDLE>
+                                    <SHORT-NAME>SCB_Sensors</SHORT-NAME>
+                                    <SERVER-PORT-REF DEST="SOCKET-ADDRESS">/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer</SERVER-PORT-REF>
+                                    <BUNDLED-CONNECTIONS>
+                                      <SOCKET-CONNECTION>
+                                        <CLIENT-PORT-REF DEST="SOCKET-ADDRESS">/Clusters/BACKBONE/CH_SOCKETS/SA_DriveClient</CLIENT-PORT-REF>
+                                        <PDUS>
+                                          <SOCKET-CONNECTION-IPDU-IDENTIFIER>
+                                            <PDU-TRIGGERING-REF DEST="PDU-TRIGGERING">/Clusters/BACKBONE/CH_SOCKETS/PT_Sensors</PDU-TRIGGERING-REF>
+                                            <HEADER-ID>3735928559</HEADER-ID>
+                                          </SOCKET-CONNECTION-IPDU-IDENTIFIER>
+                                        </PDUS>
+                                      </SOCKET-CONNECTION>
+                                    </BUNDLED-CONNECTIONS>
+                                  </SOCKET-CONNECTION-BUNDLE>
+                                </CONNECTION-BUNDLES>
+            """;
+
+        /// <summary>
+        ///   The newer revision's spelling: a STATIC socket connection hanging off the serving socket, with
+        ///   no server port reference because the nesting says it, and the client end named as a remote
+        ///   address.
+        /// </summary>
+        private const String StaticConnection = """
+                                        <STATIC-SOCKET-CONNECTIONS>
+                                          <STATIC-SOCKET-CONNECTION>
+                                            <SHORT-NAME>SSC_Sensors</SHORT-NAME>
+                                            <REMOTE-ADDRESSS>
+                                              <SOCKET-ADDRESS-REF DEST="SOCKET-ADDRESS">/Clusters/BACKBONE/CH_SOCKETS/SA_DriveClient</SOCKET-ADDRESS-REF>
+                                            </REMOTE-ADDRESSS>
+                                            <I-PDUS>
+                                              <SO-CON-I-PDU-IDENTIFIER>
+                                                <PDU-TRIGGERING-REF DEST="PDU-TRIGGERING">/Clusters/BACKBONE/CH_SOCKETS/PT_Sensors</PDU-TRIGGERING-REF>
+                                                <HEADER-ID>3735928559</HEADER-ID>
+                                              </SO-CON-I-PDU-IDENTIFIER>
+                                            </I-PDUS>
+                                          </STATIC-SOCKET-CONNECTION>
+                                        </STATIC-SOCKET-CONNECTIONS>
+            """;
+
+        private static readonly String BundleExtract = SocketFixture
+            .Replace("__CHANNEL_CONNECTION__", ConnectionBundle, StringComparison.Ordinal)
+            .Replace("__SOCKET_CONNECTION__", String.Empty, StringComparison.Ordinal);
+
+        private static readonly String StaticExtract = SocketFixture
+            .Replace("__CHANNEL_CONNECTION__", String.Empty, StringComparison.Ordinal)
+            .Replace("__SOCKET_CONNECTION__", StaticConnection, StringComparison.Ordinal);
+
+        /// <summary>
+        ///   An Ethernet channel whose socket layer this reader does NOT recognise, and a schema nobody has
+        ///   ever shipped. The point is the report: a spelling the reader has not met must not be silent.
+        /// </summary>
+        private const String StrangeSocketExtract = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://autosar.org/schema/r4.0 AUTOSAR_00099.xsd">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <ETHERNET-CLUSTER>
+                      <SHORT-NAME>BACKBONE</SHORT-NAME>
+                      <ETHERNET-CLUSTER-VARIANTS>
+                        <ETHERNET-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <ETHERNET-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>CH_STRANGE</SHORT-NAME>
+                              <SOME-FUTURE-CONNECTION>
+                                <SHORT-NAME>SFC_Whatever</SHORT-NAME>
+                              </SOME-FUTURE-CONNECTION>
+                            </ETHERNET-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </ETHERNET-CLUSTER-CONDITIONAL>
+                      </ETHERNET-CLUSTER-VARIANTS>
+                    </ETHERNET-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
 
         /// <summary>
         ///   An invented Ethernet backbone with TWO VLANs, one ECU on each and one on both, carrying a PDU
