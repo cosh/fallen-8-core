@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text.RegularExpressions;
 using NoSQL.GraphDB.Integrations.Contract;
 
 namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
@@ -63,8 +64,17 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         /// <summary>The setting naming the files, each a NAME and never a path.</summary>
         public const String FileSetting = "file";
 
-        /// <summary>The one identifier type this provider claims.</summary>
-        public const String PathClaimType = "arxml-path";
+        /// <summary>The setting naming the vehicle these extracts describe.</summary>
+        public const String VehicleSetting = "vehicle";
+
+        /// <summary>
+        ///   The one identifier type this provider claims. Its value is the VEHICLE followed by the
+        ///   element's AUTOSAR reference path, because the path alone does not identify an element:
+        ///   two vehicle programs in one real export declare many of many element paths in
+        ///   common, including their single Ethernet cluster, so a key built from the path alone
+        ///   asserts that two different cars share those elements.
+        /// </summary>
+        public const String VehiclePathClaimType = "arxml-vehicle-path";
 
         /// <summary>
         ///   The prefix every property this provider writes carries. It lives in ONE place: two
@@ -72,6 +82,25 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   unprefixed key means the value depends on which integration ran last.
         /// </summary>
         public const String PropertyPrefix = "arxml.";
+
+        /// <summary>
+        ///   What a vehicle name may be. Deliberately narrower than a free-text setting: the name
+        ///   becomes the first segment of a claim value whose parts are split on the path's leading
+        ///   slash, so a name carrying a slash would make the split ambiguous, and the vocabulary's
+        ///   own accept pattern would refuse it anyway. Refusing it HERE means the operator gets a
+        ///   sentence about the setting instead of a claim-key validation failure.
+        /// </summary>
+        private static readonly Regex VehiclePattern =
+            new Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", RegexOptions.CultureInvariant);
+
+        /// <summary>
+        ///   An element's identity: the vehicle, then its AUTOSAR reference path. The path already
+        ///   begins with a slash, so nothing is inserted between them and the FIRST slash is what
+        ///   splits the value back into its two parts. A null path yields null, so a missing path
+        ///   stays missing rather than becoming a claim on the vehicle alone.
+        /// </summary>
+        private static String? VehicleKey(String vehicle, String? path)
+            => path == null ? null : vehicle + path;
 
         private static readonly ProviderDescriptor DescriptorData = new ProviderDescriptor
         {
@@ -83,9 +112,29 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 "signals, system signals and scaling methods, with the send and receive flow between " +
                 "them. FlexRay and CAN buses are read. Several extracts of one vehicle are read as one " +
                 "source, so a frame in one of them can carry a signal defined in another and an ECU on " +
-                "two buses is one element attached to both.",
+                "two buses is one element attached to both. The job names the VEHICLE, which becomes " +
+                "part of every element's identity: two vehicles can be imported under one identity " +
+                "without merging, which they otherwise would, because different vehicles reuse the " +
+                "same AUTOSAR paths.",
             Settings = new[]
             {
+                new ProviderSetting
+                {
+                    Key = VehicleSetting,
+                    Label = "Vehicle",
+                    Kind = SettingKind.Text,
+                    Required = true,
+                    Help =
+                        "The vehicle these extracts describe, such as a programme or platform name. It " +
+                        "becomes part of every element's identity, so two vehicles imported under one " +
+                        "identity stay separate elements even where their AUTOSAR paths are identical - " +
+                        "and they often are: two programmes in one real export share many element " +
+                        "paths, including their single Ethernet cluster. REQUIRED, with no default, " +
+                        "because a default would silently merge the second vehicle into the first. Use " +
+                        "the SAME name for every job describing one vehicle, so its buses join up; use " +
+                        "a different name for a different vehicle. Letters, digits, dot, dash and " +
+                        "underscore, up to 64 characters, and no slash.",
+                },
                 new ProviderSetting
                 {
                     Key = FileSetting,
@@ -115,7 +164,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 ArxmlKinds.SystemSignal,
                 ArxmlKinds.CompuMethod,
             },
-            ClaimTypes = new[] { PathClaimType },
+            ClaimTypes = new[] { VehiclePathClaimType },
             RelationTypes = new[]
             {
                 ArxmlRelations.AttachedTo,
@@ -169,6 +218,20 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             // carries it into its own messages.
             var settingValue = context.Required(FileSetting);
             var fileNames = context.FileNames(FileSetting);
+
+            // Validated before a single byte is read: the vehicle is part of every claim this run
+            // composes, so a bad one is a refusal about the setting rather than tens of thousands of
+            // invalid claim keys discovered at validation time.
+            var vehicle = context.Required(VehicleSetting).Trim();
+            if (!VehiclePattern.IsMatch(vehicle))
+            {
+                throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
+                    "The setting '{0}' is not a usable vehicle name. It becomes part of every " +
+                    "element's identity, so it may hold only letters, digits, dot, dash and " +
+                    "underscore, must start with a letter or digit, and may be at most 64 " +
+                    "characters. It must not contain a slash, because the slash is what separates " +
+                    "the vehicle from the AUTOSAR path in an element's identity.", VehicleSetting));
+            }
 
             var reader = new ArxmlReader();
             ArxmlNetwork network;
@@ -248,7 +311,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             foreach (var element in network.Elements)
             {
                 var entity = new EntityDto { Kind = element.Kind };
-                entity.ClaimIfPresent(PathClaimType, element.Path);
+                entity.ClaimIfPresent(VehiclePathClaimType, VehicleKey(vehicle, element.Path));
 
                 foreach (var property in element.Properties)
                 {
@@ -267,7 +330,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 // report cannot show.
                 if (entityByPath.TryGetValue(relation.FromPath, out var owner))
                 {
-                    owner.RelateIfPresent(relation.Type, PathClaimType, relation.ToPath);
+                    owner.RelateIfPresent(relation.Type, VehiclePathClaimType,
+                        VehicleKey(vehicle, relation.ToPath));
                 }
             }
 

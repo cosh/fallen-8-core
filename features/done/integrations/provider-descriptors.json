@@ -129,8 +129,18 @@
   {
     "id": "autosar-arxml",
     "displayName": "AUTOSAR system extract (ARXML)",
-    "description": "Reads the AUTOSAR classic-platform system extracts (ARXML, schema r4.0) the job carries and describes the communication matrix they hold: each bus, its ECUs, frames, PDUs, signals, system signals and scaling methods, with the send and receive flow between them. FlexRay and CAN buses are read. Several extracts of one vehicle are read as one source, so a frame in one of them can carry a signal defined in another and an ECU on two buses is one element attached to both.",
+    "description": "Reads the AUTOSAR classic-platform system extracts (ARXML, schema r4.0) the job carries and describes the communication matrix they hold: each bus, its ECUs, frames, PDUs, signals, system signals and scaling methods, with the send and receive flow between them. FlexRay and CAN buses are read. Several extracts of one vehicle are read as one source, so a frame in one of them can carry a signal defined in another and an ECU on two buses is one element attached to both. The job names the VEHICLE, which becomes part of every element's identity: two vehicles can be imported under one identity without merging, which they otherwise would, because different vehicles reuse the same AUTOSAR paths.",
     "settings": [
+      {
+        "key": "vehicle",
+        "label": "Vehicle",
+        "kind": "Text",
+        "required": true,
+        "help": "The vehicle these extracts describe, such as a programme or platform name. It becomes part of every element's identity, so two vehicles imported under one identity stay separate elements even where their AUTOSAR paths are identical - and they often are: two programmes in one real export share many element paths, including their single Ethernet cluster. REQUIRED, with no default, because a default would silently merge the second vehicle into the first. Use the SAME name for every job describing one vehicle, so its buses join up; use a different name for a different vehicle. Letters, digits, dot, dash and underscore, up to 64 characters, and no slash.",
+        "defaultValue": null,
+        "accept": null,
+        "multiple": false
+      },
       {
         "key": "file",
         "label": "System extracts",
@@ -152,7 +162,7 @@
       "compu-method"
     ],
     "claimTypes": [
-      "arxml-path"
+      "arxml-vehicle-path"
     ],
     "relationTypes": [
       "attachedTo",

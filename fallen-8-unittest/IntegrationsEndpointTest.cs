@@ -275,7 +275,7 @@ namespace NoSQL.GraphDB.Tests
             using var client = factory.CreateClient();
 
             using var response = await client.PostAsync("/integration/job?wait=true",
-                Json(JobBody(ArxmlProviderId, "many-shape", null, null,
+                Json(JobBody(ArxmlProviderId, "many-shape", "{\"vehicle\":\"testcar\"}", null,
                     "{\"file\":[" + FileJson("chassis.arxml", "<not-autosar/>") + "," +
                     FileJson("body.arxml", "<not-autosar/>") + "]}")));
 
@@ -1048,7 +1048,7 @@ namespace NoSQL.GraphDB.Tests
                 "mac", "serial", "imei", "ipv4", "ipv6", "hostname",
                 "unifi-site-id", "unifi-device-id", "unifi-client-id",
                 "fronius-unique-id", "fronius-logger-id",
-                "arxml-path",
+                "arxml-vehicle-path",
             };
 
             using var factory = new RuntimeFactory();

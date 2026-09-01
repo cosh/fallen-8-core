@@ -597,11 +597,18 @@ questions people actually ask: `sends` and `deliversTo` point **with** the data 
 from a sending ECU to a receiving one never traverses an edge backwards, while `contains`,
 `carries` and `secures` walk down the protocol stack from a frame to a single signal.
 
-Identity is the element's **AUTOSAR reference path**, which the standard already makes both its
-identity and the way every cross-reference in the file addresses it. Nothing is matched by name
-or similarity. Run the next release into the same namespace and what that release removed is
-withdrawn, which leaves the [change feed](/change-feed/) as the release diff with nothing extra to
-set up.
+Identity is the **vehicle you name** plus the element's **AUTOSAR reference path**, which the
+standard already makes both its identity and the way every cross-reference in the file addresses
+it. Nothing is matched by name or similarity. Run the next release into the same namespace and what
+that release removed is withdrawn, which leaves the [change feed](/change-feed/) as the release diff
+with nothing extra to set up.
+
+The **Vehicle** setting is required and has no default, because a default would quietly merge one
+car into another. AUTOSAR paths are not unique across vehicles: in one real two-programme export,
+the two programmes declare the same single Ethernet cluster, 18 of 24 physical channels and many
+of many element paths in common. Naming the vehicle is what lets both cars live in one namespace
+under one identity without resolving onto each other. Use the **same** name for every job describing
+one vehicle, so its buses join up into one graph; use a different name for a different vehicle.
 
 Two limits worth knowing up front. This version reads **FlexRay and CAN** clusters. A set carrying
 a bus of another kind still imports what it can, and names what it skipped

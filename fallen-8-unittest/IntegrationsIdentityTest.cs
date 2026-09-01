@@ -243,7 +243,7 @@ namespace NoSQL.GraphDB.Tests
         [DataRow("unifi-client-id", "  2F3C9A04-1B2C-4D3E-8F90-A1B2C3D4E5F6  ", Uuid)]
         [DataRow("fronius-unique-id", "  476  ", "476")]
         [DataRow("fronius-logger-id", "  240.107620  ", "240.107620")]
-        [DataRow("arxml-path", "  /ISignals/SIG_VehSpd  ", "/ISignals/SIG_VehSpd")]
+        [DataRow("arxml-vehicle-path", "  testcar/ISignals/SIG_VehSpd  ", "testcar/ISignals/SIG_VehSpd")]
         public void EveryVocabularyEntry_CanonicalisesAValueToTheOneFormItsKeyIsComposedFrom(
             String type, String raw, String expected)
         {
@@ -269,7 +269,7 @@ namespace NoSQL.GraphDB.Tests
         [DataRow("unifi-client-id", Uuid, "client-one")]
         [DataRow("fronius-unique-id", "476", "240.107620")]
         [DataRow("fronius-logger-id", "240.107620", "240.107.620")]
-        [DataRow("arxml-path", "/ISignals/SIG_VehSpd", "ISignals/SIG_VehSpd")]
+        [DataRow("arxml-vehicle-path", "testcar/ISignals/SIG_VehSpd", "/ISignals/SIG_VehSpd")]
         public void EveryVocabularyEntry_AcceptsAValueOfItsOwnShapeAndRejectsOneOfAnother(
             String type, String accepted, String rejected)
         {
@@ -307,7 +307,7 @@ namespace NoSQL.GraphDB.Tests
                 ("unifi-client-id", IdentifierStrength.Strong, IdentifierScope.Provider, "trimLower"),
                 ("fronius-unique-id", IdentifierStrength.Strong, IdentifierScope.Instance, "trimUpper"),
                 ("fronius-logger-id", IdentifierStrength.Strong, IdentifierScope.Instance, "trimUpper"),
-                ("arxml-path", IdentifierStrength.Strong, IdentifierScope.Instance, "trim"),
+                ("arxml-vehicle-path", IdentifierStrength.Strong, IdentifierScope.Instance, "trim"),
             };
 
             var all = Shipped.All;
@@ -536,12 +536,12 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void TwoArxmlPathsDifferingOnlyInCase_ComposeTwoKeys_BecauseAShortNameIsCaseSensitive()
         {
-            var path = Type("arxml-path");
+            var path = Type("arxml-vehicle-path");
 
-            var lower = path.Canonicalise("/ISignals/sig_vehspd");
-            var mixed = path.Canonicalise("/ISignals/SIG_VehSpd");
+            var lower = path.Canonicalise("testcar/ISignals/sig_vehspd");
+            var mixed = path.Canonicalise("testcar/ISignals/SIG_VehSpd");
 
-            Assert.AreEqual("/ISignals/SIG_VehSpd", mixed,
+            Assert.AreEqual("testcar/ISignals/SIG_VehSpd", mixed,
                 "an AUTOSAR reference path must survive canonicalisation with its case intact, which is the " +
                 "whole reason this entry names 'trim' rather than one of the folding canonicalisers");
             Assert.AreNotEqual(lower, mixed,
@@ -549,31 +549,38 @@ namespace NoSQL.GraphDB.Tests
                 "case-sensitive identifier, so folding them together would resolve two elements the " +
                 "standard considers different into one, and the run would attach one signal's data to the " +
                 "other and then withdraw whichever it did not describe second");
-            Assert.AreNotEqual(Compose(path, "/ISignals/sig_vehspd"), Compose(path, "/ISignals/SIG_VehSpd"),
+            Assert.AreNotEqual(Compose(path, "testcar/ISignals/sig_vehspd"),
+                    Compose(path, "testcar/ISignals/SIG_VehSpd"),
                 "the composed CLAIM KEYS must differ too, since the key is what resolution compares");
         }
 
         [TestMethod]
         public void AnArxmlPath_AcceptsARealisticallyDeepPath_AndRejectsTheShapesThatAreNotOne()
         {
-            var path = Type("arxml-path");
+            var path = Type("arxml-vehicle-path");
 
             Assert.IsTrue(path.TryCanonicalise(
-                    "/ISignals/DEMOBUS/PKG_DEMOBUS_CH_A/PDU_DistanceReport/SIG_OdoTotalDist", out _),
+                    "testcar/ISignals/DEMOBUS/PKG_DEMOBUS_CH_A/PDU_DistanceReport/SIG_OdoTotalDist", out _),
                 "a five-segment path is ordinary in a real extract, so rejecting one would drop the identity " +
                 "of most of the file");
-            Assert.IsTrue(path.TryCanonicalise("/AUTOSAR_Platform/BaseTypes/uint8", out _),
-                "a platform base-type path must be accepted: it is the shape that proves instance scope is " +
-                "necessary, since every extract in existence contains this exact path");
-            Assert.IsFalse(path.TryCanonicalise("/ISignals/9SIG_VehSpd", out _),
+            Assert.IsTrue(path.TryCanonicalise("testcar/AUTOSAR_Platform/BaseTypes/uint8", out _),
+                "a platform base-type path must be accepted: it is the shape that proves the VEHICLE is " +
+                "needed, since every extract in existence contains this exact path, so two cars under one " +
+                "identity would otherwise claim the same element");
+            Assert.IsFalse(path.TryCanonicalise("/AUTOSAR_Platform/BaseTypes/uint8", out _),
+                "and the same path WITHOUT a vehicle must be refused. This is the whole change: the " +
+                "vehicle-less shape is what let two vehicle programmes, which share many element paths " +
+                "in one real export, resolve onto each other's elements. Refusing it here means a provider " +
+                "that forgets the vehicle fails to compose a key at all rather than silently fusing cars");
+            Assert.IsFalse(path.TryCanonicalise("testcar/ISignals/9SIG_VehSpd", out _),
                 "a segment starting with a digit is not an AUTOSAR identifier, and keying it anyway would " +
                 "assert an identity the standard cannot express");
-            Assert.IsFalse(path.TryCanonicalise("/ISignals/SIG VehSpd", out _),
+            Assert.IsFalse(path.TryCanonicalise("testcar/ISignals/SIG VehSpd", out _),
                 "a space is not an AUTOSAR identifier character; a value of the wrong shape keyed as it " +
                 "arrived is invisible to every later run that reads the file correctly");
-            Assert.IsFalse(path.TryCanonicalise("/ISignals/SIG_VehSpd/", out _),
+            Assert.IsFalse(path.TryCanonicalise("testcar/ISignals/SIG_VehSpd/", out _),
                 "a trailing slash names an empty final segment, which is not an element");
-            Assert.IsFalse(path.TryCanonicalise("/" + new String('a', 512), out _),
+            Assert.IsFalse(path.TryCanonicalise("testcar/" + new String('a', 600), out _),
                 "a path past the bound is refused rather than keyed: the composed claim key becomes a " +
                 "property value that nothing truncates, so one malformed path would otherwise carry an " +
                 "unbounded string into every index holding that key");

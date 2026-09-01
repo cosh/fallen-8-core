@@ -1461,6 +1461,141 @@ namespace NoSQL.GraphDB.Tests
             </AUTOSAR>
             """;
 
+        #region the vehicle is part of an element's identity (feature vehicle-scoped-identity)
+
+        /// <summary>
+        ///   An element is claimed by its VEHICLE and its AUTOSAR path, not by the path alone. Every
+        ///   other assertion in this file strips the vehicle to stay readable, so this is the one
+        ///   place the composed value's shape is pinned.
+        /// </summary>
+        [TestMethod]
+        public async Task AnArxmlElementIsClaimedByItsVehicleAndItsPath()
+        {
+            var provider = new AutosarArxmlProvider();
+            await ConformanceVerifier.VerifyAsync(provider, ArxmlJob(HappyArxml),
+                cancellationToken: CancellationToken.None);
+
+            var snapshot = SnapshotOf(provider);
+            Assert.IsTrue(snapshot.Entities.Count > 0, "the fixture must describe something");
+
+            foreach (var entity in snapshot.Entities)
+            {
+                Assert.AreEqual(AutosarArxmlProvider.VehiclePathClaimType, entity.Claims[0].Type);
+                var value = entity.Claims[0].Value;
+                Assert.IsTrue(value.StartsWith(TestVehicle + "/", StringComparison.Ordinal),
+                    "every claim value must begin with the vehicle and then the path's own leading " +
+                    "slash, which is what splits the two parts back apart: got '" + value + "'");
+                Assert.AreEqual(1, entity.Claims.Count,
+                    "one claim per element, still: the vehicle is part of the claim's VALUE rather " +
+                    "than a second claim, so nothing has to decide which of two claims wins");
+            }
+
+            // A relation addresses its target the same way, or the target would resolve to nothing.
+            var withRelations = 0;
+            foreach (var entity in snapshot.Entities)
+            {
+                foreach (var relation in entity.Relations)
+                {
+                    Assert.IsTrue(relation.Target.Value.StartsWith(TestVehicle + "/", StringComparison.Ordinal),
+                        "a relation target must carry the vehicle too, or an edge would address an " +
+                        "element nothing claims: got '" + relation.Target.Value + "'");
+                    withRelations++;
+                }
+            }
+
+            Assert.IsTrue(withRelations > 0, "the fixture must describe some topology, or this proves nothing");
+        }
+
+        /// <summary>
+        ///   THE POINT OF THE FEATURE. Two vehicles described by the SAME extract, under ONE identity,
+        ///   must claim different elements. Measured necessity rather than a hypothetical: two vehicle
+        ///   programmes in one real export declare many of many element paths in common, including
+        ///   their single Ethernet cluster, so with a path-only claim the second import resolves onto
+        ///   the first's elements and then reconciliation withdraws whatever it did not describe.
+        /// </summary>
+        [TestMethod]
+        public async Task TwoVehiclesDescribedByTheSamePaths_ClaimDifferentElements()
+        {
+            var first = new AutosarArxmlProvider();
+            var second = new AutosarArxmlProvider();
+
+            var jobOne = ArxmlJob(HappyArxml);
+            jobOne.Settings[AutosarArxmlProvider.VehicleSetting] = "car-one";
+            var jobTwo = ArxmlJob(HappyArxml);
+            jobTwo.Settings[AutosarArxmlProvider.VehicleSetting] = "car-two";
+
+            await ConformanceVerifier.VerifyAsync(first, jobOne, cancellationToken: CancellationToken.None);
+            await ConformanceVerifier.VerifyAsync(second, jobTwo, cancellationToken: CancellationToken.None);
+
+            var one = SnapshotOf(first);
+            var two = SnapshotOf(second);
+
+            Assert.AreEqual(one.Entities.Count, two.Entities.Count,
+                "the same extract describes the same number of elements either way");
+            Assert.IsTrue(one.Entities.Count > 1, "the fixture must describe more than one element");
+
+            var claimsOne = new HashSet<String>(StringComparer.Ordinal);
+            foreach (var entity in one.Entities)
+            {
+                claimsOne.Add(entity.Claims[0].Value);
+            }
+
+            var shared = 0;
+            foreach (var entity in two.Entities)
+            {
+                if (claimsOne.Contains(entity.Claims[0].Value))
+                {
+                    shared++;
+                }
+            }
+
+            Assert.AreEqual(0, shared,
+                "not one claim may be shared between two vehicles described by identical paths. A shared " +
+                "claim is a resolved match, so the second vehicle's import would attach its data to the " +
+                "first vehicle's elements and then withdraw the rest");
+
+            // And the two are the same elements PATH for path, which is what makes the claims the only
+            // thing keeping them apart: if the paths differed the test would prove nothing.
+            var pathsOne = new HashSet<String>(StringComparer.Ordinal);
+            foreach (var entity in one.Entities)
+            {
+                pathsOne.Add(entity.Claims[0].Value.Substring("car-one".Length));
+            }
+
+            foreach (var entity in two.Entities)
+            {
+                Assert.IsTrue(pathsOne.Contains(entity.Claims[0].Value.Substring("car-two".Length)),
+                    "the two vehicles must describe the SAME paths, or the zero above would be explained " +
+                    "by different content rather than by the vehicle");
+            }
+        }
+
+        /// <summary>
+        ///   A vehicle name that cannot be part of an identity is refused with a sentence about the
+        ///   SETTING, before a byte is read, rather than surfacing later as tens of thousands of
+        ///   invalid claim keys.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("has/slash", DisplayName = "a slash would make the split ambiguous")]
+        [DataRow("has space", DisplayName = "a space is not allowed")]
+        [DataRow("-leading-dash", DisplayName = "must start with a letter or digit")]
+        [DataRow("", DisplayName = "empty is not a vehicle")]
+        public async Task AVehicleNameThatCannotBePartOfAnIdentity_IsRefused(String vehicle)
+        {
+            var provider = new AutosarArxmlProvider();
+            var job = ArxmlJob(HappyArxml);
+            job.Settings[AutosarArxmlProvider.VehicleSetting] = vehicle;
+
+            var report = await ConformanceVerifier.VerifyAsync(provider, job,
+                cancellationToken: CancellationToken.None);
+
+            Assert.IsFalse(report.Conforms,
+                "a vehicle name that cannot be part of a claim key must fail the run rather than being " +
+                "silently repaired into one that can");
+        }
+
+        #endregion
+
         [TestMethod]
         public async Task TheArxmlRunDescribesTheWholeMatrix_WithItsFlowAndContainment()
         {
@@ -1483,7 +1618,7 @@ namespace NoSQL.GraphDB.Tests
                 Assert.AreEqual(1, entity.Claims.Count,
                     "every element is claimed by exactly its AUTOSAR path, which the standard makes both " +
                     "its identity and the way every cross-reference addresses it");
-                Assert.AreEqual(AutosarArxmlProvider.PathClaimType, entity.Claims[0].Type);
+                Assert.AreEqual(AutosarArxmlProvider.VehiclePathClaimType, entity.Claims[0].Type);
                 Assert.IsNull(entity.Claims[0].DeclaredStrength,
                     "a provider never declares a strength for its own claim type");
             }
@@ -1494,16 +1629,20 @@ namespace NoSQL.GraphDB.Tests
             var claimed = new HashSet<String>(StringComparer.Ordinal);
             foreach (var entity in snapshot.Entities)
             {
+                // Raw, WITH the vehicle: this set is compared against relation target values,
+                // which are also raw, so stripping one side would break the comparison rather
+                // than help it. Only the edge list below is stripped, because that one is
+                // compared against literal AUTOSAR paths.
                 claimed.Add(entity.Claims[0].Value);
             }
 
             var edges = new List<String>();
             foreach (var entity in snapshot.Entities)
             {
-                var owner = entity.Claims[0].Value;
+                var owner = WithoutVehicle(entity.Claims[0].Value);
                 foreach (var relation in entity.Relations)
                 {
-                    Assert.AreEqual(AutosarArxmlProvider.PathClaimType, relation.Target.Type,
+                    Assert.AreEqual(AutosarArxmlProvider.VehiclePathClaimType, relation.Target.Type,
                         "a relation addresses its target by claim rather than by element id, so the provider " +
                         "never needs to know whether the target exists yet");
                     Assert.IsTrue(claimed.Contains(relation.Target.Value),
@@ -1514,7 +1653,8 @@ namespace NoSQL.GraphDB.Tests
                     Assert.AreNotEqual(owner, relation.Target.Value,
                         "no edge here is a self-loop, and one would mean the resolution wired an element " +
                         "to itself");
-                    edges.Add(relation.Type + " " + owner + " -> " + relation.Target.Value);
+                    edges.Add(relation.Type + " " + owner + " -> " +
+                        WithoutVehicle(relation.Target.Value));
                 }
             }
 
@@ -1818,7 +1958,8 @@ namespace NoSQL.GraphDB.Tests
             {
                 foreach (var relation in entity.Relations)
                 {
-                    edges.Add(relation.Type + " " + entity.Claims[0].Value + " -> " + relation.Target.Value);
+                    edges.Add(relation.Type + " " + WithoutVehicle(entity.Claims[0].Value) +
+                        " -> " + WithoutVehicle(relation.Target.Value));
                 }
             }
 
@@ -1828,7 +1969,7 @@ namespace NoSQL.GraphDB.Tests
             CollectionAssert.Contains(edges, "attachedTo /EcuInstances/ALPHA_CTRL -> /Clusters/DEMOBUS",
                 "and the within-file topology is untouched by composing");
 
-            Assert.AreEqual("km", ByClaim(snapshot, AutosarArxmlProvider.PathClaimType,
+            Assert.AreEqual("km", ByClaim(snapshot, AutosarArxmlProvider.VehiclePathClaimType,
                     "/ISignals/SIG_OdoTotalDist").Properties["arxml.unit"],
                 "the unit crosses the boundary the OTHER way: the compu method is in the body extract and " +
                 "the UNIT it names is in the chassis one, and the display name still lands two hops down " +
@@ -1890,6 +2031,7 @@ namespace NoSQL.GraphDB.Tests
                 IntegrationInstanceId = Instance,
             };
 
+            job.Settings[AutosarArxmlProvider.VehicleSetting] = TestVehicle;
             job.Files[AutosarArxmlProvider.FileSetting] = JobFileOf(ArxmlFileName, content);
             return job;
         }
@@ -1907,6 +2049,7 @@ namespace NoSQL.GraphDB.Tests
                 IntegrationInstanceId = Instance,
             };
 
+            job.Settings[AutosarArxmlProvider.VehicleSetting] = TestVehicle;
             job.Files[AutosarArxmlProvider.FileSetting] = new JobFileGroup(files);
             return job;
         }
@@ -2060,7 +2203,7 @@ namespace NoSQL.GraphDB.Tests
             var count = 0;
             foreach (var entity in snapshot.Entities)
             {
-                if (String.Equals(Claim(entity, type), value, StringComparison.Ordinal))
+                if (String.Equals(ClaimForCompare(entity, type), value, StringComparison.Ordinal))
                 {
                     count++;
                 }
@@ -2069,11 +2212,37 @@ namespace NoSQL.GraphDB.Tests
             return count;
         }
 
+        /// <summary>
+        ///   The vehicle every ARXML job in this file names. An element's identity is the vehicle
+        ///   plus its AUTOSAR path (feature vehicle-scoped-identity), so it prefixes every claim
+        ///   value this provider emits.
+        /// </summary>
+        private const String TestVehicle = "testcar";
+
+        /// <summary>
+        ///   Drops the vehicle from a claim value, so the assertions in this file can go on naming
+        ///   AUTOSAR paths as the extracts declare them. Those tests are about TOPOLOGY; that the
+        ///   vehicle is part of the identity at all is asserted on its own, by the two tests in
+        ///   the vehicle-scoped-identity region, so stripping it here loses no coverage and keeps
+        ///   twenty assertions legible.
+        /// </summary>
+        private static String WithoutVehicle(String claimValue)
+            => claimValue != null && claimValue.StartsWith(TestVehicle, StringComparison.Ordinal)
+                ? claimValue.Substring(TestVehicle.Length)
+                : claimValue;
+
+        /// <summary>An entity's claim of one type, as the lookup helpers compare it: with the
+        /// vehicle dropped for the ARXML type, and verbatim for every other provider's.</summary>
+        private static String ClaimForCompare(EntityDto entity, String type)
+            => String.Equals(type, AutosarArxmlProvider.VehiclePathClaimType, StringComparison.Ordinal)
+                ? WithoutVehicle(Claim(entity, type))
+                : Claim(entity, type);
+
         private static EntityDto ByClaim(SnapshotDocument snapshot, String type, String value)
         {
             foreach (var entity in snapshot.Entities)
             {
-                if (String.Equals(Claim(entity, type), value, StringComparison.Ordinal))
+                if (String.Equals(ClaimForCompare(entity, type), value, StringComparison.Ordinal))
                 {
                     return entity;
                 }
