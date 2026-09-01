@@ -22,7 +22,7 @@ the people who built this in the loop.
 | `csv-device-list` | a CSV file you upload with the run: MAC, name, note, hostname | nothing but the file |
 | `unifi-network` | a UniFi console's integration API, locally or through the cloud connector: sites, adopted devices, clients, and the uplink topology between them | an API key for the front door you point it at, and the two differ: a local console's key comes from the Network application under Settings then Integrations, while `api.ui.com` takes a Site Manager key from unifi.ui.com under Settings then API Keys |
 | `fronius-solar` | a Fronius Solar API on your own network: inverters and the logging device in front of them | nothing. The local Solar API is unauthenticated |
-| `autosar-arxml` | an AUTOSAR system extract (`.arxml`) you upload with the run: a vehicle network's FlexRay communication matrix, so its ECUs, frames, PDUs, signals and the flow between them ([below](#reading-a-vehicle-network)) | nothing but the file |
+| `autosar-arxml` | an AUTOSAR system extract (`.arxml`) you upload with the run: a vehicle network's communication matrix over its FlexRay and CAN buses, so its ECUs, frames, PDUs, signals and the flow between them ([below](#reading-a-vehicle-network)) | nothing but the file |
 
 ## Running one
 
@@ -276,9 +276,12 @@ instance you submit through. A refusal names what it saw and the ceiling it brok
 
 - `Integrations:MaxFileBytes`, default **128 MiB**, per file, on the decoded bytes. Sized for the
   real thing: an AUTOSAR system extract for one vehicle platform runs to tens of megabytes.
-- `Integrations:MaxJobFileBytes`, default **512 MiB**, for the job **total** across every file
+- `Integrations:MaxJobFileBytes`, default **560 MiB**, for the job **total** across every file
   setting on it. Not a restatement of the first: several extracts can each be legal while their sum
-  is what this process has to hold at once, and one request carries a whole run.
+  is what this process has to hold at once, and one request carries a whole run. It is 560 rather
+  than more because over the base64 transport a job expands by a third, and the largest job that
+  transport can deliver inside the API's fixed 768 MiB bound is about 575 MiB of decoded bytes; a
+  higher ceiling would have the runtime accept jobs the API refuses.
 - `Integrations:MaxJobFiles`, default **256**, for **how many** files one job carries, counted the
   same way. The byte ceilings cannot bound this on their own, because a one-byte file is legal: a
   set can satisfy both of them and still ask the runtime for an unreasonable number of entries.
@@ -286,8 +289,9 @@ instance you submit through. A refusal names what it saw and the ceiling it brok
 Above them sits a fixed 768 MiB bound on the request body itself, at the API's proxy, which is
 deliberately not configurable and is the only way in. Over multipart it puts the effective total at
 about **767 MiB**, so raising `Integrations:MaxJobFileBytes` past that has no effect; over the
-base64 transport the same bound carries about **576 MiB** of files, because the encoding adds a
-third.
+base64 transport the same bound carries about **575 MiB** of files, because the encoding adds a
+third. That second number is the real cap on the job ceiling, since a ceiling above it would be
+deliverable over one transport and not the other.
 
 **Ask the instance rather than assuming.** `GET /integrations/limits` answers the three numbers as
 they actually bind for you - the proxy reconciles its own bound with the runtime's configuration, so
@@ -295,7 +299,7 @@ there is one number per question and nothing to combine:
 
 ```bash
 curl -sS http://localhost:8080/integrations/limits
-# {"maxFileBytes":134217728,"maxJobFileBytes":536870912,"maxJobFiles":256}
+# {"maxFileBytes":134217728,"maxJobFileBytes":587202560,"maxJobFiles":256}
 ```
 
 Zero or less means that ceiling is off. Studio reads this before you stage anything, which is why an
@@ -558,8 +562,8 @@ Two things worth knowing before you run it:
 ## Reading a vehicle network
 
 `autosar-arxml` reads **AUTOSAR system extracts**, the XML files the automotive industry uses to
-exchange the communication matrix of a vehicle network, and describes the FlexRay bus they carry.
-They are [uploaded with the job](#files) like the CSV integration's file.
+exchange the communication matrix of a vehicle network, and describes the **FlexRay and CAN** buses
+they carry. They are [uploaded with the job](#files) like the CSV integration's file.
 
 **Give it the whole set in one run.** A vehicle is handed over as one extract per domain or per bus,
 and those extracts reference each other by AUTOSAR path, so one run over all of them resolves a frame
@@ -569,9 +573,26 @@ withdraw everything the first described. The rules that come with a set - order 
 is the source, a later run with fewer files withdraws the difference - are in
 [One setting, several files](#one-setting-several-files).
 
-What lands in the graph is the network itself, its ECUs, the frames on the bus, the PDUs inside
-those frames (including the container and secured layers), the signals inside the PDUs, the
-system signals they implement and the scaling methods that give them a unit. The edges are the
+That matters more with several buses than it did with one, because an ECU's declaration in an extract
+is **bus-local**: a gateway sitting on a CAN bus and a FlexRay bus appears in both extracts, each
+carrying only its own bus's connector for it. Run them together and the gateway is one element
+attached to both buses, which is the whole point of importing a vehicle rather than a bus. Run them
+separately and you get two disconnected graphs, one per run, each having deleted the other.
+
+Where two extracts declare the **same bus**, their channels are merged into one network: that is what
+one bus split across extracts needs. It is reported (`arxmlRedeclaredCluster`), because the same
+merge is lossy if the two extracts really describe different buses that happen to share a reference
+path, and nothing in the file distinguishes those two cases.
+
+What lands in the graph is each bus, its ECUs, the frames on it, the PDUs inside those frames
+(including the container and secured layers), the signals inside the PDUs, the system signals they
+implement and the scaling methods that give them a unit. One vocabulary covers both bus
+technologies: a CAN frame and a FlexRay frame are both `frame`, so a query for "what does this ECU
+send" never has to enumerate a label per protocol. What differs is a few properties, and they are
+absent rather than empty on the protocol that has no use for them: a FlexRay frame carries
+`slotId`, `baseCycle` and `cycleRepetition`, a CAN frame carries `canId` and
+`canAddressingMode`, and every bus carries `protocol`, `baudrate` and the protocol name and version
+the file states. A query that filters on `protocol` is really filtering on which of those exist. The edges are the
 questions people actually ask: `sends` and `deliversTo` point **with** the data flow, so a path
 from a sending ECU to a receiving one never traverses an edge backwards, while `contains`,
 `carries` and `secures` walk down the protocol stack from a frame to a single signal.
@@ -582,11 +603,16 @@ or similarity. Run the next release into the same namespace and what that releas
 withdrawn, which leaves the [change feed](/change-feed/) as the release diff with nothing extra to
 set up.
 
-Two limits worth knowing up front. This version reads **FlexRay** clusters, and a readable set
-carrying none at all fails the run rather than reporting an empty network, because an empty complete
-snapshot would delete the network a previous run described. One extract of a set having no cluster is
-perfectly normal and fine: the gate is over the union. And the software-component level (the data
-mappings between components) is deliberately not read: this is the network view.
+Two limits worth knowing up front. This version reads **FlexRay and CAN** clusters. A set carrying
+a bus of another kind still imports what it can, and names what it skipped
+(`arxmlUnreadCluster`) - worth reading, because the run is reported COMPLETE over what it did read,
+so a later job that omits those files withdraws whatever only they described. A readable set carrying
+**no** bus this version reads fails the run outright rather than reporting an empty network, because
+an empty complete snapshot would delete the network a previous run described; one extract of a set
+having no cluster is perfectly normal, since the gate is over the union. Ethernet clusters are not
+read yet: they are a different model rather than another protocol, carrying no frame layer at all.
+And the software-component level (the data mappings between components) is deliberately not read:
+this is the network view.
 
 ### Finding a signal you cannot name
 
