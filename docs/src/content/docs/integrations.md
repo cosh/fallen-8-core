@@ -43,14 +43,8 @@ place a run is described:
 
 ```bash
 curl -sS -X POST http://localhost:8080/integrations/job \
-  -H 'content-type: application/json' \
-  -d "$(jq -n --arg csv "$(base64 -w0 devices.csv)" '{
-        providerId: "csv-device-list",
-        integrationInstanceId: "office-inventory",
-        namespace: "default",
-        settings: { label: "device" },
-        files: { file: { name: "devices.csv", contentBase64: $csv } }
-      }')"
+  -F 'job={"providerId":"csv-device-list","integrationInstanceId":"office-inventory","namespace":"default","settings":{"label":"device"}};type=application/json' \
+  -F 'files[file]=@devices.csv'
 ```
 
 That call **accepts** the run rather than waiting for it. It answers `202` with a run id, because
@@ -149,26 +143,14 @@ that is a dropzone and a file picker on the Integrations screen, the same gestur
 [Knowledge](/unstructured-ingestion/) screen uses for documents; over the API it is the `files`
 map above, one entry per file setting, carrying the file's own name and its bytes.
 
-There are two ways to send those bytes and it matters which you pick for anything large. See
+A file's bytes travel as `multipart/form-data`, one part per file, and nowhere else. See
 [Sending the bytes](#sending-the-bytes).
 
 ### Sending the bytes
 
-**As base64, in the document.** The `files` map above, one string per file. It is the original
-contract, it is what a shell script with `base64 -w0` writes, and it is fine for a CSV inventory or
-anything up to a few tens of megabytes.
-
-It does not scale, and the reason is not the third that base64 adds. Whatever composes that request
-has to hold the file's bytes, its base64 string and the serialised request at the same time, so the
-peak is several times the file. In a browser it is worse than slow: a JavaScript string caps at
-512 MiB, so the encoder itself fails at roughly 384 MiB of input, below what the runtime is
-configured to accept, and no setting anywhere reaches that. A vehicle's AUTOSAR extract is several
-gigabytes.
-
-**As `multipart/form-data`, one part per file.** Nothing expands, nothing is held twice, and the
-sender streams straight from the file. Studio always uses this. The first part is named `job` and
-carries the same document with `files` **absent**; each file follows as its own part with its bytes
-verbatim:
+**One part per file.** Nothing expands, nothing is held twice, and the sender streams straight from
+the file. The first part is named `job` and carries the document with `files` **absent**; each file
+follows as its own part with its bytes verbatim:
 
 ```
 POST /integrations/job
@@ -198,6 +180,15 @@ curl -sS -X POST http://localhost:8080/integrations/job \
   -F 'files[file][1]=@body.arxml'
 ```
 
+**A `contentBase64` field is refused, by name.** Earlier versions took the bytes as base64 inside
+the document. It is the shape a shell script writes most easily, so the refusal says what to send
+instead rather than only saying no. Two things retired it. Whatever composes such a request holds
+the file's bytes, its base64 string and the serialised request at once, so the peak is several times
+the file, and in a browser the encoder itself fails at roughly 384 MiB of input because a JavaScript
+string caps at 512 MiB. More decisively, base64 costs a third: while a job could arrive that way,
+the job ceiling had to stay under three quarters of the transport bound, or the runtime would accept
+jobs the API in front of it refuses. Every job paid that for a shape no client used.
+
 The rules, each of which is a `400` naming the part it is about:
 
 - The `job` part is **first**, appears once, and is a value part with no `filename`. The files are
@@ -220,19 +211,17 @@ identical run and an identical report.
 
 ### One setting, several files
 
-A file setting the integration declares `multiple` takes an **ordered array** instead of one object:
+A file setting the integration declares `multiple` takes an **ordered set** instead of one file,
+sent as one numbered part each:
 
-```json
-"files": {
-  "file": [
-    { "name": "chassis.arxml", "contentBase64": "..." },
-    { "name": "body.arxml",    "contentBase64": "..." }
-  ]
-}
+```
+Content-Disposition: form-data; name="files[file][0]"; filename="chassis.arxml"
+Content-Disposition: form-data; name="files[file][1]"; filename="body.arxml"
 ```
 
-A single object stays valid everywhere, and a setting that takes one file **refuses** an array
-rather than reading the first entry of it. That refusal is the important half: these integrations
+An unnumbered `files[file]` part stays valid everywhere and is one file rather than a set of one,
+and a setting that takes one file **refuses** a numbered set rather than reading the first entry of
+it. That refusal is the important half: these integrations
 declare complete snapshots, so files that went unread would be reported as parts of the source that
 no longer exist, and reconciliation would delete everything they describe.
 
@@ -276,22 +265,20 @@ instance you submit through. A refusal names what it saw and the ceiling it brok
 
 - `Integrations:MaxFileBytes`, default **128 MiB**, per file, on the decoded bytes. Sized for the
   real thing: an AUTOSAR system extract for one vehicle platform runs to tens of megabytes.
-- `Integrations:MaxJobFileBytes`, default **560 MiB**, for the job **total** across every file
+- `Integrations:MaxJobFileBytes`, default **760 MiB**, for the job **total** across every file
   setting on it. Not a restatement of the first: several extracts can each be legal while their sum
-  is what this process has to hold at once, and one request carries a whole run. It is 560 rather
-  than more because over the base64 transport a job expands by a third, and the largest job that
-  transport can deliver inside the API's fixed 768 MiB bound is about 575 MiB of decoded bytes; a
-  higher ceiling would have the runtime accept jobs the API refuses.
+  is what this process has to hold at once, and one request carries a whole run. It is as high as the
+  transport allows, because a job declaring no [scope](#scope-when-one-source-needs-more-than-one-job)
+  has to carry its whole source: 760 is the 768 MiB bound less the envelope and the parts' own
+  framing. A higher ceiling would have the runtime accept jobs the API refuses.
 - `Integrations:MaxJobFiles`, default **256**, for **how many** files one job carries, counted the
   same way. The byte ceilings cannot bound this on their own, because a one-byte file is legal: a
   set can satisfy both of them and still ask the runtime for an unreasonable number of entries.
 
 Above them sits a fixed 768 MiB bound on the request body itself, at the API's proxy, which is
-deliberately not configurable and is the only way in. Over multipart it puts the effective total at
-about **767 MiB**, so raising `Integrations:MaxJobFileBytes` past that has no effect; over the
-base64 transport the same bound carries about **575 MiB** of files, because the encoding adds a
-third. That second number is the real cap on the job ceiling, since a ceiling above it would be
-deliverable over one transport and not the other.
+deliberately not configurable and is the only way in. It is what caps the job ceiling: raising
+`Integrations:MaxJobFileBytes` past what the bound leaves for files has no effect beyond turning a
+named refusal into a bare 413 from the proxy.
 
 **Ask the instance rather than assuming.** `GET /integrations/limits` answers the three numbers as
 they actually bind for you - the proxy reconciles its own bound with the runtime's configuration, so
@@ -299,7 +286,7 @@ there is one number per question and nothing to combine:
 
 ```bash
 curl -sS http://localhost:8080/integrations/limits
-# {"maxFileBytes":134217728,"maxJobFileBytes":587202560,"maxJobFiles":256}
+# {"maxFileBytes":134217728,"maxJobFileBytes":796917760,"maxJobFiles":256}
 ```
 
 Zero or less means that ceiling is off. Studio reads this before you stage anything, which is why an

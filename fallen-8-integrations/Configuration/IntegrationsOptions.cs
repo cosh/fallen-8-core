@@ -68,8 +68,8 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   warns at startup when it is. Raising it past about 144 MiB has no effect in the shipped
         ///   deployment: the apiApp's proxy is the only way in and carries its own fixed body bound.</para>
         ///
-        ///   <para>A file this big is not free, and the cost is not hidden: it arrives base64 (a third
-        ///   larger), is decoded to bytes, and is decoded again to TEXT for the provider - two bytes per
+        ///   <para>A file this big is not free, and the cost is not hidden: it arrives as raw bytes in its
+        ///   own multipart part, is held whole, and is decoded to TEXT for the provider - two bytes per
         ///   character for XML - so a run over a maximal extract peaks in the high hundreds of megabytes
         ///   before the provider has parsed anything. The mount this replaced cost the same; what is new
         ///   is that a caller rather than an operator picks the size, which is why the ceiling is here at
@@ -86,28 +86,31 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   their SUM this process holds at once: one request carries a whole run, which is the design and
         ///   is not changing, so the sum is the number that decides whether this container survives the job.</para>
         ///
-        ///   <para>560 MiB, which is four maximal extracts or a great many ordinary ones. It is deliberately
+        ///   <para>760 MiB, which is five maximal extracts or a great many ordinary ones. It is deliberately
         ///   not a multiple of the per-file ceiling: the point is to bound what one caller can make this
         ///   process spend, not to license a fixed number of files. The cost is stated plainly on
         ///   <see cref="MaxFileBytes" /> and is worse here in the same proportion - bytes held, one file
         ///   decoded to text at a time - so a maximal job peaks well over a gigabyte.</para>
         ///
-        ///   <para>WHY 560 AND NOT MORE, which is the part to read before raising it. A multi-bus
-        ///   vehicle's extracts arrive together, and the whole set has to be submitted in ONE job because
-        ///   the snapshot is complete over what it was given and a later job carrying less withdraws the
-        ///   difference. A set like that does not fit inside half a gibibyte, so the ceiling had to rise. It could not rise as far as it looks, though: every request reaches this runtime
-        ///   through the apiApp's fixed 768 MiB transport bound, and over the JSON transport a job's files
-        ///   travel base64, which expands them by a third. That puts the largest job the JSON arm can
-        ///   deliver at about 575 MiB of decoded bytes. A ceiling above that would have this runtime accept
-        ///   jobs the proxy refuses with a bare 413, which is the confusable refusal
-        ///   <c>integration-file-transport</c> existed to remove. 560 MiB is 746.7 MiB expanded and clears
-        ///   the bound; 576 MiB would exceed it. <c>TheJobCeilingStaysDeliverableOverBothTransports</c>
-        ///   pins it.</para>
+        ///   <para>WHY 760 AND NOT MORE, which is the part to read before raising it. A multi-bus
+        ///   vehicle's extracts arrive together, and a job declaring no scope has to carry the whole set,
+        ///   because its snapshot is complete over what it was given and a later job carrying less
+        ///   withdraws the difference. So the ceiling is as high as the TRANSPORT allows and not a byte
+        ///   higher: every request reaches this runtime through the apiApp's fixed 768 MiB bound, and a
+        ///   ceiling above what that leaves for files would have this runtime accept jobs the proxy refuses
+        ///   with a bare 413 - the confusable refusal <c>integration-file-transport</c> existed to remove.
+        ///   What the bound leaves is itself less the envelope (a mebibyte for the job document and the
+        ///   parts' own headers) and less each part's framing, so 760 MiB clears it with room and 768 would
+        ///   not. <c>TheJobCeilingStaysDeliverableThroughTheProxy</c> pins it.</para>
+        ///
+        ///   <para>It used to be 560, and the missing 200 MiB was base64: while a file could arrive encoded
+        ///   in the job document, the ceiling had to hold for the WORSE transport, which expands a job by a
+        ///   third. Dropping that arm is what let the ceiling reach the bound.</para>
         ///
         ///   <para>Zero or less switches it OFF. Raising it past what the apiApp's proxy accepts has no
         ///   effect in the shipped deployment, exactly as with the per-file ceiling.</para>
         /// </summary>
-        public Int64 MaxJobFileBytes { get; set; } = 587_202_560;
+        public Int64 MaxJobFileBytes { get; set; } = 796_917_760;
 
         /// <summary>
         ///   How many files one job may carry in total, across every file setting on it.

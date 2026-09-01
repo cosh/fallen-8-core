@@ -201,8 +201,8 @@ namespace NoSQL.GraphDB.Integrations.Contract
         ///   A FILE THE CALLER SUPPLIES. Its bytes arrive WITH THE JOB and NEVER in <c>settings</c>: the
         ///   runtime opens nothing on disk, so a bare name in <c>settings</c> would name a file nothing can
         ///   read. How they arrive is the transport's business and not a provider's - as raw bytes in their
-        ///   own multipart part, or base64 in the job document's <c>files</c> map - and both produce the
-        ///   same decoded bytes and the same name here. A form renders this as a
+        ///   own multipart part - and what reaches a provider is the bytes and the name. A form renders this
+        ///   as a
         ///   dropzone and a file picker (see <see cref="ProviderSetting.Accept"/>), which is the whole
         ///   reason the kind exists: asking a person to copy a file into a container mount and then type
         ///   its name is not a form anyone can fill in.

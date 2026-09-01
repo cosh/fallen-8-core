@@ -66,12 +66,13 @@ namespace NoSQL.GraphDB.Tests
         #region one job, two transports, one normalized result
 
         /// <summary>
-        ///   The anchor. Everything else in this file is a detail of the grammar; this is the guarantee the
-        ///   grammar exists to keep, and it is asserted on the NORMALIZED job because that is what the run
-        ///   actually reads.
+        ///   The anchor. Everything else in this file is a detail of the grammar; this is what the grammar
+        ///   exists to produce, and it is asserted on the NORMALIZED job because that is what the run
+        ///   actually reads: the envelope from the document part, and the files from the file parts in the
+        ///   order their ordinals give.
         /// </summary>
         [TestMethod]
-        public async Task OneJobSubmittedEitherWay_NormalizesToTheSameThing()
+        public async Task AMultipartJobNormalizesToTheJobItDescribes()
         {
             var document = "{\"providerId\":\"" + ArxmlProviderId + "\"," +
                            "\"integrationInstanceId\":\"vehicle-7\"," +
@@ -83,53 +84,53 @@ namespace NoSQL.GraphDB.Tests
             var chassis = Encoding.UTF8.GetBytes("<CHASSIS/>");
             var body = Encoding.UTF8.GetBytes("<BODY/>");
 
-            var json = JsonSerializer.Deserialize<IntegrationJob>(
-                document + ",\"files\":{\"" + FileSetting + "\":[" +
-                "{\"name\":\"chassis.arxml\",\"contentBase64\":\"" + Convert.ToBase64String(chassis) + "\"}," +
-                "{\"name\":\"body.arxml\",\"contentBase64\":\"" + Convert.ToBase64String(body) + "\"}]}}",
-                new JsonSerializerOptions(JsonSerializerDefaults.Web));
-
             var read = await Read(Multipart(
                 (ValuePart("job"), Encoding.UTF8.GetBytes(document + "}")),
                 (FilePart("files[file][0]", "chassis.arxml"), chassis),
                 (FilePart("files[file][1]", "body.arxml"), body)));
 
             Assert.IsNotNull(read.Job, read.Failure);
-            Assert.IsTrue(json!.TryNormalize(out var viaJson, out var jsonFailure), jsonFailure);
             Assert.IsTrue(read.Job!.TryNormalize(out var viaForm, out var formFailure), formFailure);
 
-            AssertSameJob(viaJson!, viaForm!);
+            Assert.AreEqual("vehicles", viaForm!.Namespace, "the envelope came from the document part");
+            Assert.AreEqual("fleet", viaForm.Settings["label"]);
+            Assert.IsTrue(viaForm.EmbedSummaries);
+            Assert.AreEqual("summaries", viaForm.EmbeddingName);
+
+            var group = viaForm.Files[FileSetting];
+            Assert.IsTrue(group.AsList, "numbered parts asked for the multiple shape");
+            Assert.AreEqual(2, group.Files.Count, "both file parts arrived");
+            Assert.AreEqual("chassis.arxml", group.Files[0].Name, "and in the order their ordinals give");
+            Assert.AreEqual("body.arxml", group.Files[1].Name);
+            CollectionAssert.AreEqual(chassis, group.Files[0].Content,
+                "the bytes arrive as they were sent, which is the point of the raw transport");
+            CollectionAssert.AreEqual(body, group.Files[1].Content);
         }
 
         /// <summary>
-        ///   The one-file spellings agree too, and that is a separate case: the JSON form's single OBJECT and
-        ///   the multipart form's un-numbered part both have to produce a group that is NOT a list, because
-        ///   whether the caller asked for the multiple shape is what a single-file setting refuses on.
+        ///   An UN-NUMBERED part is one file, not a list of one, because whether the caller asked for the
+        ///   multiple shape is what a single-file setting refuses on. The distinction is the reason the
+        ///   ordinal is explicit rather than implied by part order.
         /// </summary>
         [TestMethod]
-        public async Task TheSingleFileSpellingsAgreeAboutNotBeingAList()
+        public async Task AnUnNumberedPartIsOneFileRatherThanAListOfOne()
         {
             var document = "{\"providerId\":\"" + CsvProviderId + "\"," +
                            "\"integrationInstanceId\":\"office\",\"settings\":{}";
             var content = Encoding.UTF8.GetBytes("mac\n44:D2:44:AA:BB:CC\n");
-
-            var json = JsonSerializer.Deserialize<IntegrationJob>(
-                document + ",\"files\":{\"" + FileSetting + "\":{\"name\":\"devices.csv\"," +
-                "\"contentBase64\":\"" + Convert.ToBase64String(content) + "\"}}}",
-                new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
             var read = await Read(Multipart(
                 (ValuePart("job"), Encoding.UTF8.GetBytes(document + "}")),
                 (FilePart("files[file]", "devices.csv"), content)));
 
             Assert.IsNotNull(read.Job, read.Failure);
-            Assert.IsTrue(json!.TryNormalize(out var viaJson, out _));
             Assert.IsTrue(read.Job!.TryNormalize(out var viaForm, out var failure), failure);
 
-            AssertSameJob(viaJson!, viaForm!);
             Assert.IsFalse(viaForm!.Files[FileSetting].AsList,
                 "an un-numbered part produced the LIST shape, so a setting that takes exactly one file " +
                 "would refuse a perfectly ordinary single-file upload");
+            Assert.AreEqual("devices.csv", viaForm.Files[FileSetting].First.Name);
+            CollectionAssert.AreEqual(content, viaForm.Files[FileSetting].First.Content);
         }
 
         /// <summary>

@@ -39,24 +39,22 @@ using NoSQL.GraphDB.Integrations.Run;
 namespace NoSQL.GraphDB.Integrations.Hosting
 {
     /// <summary>
-    ///   HOW A JOB ARRIVES, AND WHY THERE ARE TWO WAYS.
+    ///   HOW A JOB ARRIVES, AND WHY A FILE'S BYTES HAVE ONE WAY IN.
     ///
-    ///   <para>A job is one document plus, for a file-taking integration, its files. The original transport
-    ///   put both in one JSON body with each file base64 in a string, and that is still accepted: it is what
-    ///   a script with <c>curl</c> and <c>base64 -w0</c> writes, it is the whole contract for the integrations
-    ///   that take no file at all, and every caller written against it keeps working.</para>
+    ///   <para>A job is one document plus, for a file-taking integration, its files. A document on its own is
+    ///   an ordinary <c>application/json</c> body, which is the whole contract for the integrations that take
+    ///   no file at all. Files make it <c>multipart/form-data</c>: the document in a <c>job</c> part, and each
+    ///   file as its own part carrying raw bytes. Both deserialise into the same
+    ///   <see cref="IntegrationJob" /> and go through the same <c>TryNormalize</c>.</para>
     ///
-    ///   <para>It does not scale to a real extract, and the reason is not the 33% base64 adds. A browser
-    ///   composing that body has to hold the file's bytes, its base64 string and the serialised request at
-    ///   once, and a JavaScript string is capped at 512 MiB, so the encoder itself died at about 384 MiB of
-    ///   input while the runtime was configured to accept more. A vehicle's AUTOSAR extract is several
-    ///   gigabytes. The ceiling was in the ENCODER, which no amount of configuration reaches.</para>
-    ///
-    ///   <para>So a job may also arrive as <c>multipart/form-data</c>: the document in a <c>job</c> part, and
-    ///   each file as its own part carrying raw bytes. Nothing expands, nothing is held twice, and the sender
-    ///   streams from the file handle. Both transports deserialise into the same
-    ///   <see cref="IntegrationJob" /> and go through the same <c>TryNormalize</c>, so one job submitted
-    ///   either way produces an identical run and an identical report.</para>
+    ///   <para>The original transport put the files in the document too, base64 in a string, and that arm is
+    ///   GONE - refused by name in <c>TryNormalize</c>, because a caller told only "no" rewrites the same job.
+    ///   It failed twice over. A browser composing such a body holds the file's bytes, its base64 string and
+    ///   the serialised request at once, and a JavaScript string is capped at 512 MiB, so the encoder itself
+    ///   died at about 384 MiB of input while the runtime was configured to accept more: the ceiling was in
+    ///   the ENCODER, which no amount of configuration reaches. And while a job COULD arrive that way, the
+    ///   configured ceiling had to hold for the worse transport, so base64's third was subtracted from every
+    ///   job's budget including the ones that never used it.</para>
     ///
     ///   <para>NOTHING HERE TOUCHES DISK. <c>HttpRequest.ReadFormAsync</c> and <c>IFormFile</c> would have
     ///   been a fraction of this code and are BANNED in this project (a convention test enforces it), because
@@ -133,9 +131,10 @@ namespace NoSQL.GraphDB.Integrations.Hosting
             }
 
             return JobRequest.Unsupported(String.Format(CultureInfo.InvariantCulture,
-                "A job arrives as 'application/json' or as 'multipart/form-data', and this request declared " +
-                "'{0}'. The multipart form carries each file as raw bytes in its own part, which is the only " +
-                "shape that scales to a large extract; the JSON form carries them base64 in the document.",
+                "A job arrives as 'multipart/form-data' or as 'application/json', and this request declared " +
+                "'{0}'. The multipart form carries the document in a part named 'job' and each file as raw " +
+                "bytes in its own part, which is how a file's bytes arrive; a plain JSON body is a job that " +
+                "carries no file.",
                 String.IsNullOrWhiteSpace(request.ContentType) ? "nothing" : request.ContentType));
         }
 

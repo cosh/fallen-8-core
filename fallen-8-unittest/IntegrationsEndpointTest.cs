@@ -221,24 +221,28 @@ namespace NoSQL.GraphDB.Tests
                 + text);
         }
 
+        /// <summary>
+        ///   A file's bytes arrive as a multipart part and nowhere else, and the refusal SAYS SO over real
+        ///   HTTP. Asserted here rather than only on a hand-built job because this is the shape a caller
+        ///   who read an older document will actually post.
+        /// </summary>
         [TestMethod]
-        public async Task AFileSettingStillAcceptsASingleObjectOnTheWire()
+        public async Task AFileSuppliedAsBase64OverTheWire_IsRefused_AndNamesMultipart()
         {
-            // The compatibility half of multi-file, asserted where it actually has to hold: over real JSON.
-            // A hand-built job never touches the converter, so only a posted body can say the object form
-            // still parses. The CSV provider takes one file, so this is also the shape it must keep taking.
             using var factory = new RuntimeFactory();
             using var client = factory.CreateClient();
 
             using var response = await client.PostAsync("/integration/job?wait=true",
-                Json(JobBody(CsvProviderId, "single-shape", null, null,
+                Json(JobBody(CsvProviderId, "b64-shape", null, null,
                     "{\"file\":" + FileJson("devices.csv", "mac,name\nAA:BB:CC:DD:EE:01,Reception\n") + "}")));
 
-            // A 400 would mean the SHAPE was refused, which is the regression this guards. What the run then
-            // makes of the file is a different question and has its own tests.
-            Assert.AreNotEqual(HttpStatusCode.BadRequest, response.StatusCode,
-                "the single-object file shape stopped parsing, which breaks every caller written before " +
-                "multi-file existed: " + await ReadText(response));
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode,
+                "base64 file content is no longer accepted, and the job has to be refused rather than run " +
+                "with no file: " + await ReadText(response));
+            var text = await ReadText(response);
+            StringAssert.Contains(text, "multipart",
+                "and the refusal names what to send instead, because a caller told only 'no' posts the " +
+                "same body again: " + text);
         }
 
         [TestMethod]
@@ -250,10 +254,9 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new RuntimeFactory();
             using var client = factory.CreateClient();
 
-            using var response = await client.PostAsync("/integration/job?wait=true",
-                Json(JobBody(CsvProviderId, "list-shape", null, null,
-                    "{\"file\":[" + FileJson("a.csv", "mac,name\n") + "," +
-                    FileJson("b.csv", "mac,name\n") + "]}")));
+            using var form = MultipartJob(CsvProviderId, "list-shape",
+                ("a.csv", "mac,name\n"), ("b.csv", "mac,name\n"));
+            using var response = await client.PostAsync("/integration/job?wait=true", form);
 
             Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode,
                 "a list sent to a single-file setting has to be refused, not silently read as its first " +
@@ -274,10 +277,9 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new RuntimeFactory();
             using var client = factory.CreateClient();
 
-            using var response = await client.PostAsync("/integration/job?wait=true",
-                Json(JobBody(ArxmlProviderId, "many-shape", "{\"vehicle\":\"testcar\"}", null,
-                    "{\"file\":[" + FileJson("chassis.arxml", "<not-autosar/>") + "," +
-                    FileJson("body.arxml", "<not-autosar/>") + "]}")));
+            using var form = MultipartJob(ArxmlProviderId, "many-shape", "{\"vehicle\":\"testcar\"}",
+                null, new[] { ("chassis.arxml", "<not-autosar/>"), ("body.arxml", "<not-autosar/>") });
+            using var response = await client.PostAsync("/integration/job?wait=true", form);
 
             Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
                 "the array shape was refused for a setting the descriptor declares multiple: " +
@@ -768,30 +770,30 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        ///   The same job over both transports produces the same OUTCOME over real HTTP, which is the
-        ///   end-to-end form of the sameness guarantee the reader's tests make about the normalized job.
+        ///   The migration, as a pair: one job's files as multipart RUN, and the same job's files as base64
+        ///   are REFUSED. Asserted together so the two halves cannot drift into both being refused, which
+        ///   would leave no way to submit a file at all.
         /// </summary>
         [TestMethod]
-        public async Task TheSameJobOverBothTransportsFailsTheSameWay()
+        public async Task FilesAsMultipartRun_WhileTheSameFilesAsBase64AreRefused()
         {
             using var factory = new RuntimeFactory();
             using var client = factory.CreateClient();
 
             const String text = "mac,name\n44:D2:44:AA:BB:CC,Reception AP\n";
 
-            using var form = MultipartJob(CsvProviderId, "same-both-ways-form", ("devices.csv", text));
+            using var form = MultipartJob(CsvProviderId, "migration-form", ("devices.csv", text));
             using var viaForm = await client.PostAsync(RuntimeJobRoute, form);
-            using var viaJson = await client.PostAsync(RuntimeJobRoute,
-                Json(JobBody(CsvProviderId, "same-both-ways-json", "{}", files:
-                    "{\"file\":" + FileJson("devices.csv", text) + "}")));
+            Assert.AreEqual(HttpStatusCode.OK, viaForm.StatusCode,
+                "a multipart job with a readable file has to RUN, or this transport change left no way to " +
+                "submit a file: " + await ReadText(viaForm));
 
-            Assert.AreEqual(viaJson.StatusCode, viaForm.StatusCode,
-                "the two transports answered different statuses for one job");
-            var formReport = JsonDocument.Parse(await ReadText(viaForm)).RootElement;
-            var jsonReport = JsonDocument.Parse(await ReadText(viaJson)).RootElement;
-            Assert.AreEqual(Text(jsonReport, "errorKind"), Text(formReport, "errorKind"),
-                "the two transports produced different outcomes for one job, so they have drifted and the " +
-                "difference is invisible from the graph");
+            using var viaJson = await client.PostAsync(RuntimeJobRoute,
+                Json(JobBody(CsvProviderId, "migration-json", "{}", files:
+                    "{\"file\":" + FileJson("devices.csv", text) + "}")));
+            Assert.AreEqual(HttpStatusCode.BadRequest, viaJson.StatusCode,
+                "and the base64 form has to be refused rather than quietly running with no file: " +
+                await ReadText(viaJson));
         }
 
         /// <summary>
@@ -850,12 +852,18 @@ namespace NoSQL.GraphDB.Tests
         private static MultipartFormDataContent MultipartJob(String providerId, String instanceId,
             String credentialValues, (String Name, String Text)[] files)
         {
+            return MultipartJob(providerId, instanceId, "{}", credentialValues, files);
+        }
+
+        private static MultipartFormDataContent MultipartJob(String providerId, String instanceId,
+            String settings, String credentialValues, (String Name, String Text)[] files)
+        {
             var form = new MultipartFormDataContent("----f8-endpoint-test");
 
             // A STRING part, not a byte array: appending bytes declares a filename, and the job document is
             // a value part. That is the mistake the reader refuses by name.
             var document = new StringContent(
-                JobBody(providerId, instanceId, "{}", credentialValues), Encoding.UTF8, "application/json");
+                JobBody(providerId, instanceId, settings, credentialValues), Encoding.UTF8, "application/json");
             form.Add(document, "job");
 
             for (var i = 0; i < files.Length; i++)
@@ -1697,56 +1705,62 @@ namespace NoSQL.GraphDB.Tests
         #region the instance serves the ceilings a caller has to respect
 
         /// <summary>
-        ///   The shipped defaults, pinned here rather than only in the options type. A changed default has
-        ///   to fail a test, because these three numbers are published in the docs, drawn in a screenshot
-        ///   and used by Studio to refuse a job before uploading it: changing one quietly makes all three
-        ///   of those wrong at once.
-        /// </summary>
-        /// <summary>
-        ///   THE JOB CEILING MUST BE DELIVERABLE OVER BOTH TRANSPORTS, which is a tighter bound than the
-        ///   proxy's own and is the reason the default is 560 MiB rather than a rounder larger number.
+        ///   THE JOB CEILING MUST BE DELIVERABLE THROUGH THE PROXY, in BOTH directions: high enough to use
+        ///   the transport and low enough that the transport can carry it.
         ///
-        ///   <para>A job may arrive as multipart, where its files are raw bytes, or as JSON, where they are
-        ///   base64 and so a third larger. Both go through the proxy's fixed transport bound. So the largest
-        ///   job the JSON arm can deliver is that bound times three quarters, and a runtime ceiling above it
-        ///   would accept jobs the proxy refuses with a bare 413 - the confusable refusal that
-        ///   integration-file-transport existed to remove, reintroduced for JSON callers only, which is the
-        ///   hardest kind to notice.</para>
+        ///   <para>A job's files reach this runtime through the apiApp's fixed transport bound and nothing
+        ///   else, so a runtime ceiling above what that bound leaves would accept jobs the proxy refuses
+        ///   with a bare 413 - the confusable refusal that integration-file-transport existed to remove. The
+        ///   other direction matters just as much and has no natural guard: a ceiling well UNDER the bound
+        ///   makes a large source need more jobs than the transport requires, and every extra job is one
+        ///   that withdraws what the others left out unless it declares a scope.</para>
         ///
         ///   <para>The arithmetic is in the failure message on purpose: whoever raises this next should be
         ///   stopped by a test that explains itself rather than by a support case.</para>
         /// </summary>
         [TestMethod]
-        public void TheJobCeilingStaysDeliverableOverBothTransports()
+        public void TheJobCeilingStaysDeliverableThroughTheProxy()
         {
             var ceiling = new IntegrationsOptions().MaxJobFileBytes;
             var budget = ProxyJobTransportLimit - 1_048_576L;
-            var overJson = budget * 3 / 4;
 
-            Assert.IsTrue(ceiling <= overJson, String.Format(CultureInfo.InvariantCulture,
-                "Integrations:MaxJobFileBytes is {0} bytes ({1:F1} MiB), which base64 expands to {2:F1} MiB, " +
-                "over the {3:F1} MiB the proxy's transport bound leaves for files. A job between {4:F1} and " +
-                "{1:F1} MiB would be accepted by this runtime and refused by the proxy with a bare 413. " +
-                "The ceiling for BOTH transports is {4:F1} MiB.",
-                ceiling, ceiling / 1048576.0, ceiling * 4.0 / 3.0 / 1048576.0, budget / 1048576.0,
-                overJson / 1048576.0));
+            // A multipart part costs its own headers and a boundary line, so a maximal job is the files
+            // plus framing. Bounded by MaxJobFiles rather than guessed: a part's headers are a name, a
+            // filename and a content type, comfortably inside a kibibyte even for a long setting key.
+            var framing = new IntegrationsOptions().MaxJobFiles * 1024L;
 
-            // And it has to stay close to what the JSON arm can actually deliver, or the ceiling is
-            // lower than the transport allows for no reason and a multi-bus vehicle needs more jobs
-            // than the bound requires. Half a gibibyte is the floor: below that the raise this test
-            // guards bought nothing.
-            Assert.IsTrue(ceiling >= 536_870_912L,
-                "the ceiling dropped below half a gibibyte, so a multi-bus source needs more jobs than " +
-                "the transport bound requires, and every extra job withdraws what the others left out");
+            Assert.IsTrue(ceiling + framing <= budget, String.Format(CultureInfo.InvariantCulture,
+                "Integrations:MaxJobFileBytes is {0} bytes ({1:F1} MiB), which with {2:F1} MiB of " +
+                "multipart framing needs {3:F1} MiB, over the {4:F1} MiB the proxy's transport bound " +
+                "leaves for a job. A job between the budget and this ceiling would be accepted by this " +
+                "runtime and refused by the proxy with a bare 413.",
+                ceiling, ceiling / 1048576.0, framing / 1048576.0,
+                (ceiling + framing) / 1048576.0, budget / 1048576.0));
+
+            // And it must stay close to the budget, or the ceiling is lower than the transport allows
+            // for no reason and a multi-bus source needs more jobs than the bound requires - every extra
+            // job being one that withdraws what the others left out unless it declares a scope.
+            var floor = budget - budget / 16;
+            Assert.IsTrue(ceiling >= floor, String.Format(CultureInfo.InvariantCulture,
+                "Integrations:MaxJobFileBytes is {0:F1} MiB, well under the {1:F1} MiB the transport can " +
+                "carry. Base64 used to explain the gap and no longer does: a file arrives as raw bytes in " +
+                "a multipart part, so the ceiling should be the budget less framing.",
+                ceiling / 1048576.0, budget / 1048576.0));
         }
 
+        /// <summary>
+        ///   The shipped defaults, pinned here rather than only in the options type. A changed default has
+        ///   to fail a test, because these three numbers are published in the docs, drawn in a screenshot
+        ///   and used by Studio to refuse a job before uploading it: changing one quietly makes all three
+        ///   of those wrong at once.
+        /// </summary>
         [TestMethod]
         public void TheShippedFileCeilings_AreTheOnesEveryClientAndDocumentAssumes()
         {
             var options = new IntegrationsOptions();
 
             Assert.AreEqual(134_217_728L, options.MaxFileBytes, "Integrations:MaxFileBytes changed");
-            Assert.AreEqual(587_202_560L, options.MaxJobFileBytes, "Integrations:MaxJobFileBytes changed");
+            Assert.AreEqual(796_917_760L, options.MaxJobFileBytes, "Integrations:MaxJobFileBytes changed");
             Assert.AreEqual(256, options.MaxJobFiles, "Integrations:MaxJobFiles changed");
         }
 
@@ -1768,7 +1782,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(RuntimeFactory.MaxFileBytes, body.GetProperty("maxFileBytes").GetInt64(),
                 "the runtime reported a per-file ceiling that is not the one this host configured, so the " +
                 "route is answering from a constant and an operator's setting would never reach a client");
-            Assert.AreEqual(587_202_560L, body.GetProperty("maxJobFileBytes").GetInt64(),
+            Assert.AreEqual(796_917_760L, body.GetProperty("maxJobFileBytes").GetInt64(),
                 "the job-total ceiling is not the shipped default this host leaves alone");
             Assert.AreEqual(256, body.GetProperty("maxJobFiles").GetInt32(),
                 "the file count ceiling is not the shipped default this host leaves alone");
@@ -1817,7 +1831,7 @@ namespace NoSQL.GraphDB.Tests
         public async Task TheProxyLimitsRoute_PassesThroughACeilingItCanCarry()
         {
             var controller = new IntegrationsController(new CannedLimitsClient(
-                "{\"maxFileBytes\":134217728,\"maxJobFileBytes\":587202560,\"maxJobFiles\":256}"))
+                "{\"maxFileBytes\":134217728,\"maxJobFileBytes\":796917760,\"maxJobFiles\":256}"))
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
             };
@@ -1829,7 +1843,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(134_217_728L, limits.MaxFileBytes,
                 "the shipped per-file ceiling was altered, so the proxy is answering its own bound rather " +
                 "than the runtime's configuration");
-            Assert.AreEqual(587_202_560L, limits.MaxJobFileBytes, "the shipped job-total ceiling was altered");
+            Assert.AreEqual(796_917_760L, limits.MaxJobFileBytes, "the shipped job-total ceiling was altered");
             Assert.AreEqual(256, limits.MaxJobFiles, "the shipped count ceiling was altered");
         }
 

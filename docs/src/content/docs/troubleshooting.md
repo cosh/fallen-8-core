@@ -161,7 +161,8 @@ Older builds sent a job as one JSON body with every file base64 in it. That capp
 384 MiB regardless of configuration, because the browser had to hold the bytes, their base64 and the
 whole request at once and a JavaScript string maxes out at 512 MiB. The failure arrived as
 `Invalid string length` or as an out-of-memory, after minutes of encoding, with no progress shown
-because nothing had been sent yet.
+because nothing had been sent yet. A job still sending `contentBase64` is now **refused by name**, in
+a message that says to send multipart instead.
 
 Current builds send a **multipart** job and stream each file from disk, so the browser holds nothing
 and the size of what you can send is the instance's business. The Integrations screen states the
@@ -173,20 +174,21 @@ ceilings before you pick anything and reports the send as it happens, with a can
 
    ```bash
    curl -sS http://localhost:8080/integrations/limits
-   # {"maxFileBytes":134217728,"maxJobFileBytes":587202560,"maxJobFiles":256}
+   # {"maxFileBytes":134217728,"maxJobFileBytes":796917760,"maxJobFiles":256}
    ```
 
    Those are the numbers that BIND for you: the ceiling is the smaller of the runtime's own
    configuration and the API's fixed 768 MiB request bound, reconciled for you so there is nothing to
    combine. Zero or less means that ceiling is off.
 
-2. If a set is over the total, **narrow the set** rather than splitting it across runs. For an
-   integration whose files are one source together, this is the trap that matters: a later run given
-   fewer files declares a complete snapshot over what it was given and withdraws whatever only the
-   missing files described. Raise `Integrations:MaxJobFileBytes` on the runtime instead, but not past
-   about **575 MiB**: the API's 768 MiB bound is what the request has to fit through, and over the
-   base64 transport a job expands by a third on the way, so a higher ceiling would have the runtime
-   accept jobs the API then refuses with a bare 413.
+2. If a set is over the total, either **narrow the set** or give each job a **scope**. Never just split
+   it: for an integration whose files are one source together, a later run given fewer files declares a
+   complete snapshot over what it was given and withdraws whatever only the missing files described. A
+   `scope` on each job is what makes the split safe, because each run then reconciles against its own
+   scope alone (see [Integrations](/integrations/#scope-when-one-source-needs-more-than-one-job)).
+   Raising `Integrations:MaxJobFileBytes` past the shipped default does nothing: the API's 768 MiB
+   bound is what the request has to fit through, and the default is already what that bound leaves for
+   files, so a higher ceiling only turns a named refusal into a bare 413 from the API.
 
 3. A file over the per-file ceiling is refused on its own and named. A job with too many files is
    refused on the count, which exists because a great many tiny files satisfy both byte ceilings.

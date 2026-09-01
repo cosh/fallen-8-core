@@ -2061,7 +2061,7 @@ namespace NoSQL.GraphDB.Tests
             return new JobFile
             {
                 Name = name,
-                ContentBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(content)),
+                Content = Encoding.UTF8.GetBytes(content),
             };
         }
 

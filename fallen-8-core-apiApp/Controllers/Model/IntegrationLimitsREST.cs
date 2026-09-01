@@ -55,7 +55,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
 
         /// <summary>The most DECODED bytes one job's files may come to in total, across every file
         /// setting on it. One request carries a whole run, so this is the sum the runtime holds at once.</summary>
-        /// <example>587202560</example>
+        /// <example>796917760</example>
         [JsonPropertyName("maxJobFileBytes")]
         public Int64 MaxJobFileBytes
         {

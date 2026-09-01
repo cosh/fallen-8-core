@@ -93,9 +93,9 @@ namespace NoSQL.GraphDB.Integrations
         ///   all three with messages naming their own numbers.
         ///
         ///   <para>It grew with multi-file input: one request still carries a whole run, so a job carrying
-        ///   a vehicle's worth of extracts is one body. The headroom over the proxy's bound covers the
-        ///   framing of either transport - a multipart form's part headers, or the base64 expansion that
-        ///   turns 512 MiB of decoded files into about 683 MiB inside a JSON document.</para>
+        ///   a vehicle's worth of extracts is one body. The headroom over the proxy's bound covers a
+        ///   multipart form's own framing - one part's headers per file, and a boundary line between
+        ///   them - which a body sized at the proxy's limit carries on top of its files.</para>
         /// </summary>
         internal const Int64 TransportBound = 872_415_232;
     }

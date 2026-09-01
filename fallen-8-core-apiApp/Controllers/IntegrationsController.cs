@@ -65,14 +65,12 @@ namespace NoSQL.GraphDB.App.Controllers
         ///   integration-file-upload, integration-run-lifecycle and integration-file-transport).
         ///   768 MiB, and both of its relations are load-bearing:
         ///
-        ///   <para>ABOVE any legal job. What sets the size is not one file but the job TOTAL: a file
-        ///   setting a provider declares <c>multiple</c> takes a whole vehicle's system extracts at once,
-        ///   and the runtime's default <c>Integrations:MaxJobFileBytes</c> is 512 MiB of decoded bytes.
-        ///   How much of this bound that consumes depends on the TRANSPORT, and both are accepted: over
-        ///   <c>multipart/form-data</c> the files travel as raw bytes, so a maximal legal job is 512 MiB
-        ///   plus part framing; over <c>application/json</c> they are base64, which costs a third, so the
-        ///   same job arrives at about 683 MiB. Either way this bound never fires for a job the runtime
-        ///   would accept. Real files set both numbers: an ordinary extract runs to tens of megabytes, an earlier
+        ///   <para>ABOVE any legal job, and only just, which is deliberate. What sets the size is not one
+        ///   file but the job TOTAL: a file setting a provider declares <c>multiple</c> takes a whole
+        ///   vehicle's system extracts at once, and the runtime's default
+        ///   <c>Integrations:MaxJobFileBytes</c> is sized to be everything this bound can carry. Files
+        ///   travel as raw bytes in their own multipart parts, so a maximal legal job is that ceiling plus
+        ///   part framing, inside this bound with a mebibyte to spare. Real files set both numbers: an ordinary extract runs to tens of megabytes, an earlier
         ///   48 MiB bound refused one with a bare transport 413, and a vehicle arrives as several
         ///   such extracts that reference each other.</para>
         ///
@@ -87,7 +85,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///   deployable's configuration, so a key here would be a second number to keep in step with it
         ///   and a caller could not tell which one refused them. The consequence, stated rather than
         ///   hidden: this bound caps what raising <c>Integrations:MaxJobFileBytes</c> can achieve through
-        ///   this proxy, at about 767 MiB of files over multipart and about 576 MiB over JSON, and the
+        ///   this proxy, at about 767 MiB of files less their part framing, and the
         ///   proxy is the only way in because the runtime publishes no port. A caller does not have to
         ///   work that out: <c>GET /integrations/limits</c> serves the reconciled numbers, which is
         ///   where <c>Binding</c> below applies exactly this cap.</para>
@@ -405,20 +403,18 @@ namespace NoSQL.GraphDB.App.Controllers
         /// this controller's <c>JobTransportLimit</c>.</para>
         /// <para>The upload has its own budget, Fallen8:Integrations:JobTimeoutSeconds (default 900),
         /// because the clock runs at the caller's send rate while the body is streamed through.</para>
-        /// <para>A file setting the provider declares <c>multiple</c> takes an ARRAY of files rather than
-        /// one, and the order is preserved because a provider composing several files may depend on it. A
-        /// single object stays valid everywhere.</para>
-        /// <para>TWO TRANSPORTS, one job. As application/json, the document carries each file's bytes
-        /// base64 in a <c>files</c> map - the original contract, unchanged, and what a script with
-        /// <c>curl</c> and <c>base64 -w0</c> writes. As multipart/form-data, a first part named
-        /// <c>job</c> carries the same document with <c>files</c> ABSENT, and each file follows as its own
-        /// part carrying raw bytes: <c>files[settingKey]</c> for one, or <c>files[settingKey][n]</c>
-        /// numbered from 0 for a setting given several. Every part is named and checked, and an unknown one
-        /// is refused rather than ignored. Multipart is the only shape that scales to a large extract,
-        /// because base64 in a document forces the sender to hold the file, its encoding and the request at
-        /// once. Anything else is 415. One job submitted either way produces an identical run and an
-        /// identical report; the grammar is defined once by the runtime, at
-        /// https://docs.fallen-8.com/integrations/.</para></remarks>
+        /// <para>A file setting the provider declares <c>multiple</c> takes an ordered SET of files rather
+        /// than one, and the order is preserved because a provider composing several files may depend on it.
+        /// One file stays valid everywhere.</para>
+        /// <para>A FILE'S BYTES ARRIVE AS MULTIPART, and nowhere else. A first part named <c>job</c> carries
+        /// the document with <c>files</c> ABSENT, and each file follows as its own part carrying raw bytes:
+        /// <c>files[settingKey]</c> for one, or <c>files[settingKey][n]</c> numbered from 0 for a setting
+        /// given several. Every part is named and checked, and an unknown one is refused rather than
+        /// ignored. A job with NO files is still an ordinary application/json body, which is the whole
+        /// contract for the integrations that take none. Anything else is 415, and a <c>files</c> map
+        /// carrying <c>contentBase64</c> is refused by name: it cost a third of this bound, which capped the
+        /// job ceiling for every caller including the ones not using it. The grammar is defined once by the
+        /// runtime, at https://docs.fallen-8.com/integrations/.</para></remarks>
         /// <response code="200">The report, for a run that ended before it had a phase or when wait=true</response>
         /// <response code="202">The run was accepted; watch it at /integrations/run/{instanceId}</response>
         /// <response code="400">The runtime refused the job as written, its own message saying why</response>
@@ -433,10 +429,9 @@ namespace NoSQL.GraphDB.App.Controllers
         // Without this MVC reads the whole multipart form before this action runs, spooling every part over
         // 64 KiB to a temp file and leaving nothing to forward. The attribute owns the full story.
         [StreamedBody]
-        // NO [Consumes], deliberately, and it is the only action here without one. Two transports are
-        // accepted - application/json with each file base64 in the document, and multipart/form-data with
-        // each file's raw bytes in its own part - and the RUNTIME owns which, because it owns the grammar
-        // that reads them. A [Consumes] list here answered 415 before the runtime could, with ASP.NET's
+        // NO [Consumes], deliberately, and it is the only action here without one. Two content types are
+        // accepted - multipart/form-data, which is how a file's bytes arrive, and application/json for a job
+        // that carries none - and the RUNTIME owns which, because it owns the grammar that reads them. A [Consumes] list here answered 415 before the runtime could, with ASP.NET's
         // bare body: correct status, and no statement of what IS accepted, which is the only actionable
         // part. Measured through two live processes (see the feature's findings.md). The attribute also
         // bought nothing for the API document, because this route documents no requestBody at all: the

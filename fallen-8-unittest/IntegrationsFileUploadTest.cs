@@ -214,7 +214,7 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void AnEmptyFileIsRefusedRatherThanReadAsAnEmptySource()
         {
-            var job = Job(new JobFile { Name = FileName, ContentBase64 = String.Empty });
+            var job = Job(new JobFile { Name = FileName, Content = Array.Empty<Byte>() });
 
             Assert.IsFalse(job.TryNormalize(out _, out var failure),
                 "an empty upload - a form submitted before the file was chosen, a truncated copy - parses " +
@@ -226,27 +226,34 @@ namespace NoSQL.GraphDB.Tests
                 "they attached a file");
         }
 
+        /// <summary>
+        ///   A file's bytes arrive as a multipart part and nowhere else. The base64 arm is refused BY NAME
+        ///   rather than ignored: ignoring the field would leave the caller with "carries no bytes", which
+        ///   is true and tells them nothing about what to do instead.
+        /// </summary>
         [TestMethod]
-        public void APayloadThatIsNotBase64IsRefusedAndSaysSo()
+        public void AFileSuppliedAsBase64IsRefused_AndTheRefusalNamesMultipart()
         {
-            var job = Job(new JobFile { Name = FileName, ContentBase64 = "mac,name\nthis is the raw text" });
+            var job = Job(new JobFile
+            {
+                Name = FileName,
+                ContentBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(Text)),
+            });
 
             Assert.IsFalse(job.TryNormalize(out _, out var failure),
-                "raw text in contentBase64 is the obvious mistake for a hand-written job, and decoding it " +
-                "as base64 would either throw deep in a run or silently yield different bytes");
-            StringAssert.Contains(failure, "base64",
-                "the message names the encoding, because the fix is one shell command (base64 -w0) and the " +
-                "caller has to know that is what is wanted");
+                "base64 file content is no longer accepted: it cost a third of the transport budget, which " +
+                "bounded the whole job ceiling for a shape no client uses");
+            StringAssert.Contains(failure, "multipart",
+                "and the refusal says what to send instead, because a caller told only 'no' rewrites the " +
+                "same job and sends it again");
+            StringAssert.Contains(failure, "contentBase64",
+                "naming the field they used is what makes the message findable from their own job document");
         }
 
         [TestMethod]
         public void AFileWithNoNameIsRefused()
         {
-            var job = Job(new JobFile
-            {
-                Name = "   ",
-                ContentBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(Text)),
-            });
+            var job = Job(new JobFile { Name = "   ", Content = Encoding.UTF8.GetBytes(Text) });
 
             Assert.IsFalse(job.TryNormalize(out _, out var failure),
                 "the name is what every message about this run calls the file, and it becomes the setting's " +
@@ -261,7 +268,7 @@ namespace NoSQL.GraphDB.Tests
             var job = Job(new JobFile
             {
                 Name = "devices\u0007.csv",
-                ContentBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(Text)),
+                Content = Encoding.UTF8.GetBytes(Text),
             });
 
             Assert.IsFalse(job.TryNormalize(out _, out var failure),
@@ -275,12 +282,10 @@ namespace NoSQL.GraphDB.Tests
         public void AFileOverTheCeilingIsRefusedAndNamesBothSizes()
         {
             var oversized = new Byte[64];
-            var job = Job(new JobFile { Name = FileName, ContentBase64 = Convert.ToBase64String(oversized) });
+            var job = Job(new JobFile { Name = FileName, Content = oversized });
 
             Assert.IsFalse(job.TryNormalize(out _, out var failure, 63),
-                "the ceiling is checked on the DECODED length, because that is what the run holds and what " +
-                "the provider parses. Checking the encoded length would state a limit a third smaller than " +
-                "the one configured");
+                "the ceiling is checked on the bytes the run actually holds and the provider parses");
             StringAssert.Contains(failure, "64", "the message names the file's actual size");
             StringAssert.Contains(failure, "63", "and the ceiling, so the caller can tell which to change");
             StringAssert.Contains(failure, "MaxFileBytes",
@@ -292,7 +297,7 @@ namespace NoSQL.GraphDB.Tests
         public void AFileAtExactlyTheCeilingIsAccepted()
         {
             var exact = new Byte[64];
-            var job = Job(new JobFile { Name = FileName, ContentBase64 = Convert.ToBase64String(exact) });
+            var job = Job(new JobFile { Name = FileName, Content = exact });
 
             Assert.IsTrue(job.TryNormalize(out var normalized, out var failure, 64),
                 "the ceiling is inclusive, or the documented limit is one byte smaller than the one that " +
@@ -588,7 +593,7 @@ namespace NoSQL.GraphDB.Tests
             Buffer.BlockCopy(preamble, 0, bytes, 0, preamble.Length);
             Buffer.BlockCopy(body, 0, bytes, preamble.Length, body.Length);
 
-            return new JobFile { Name = name, ContentBase64 = Convert.ToBase64String(bytes) };
+            return new JobFile { Name = name, Content = bytes };
         }
 
         private static IntegrationJob Job(JobFile file = null)

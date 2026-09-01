@@ -365,14 +365,13 @@ namespace NoSQL.GraphDB.Integrations.Run
         }
 
         /// <summary>
-        ///   The file's bytes, however it arrived, with the ceiling checked on the DECODED length. The check
-        ///   is on the decoded length because that is what the run holds and what the provider parses;
-        ///   refusing on the encoded length would state a limit a third smaller than the one configured.
+        ///   The file's bytes, with the ceiling checked on the bytes the run actually holds and the provider
+        ///   parses.
         ///
-        ///   <para>Two arms and ONE tail, deliberately. A multipart part is already bytes and a JSON job's
-        ///   file is base64, so only the way the bytes are obtained differs; everything a caller can be told
-        ///   about them - empty, oversized - is decided below, once. That is what makes the guarantee that
-        ///   one job over either transport produces one identical report structural rather than careful.</para>
+        ///   <para>The only arm that supplies them is a multipart part; a <c>contentBase64</c> field is
+        ///   refused HERE rather than ignored, because ignoring it would leave the caller with "carries no
+        ///   bytes", which is true and says nothing about what to do instead. Everything a caller can be told
+        ///   about a file it did supply - empty, oversized - is decided once, below.</para>
         /// </summary>
         private static Boolean TryDecodeContent(JobFile file, String settingKey, Int64 maxFileBytes,
             out Byte[]? content, out String? failure)
@@ -380,16 +379,26 @@ namespace NoSQL.GraphDB.Integrations.Run
             content = null;
 
             Byte[] decoded;
+            if (file.ContentBase64 != null)
+            {
+                // The base64 arm is GONE, and refused by name rather than ignored. Ignoring it would
+                // leave the caller with "carries no bytes", which is true and unhelpful.
+                //
+                // It was dropped because it bounded the whole job ceiling: base64 costs a third, so the
+                // largest job this transport could deliver inside the proxy's fixed budget was three
+                // quarters of it. Every job now pays that for a shape no client uses. A multipart part
+                // carries the bytes as they are, so the ceiling is the budget rather than a fraction of it.
+                failure = String.Format(
+                    "The file supplied for setting '{0}' carries contentBase64, which this runtime no " +
+                    "longer accepts. Send the job as multipart/form-data with the document in a part " +
+                    "named 'job' and each file in a part named for its setting: base64 costs a third of " +
+                    "the transport budget for no benefit, so the ceiling is higher without it.",
+                    settingKey);
+                return false;
+            }
+
             if (file.Content != null)
             {
-                if (file.ContentBase64 != null)
-                {
-                    failure = String.Format(
-                        "The file supplied for setting '{0}' carries its bytes twice, once raw and once as " +
-                        "contentBase64. Which one is the file is not a thing to guess: a job says it once.",
-                        settingKey);
-                    return false;
-                }
 
                 if (file.Truncated)
                 {
@@ -407,28 +416,13 @@ namespace NoSQL.GraphDB.Integrations.Run
 
                 decoded = file.Content;
             }
-            else if (file.ContentBase64 == null)
-            {
-                failure = String.Format(
-                    "The file supplied for setting '{0}' carries no contentBase64. A file's bytes arrive " +
-                    "there and nowhere else: the runtime opens nothing on disk, so there is no name it " +
-                    "could look up instead.", settingKey);
-                return false;
-            }
             else
             {
-                try
-                {
-                    decoded = Convert.FromBase64String(file.ContentBase64);
-                }
-                catch (FormatException)
-                {
-                    failure = String.Format(
-                        "The contentBase64 supplied for setting '{0}' is not valid base64. The file travels " +
-                        "as bytes rather than as text so that an extract written in UTF-16 arrives intact.",
-                        settingKey);
-                    return false;
-                }
+                failure = String.Format(
+                    "The file supplied for setting '{0}' carries no bytes. A file arrives as a multipart " +
+                    "part named for its setting and nowhere else: the runtime opens nothing on disk, so " +
+                    "there is no name it could look up instead.", settingKey);
+                return false;
             }
 
             // An EMPTY file is refused rather than read as one. Every shipped file provider treats an
@@ -468,10 +462,9 @@ namespace NoSQL.GraphDB.Integrations.Run
     /// <summary>
     ///   One file on a job: what it is called, and what is in it.
     ///
-    ///   <para>Two fields rather than one string because both are load-bearing and neither substitutes for
-    ///   the other. The NAME is what every message about the run calls the file, so a provider's
-    ///   diagnostic can still say "devices.csv row 7"; nothing opens it, resolves it or joins it to a
-    ///   path. The CONTENT is bytes, base64, so a vendor tool's UTF-16 extract decodes exactly as it did
+    ///   <para>The NAME is what every message about the run calls the file, so a provider's diagnostic can
+    ///   still say "devices.csv row 7"; nothing opens it, resolves it or joins it to a path. The CONTENT is
+    ///   the bytes as they arrived, never text, so an extract written in UTF-16 decodes exactly as it did
     ///   when the file came off a mount instead of arriving as mojibake.</para>
     /// </summary>
     public sealed class JobFile
@@ -480,21 +473,23 @@ namespace NoSQL.GraphDB.Integrations.Run
         [JsonPropertyName("name")]
         public String? Name { get; set; }
 
-        /// <summary>The file's bytes, base64. <c>base64 -w0 devices.csv</c> produces exactly this.</summary>
+        /// <summary>
+        ///   RETIRED, and kept only so a job that sets it can be refused BY NAME. A file's bytes arrive as a
+        ///   multipart part; base64 in the document cost a third of the fixed transport bound, which capped
+        ///   the job ceiling for every caller including the ones not using it. Dropping the property instead
+        ///   would leave a caller still sending it with "carries no bytes", which is true and unactionable,
+        ///   because an unknown JSON member is ignored rather than reported.
+        /// </summary>
         [JsonPropertyName("contentBase64")]
         public String? ContentBase64 { get; set; }
 
         /// <summary>
         ///   The file's bytes as they arrived, set only by the multipart reader
-        ///   (<see cref="Hosting.JobRequestReader" />).
+        ///   (<see cref="Hosting.JobRequestReader" />) and the only place a file's content comes from.
         ///
-        ///   <para>Exactly one of this and <see cref="ContentBase64" /> is ever set, and a job with both is
-        ///   refused rather than resolved by precedence: the two would be two statements about one file's
-        ///   content, and picking one silently is how a caller ends up importing the other.</para>
-        ///
-        ///   <para><see cref="JsonIgnoreAttribute" /> is what keeps this off the wire in both directions. It
-        ///   is not a second JSON field for bytes - that is what base64 is for - it is the same file arriving
-        ///   without being expanded by a third on the way.</para>
+        ///   <para><see cref="JsonIgnoreAttribute" /> is what keeps this off the wire in both directions.
+        ///   Bytes have no JSON spelling: a job document names its provider, its settings and its scope, and
+        ///   a file's content travels beside it in a part of its own.</para>
         /// </summary>
         [JsonIgnore]
         public Byte[]? Content { get; set; }
