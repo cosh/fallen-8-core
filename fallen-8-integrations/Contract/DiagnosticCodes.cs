@@ -262,6 +262,29 @@ namespace NoSQL.GraphDB.Integrations.Contract
         public const String ArxmlRedeclaredPaths = "arxmlRedeclaredPaths";
 
         /// <summary>
+        ///   <c>autosar-arxml</c>: more than one file of a set declares the same CLUSTER, so what they say
+        ///   about it was MERGED into one network element carrying all of their channels, frames and
+        ///   attachments.
+        ///
+        ///   <para>Its own code and not <see cref="ArxmlRedeclaredPaths"/>, because the two are different
+        ///   facts with different consequences. A shared signal or compu-method path is the standard's
+        ///   catalogue appearing in every extract, and merging is simply correct. A shared CLUSTER path is
+        ///   either one bus split across extracts, where merging is what the job needs, or two buses that
+        ///   happen to share a reference path, where merging loses the distinction between them and nothing
+        ///   downstream can recover it. The reader cannot tell those apart, so it says so instead of
+        ///   counting the case with the ordinary ones. Reported once per cluster path, subject the path.</para>
+        /// </summary>
+        public const String ArxmlRedeclaredCluster = "arxmlRedeclaredCluster";
+
+        /// <summary>
+        ///   <c>autosar-arxml</c>: the set carried a bus of a kind this version does not read, named with
+        ///   how many files declared one. Everything under that cluster was skipped; the files' other
+        ///   content was read. It matters because the run is still declared COMPLETE over what was read, so
+        ///   a later job that omits these files withdraws whatever only they described.
+        /// </summary>
+        public const String ArxmlUnreadCluster = "arxmlUnreadCluster";
+
+        /// <summary>
         ///   <c>autosar-arxml</c>: a port exists but declares no direction the reader understands, so the
         ///   flow edge is dropped rather than pointed by a guess. A guessed direction would invert a
         ///   sender and a receiver, and a wrong edge answers a query confidently.

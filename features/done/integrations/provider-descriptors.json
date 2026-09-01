@@ -129,7 +129,7 @@
   {
     "id": "autosar-arxml",
     "displayName": "AUTOSAR system extract (ARXML)",
-    "description": "Reads the AUTOSAR classic-platform system extracts (ARXML, schema r4.0) the job carries and describes the FlexRay communication matrix they hold: the network, its ECUs, frames, PDUs, signals, system signals and scaling methods, with the send and receive flow between them. Several extracts of one system are read as one source, so a frame in one of them can carry a signal defined in another.",
+    "description": "Reads the AUTOSAR classic-platform system extracts (ARXML, schema r4.0) the job carries and describes the communication matrix they hold: each bus, its ECUs, frames, PDUs, signals, system signals and scaling methods, with the send and receive flow between them. FlexRay and CAN buses are read. Several extracts of one vehicle are read as one source, so a frame in one of them can carry a signal defined in another and an ECU on two buses is one element attached to both.",
     "settings": [
       {
         "key": "file",

@@ -90,7 +90,32 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         };
 
         // Read as whole subtrees. Everything else streams past.
-        private static readonly HashSet<String> Interesting = BuildInterestSet();
+        private static readonly HashSet<String> Interesting;
+
+        private static readonly Dictionary<String, BusProtocol> ClusterElements;
+
+        private static readonly Dictionary<String, BusProtocol> FrameElements;
+
+        /// <summary>The unread bus kinds as a set, for the membership test in <c>Collect</c>.</summary>
+        private static readonly HashSet<String> UnreadClusters;
+
+        /// <summary>
+        ///   EVERY DERIVED STATIC IS BUILT HERE, IN ORDER, and none of them is a field initialiser.
+        ///
+        ///   <para>Not a style choice. A field initialiser runs in declaration order, so a field that reads
+        ///   another one declared further down the file binds null - and where the read happens inside a
+        ///   helper method the compiler cannot see it, so it is a NullReferenceException from a type
+        ///   initialiser at first use rather than a build error. That is exactly what adding the protocol
+        ///   table caused: the interest set is derived from it and was declared above it. A static
+        ///   constructor makes the order explicit and stops a later reordering from reintroducing it.</para>
+        /// </summary>
+        static ArxmlReader()
+        {
+            ClusterElements = BuildClusterElements();
+            FrameElements = BuildFrameElements();
+            UnreadClusters = new HashSet<String>(UnreadClusterElements, StringComparer.Ordinal);
+            Interesting = BuildInterestSet();
+        }
 
         /// <summary>Where every document's elements and references land, and the only one there is.</summary>
         private readonly Collected _collected = new Collected();
@@ -314,6 +339,98 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             }
         }
 
+        /// <summary>
+        ///   WHAT DIFFERS BETWEEN ONE BUS PROTOCOL AND THE NEXT, which is less than it looks.
+        ///
+        ///   <para>The walk is identical on every protocol: cluster, physical channel, frame triggering,
+        ///   frame, PDU, signal. Only the element NAMES change, plus what the triggering carries: FlexRay
+        ///   nests a schedule, CAN puts an identifier directly on the triggering. So this is a table rather
+        ///   than a reader per protocol.</para>
+        ///
+        ///   <para>A table and not a copied method, for a reason that is not visible from here: an Ethernet
+        ///   cluster has NO frame layer at all - no frame element, no frame triggering, no
+        ///   PDU-to-frame mapping - so a third entry has to be able to say "there is no frame here", and
+        ///   three copies of the cluster walk is how that becomes unaffordable.</para>
+        /// </summary>
+        private sealed class BusProtocol
+        {
+            public BusProtocol(String cluster, String channel, String frame, String frameTriggering,
+                String protocol)
+            {
+                ClusterElement = cluster;
+                ChannelElement = channel;
+                FrameElement = frame;
+                FrameTriggeringElement = frameTriggering;
+                Protocol = protocol;
+            }
+
+            public String ClusterElement { get; }
+
+            public String ChannelElement { get; }
+
+            public String FrameElement { get; }
+
+            public String FrameTriggeringElement { get; }
+
+            /// <summary>The value written to <see cref="ArxmlProperties.Protocol" />.</summary>
+            public String Protocol { get; }
+        }
+
+        /// <summary>
+        ///   What happened when a collector offered an element for a reference path.
+        ///
+        ///   <para>It exists because CONTAINERS and LEAVES want different things from the same answer. A
+        ///   leaf whose path is taken must stop, because the work after it records that element's own
+        ///   references under the same path and would hand them to the surviving twin. A container whose
+        ///   path is taken must CARRY ON, because its children are its own: an ECU's connectors are
+        ///   bus-local, so each extract carries only the ones for its bus, and one real vehicle has three
+        ///   extracts declaring one cluster path with different channels in each.</para>
+        /// </summary>
+        private enum PathClaim
+        {
+            /// <summary>The path was free. This element is now its owner.</summary>
+            Recorded,
+
+            /// <summary>
+            ///   An EARLIER FILE owns the element. Ordinary rather than a fault - every extract of one
+            ///   system repeats the standard's shared packages - and the caller's children still belong to
+            ///   the caller.
+            /// </summary>
+            SharedWithEarlierFile,
+
+            /// <summary>
+            ///   THIS file already declared the path, which contradicts the standard's own terms: one path
+            ///   is one thing. Every caller stops.
+            /// </summary>
+            DuplicateInThisFile,
+        }
+
+        /// <summary>Every bus protocol this version reads. Adding one is adding an entry here.</summary>
+        private static readonly BusProtocol[] BusProtocols =
+        {
+            new BusProtocol("FLEXRAY-CLUSTER", "FLEXRAY-PHYSICAL-CHANNEL", "FLEXRAY-FRAME",
+                "FLEXRAY-FRAME-TRIGGERING", ArxmlProperties.FlexRayProtocol),
+            new BusProtocol("CAN-CLUSTER", "CAN-PHYSICAL-CHANNEL", "CAN-FRAME",
+                "CAN-FRAME-TRIGGERING", ArxmlProperties.CanProtocol),
+        };
+
+        /// <summary>
+        ///   Every cluster element name this version does NOT read, so a run can say which bus it skipped
+        ///   rather than leaving an operator to infer it from a missing network.
+        ///
+        ///   <para>Enumerated rather than derived, because "a cluster kind we do not read" cannot be
+        ///   detected by absence: the reader only materialises its interest set, so an unread cluster is
+        ///   invisible unless it is named here. The cost is that a protocol nobody listed stays silent,
+        ///   which is why the list is a superset of what the standard defines for the classic platform.</para>
+        /// </summary>
+        private static readonly String[] UnreadClusterElements =
+        {
+            "ETHERNET-CLUSTER",
+            "LIN-CLUSTER",
+            "TTCAN-CLUSTER",
+            "J1939-CLUSTER",
+        };
+
         /// <summary>Dispatches one materialised element of the interest set.</summary>
         private static void Collect(String name, String prefix, XElement element, Collected collected)
         {
@@ -333,16 +450,32 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 return;
             }
 
+            if (ClusterElements.TryGetValue(name, out var bus))
+            {
+                CollectCluster(path, shortName, element, collected, bus);
+                return;
+            }
+
+            if (UnreadClusters.Contains(name))
+            {
+                // A bus this version does not read. NOTED rather than skipped, because the alternative is
+                // silence: the reader materialises only its interest set, so an unread bus leaves no trace
+                // at all and an operator is left inferring it from a network that never appeared. Every
+                // element below it stays unread, so the cost is one short-name read per cluster.
+                collected.UnreadCluster(name);
+                return;
+            }
+
+            if (FrameElements.TryGetValue(name, out var frameBus))
+            {
+                CollectFrame(path, shortName, element, collected, frameBus);
+                return;
+            }
+
             switch (name)
             {
                 case "ECU-INSTANCE":
                     CollectEcu(path, shortName, element, collected);
-                    break;
-                case "FLEXRAY-CLUSTER":
-                    CollectCluster(path, shortName, element, collected);
-                    break;
-                case "FLEXRAY-FRAME":
-                    CollectFrame(path, shortName, element, collected);
                     break;
                 case "I-SIGNAL":
                     CollectSignal(path, shortName, element, collected);
@@ -367,10 +500,20 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             }
         }
 
+        /// <summary>
+        ///   An ECU, and the connectors and ports through which it reaches a bus.
+        ///
+        ///   <para>A CONTAINER, so it carries on into its children even when an earlier file already owns
+        ///   the element. That matters here more than anywhere: an ECU's declaration is BUS-LOCAL. A gateway
+        ///   sits on several buses and each extract carries only its own bus's connector for it, so the old
+        ///   rule - an already-owned path means skip the subtree - attached such an ECU to whichever bus
+        ///   happened to be read first and to none of the others. Measured on one real vehicle: 10 of the 17
+        ///   ECUs in a three-extract collision ended up attached to nothing at all.</para>
+        /// </summary>
         private static void CollectEcu(String path, String shortName, XElement element, Collected collected)
         {
-            if (!collected.Add(new ArxmlElement(path, ArxmlKinds.Ecu) { [ArxmlProperties.Name] = shortName },
-                    collected.Ecus))
+            if (collected.Claim(new ArxmlElement(path, ArxmlKinds.Ecu)
+                    { [ArxmlProperties.Name] = shortName }, collected.Ecus) == PathClaim.DuplicateInThisFile)
             {
                 return;
             }
@@ -385,7 +528,16 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 }
 
                 var connectorPath = path + "/" + connectorName;
-                collected.ConnectorToEcu[connectorPath] = path;
+
+                // FIRST declaration wins, on this and every side table below. They are plain dictionary
+                // writes, so under the union rule an unguarded write would be LAST-file-wins, and the graph
+                // would then depend on the order the caller happened to list the files: a determinism
+                // failure the conformance suite checks for, and a source of rewrite-and-re-embed churn on
+                // every run. Guarding here rather than at the read site keeps the rule in one place.
+                if (!collected.ConnectorToEcu.ContainsKey(connectorPath))
+                {
+                    collected.ConnectorToEcu[connectorPath] = path;
+                }
 
                 foreach (var port in Descendants(connector,
                              n => n == "FRAME-PORT" || n == "I-PDU-PORT" || n == "I-SIGNAL-PORT"))
@@ -401,24 +553,41 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     // can tell "the file never defined this port" from "the port is there and its
                     // direction is unusable". Collapsing both into a boolean made every unrecognised
                     // word mean IN, which silently inverts a sender and a receiver.
-                    collected.Ports[connectorPath + "/" + portName] =
-                        Text(port.Element(Ar + "COMMUNICATION-DIRECTION")) ?? String.Empty;
+                    var portPath = connectorPath + "/" + portName;
+                    if (!collected.Ports.ContainsKey(portPath))
+                    {
+                        collected.Ports[portPath] =
+                            Text(port.Element(Ar + "COMMUNICATION-DIRECTION")) ?? String.Empty;
+                    }
                 }
             }
         }
 
+        /// <summary>
+        ///   One bus, and everything the standard hangs inside its cluster.
+        ///
+        ///   <para>A CONTAINER, so it carries on into its children even when an earlier file already owns
+        ///   the element. One real vehicle has three extracts declaring one cluster path with different
+        ///   channel contents; under the old skip-the-subtree rule two of them contributed nothing, losing
+        ///   many of many cluster-internal triggerings. Where that happens the element stays the first
+        ///   file's and its properties are the first file's, which is why the collision is REPORTED
+        ///   (<see cref="ArxmlDiagnosticKind.RedeclaredCluster" />): merging two extracts' channels into one
+        ///   network node is right when they describe one bus and lossy when they describe two, and this
+        ///   reader cannot tell which.</para>
+        /// </summary>
         private static void CollectCluster(String path, String shortName, XElement element,
-            Collected collected)
+            Collected collected, BusProtocol bus)
         {
             // The NETWORK is the CLUSTER and never the channel. A FlexRay cluster's channels A and B are
             // physical redundancy of one bus carrying one schedule, so an element per channel would split a
             // single network into two that no ECU on it experiences as separate, and would double every
-            // frame. The channel still matters internally, because a PDU triggering's path runs through it.
+            // frame. A CAN cluster has exactly one channel, so the question does not arise there. The
+            // channel still matters internally, because a PDU triggering's path runs through it.
             // Counted by DISTINCT short name, not by element: a cluster's variants each repeat the same
             // physical channels, so counting elements would report a two-channel bus as having four.
             var channels = new List<XElement>();
             var channelNames = new HashSet<String>(StringComparer.Ordinal);
-            foreach (var channel in Descendants(element, n => n == "FLEXRAY-PHYSICAL-CHANNEL"))
+            foreach (var channel in Descendants(element, n => n == bus.ChannelElement))
             {
                 channels.Add(channel);
                 var name = Text(channel.Element(Ar + ShortNameElement));
@@ -428,15 +597,35 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 }
             }
 
-            if (!collected.Add(new ArxmlElement(path, ArxmlKinds.Network)
-                {
-                    [ArxmlProperties.Name] = shortName,
-                    [ArxmlProperties.Protocol] = ArxmlProperties.FlexRayProtocol,
-                    [ArxmlProperties.ChannelCount] =
-                        channelNames.Count.ToString(CultureInfo.InvariantCulture),
-                }, collected.Networks))
+            var network = new ArxmlElement(path, ArxmlKinds.Network)
+            {
+                [ArxmlProperties.Name] = shortName,
+                [ArxmlProperties.Protocol] = bus.Protocol,
+                [ArxmlProperties.ChannelCount] =
+                    channelNames.Count.ToString(CultureInfo.InvariantCulture),
+                // Protocol-NEUTRAL: the standard carries these on the cluster conditional of every
+                // protocol, so they are read once here rather than per protocol.
+                [ArxmlProperties.Baudrate] = First(element, "BAUDRATE"),
+                [ArxmlProperties.ProtocolName] = First(element, "PROTOCOL-NAME"),
+                [ArxmlProperties.ProtocolVersion] = First(element, "PROTOCOL-VERSION"),
+            };
+
+            if (String.Equals(bus.Protocol, ArxmlProperties.CanProtocol, StringComparison.Ordinal))
+            {
+                // Present on a CAN bus that runs CAN FD and absent otherwise, which is the fact rather
+                // than a default: a bus with no FD baudrate is a classic CAN bus.
+                network[ArxmlProperties.CanFdBaudrate] = First(element, "CAN-FD-BAUDRATE");
+            }
+
+            var claim = collected.Claim(network, collected.Networks);
+            if (claim == PathClaim.DuplicateInThisFile)
             {
                 return;
+            }
+
+            if (claim == PathClaim.SharedWithEarlierFile)
+            {
+                collected.ClusterRedeclared(path);
             }
 
             foreach (var channel in channels)
@@ -454,13 +643,13 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     var connector = Clean(reference.Value);
                     if (connector != null)
                     {
-                        collected.ConnectorAttachments.Add(new Pair(path, connector));
+                        collected.AttachConnector(path, connector);
                     }
                 }
 
-                foreach (var triggering in Descendants(channel, n => n == "FLEXRAY-FRAME-TRIGGERING"))
+                foreach (var triggering in Descendants(channel, n => n == bus.FrameTriggeringElement))
                 {
-                    CollectFrameTriggering(triggering, collected);
+                    CollectFrameTriggering(triggering, collected, bus);
                 }
 
                 foreach (var triggering in Descendants(channel, n => n == "I-SIGNAL-TRIGGERING"))
@@ -476,7 +665,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                         var port = Clean(portRef.Value);
                         if (port != null)
                         {
-                            collected.FlowByPort.Add(new Pair(signalRef, port));
+                            collected.Flow(signalRef, port);
                         }
                     }
                 }
@@ -485,15 +674,46 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 {
                     var triggeringName = Text(triggering.Element(Ar + ShortNameElement));
                     var pduRef = Text(triggering.Element(Ar + "I-PDU-REF"));
-                    if (triggeringName != null && pduRef != null)
+                    if (triggeringName == null || pduRef == null)
                     {
-                        collected.PduTriggerings[channelPath + "/" + triggeringName] = pduRef;
+                        continue;
+                    }
+
+                    var triggeringPath = channelPath + "/" + triggeringName;
+                    if (!collected.PduTriggerings.ContainsKey(triggeringPath))
+                    {
+                        collected.PduTriggerings[triggeringPath] = pduRef;
+                    }
+
+                    // The PDU's own flow, which neither protocol read until now: a PDU triggering names
+                    // the ports it crosses exactly as a frame triggering does. It is the only flow an
+                    // Ethernet cluster will ever have, since Ethernet carries no frame layer at all.
+                    foreach (var portRef in Descendants(triggering, n => n == "I-PDU-PORT-REF"))
+                    {
+                        var port = Clean(portRef.Value);
+                        if (port != null)
+                        {
+                            collected.Flow(pduRef, port);
+                        }
                     }
                 }
             }
         }
 
-        private static void CollectFrameTriggering(XElement triggering, Collected collected)
+        /// <summary>
+        ///   What a frame's triggering says about the frame, denormalised onto it.
+        ///
+        ///   <para>Onto the FRAME, because a frame's slot or identifier is the fact an engineer asks for and
+        ///   the triggering is the standard's indirection rather than a thing anybody names. The two
+        ///   protocols put it in different places: FlexRay nests a schedule element, CAN carries the
+        ///   identifier and addressing mode directly on the triggering.</para>
+        ///
+        ///   <para>FIRST DECLARATION WINS in both cases, guarded once at the top. A frame can be triggered
+        ///   more than once (two slots, a slot per cycle, or the same frame triggered by two extracts of
+        ///   one bus), and the alternative is a set of fields assembled from different triggerings that
+        ///   describes a transmission appearing nowhere in any file.</para>
+        /// </summary>
+        private static void CollectFrameTriggering(XElement triggering, Collected collected, BusProtocol bus)
         {
             var frameRef = Text(triggering.Element(Ar + "FRAME-REF"));
             if (frameRef == null)
@@ -506,56 +726,73 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 var port = Clean(portRef.Value);
                 if (port != null)
                 {
-                    collected.FlowByPort.Add(new Pair(frameRef, port));
+                    collected.Flow(frameRef, port);
                 }
             }
 
-            // Schedule. Recorded against the FRAME, because a frame's slot is the fact an engineer asks for
-            // and the triggering is the standard's indirection rather than a thing anybody names.
-            //
-            // Read from ONE timing element rather than by searching the triggering for each field
-            // separately: a frame may be scheduled more than once (two slots, or a slot per cycle), and
-            // independent searches would take the slot from the first timing and the cycle from whichever
-            // happened to carry one, reporting a schedule that appears in the file nowhere.
-            if (!collected.FrameSchedules.ContainsKey(frameRef))
+            if (collected.FrameFacts.ContainsKey(frameRef))
             {
-                foreach (var timing in Descendants(triggering,
-                             n => n == "FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING"))
+                return;
+            }
+
+            if (String.Equals(bus.Protocol, ArxmlProperties.CanProtocol, StringComparison.Ordinal))
+            {
+                // Directly on the triggering, and read from the triggering ELEMENT rather than by
+                // descending, so a nested triggering reference cannot contribute somebody else's id.
+                var canId = Text(triggering.Element(Ar + "IDENTIFIER"));
+                var addressing = Text(triggering.Element(Ar + "CAN-ADDRESSING-MODE"));
+                if (canId != null || addressing != null)
                 {
-                    var slot = First(timing, "SLOT-ID");
-                    var baseCycle = First(timing, "BASE-CYCLE");
-                    String? repetition = null;
-                    foreach (var candidate in Descendants(timing, n => n == "CYCLE-REPETITION"))
-                    {
-                        var value = Clean(candidate.Value);
-                        if (value != null && value.StartsWith("CYCLE-REPETITION", StringComparison.Ordinal))
-                        {
-                            repetition = value;
-                            break;
-                        }
-                    }
-
-                    if (slot != null || baseCycle != null || repetition != null)
-                    {
-                        collected.FrameSchedules[frameRef] = new Schedule(slot, baseCycle, repetition);
-                    }
-
-                    // The first timing wins, and only the first is read at all, so the three fields
-                    // always describe one scheduled transmission.
-                    break;
+                    collected.FrameFacts[frameRef] = TriggeringFacts.Can(canId, addressing);
                 }
+
+                return;
+            }
+
+            foreach (var timing in Descendants(triggering,
+                         n => n == "FLEXRAY-ABSOLUTELY-SCHEDULED-TIMING"))
+            {
+                var slot = First(timing, "SLOT-ID");
+                var baseCycle = First(timing, "BASE-CYCLE");
+                String? repetition = null;
+                foreach (var candidate in Descendants(timing, n => n == "CYCLE-REPETITION"))
+                {
+                    var value = Clean(candidate.Value);
+                    if (value != null && value.StartsWith("CYCLE-REPETITION", StringComparison.Ordinal))
+                    {
+                        repetition = value;
+                        break;
+                    }
+                }
+
+                if (slot != null || baseCycle != null || repetition != null)
+                {
+                    collected.FrameFacts[frameRef] =
+                        TriggeringFacts.FlexRay(slot, baseCycle, repetition);
+                }
+
+                // Only the first timing is read at all, so the three fields always describe one
+                // scheduled transmission.
+                break;
             }
         }
 
+        /// <summary>
+        ///   A frame. Identical on both protocols, which is the measured basis for one <c>frame</c> kind
+        ///   rather than one per bus: a CAN frame carries the same children as a FlexRay one.
+        /// </summary>
         private static void CollectFrame(String path, String shortName, XElement element,
-            Collected collected)
+            Collected collected, BusProtocol bus)
         {
-            if (!collected.Add(new ArxmlElement(path, ArxmlKinds.Frame)
+            if (collected.Claim(new ArxmlElement(path, ArxmlKinds.Frame)
                 {
                     [ArxmlProperties.Name] = shortName,
                     [ArxmlProperties.FrameLengthBytes] = Text(element.Element(Ar + "FRAME-LENGTH")),
-                }, collected.Frames))
+                }, collected.Frames) != PathClaim.Recorded)
             {
+                // A LEAF, so an already-owned path still means skip: the work below records this element's
+                // own references keyed by its path, and repeating it would give the surviving twin this
+                // one's edges.
                 return;
             }
 
@@ -579,7 +816,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 [ArxmlProperties.LengthBytes] = Text(element.Element(Ar + "LENGTH")),
             };
             Describe(pdu, element);
-            if (!collected.Add(pdu, collected.Pdus))
+            if (collected.Claim(pdu, collected.Pdus) != PathClaim.Recorded)
             {
                 return;
             }
@@ -623,7 +860,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 [ArxmlProperties.BaseType] = LastSegment(First(element, "BASE-TYPE-REF")),
             };
             Describe(signal, element);
-            if (!collected.Add(signal, collected.Signals))
+            if (collected.Claim(signal, collected.Signals) != PathClaim.Recorded)
             {
                 return;
             }
@@ -644,7 +881,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 [ArxmlProperties.Name] = shortName,
             };
             Describe(systemSignal, element);
-            if (!collected.Add(systemSignal, collected.SystemSignals))
+            if (collected.Claim(systemSignal, collected.SystemSignals) != PathClaim.Recorded)
             {
                 return;
             }
@@ -660,11 +897,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         private static void CollectCompuMethod(String path, String shortName, XElement element,
             Collected collected)
         {
-            if (!collected.Add(new ArxmlElement(path, ArxmlKinds.CompuMethod)
+            if (collected.Claim(new ArxmlElement(path, ArxmlKinds.CompuMethod)
                 {
                     [ArxmlProperties.Name] = shortName,
                     [ArxmlProperties.Category] = Text(element.Element(Ar + "CATEGORY")),
-                }, collected.CompuMethods))
+                }, collected.CompuMethods) != PathClaim.Recorded)
             {
                 return;
             }
@@ -734,13 +971,18 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 }
             }
 
-            foreach (var pair in collected.FrameSchedules)
+            foreach (var pair in collected.FrameFacts)
             {
                 if (collected.Frames.TryGetValue(pair.Key, out var frame))
                 {
+                    // Each protocol writes only its own fields, so a CAN frame carries no slot and a
+                    // FlexRay frame no identifier. A null assignment is a no-op on ArxmlElement, so the
+                    // absent ones never reach the snapshot as empty properties.
                     frame[ArxmlProperties.SlotId] = pair.Value.Slot;
                     frame[ArxmlProperties.BaseCycle] = pair.Value.BaseCycle;
                     frame[ArxmlProperties.CycleRepetition] = pair.Value.Repetition;
+                    frame[ArxmlProperties.CanId] = pair.Value.CanId;
+                    frame[ArxmlProperties.CanAddressingMode] = pair.Value.AddressingMode;
                 }
                 else
                 {
@@ -751,6 +993,23 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             foreach (var element in collected.Ordered())
             {
                 network.Elements.Add(element);
+            }
+
+            // What the set carried that this version cannot read. Carried on the network AND reported: the
+            // provider needs the list to say what it found when nothing readable turned up, and an operator
+            // whose job DID import a bus still needs telling that another one went by unread, because the
+            // snapshot is declared complete either way.
+            foreach (var unread in collected.UnreadClusterKinds())
+            {
+                network.UnreadClusters.Add(unread);
+                network.Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.UnreadCluster,
+                    String.Format(CultureInfo.InvariantCulture,
+                        "The set carries a {0} in {1} file(s), and this version does not read that bus. " +
+                        "Everything under it was skipped, so its ECUs, frames and flow are absent, while " +
+                        "any signals and PDUs those files declare outside it were still read. The run is " +
+                        "reported as COMPLETE over what was read, so a later job that leaves these files " +
+                        "out withdraws whatever only they described.", unread.Element, unread.Files),
+                    unread.Element));
             }
 
             // An ECU is attached to a network through its CONNECTOR, which is not an entity: the connector
@@ -1023,13 +1282,29 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             var set = new HashSet<String>(StringComparer.Ordinal)
             {
                 "ECU-INSTANCE",
-                "FLEXRAY-CLUSTER",
-                "FLEXRAY-FRAME",
                 "I-SIGNAL",
                 "SYSTEM-SIGNAL",
                 "COMPU-METHOD",
                 "UNIT",
             };
+
+            // Derived from the protocol table rather than listed again, so adding a protocol is adding one
+            // table entry. A cluster element missing from the interest set is not a compile error and not a
+            // failure either: the reader would simply never see that bus.
+            foreach (var bus in BusProtocols)
+            {
+                set.Add(bus.ClusterElement);
+                set.Add(bus.FrameElement);
+            }
+
+            // The cluster kinds this version does NOT read are in the interest set too, and that is the
+            // whole mechanism behind naming them in a diagnostic: the reader materialises only what it is
+            // interested in, so an unread bus is invisible unless it is asked for. They dispatch to nothing
+            // in Collect, which is what makes them cost a short-name read and no more.
+            foreach (var unread in UnreadClusterElements)
+            {
+                set.Add(unread);
+            }
 
             foreach (var pdu in PduElements)
             {
@@ -1037,6 +1312,28 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             }
 
             return set;
+        }
+
+        private static Dictionary<String, BusProtocol> BuildClusterElements()
+        {
+            var map = new Dictionary<String, BusProtocol>(StringComparer.Ordinal);
+            foreach (var bus in BusProtocols)
+            {
+                map[bus.ClusterElement] = bus;
+            }
+
+            return map;
+        }
+
+        private static Dictionary<String, BusProtocol> BuildFrameElements()
+        {
+            var map = new Dictionary<String, BusProtocol>(StringComparer.Ordinal);
+            foreach (var bus in BusProtocols)
+            {
+                map[bus.FrameElement] = bus;
+            }
+
+            return map;
         }
 
         /// <summary>One level of the short-name stack.</summary>
@@ -1052,13 +1349,22 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             public String? ShortName { get; set; }
         }
 
-        private sealed class Schedule
+        /// <summary>
+        ///   What one frame's triggering said about it. PROTOCOL-CONDITIONAL by construction: a FlexRay
+        ///   triggering fills the schedule fields and a CAN one fills the identity fields, and neither
+        ///   fills the other's, which is why every field is nullable and why the two named constructors
+        ///   exist instead of one taking five arguments.
+        /// </summary>
+        private sealed class TriggeringFacts
         {
-            public Schedule(String? slot, String? baseCycle, String? repetition)
+            private TriggeringFacts(String? slot, String? baseCycle, String? repetition, String? canId,
+                String? addressingMode)
             {
                 Slot = slot;
                 BaseCycle = baseCycle;
                 Repetition = repetition;
+                CanId = canId;
+                AddressingMode = addressingMode;
             }
 
             public String? Slot { get; }
@@ -1066,6 +1372,20 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             public String? BaseCycle { get; }
 
             public String? Repetition { get; }
+
+            public String? CanId { get; }
+
+            public String? AddressingMode { get; }
+
+            public static TriggeringFacts FlexRay(String? slot, String? baseCycle, String? repetition)
+            {
+                return new TriggeringFacts(slot, baseCycle, repetition, null, null);
+            }
+
+            public static TriggeringFacts Can(String? canId, String? addressingMode)
+            {
+                return new TriggeringFacts(null, null, null, canId, addressingMode);
+            }
         }
 
         private sealed class Pair
@@ -1114,6 +1434,20 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
             private Int32 _redeclared;
 
+            /// <summary>Unread bus kinds, in first-seen order, each with the files that declared one.</summary>
+            private readonly List<String> _unreadOrder = new List<String>();
+
+            private readonly Dictionary<String, HashSet<String>> _unreadFiles =
+                new Dictionary<String, HashSet<String>>(StringComparer.Ordinal);
+
+            /// <summary>Cluster paths already reported as re-declared, so the diagnostic is once per path.</summary>
+            private readonly HashSet<String> _redeclaredClusters = new HashSet<String>(StringComparer.Ordinal);
+
+            /// <summary>Attachments and flows already recorded, so the union cannot repeat a relation.</summary>
+            private readonly HashSet<String> _attachmentsSeen = new HashSet<String>(StringComparer.Ordinal);
+
+            private readonly HashSet<String> _flowSeen = new HashSet<String>(StringComparer.Ordinal);
+
             public Dictionary<String, ArxmlElement> Networks { get; } = New();
 
             public Dictionary<String, ArxmlElement> Ecus { get; } = New();
@@ -1140,8 +1474,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             public Dictionary<String, String> PduTriggerings { get; } =
                 new Dictionary<String, String>(StringComparer.Ordinal);
 
-            public Dictionary<String, Schedule> FrameSchedules { get; } =
-                new Dictionary<String, Schedule>(StringComparer.Ordinal);
+            public Dictionary<String, TriggeringFacts> FrameFacts { get; } =
+                new Dictionary<String, TriggeringFacts>(StringComparer.Ordinal);
 
             public Dictionary<String, String> SignalToSystemSignal { get; } =
                 new Dictionary<String, String>(StringComparer.Ordinal);
@@ -1208,24 +1542,21 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             }
 
             /// <summary>
-            ///   Records an element unless its path is already taken. A repeat is the FIRST one winning, in
-            ///   both cases below: the alternative is a silent overwrite whose result depends on the order the
-            ///   files happen to be written in.
+            ///   Offers an element for a reference path, and says what the caller should do next.
             ///
-            ///   <para>WITHIN one document a repeat is a fault and named per path: one path is one thing in
-            ///   the standard's own terms, so a file declaring one twice contradicts itself. ACROSS documents
-            ///   it is ordinary - the shared packages are in every extract - and is counted for the aggregate
-            ///   <see cref="EndDocument"/> reports. Only what the per-path diagnostic would have counted is
-            ///   counted here, which is why a repeated UNIT (not an element, and silently first-wins within a
-            ///   file too) does not appear in either.</para>
+            ///   <para>The ELEMENT is always the first declaration's: a later file never overwrites one, so
+            ///   which properties an element carries can never depend on the order the caller listed the
+            ///   files. What changed when multi-bus input arrived is that a later file may still contribute
+            ///   the container's CHILDREN, which is <see cref="PathClaim" />'s whole subject; the old rule
+            ///   skipped the subtree and so attached a gateway ECU to one bus and lost two extracts' worth
+            ///   of a shared cluster's channels.</para>
             ///
-            ///   <para>Returns FALSE when the element was refused, and every caller must stop there. The
-            ///   caller's remaining work records the element's REFERENCES keyed by that same path, so
-            ///   carrying on would give the surviving element the refused twin's unit chain and both
-            ///   twins' edges: the twin would be invisible in the element list and present in the graph
-            ///   anyway.</para>
+            ///   <para>WITHIN one document a repeat is still a fault and still named per path. ACROSS
+            ///   documents it is counted for the aggregate <see cref="EndDocument"/> reports. Only what the
+            ///   per-path diagnostic would have counted is counted, which is why a repeated UNIT (not an
+            ///   element, and silently first-wins within a file too) appears in neither.</para>
             /// </summary>
-            public Boolean Add(ArxmlElement element, Dictionary<String, ArxmlElement> byKind)
+            public PathClaim Claim(ArxmlElement element, Dictionary<String, ArxmlElement> byKind)
             {
                 if (PathOwner.TryGetValue(element.Path, out var owner))
                 {
@@ -1237,20 +1568,99 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                             "in the standard's own terms, and keeping both would make which one wins depend " +
                             "on the order the file happens to be written in.",
                             element.Path));
-                    }
-                    else
-                    {
-                        _redeclared++;
+                        return PathClaim.DuplicateInThisFile;
                     }
 
-                    return false;
+                    _redeclared++;
+                    return PathClaim.SharedWithEarlierFile;
                 }
 
                 PathOwner[element.Path] = _documents;
                 byKind[element.Path] = element;
                 All[element.Path] = element;
                 Order.Add(element.Path);
-                return true;
+                return PathClaim.Recorded;
+            }
+
+            /// <summary>
+            ///   Reports that a CLUSTER path was declared by more than one file, once per path however many
+            ///   files pile onto it.
+            ///
+            ///   <para>Separate from the ordinary re-declaration count because the two are different facts.
+            ///   A shared signal or compu-method path is the standard's catalogue appearing in every
+            ///   extract, which is expected. A shared CLUSTER path means several extracts describe what this
+            ///   reader will present as ONE bus, unioning their channels: right when they are one bus split
+            ///   across extracts, lossy when they are two buses that happen to share a path, and nothing
+            ///   here can tell which. So it is said out loud rather than counted with the ordinary ones.</para>
+            /// </summary>
+            public void ClusterRedeclared(String path)
+            {
+                if (!_redeclaredClusters.Add(path))
+                {
+                    return;
+                }
+
+                Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.RedeclaredCluster,
+                    "More than one file in the set declares this CLUSTER, so what they say about it was " +
+                    "MERGED into one network: the first file's own properties, and the channels, frames and " +
+                    "attachments of all of them. That is what one bus split across several extracts needs. " +
+                    "If these are really two different buses that happen to share a reference path, they " +
+                    "are now one network in the graph and nothing downstream can separate them again - " +
+                    "check the extracts describe the same bus.",
+                    path));
+            }
+
+            /// <summary>
+            ///   Notes that this file declared a bus of a kind this version does not read. Counted per KIND
+            ///   and per FILE, so the report is "Ethernet, in 18 files" rather than one line per cluster.
+            /// </summary>
+            public void UnreadCluster(String element)
+            {
+                if (!_unreadFiles.TryGetValue(element, out var files))
+                {
+                    files = new HashSet<String>(StringComparer.Ordinal);
+                    _unreadFiles[element] = files;
+                    _unreadOrder.Add(element);
+                }
+
+                files.Add(_documentName);
+            }
+
+            /// <summary>The unread bus kinds, in first-seen order so a run stays reproducible.</summary>
+            public IEnumerable<UnreadCluster> UnreadClusterKinds()
+            {
+                foreach (var element in _unreadOrder)
+                {
+                    yield return new UnreadCluster(element, _unreadFiles[element].Count);
+                }
+            }
+
+            /// <summary>
+            ///   An ECU connector attached to a bus, recorded once however many files say it.
+            ///
+            ///   <para>Deduped HERE and not downstream. Under the union rule two extracts of one bus both
+            ///   name the same connector, and nothing between this and the graph removes a repeated
+            ///   relation: <c>Relate</c> appends. An ordered list plus a seen-set rather than a set alone,
+            ///   because emission order has to stay stable for the conformance suite's determinism check.</para>
+            /// </summary>
+            public void AttachConnector(String networkPath, String connectorRef)
+            {
+                if (_attachmentsSeen.Add(networkPath + "\u0000" + connectorRef))
+                {
+                    ConnectorAttachments.Add(new Pair(networkPath, connectorRef));
+                }
+            }
+
+            /// <summary>
+            ///   A thing that crosses a port, recorded once however many files or triggerings say it. Deduped
+            ///   for the same reason as <see cref="AttachConnector" />.
+            /// </summary>
+            public void Flow(String reference, String portRef)
+            {
+                if (_flowSeen.Add(reference + "\u0000" + portRef))
+                {
+                    FlowByPort.Add(new Pair(reference, portRef));
+                }
             }
 
             /// <summary>The elements in the order the files described them, which keeps a run reproducible.</summary>

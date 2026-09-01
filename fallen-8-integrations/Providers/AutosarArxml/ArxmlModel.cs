@@ -49,6 +49,33 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         /// <summary>What the files could not say. Never fatal: each costs one edge or one element.</summary>
         public List<ArxmlDiagnostic> Diagnostics { get; } = new List<ArxmlDiagnostic>();
+
+        /// <summary>
+        ///   The bus kinds the set carried that this version does not read, in the order they were first
+        ///   seen, each with how many files it appeared in.
+        ///
+        ///   <para>Not the same as a diagnostic, though it produces one: the provider needs the list itself
+        ///   to decide what to SAY when nothing readable was found, so that a set of Ethernet extracts is
+        ///   refused with "this version reads FlexRay and CAN, and the set carries Ethernet" rather than
+        ///   with a bare "no bus".</para>
+        /// </summary>
+        public List<UnreadCluster> UnreadClusters { get; } = new List<UnreadCluster>();
+    }
+
+    /// <summary>One bus kind a set carried that this version does not read.</summary>
+    public sealed class UnreadCluster
+    {
+        public UnreadCluster(String element, Int32 files)
+        {
+            Element = element;
+            Files = files;
+        }
+
+        /// <summary>The AUTOSAR element name, such as <c>ETHERNET-CLUSTER</c>.</summary>
+        public String Element { get; }
+
+        /// <summary>How many files of the set declared one.</summary>
+        public Int32 Files { get; }
     }
 
     /// <summary>
@@ -160,6 +187,21 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   is the re-declaring FILE, since that is the only thing a reader can act on.
         /// </summary>
         RedeclaredPaths = 3,
+
+        /// <summary>
+        ///   Several files of a set declared one CLUSTER, so their channels were merged into one network.
+        ///   Its own kind rather than part of <see cref="RedeclaredPaths"/>: merging a shared catalogue path
+        ///   is always right, whereas merging a cluster is right for one bus split across extracts and
+        ///   lossy for two buses that share a path, and the reader cannot tell which it has.
+        /// </summary>
+        RedeclaredCluster = 4,
+
+        /// <summary>
+        ///   The set carried a bus of a kind this version does not read, so everything under that cluster
+        ///   was skipped while the files' other content was still read. Reported rather than left silent
+        ///   because the run is declared COMPLETE over what it did read.
+        /// </summary>
+        UnreadCluster = 5,
     }
 
     /// <summary>
@@ -242,26 +284,74 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         /// <summary>The element's own short name.</summary>
         public const String Name = "name";
 
-        /// <summary>The bus protocol. Its only value today is <see cref="FlexRayProtocol"/>.</summary>
+        /// <summary>
+        ///   The bus protocol: <see cref="FlexRayProtocol"/> or <see cref="CanProtocol"/>. A query that
+        ///   filters on it is filtering on which of the protocol-conditional properties below exist.
+        /// </summary>
         public const String Protocol = "protocol";
 
         /// <summary>The value of <see cref="Protocol"/> for a FlexRay cluster.</summary>
         public const String FlexRayProtocol = "flexray";
 
-        /// <summary>How many physical channels the cluster carries, which for FlexRay is redundancy.</summary>
+        /// <summary>The value of <see cref="Protocol"/> for a CAN cluster.</summary>
+        public const String CanProtocol = "can";
+
+        /// <summary>
+        ///   How many physical channels the cluster carries, which for FlexRay is redundancy and for CAN is
+        ///   always one.
+        ///
+        ///   <para>Nothing should be built on this number. It carries no information on either protocol
+        ///   today, and on Ethernet a channel is a VLAN, so a count would collapse a couple of dozen
+        ///   distinct broadcast domains into one figure that means something else entirely.</para>
+        /// </summary>
         public const String ChannelCount = "channelCount";
+
+        /// <summary>
+        ///   The bus's nominal bit rate. Protocol-neutral: the standard carries it on the cluster
+        ///   conditional of every protocol.
+        /// </summary>
+        public const String Baudrate = "baudrate";
+
+        /// <summary>The bus's data-phase bit rate, on a CAN bus that runs CAN FD. Absent otherwise.</summary>
+        public const String CanFdBaudrate = "canFdBaudrate";
+
+        /// <summary>The protocol name the file states, which is the vendor's word rather than this
+        /// reader's. Kept beside <see cref="Protocol"/> and never instead of it.</summary>
+        public const String ProtocolName = "protocolName";
+
+        /// <summary>The protocol version the file states.</summary>
+        public const String ProtocolVersion = "protocolVersion";
 
         /// <summary>A frame's length in bytes.</summary>
         public const String FrameLengthBytes = "frameLengthBytes";
 
-        /// <summary>The FlexRay slot a frame is scheduled in.</summary>
+        /// <summary>
+        ///   The FlexRay slot a frame is scheduled in. PROTOCOL-CONDITIONAL: absent on a CAN frame, which
+        ///   is not scheduled at all, so a query must tolerate its absence rather than assume zero.
+        /// </summary>
         public const String SlotId = "slotId";
 
-        /// <summary>The first cycle a frame is scheduled in.</summary>
+        /// <summary>The first cycle a frame is scheduled in. Absent on CAN, as <see cref="SlotId"/>.</summary>
         public const String BaseCycle = "baseCycle";
 
-        /// <summary>How often the frame repeats across the cycle counter.</summary>
+        /// <summary>How often the frame repeats across the cycle counter. Absent on CAN.</summary>
         public const String CycleRepetition = "cycleRepetition";
+
+        /// <summary>
+        ///   A CAN frame's identifier, which is what an engineer names a CAN frame by. Absent on FlexRay,
+        ///   which addresses by slot instead.
+        ///
+        ///   <para>Denormalised from the frame's TRIGGERING onto the frame, exactly as the FlexRay schedule
+        ///   is, because the triggering is the standard's indirection rather than a thing anybody names. The
+        ///   first declaration wins where a frame is triggered more than once.</para>
+        /// </summary>
+        public const String CanId = "canId";
+
+        /// <summary>
+        ///   Whether a CAN frame's identifier is standard or extended, as the standard's own word. Absent on
+        ///   FlexRay. It is not derivable from the identifier: an 11-bit value is legal in either mode.
+        /// </summary>
+        public const String CanAddressingMode = "canAddressingMode";
 
         /// <summary>Which flavour of PDU this is, as the AUTOSAR element name.</summary>
         public const String PduKind = "pduKind";

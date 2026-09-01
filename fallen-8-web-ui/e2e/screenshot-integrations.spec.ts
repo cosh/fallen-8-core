@@ -78,7 +78,7 @@ test("capture the Integrations screen rendered from the shipped descriptors", as
       contentType: "application/json",
       body: JSON.stringify({
         maxFileBytes: 134217728,
-        maxJobFileBytes: 536870912,
+        maxJobFileBytes: 587202560,
         maxJobFiles: 256,
       }),
     }),

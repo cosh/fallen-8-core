@@ -20874,7 +20874,7 @@
             ],
             "description": "The most DECODED bytes one job's files may come to in total, across every file\r\n    setting on it. One request carries a whole run, so this is the sum the runtime holds at once.",
             "format": "int64",
-            "example": 536870912
+            "example": 587202560
           },
           "maxJobFiles": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",

@@ -1702,13 +1702,49 @@ namespace NoSQL.GraphDB.Tests
         ///   and used by Studio to refuse a job before uploading it: changing one quietly makes all three
         ///   of those wrong at once.
         /// </summary>
+        /// <summary>
+        ///   THE JOB CEILING MUST BE DELIVERABLE OVER BOTH TRANSPORTS, which is a tighter bound than the
+        ///   proxy's own and is the reason the default is 560 MiB rather than a rounder larger number.
+        ///
+        ///   <para>A job may arrive as multipart, where its files are raw bytes, or as JSON, where they are
+        ///   base64 and so a third larger. Both go through the proxy's fixed transport bound. So the largest
+        ///   job the JSON arm can deliver is that bound times three quarters, and a runtime ceiling above it
+        ///   would accept jobs the proxy refuses with a bare 413 - the confusable refusal that
+        ///   integration-file-transport existed to remove, reintroduced for JSON callers only, which is the
+        ///   hardest kind to notice.</para>
+        ///
+        ///   <para>The arithmetic is in the failure message on purpose: whoever raises this next should be
+        ///   stopped by a test that explains itself rather than by a support case.</para>
+        /// </summary>
+        [TestMethod]
+        public void TheJobCeilingStaysDeliverableOverBothTransports()
+        {
+            var ceiling = new IntegrationsOptions().MaxJobFileBytes;
+            var budget = ProxyJobTransportLimit - 1_048_576L;
+            var overJson = budget * 3 / 4;
+
+            Assert.IsTrue(ceiling <= overJson, String.Format(CultureInfo.InvariantCulture,
+                "Integrations:MaxJobFileBytes is {0} bytes ({1:F1} MiB), which base64 expands to {2:F1} MiB, " +
+                "over the {3:F1} MiB the proxy's transport bound leaves for files. A job between {4:F1} and " +
+                "{1:F1} MiB would be accepted by this runtime and refused by the proxy with a bare 413. " +
+                "The ceiling for BOTH transports is {4:F1} MiB.",
+                ceiling, ceiling / 1048576.0, ceiling * 4.0 / 3.0 / 1048576.0, budget / 1048576.0,
+                overJson / 1048576.0));
+
+            // And it really does have to be above the vehicle it was raised for, or the raise bought
+            // nothing: one measured CAN-plus-FlexRay export is a large size.
+            Assert.IsTrue(ceiling >= 541_300_000L,
+                "the ceiling no longer covers a whole vehicle's readable buses in one job, which is the " +
+                "only shape that does not withdraw the buses a smaller job leaves out");
+        }
+
         [TestMethod]
         public void TheShippedFileCeilings_AreTheOnesEveryClientAndDocumentAssumes()
         {
             var options = new IntegrationsOptions();
 
             Assert.AreEqual(134_217_728L, options.MaxFileBytes, "Integrations:MaxFileBytes changed");
-            Assert.AreEqual(536_870_912L, options.MaxJobFileBytes, "Integrations:MaxJobFileBytes changed");
+            Assert.AreEqual(587_202_560L, options.MaxJobFileBytes, "Integrations:MaxJobFileBytes changed");
             Assert.AreEqual(256, options.MaxJobFiles, "Integrations:MaxJobFiles changed");
         }
 
@@ -1730,7 +1766,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(RuntimeFactory.MaxFileBytes, body.GetProperty("maxFileBytes").GetInt64(),
                 "the runtime reported a per-file ceiling that is not the one this host configured, so the " +
                 "route is answering from a constant and an operator's setting would never reach a client");
-            Assert.AreEqual(536_870_912L, body.GetProperty("maxJobFileBytes").GetInt64(),
+            Assert.AreEqual(587_202_560L, body.GetProperty("maxJobFileBytes").GetInt64(),
                 "the job-total ceiling is not the shipped default this host leaves alone");
             Assert.AreEqual(256, body.GetProperty("maxJobFiles").GetInt32(),
                 "the file count ceiling is not the shipped default this host leaves alone");
@@ -1779,7 +1815,7 @@ namespace NoSQL.GraphDB.Tests
         public async Task TheProxyLimitsRoute_PassesThroughACeilingItCanCarry()
         {
             var controller = new IntegrationsController(new CannedLimitsClient(
-                "{\"maxFileBytes\":134217728,\"maxJobFileBytes\":536870912,\"maxJobFiles\":256}"))
+                "{\"maxFileBytes\":134217728,\"maxJobFileBytes\":587202560,\"maxJobFiles\":256}"))
             {
                 ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
             };
@@ -1791,7 +1827,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(134_217_728L, limits.MaxFileBytes,
                 "the shipped per-file ceiling was altered, so the proxy is answering its own bound rather " +
                 "than the runtime's configuration");
-            Assert.AreEqual(536_870_912L, limits.MaxJobFileBytes, "the shipped job-total ceiling was altered");
+            Assert.AreEqual(587_202_560L, limits.MaxJobFileBytes, "the shipped job-total ceiling was altered");
             Assert.AreEqual(256, limits.MaxJobFiles, "the shipped count ceiling was altered");
         }
 

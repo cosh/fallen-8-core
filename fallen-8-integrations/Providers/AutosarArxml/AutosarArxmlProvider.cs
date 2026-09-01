@@ -79,10 +79,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             DisplayName = "AUTOSAR system extract (ARXML)",
             Description =
                 "Reads the AUTOSAR classic-platform system extracts (ARXML, schema r4.0) the job carries " +
-                "and describes the FlexRay communication matrix they hold: the network, its ECUs, frames, " +
-                "PDUs, signals, system signals and scaling methods, with the send and receive flow " +
-                "between them. Several extracts of one system are read as one source, so a frame in one " +
-                "of them can carry a signal defined in another.",
+                "and describes the communication matrix they hold: each bus, its ECUs, frames, PDUs, " +
+                "signals, system signals and scaling methods, with the send and receive flow between " +
+                "them. FlexRay and CAN buses are read. Several extracts of one vehicle are read as one " +
+                "source, so a frame in one of them can carry a signal defined in another and an ECU on " +
+                "two buses is one element attached to both.",
             Settings = new[]
             {
                 new ProviderSetting
@@ -151,7 +152,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         /// </summary>
         /// <exception cref="ProviderConfigurationException">The setting is missing.</exception>
         /// <exception cref="ProviderSourceException">A file could not be read, is not an AUTOSAR
-        /// r4.0 extract, or no file in the set carries a FlexRay cluster. Each fails the RUN and
+        /// r4.0 extract, or no file in the set carries a bus this version reads. Each fails the RUN and
         /// withdraws nothing: describing an unreadable file as an empty network would withdraw every
         /// element this identity ever claimed, and "I could not look" must never become "there is
         /// nothing there".</exception>
@@ -213,19 +214,27 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             {
                 // A communication matrix with no bus in it has not been OBSERVED, it has failed to be
                 // observed: the files are readable AUTOSAR but describe something else (a software
-                // component package, a diagnostic extract, a CAN-only network this version does not
+                // component package, a diagnostic extract, or a bus of a kind this version does not
                 // read). Reporting it as an empty complete snapshot would delete the whole network a
                 // previous run described.
                 //
                 // Judged over the SET and never per file: a body-domain extract with no bus in it is
                 // perfectly ordinary beside a chassis extract that has one, and failing per file would
                 // refuse exactly the jobs this provider now exists to accept.
+                //
+                // Narrowed rather than removed when CAN arrived. It still has to fail, for the reason
+                // above; what changed is that "no FlexRay cluster" is no longer the same statement as "no
+                // bus", so the message names what WAS found when the set turns out to carry a bus of a
+                // kind this version skips - which is the difference between an operator upgrading and an
+                // operator hunting for a corrupt file.
+                var unread = DescribeUnread(network.UnreadClusters);
                 throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
-                    "Nothing in '{0}', the extract set named by setting '{1}', carries a FlexRay cluster, " +
-                    "though every file in it read as AUTOSAR, so there is no communication matrix in the " +
-                    "set to describe. This version reads FlexRay clusters only. The run fails rather than " +
-                    "reporting an empty network, because a complete snapshot with nothing in it withdraws " +
-                    "every element this identity claimed.", settingValue, FileSetting));
+                    "Nothing in '{0}', the extract set named by setting '{1}', carries a bus this version " +
+                    "reads, though every file in it read as AUTOSAR, so there is no communication matrix " +
+                    "in the set to describe. This version reads FlexRay and CAN clusters.{2} The run fails " +
+                    "rather than reporting an empty network, because a complete snapshot with nothing in " +
+                    "it withdraws every element this identity claimed.",
+                    settingValue, FileSetting, unread));
             }
 
             var snapshot = new SnapshotDocument
@@ -273,9 +282,38 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         }
 
         /// <summary>
-        ///   The wire code of a reader diagnostic. The mapping lives here rather than in the reader so
-        ///   the reader carries no dependency on the snapshot contract, and an unmapped kind is a
-        ///   compile-time hole rather than a silent "unknown".
+        ///   Names the buses a set carried that this version does not read, for the refusal above. Empty
+        ///   when there were none, so the sentence reads normally in the ordinary case: a set with no bus
+        ///   at all is a different problem from a set full of a bus we skip, and one message serves both
+        ///   only if it says which it is.
+        /// </summary>
+        private static String DescribeUnread(IReadOnlyList<UnreadCluster> unread)
+        {
+            if (unread.Count == 0)
+            {
+                return String.Empty;
+            }
+
+            var names = new List<String>(unread.Count);
+            foreach (var cluster in unread)
+            {
+                names.Add(String.Format(CultureInfo.InvariantCulture, "{0} (in {1} file(s))",
+                    cluster.Element, cluster.Files));
+            }
+
+            return String.Format(CultureInfo.InvariantCulture,
+                " The set does carry {0}, which a later version may read.", String.Join(", ", names));
+        }
+
+        /// <summary>
+        ///   The wire code of a reader diagnostic. The mapping lives here rather than in the reader so the
+        ///   reader carries no dependency on the snapshot contract.
+        ///
+        ///   <para>An unmapped kind throws AT RUNTIME, in the middle of observing, rather than failing the
+        ///   build: this is a switch over an enum, and C# does not require it to be exhaustive. The doc here
+        ///   claimed a compile-time hole for a while and there was never one, so adding a kind means adding
+        ///   an arm in the same change, and <c>EveryDiagnosticKindHasAWireCode</c> is what actually enforces
+        ///   it.</para>
         /// </summary>
         private static String CodeOf(ArxmlDiagnosticKind kind)
         {
@@ -289,6 +327,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     return DiagnosticCodes.ArxmlUndecidablePortDirection;
                 case ArxmlDiagnosticKind.RedeclaredPaths:
                     return DiagnosticCodes.ArxmlRedeclaredPaths;
+                case ArxmlDiagnosticKind.RedeclaredCluster:
+                    return DiagnosticCodes.ArxmlRedeclaredCluster;
+                case ArxmlDiagnosticKind.UnreadCluster:
+                    return DiagnosticCodes.ArxmlUnreadCluster;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(kind), kind,
                         "Every reader diagnostic kind needs a wire code, or a report would carry one " +

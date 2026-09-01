@@ -173,7 +173,7 @@ ceilings before you pick anything and reports the send as it happens, with a can
 
    ```bash
    curl -sS http://localhost:8080/integrations/limits
-   # {"maxFileBytes":134217728,"maxJobFileBytes":536870912,"maxJobFiles":256}
+   # {"maxFileBytes":134217728,"maxJobFileBytes":587202560,"maxJobFiles":256}
    ```
 
    Those are the numbers that BIND for you: the ceiling is the smaller of the runtime's own
@@ -183,8 +183,10 @@ ceilings before you pick anything and reports the send as it happens, with a can
 2. If a set is over the total, **narrow the set** rather than splitting it across runs. For an
    integration whose files are one source together, this is the trap that matters: a later run given
    fewer files declares a complete snapshot over what it was given and withdraws whatever only the
-   missing files described. Raise `Integrations:MaxJobFileBytes` on the runtime instead, up to the
-   768 MiB bound above it.
+   missing files described. Raise `Integrations:MaxJobFileBytes` on the runtime instead, but not past
+   about **575 MiB**: the API's 768 MiB bound is what the request has to fit through, and over the
+   base64 transport a job expands by a third on the way, so a higher ceiling would have the runtime
+   accept jobs the API then refuses with a bare 413.
 
 3. A file over the per-file ceiling is refused on its own and named. A job with too many files is
    refused on the count, which exists because a great many tiny files satisfy both byte ceilings.
