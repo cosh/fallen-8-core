@@ -228,6 +228,21 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         /// <summary>A communication cluster: the bus itself.</summary>
         public const String Network = "network";
 
+        /// <summary>
+        ///   One PHYSICAL CHANNEL of a cluster, which is a different thing on each protocol and is why it
+        ///   is an element rather than a count.
+        ///
+        ///   <para>On CAN it is the single channel a cluster has. On FlexRay it is redundancy: A and B carry
+        ///   one schedule, which is why they are two channels of ONE network rather than two networks. On
+        ///   ETHERNET a channel is a VLAN, so a cluster has as many as the vehicle has broadcast domains,
+        ///   and which one an ECU sits on is a question an engineer asks directly.</para>
+        ///
+        ///   <para>It replaced a <c>channelCount</c> property on the network, which could not answer that
+        ///   question and would have collapsed a couple of dozen VLANs into one number meaning something
+        ///   else.</para>
+        /// </summary>
+        public const String Channel = "channel";
+
         /// <summary>An ECU instance: a controller on the bus.</summary>
         public const String Ecu = "ecu";
 
@@ -250,8 +265,22 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
     /// <summary>The relation types this provider emits, which become edge types.</summary>
     public static class ArxmlRelations
     {
-        /// <summary>ECU to network. The connector that joins them is not itself described.</summary>
+        /// <summary>
+        ///   ECU to network, AND ECU to channel. The connector that joins them is not itself described.
+        ///
+        ///   <para>Both, deliberately, and they are not one edge written twice. The network one answers "is
+        ///   this ECU on this bus" without knowing the protocol; the channel one answers "which broadcast
+        ///   domain", which only means anything on Ethernet. On CAN the two coincide, and that is a fact
+        ///   about CAN rather than a redundancy in the model.</para>
+        /// </summary>
         public const String AttachedTo = "attachedTo";
+
+        /// <summary>
+        ///   STRUCTURAL containment: a channel to its network, and on Ethernet an endpoint, socket or
+        ///   connection to its channel. One relation for every level rather than one per pair, because
+        ///   "what is under this bus" should not need a type per depth.
+        /// </summary>
+        public const String PartOf = "partOf";
 
         /// <summary>ECU to frame or signal, from a port whose direction is OUT.</summary>
         public const String Sends = "sends";
@@ -297,14 +326,21 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         public const String CanProtocol = "can";
 
         /// <summary>
-        ///   How many physical channels the cluster carries, which for FlexRay is redundancy and for CAN is
-        ///   always one.
-        ///
-        ///   <para>Nothing should be built on this number. It carries no information on either protocol
-        ///   today, and on Ethernet a channel is a VLAN, so a count would collapse a couple of dozen
-        ///   distinct broadcast domains into one figure that means something else entirely.</para>
+        ///   The value of <see cref="Protocol"/> for an ETHERNET cluster, where it says more than on the
+        ///   other two: an Ethernet bus has NO frame layer, so a query that reaches signals through frames
+        ///   finds nothing on it and has to go through the PDU instead. Filtering on this is how a traversal
+        ///   knows which shape it is standing in.
         /// </summary>
-        public const String ChannelCount = "channelCount";
+        public const String EthernetProtocol = "ethernet";
+
+        /// <summary>
+        ///   An Ethernet channel's VLAN identifier, which is what makes one channel a distinct broadcast
+        ///   domain from the next. Absent on CAN and FlexRay, where a channel is not a VLAN at all.
+        /// </summary>
+        public const String VlanId = "vlanId";
+
+        /// <summary>The VLAN's own name, when the source carries one beside the identifier.</summary>
+        public const String VlanName = "vlanName";
 
         /// <summary>
         ///   The bus's nominal bit rate. Protocol-neutral: the standard carries it on the cluster

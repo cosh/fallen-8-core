@@ -172,11 +172,23 @@ namespace NoSQL.GraphDB.Tests
                 "the gateway was described twice, so the two extracts' views did not merge");
 
             // attachedTo runs FROM the ECU TO the bus, so a path query starts at the unit and reaches the
-            // networks it sits on.
-            var buses = Targets(network, "/Ecus/ECU_Gateway", ArxmlRelations.AttachedTo);
-            CollectionAssert.AreEqual(new[] { "/Clusters/BODYCAN", "/Clusters/CHASSISFR" }, buses,
-                "the gateway reached [" + String.Join(", ", buses) + "] rather than both its buses, " +
-                "which is the defect this feature fixes. Diagnostics: " + Describe(network));
+            // networks it sits on - and, since the channel became an element, the channels too. Both are
+            // asserted: on CAN and FlexRay the two coincide, and it is on Ethernet that the channel edge
+            // starts saying something the network edge cannot (which VLAN).
+            var reached = Targets(network, "/Ecus/ECU_Gateway", ArxmlRelations.AttachedTo);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "/Clusters/BODYCAN", "/Clusters/BODYCAN/BODYCAN_CH",
+                    "/Clusters/CHASSISFR", "/Clusters/CHASSISFR/CHASSISFR_CH_A",
+                },
+                reached,
+                "the gateway reached [" + String.Join(", ", reached) + "] rather than both its buses and " +
+                "their channels, which is the defect this feature fixes. Diagnostics: " + Describe(network));
+
+            Assert.AreEqual(2, reached.Count(p => p.Count(c => c == '/') == 2),
+                "exactly two of those are the NETWORKS, so 'which buses is this gateway on' stays a " +
+                "one-hop question after the channel became an element");
         }
 
         /// <summary>
@@ -278,10 +290,10 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void AnUnreadBusIsNamedWithTheNumberOfFilesThatCarryOne()
         {
-            var network = ReadSet(("body-can.arxml", CanExtract), ("backbone.arxml", EthernetExtract));
+            var network = ReadSet(("body-can.arxml", CanExtract), ("comfort-lin.arxml", UnreadBusExtract));
 
-            var unread = network.UnreadClusters.SingleOrDefault(u => u.Element == "ETHERNET-CLUSTER");
-            Assert.IsNotNull(unread, "the Ethernet bus went by unmentioned: " + Describe(network));
+            var unread = network.UnreadClusters.SingleOrDefault(u => u.Element == "LIN-CLUSTER");
+            Assert.IsNotNull(unread, "the LIN bus went by unmentioned: " + Describe(network));
             Assert.AreEqual(1, unread.Files);
 
             var said = network.Diagnostics.Single(d => d.Kind == ArxmlDiagnosticKind.UnreadCluster);
@@ -302,25 +314,25 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ASetOfOnlyUnreadBuses_DescribesNoNetworkAtAll()
         {
-            var network = ArxmlReader.Read(EthernetExtract);
+            var network = ArxmlReader.Read(UnreadBusExtract);
 
             Assert.AreEqual(0, network.Elements.Count(e => e.Kind == ArxmlKinds.Network));
             Assert.AreEqual(1, network.UnreadClusters.Count);
-            Assert.AreEqual("ETHERNET-CLUSTER", network.UnreadClusters[0].Element);
+            Assert.AreEqual("LIN-CLUSTER", network.UnreadClusters[0].Element);
         }
 
         /// <summary>The same unread kind in several files is one diagnostic naming the count.</summary>
         [TestMethod]
         public void TheSameUnreadBusInSeveralFilesIsCountedOnce()
         {
-            var network = ReadSet(("backbone-a.arxml", EthernetExtract), ("backbone-b.arxml", EthernetExtract),
+            var network = ReadSet(("comfort-a.arxml", UnreadBusExtract), ("comfort-b.arxml", UnreadBusExtract),
                 ("body-can.arxml", CanExtract));
 
             var unread = network.UnreadClusters.Single();
-            Assert.AreEqual("ETHERNET-CLUSTER", unread.Element);
+            Assert.AreEqual("LIN-CLUSTER", unread.Element);
             Assert.AreEqual(2, unread.Files,
-                "two files declared an Ethernet cluster, and the report counts FILES so an operator can " +
-                "tell one stray extract from a whole segment they meant to include");
+                "two files declared a LIN cluster, and the report counts FILES so an operator can tell one " +
+                "stray extract from a whole segment they meant to include");
             Assert.AreEqual(1, network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.UnreadCluster));
         }
 
@@ -801,24 +813,31 @@ namespace NoSQL.GraphDB.Tests
             """;
 
         /// <summary>A bus this version does not read, carrying nothing else readable.</summary>
-        private const String EthernetExtract = """
+        /// <summary>
+        ///   A bus this version does NOT read, which is what these three tests are about. It used to be an
+        ///   Ethernet cluster; Ethernet is read now (feature arxml-vehicle-model, step 2), so the fixture
+        ///   moved to LIN rather than the tests being weakened to match. The mechanism it exercises - a bus
+        ///   nobody reads has to be NAMED, because the reader materialises only its interest set and would
+        ///   otherwise leave no trace of it - is the same whichever protocol is unread.
+        /// </summary>
+        private const String UnreadBusExtract = """
             <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
               <AR-PACKAGES>
                 <AR-PACKAGE>
                   <SHORT-NAME>Clusters</SHORT-NAME>
                   <ELEMENTS>
-                    <ETHERNET-CLUSTER>
-                      <SHORT-NAME>BACKBONE</SHORT-NAME>
-                      <ETHERNET-CLUSTER-VARIANTS>
-                        <ETHERNET-CLUSTER-CONDITIONAL>
+                    <LIN-CLUSTER>
+                      <SHORT-NAME>COMFORT_LIN</SHORT-NAME>
+                      <LIN-CLUSTER-VARIANTS>
+                        <LIN-CLUSTER-CONDITIONAL>
                           <PHYSICAL-CHANNELS>
-                            <ETHERNET-PHYSICAL-CHANNEL>
-                              <SHORT-NAME>VLAN_1</SHORT-NAME>
-                            </ETHERNET-PHYSICAL-CHANNEL>
+                            <LIN-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>LIN_CH</SHORT-NAME>
+                            </LIN-PHYSICAL-CHANNEL>
                           </PHYSICAL-CHANNELS>
-                        </ETHERNET-CLUSTER-CONDITIONAL>
-                      </ETHERNET-CLUSTER-VARIANTS>
-                    </ETHERNET-CLUSTER>
+                        </LIN-CLUSTER-CONDITIONAL>
+                      </LIN-CLUSTER-VARIANTS>
+                    </LIN-CLUSTER>
                   </ELEMENTS>
                 </AR-PACKAGE>
               </AR-PACKAGES>

@@ -436,6 +436,145 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region the channel is an element (feature arxml-vehicle-model, step 1)
+
+        /// <summary>
+        ///   FlexRay redundancy: channels A and B are TWO channels of ONE network. Both halves are the point.
+        ///   Two networks would double every frame and describe two buses nothing on the bus experiences as
+        ///   separate; one channel would lose the fact that the bus is redundant at all.
+        /// </summary>
+        [TestMethod]
+        public void ARedundantFlexRayClusterIsTwoChannelsOfOneNetwork()
+        {
+            var network = ArxmlReader.Read(TwoChannelCluster);
+
+            Assert.AreEqual(1, network.Elements.Count(e => e.Kind == ArxmlKinds.Network),
+                "A and B are redundancy of ONE bus carrying one schedule");
+
+            var channels = network.Elements
+                .Where(e => e.Kind == ArxmlKinds.Channel)
+                .Select(e => e.Path)
+                .OrderBy(x => x, StringComparer.Ordinal)
+                .ToArray();
+            CollectionAssert.AreEqual(
+                new[] { "/Clusters/REDBUS/REDBUS_CH_A", "/Clusters/REDBUS/REDBUS_CH_B" }, channels,
+                "and both channels are elements of their own, because a channel is where an Ethernet VLAN " +
+                "will live and a query cannot reach one that was only walked through");
+
+            foreach (var channel in channels)
+            {
+                CollectionAssert.AreEqual(new[] { "/Clusters/REDBUS" },
+                    Targets(network, channel, ArxmlRelations.PartOf).ToArray(),
+                    "each says which network it belongs to");
+            }
+        }
+
+        /// <summary>
+        ///   A cluster's VARIANTS each repeat the same physical channels, and the repeat is the SAME channel
+        ///   rather than a second one. This is the bug the removed <c>channelCount</c> property had to count
+        ///   by distinct short name to avoid, and making the channel an element moved the fix from a count
+        ///   to the ordinary path claim - so this test is what says the claim really is doing it.
+        /// </summary>
+        [TestMethod]
+        public void AChannelRepeatedByASecondVariantIsTheSameChannel()
+        {
+            var network = ArxmlReader.Read(TwoChannelCluster);
+
+            Assert.AreEqual(2, network.Elements.Count(e => e.Kind == ArxmlKinds.Channel),
+                "the fixture's second variant repeats channel A, and a reader counting elements rather " +
+                "than claiming paths would report three channels on a two-channel bus");
+            Assert.AreEqual(2, network.Relations.Count(r => r.Type == ArxmlRelations.PartOf),
+                "and the repeat must not emit a second partOf edge either: a duplicated structural edge " +
+                "makes every count over the graph wrong in a way nothing downstream can undo");
+        }
+
+        /// <summary>
+        ///   A redundant bus attaches its ECU to the network ONCE, however many channels carry the
+        ///   connector, and to each channel it is really on. The network edge is deduped because "on this
+        ///   bus" is one fact; the channel edges are not, because they are different facts.
+        /// </summary>
+        [TestMethod]
+        public void AnEcuOnBothChannelsAttachesOnceToTheBusAndOnceToEachChannel()
+        {
+            var network = ArxmlReader.Read(TwoChannelCluster);
+
+            var reached = Targets(network, "/Ecus/RED_CTRL", ArxmlRelations.AttachedTo);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "/Clusters/REDBUS", "/Clusters/REDBUS/REDBUS_CH_A", "/Clusters/REDBUS/REDBUS_CH_B",
+                },
+                reached.ToArray(),
+                "the ECU sits on one bus over two channels, so it reaches the network once and each " +
+                "channel once: [" + String.Join(", ", reached) + "]");
+        }
+
+        /// <summary>
+        ///   A FlexRay cluster with two physical channels and, deliberately, a SECOND variant repeating
+        ///   channel A - which is how a real cluster is written and is what makes the claim rather than a
+        ///   count the thing that decides how many channels there are.
+        /// </summary>
+        private const String TwoChannelCluster = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Ecus</SHORT-NAME>
+                  <ELEMENTS>
+                    <ECU-INSTANCE>
+                      <SHORT-NAME>RED_CTRL</SHORT-NAME>
+                      <COMM-CONNECTORS>
+                        <FLEXRAY-COMMUNICATION-CONNECTOR>
+                          <SHORT-NAME>RED_CTRL_CONN</SHORT-NAME>
+                        </FLEXRAY-COMMUNICATION-CONNECTOR>
+                      </COMM-CONNECTORS>
+                    </ECU-INSTANCE>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>REDBUS</SHORT-NAME>
+                      <FLEXRAY-CLUSTER-VARIANTS>
+                        <FLEXRAY-CLUSTER-CONDITIONAL>
+                          <BAUDRATE>10000000</BAUDRATE>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>REDBUS_CH_A</SHORT-NAME>
+                              <COMM-CONNECTORS>
+                                <COMMUNICATION-CONNECTOR-REF-CONDITIONAL>
+                                  <COMMUNICATION-CONNECTOR-REF DEST="FLEXRAY-COMMUNICATION-CONNECTOR">/Ecus/RED_CTRL/RED_CTRL_CONN</COMMUNICATION-CONNECTOR-REF>
+                                </COMMUNICATION-CONNECTOR-REF-CONDITIONAL>
+                              </COMM-CONNECTORS>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>REDBUS_CH_B</SHORT-NAME>
+                              <COMM-CONNECTORS>
+                                <COMMUNICATION-CONNECTOR-REF-CONDITIONAL>
+                                  <COMMUNICATION-CONNECTOR-REF DEST="FLEXRAY-COMMUNICATION-CONNECTOR">/Ecus/RED_CTRL/RED_CTRL_CONN</COMMUNICATION-CONNECTOR-REF>
+                                </COMMUNICATION-CONNECTOR-REF-CONDITIONAL>
+                              </COMM-CONNECTORS>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER-CONDITIONAL>
+                        <FLEXRAY-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>REDBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER-CONDITIONAL>
+                      </FLEXRAY-CLUSTER-VARIANTS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        #endregion
+
         #region a document is read from its BYTES
 
         /// <summary>
@@ -709,13 +848,14 @@ namespace NoSQL.GraphDB.Tests
 
             var byKind = network.Elements.GroupBy(e => e.Kind).ToDictionary(g => g.Key, g => g.Count());
             Assert.AreEqual(1, byKind[ArxmlKinds.Network], "one cluster is one network");
+            Assert.AreEqual(1, byKind[ArxmlKinds.Channel], "and its one physical channel is one channel");
             Assert.AreEqual(3, byKind[ArxmlKinds.Ecu]);
             Assert.AreEqual(2, byKind[ArxmlKinds.Frame]);
             Assert.AreEqual(5, byKind[ArxmlKinds.Pdu], "four flavours plus the NM PDU");
             Assert.AreEqual(3, byKind[ArxmlKinds.Signal]);
             Assert.AreEqual(3, byKind[ArxmlKinds.SystemSignal]);
             Assert.AreEqual(2, byKind[ArxmlKinds.CompuMethod]);
-            Assert.AreEqual(7, byKind.Count, "a UNIT is not an entity, it is where a unit's display name comes from");
+            Assert.AreEqual(8, byKind.Count, "a UNIT is not an entity, it is where a unit's display name comes from");
         }
 
         [TestMethod]
@@ -732,13 +872,24 @@ namespace NoSQL.GraphDB.Tests
             // A NAMED sibling inside the same element (the communication controller) must not disturb the
             // stack either: if it did, the connector path would gain a segment and every port reference
             // in the file would stop resolving.
-            Assert.AreEqual(3, network.Relations.Count(r => r.Type == ArxmlRelations.AttachedTo),
-                "all three ECUs attach to the network, which they can only do if their connector paths " +
-                "were rebuilt exactly as the channel writes them");
+            Assert.AreEqual(6, network.Relations.Count(r => r.Type == ArxmlRelations.AttachedTo),
+                "all three ECUs attach to the network AND to the channel, which they can only do if their " +
+                "connector paths were rebuilt exactly as the channel writes them");
+            Assert.AreEqual(3, Sources(network, ArxmlRelations.AttachedTo, "/Clusters/DEMOBUS").Count,
+                "three of those reach the network");
+            Assert.AreEqual(3, Sources(network, ArxmlRelations.AttachedTo, "/Clusters/DEMOBUS/DEMOBUS_CH_A")
+                    .Count,
+                "and three reach the channel, from the same connector references");
         }
 
+        /// <summary>
+        ///   The NETWORK is still the cluster, and the CHANNEL is now an element under it. Both halves
+        ///   matter: a network per channel would split a FlexRay bus in two that nothing on it experiences
+        ///   as separate and double every frame, while a channel that is only walked through cannot answer
+        ///   which VLAN an ECU sits on - which on Ethernet is the whole question.
+        /// </summary>
         [TestMethod]
-        public void TheNetworkIsTheCluster_NotItsPhysicalChannel()
+        public void TheNetworkIsTheCluster_AndTheChannelIsAnElementUnderIt()
         {
             var network = Read();
             var bus = Element(network, "/Clusters/DEMOBUS");
@@ -746,11 +897,23 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(ArxmlKinds.Network, bus.Kind);
             Assert.AreEqual("DEMOBUS", bus[ArxmlProperties.Name]);
             Assert.AreEqual(ArxmlProperties.FlexRayProtocol, bus[ArxmlProperties.Protocol]);
-            Assert.AreEqual("1", bus[ArxmlProperties.ChannelCount]);
-            Assert.IsFalse(network.Elements.Any(e => e.Path.StartsWith("/Clusters/DEMOBUS/", StringComparison.Ordinal)),
-                "a channel must not become an element of its own: FlexRay channels A and B are physical " +
-                "redundancy of ONE bus carrying one schedule, so an element per channel would split one " +
-                "network into two that nothing on the bus experiences as separate, and would double every frame");
+            Assert.AreEqual(1, network.Elements.Count(e => e.Kind == ArxmlKinds.Network),
+                "one cluster is ONE network however many channels it carries");
+
+            var channel = Element(network, "/Clusters/DEMOBUS/DEMOBUS_CH_A");
+            Assert.AreEqual(ArxmlKinds.Channel, channel.Kind);
+            Assert.AreEqual("DEMOBUS_CH_A", channel[ArxmlProperties.Name]);
+            Assert.AreEqual(ArxmlProperties.FlexRayProtocol, channel[ArxmlProperties.Protocol],
+                "the protocol is denormalised onto the channel so a query for 'every VLAN' can filter " +
+                "channels without joining to the cluster to find out which ones are the Ethernet ones");
+            CollectionAssert.AreEqual(new[] { "/Clusters/DEMOBUS" },
+                Targets(network, "/Clusters/DEMOBUS/DEMOBUS_CH_A", ArxmlRelations.PartOf).ToArray(),
+                "and it says which network it belongs to, structurally");
+
+            Assert.IsNull(channel[ArxmlProperties.VlanId],
+                "a FlexRay channel is not a VLAN, so the VLAN properties are ABSENT rather than empty: " +
+                "a query filtering on vlanId must find Ethernet channels and only those");
+            Assert.IsNull(channel[ArxmlProperties.VlanName]);
         }
 
         #endregion
@@ -1661,7 +1824,8 @@ namespace NoSQL.GraphDB.Tests
             // another order a different network.
             foreach (var network in new[] { chassisFirst, bodyFirst })
             {
-                Assert.AreEqual(10, network.Elements.Count);
+                // 12: the ten of before plus the two clusters' channels, which became elements of their own.
+                Assert.AreEqual(12, network.Elements.Count);
                 CollectionAssert.AreEqual(new[] { "/ISignals/SIG_Body" },
                     Targets(network, "/Pdus/PDU_Chassis", ArxmlRelations.Contains));
                 CollectionAssert.AreEqual(new[] { "/Pdus/PDU_Body" },

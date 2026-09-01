@@ -111,14 +111,17 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             DisplayName = "AUTOSAR system extract (ARXML)",
             Description =
                 "Reads the AUTOSAR classic-platform system extracts (ARXML, schema r4.0) the job carries " +
-                "and describes the communication matrix they hold: each bus, its ECUs, frames, PDUs, " +
-                "signals, system signals and scaling methods, with the send and receive flow between " +
-                "them. FlexRay and CAN buses are read. Several extracts of one vehicle are read as one " +
-                "source, so a frame in one of them can carry a signal defined in another and an ECU on " +
-                "two buses is one element attached to both. The job names the VEHICLE, which becomes " +
-                "part of every element's identity, so two vehicles can be imported under one identity " +
-                "without merging: an AUTOSAR reference path identifies an element within one system " +
-                "description, not across several.",
+                "and describes the communication matrix they hold: each bus, its channels, its ECUs, " +
+                "frames, PDUs, signals, system signals and scaling methods, with the send and receive " +
+                "flow between them. CAN, FlexRay and ETHERNET buses are read. An Ethernet bus has no " +
+                "frame layer, so its signals are reached through the PDU instead, and each of its " +
+                "channels is a VLAN an ECU is or is not on. Several extracts of one vehicle are read as " +
+                "one source, so a frame in one of them can carry a signal defined in another and an ECU " +
+                "on two buses is one element attached to both; a value carried on several buses is one " +
+                "system signal with a per-bus signal each, which is what joins the buses to each other. " +
+                "The job names the VEHICLE, which becomes part of every element's identity, so two " +
+                "vehicles can be imported under one identity without merging: an AUTOSAR reference path " +
+                "identifies an element within one system description, not across several.",
             Settings = new[]
             {
                 new ProviderSetting
@@ -161,6 +164,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             EntityKinds = new[]
             {
                 ArxmlKinds.Network,
+                ArxmlKinds.Channel,
                 ArxmlKinds.Ecu,
                 ArxmlKinds.Frame,
                 ArxmlKinds.Pdu,
@@ -172,6 +176,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             RelationTypes = new[]
             {
                 ArxmlRelations.AttachedTo,
+                ArxmlRelations.PartOf,
                 ArxmlRelations.Sends,
                 ArxmlRelations.DeliversTo,
                 ArxmlRelations.Contains,

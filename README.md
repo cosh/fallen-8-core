@@ -64,7 +64,8 @@ Each feature has a deep-dive doc — follow the link.
   JSON that round-trips exactly.
 - **[Integrations](https://docs.fallen-8.com/integrations/)**: a sidecar that reads a system on
   your own network (a CSV inventory, a UniFi console, a Fronius inverter, a set of AUTOSAR
-  vehicle-network extracts) and writes what it saw into a namespace, with exact-match identity and
+  vehicle-network extracts across a vehicle's CAN, FlexRay and Ethernet buses) and writes what it
+  saw into a namespace, with exact-match identity and
   credentials **and uploaded files** that are held for one run and never stored. A run can be
   **watched**, **stopped** at a safe point without withdrawing anything, and **picked up where it
   stopped** after a restart of the runtime.

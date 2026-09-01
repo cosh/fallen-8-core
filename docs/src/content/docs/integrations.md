@@ -22,7 +22,7 @@ the people who built this in the loop.
 | `csv-device-list` | a CSV file you upload with the run: MAC, name, note, hostname | nothing but the file |
 | `unifi-network` | a UniFi console's integration API, locally or through the cloud connector: sites, adopted devices, clients, and the uplink topology between them | an API key for the front door you point it at, and the two differ: a local console's key comes from the Network application under Settings then Integrations, while `api.ui.com` takes a Site Manager key from unifi.ui.com under Settings then API Keys |
 | `fronius-solar` | a Fronius Solar API on your own network: inverters and the logging device in front of them | nothing. The local Solar API is unauthenticated |
-| `autosar-arxml` | an AUTOSAR system extract (`.arxml`) you upload with the run: a vehicle network's communication matrix over its FlexRay and CAN buses, so its ECUs, frames, PDUs, signals and the flow between them ([below](#reading-a-vehicle-network)) | nothing but the file |
+| `autosar-arxml` | an AUTOSAR system extract (`.arxml`) you upload with the run: a vehicle network's communication matrix over its CAN, FlexRay and Ethernet buses, so its channels, ECUs, frames, PDUs, signals and the flow between them ([below](#reading-a-vehicle-network)) | nothing but the file |
 
 ## Running one
 
@@ -581,8 +581,9 @@ Two things worth knowing before you run it:
 ## Reading a vehicle network
 
 `autosar-arxml` reads **AUTOSAR system extracts**, the XML files the automotive industry uses to
-exchange the communication matrix of a vehicle network, and describes the **FlexRay and CAN** buses
-they carry. They are [uploaded with the job](#files) like the CSV integration's file.
+exchange the communication matrix of a vehicle network, and describes the **CAN, FlexRay and
+Ethernet** buses they carry. They are [uploaded with the job](#files) like the CSV integration's
+file.
 
 **Give it the whole set in one run.** A vehicle is handed over as one extract per domain or per bus,
 and those extracts reference each other by AUTOSAR path, so one run over all of them resolves a frame
@@ -603,18 +604,50 @@ one bus split across extracts needs. It is reported (`arxmlRedeclaredCluster`), 
 merge is lossy if the two extracts really describe different buses that happen to share a reference
 path, and nothing in the file distinguishes those two cases.
 
-What lands in the graph is each bus, its ECUs, the frames on it, the PDUs inside those frames
-(including the container and secured layers), the signals inside the PDUs, the system signals they
-implement and the scaling methods that give them a unit. One vocabulary covers both bus
-technologies: a CAN frame and a FlexRay frame are both `frame`, so a query for "what does this ECU
-send" never has to enumerate a label per protocol. What differs is a few properties, and they are
-absent rather than empty on the protocol that has no use for them: a FlexRay frame carries
-`slotId`, `baseCycle` and `cycleRepetition`, a CAN frame carries `canId` and
-`canAddressingMode`, and every bus carries `protocol`, `baudrate` and the protocol name and version
-the file states. A query that filters on `protocol` is really filtering on which of those exist. The edges are the
-questions people actually ask: `sends` and `deliversTo` point **with** the data flow, so a path
-from a sending ECU to a receiving one never traverses an edge backwards, while `contains`,
-`carries` and `secures` walk down the protocol stack from a frame to a single signal.
+What lands in the graph is each bus (`network`), its physical channels (`channel`), its ECUs, the
+frames on it, the PDUs inside those frames (including the container and secured layers), the signals
+inside the PDUs, the system signals they implement and the scaling methods that give them a unit. One
+vocabulary covers every bus technology: a CAN frame and a FlexRay frame are both `frame`, so a query
+for "what does this ECU send" never has to enumerate a label per protocol. What differs is a few
+properties, and they are absent rather than empty on the protocol that has no use for them: a FlexRay
+frame carries `slotId`, `baseCycle` and `cycleRepetition`, a CAN frame carries `canId` and
+`canAddressingMode`, an Ethernet channel carries `vlanId` and `vlanName`, and every bus carries
+`protocol`, `baudrate` and the protocol name and version the file states. A query that filters on
+`protocol` is really filtering on which of those exist. The edges are the questions people actually
+ask: `sends` and `deliversTo` point **with** the data flow, so a path from a sending ECU to a
+receiving one never traverses an edge backwards; `contains`, `carries` and `secures` walk down the
+protocol stack from a frame to a single signal; and `partOf` is plain structure, a channel to its bus.
+
+**A channel is a different thing on each protocol**, which is why it is an element rather than a
+count. On CAN it is the single channel a cluster has. On FlexRay it is redundancy: A and B carry one
+schedule, so they are two channels of **one** network rather than two networks. On Ethernet a channel
+is a **VLAN**, so a backbone has as many as the vehicle has broadcast domains, and which one an ECU
+sits on is a question you can ask directly. An ECU is `attachedTo` its bus **and** each channel it is
+really on: the first answers "is this unit on this bus" without knowing the protocol, the second
+answers "which broadcast domain".
+
+**An Ethernet bus has no frame layer at all.** That is the standard's own shape rather than something
+missing: an Ethernet channel carries PDU triggerings directly, and the socket layer does what a frame
+does elsewhere. So a query that reaches signals *through frames* finds nothing on an Ethernet bus,
+and the protocol-neutral route - the PDU - is the one to write. A frame is better understood as how
+CAN and FlexRay **address** a PDU, exactly as a socket connection and a header id is how Ethernet
+addresses one.
+
+### One value, several buses
+
+This is what makes importing a vehicle worth more than importing its buses one at a time. A value
+carried on more than one bus is **one bus-independent `system-signal` with a per-bus `signal`
+each**, joined by `implements` - never a shared signal, because a signal is a wire representation and
+two buses do not share one. So a wheel speed produced on CAN and consumed on Ethernet is one element
+both buses reach, and the walk crosses protocols without knowing which are involved:
+
+```
+ecu -sends-> signal -implements-> system-signal <-implements- signal -deliversTo-> ecu
+```
+
+Nothing configures that. It follows from having both buses in one graph, which is why giving the run
+the whole set (or [scoping](#scope-when-one-source-needs-more-than-one-job) each job of it) is the
+part that matters.
 
 Identity is the **vehicle you name** plus the element's **AUTOSAR reference path**, which the
 standard already makes both its identity and the way every cross-reference in the file addresses
@@ -633,16 +666,15 @@ The ARXML form is specified by AUTOSAR's
 under one identity without resolving onto each other. Use the **same** name for every job describing
 one vehicle, so its buses join up into one graph; use a different name for a different vehicle.
 
-Two limits worth knowing up front. This version reads **FlexRay and CAN** clusters. A set carrying
-a bus of another kind still imports what it can, and names what it skipped
-(`arxmlUnreadCluster`) - worth reading, because the run is reported COMPLETE over what it did read,
-so a later job that omits those files withdraws whatever only they described. A readable set carrying
-**no** bus this version reads fails the run outright rather than reporting an empty network, because
-an empty complete snapshot would delete the network a previous run described; one extract of a set
-having no cluster is perfectly normal, since the gate is over the union. Ethernet clusters are not
-read yet: they are a different model rather than another protocol, carrying no frame layer at all.
-And the software-component level (the data mappings between components) is deliberately not read:
-this is the network view.
+Two limits worth knowing up front. This version reads **CAN, FlexRay and Ethernet** clusters. A set
+carrying a bus of another kind - LIN, for instance - still imports what it can, and names what it
+skipped (`arxmlUnreadCluster`): worth reading, because the run is reported COMPLETE over what it did
+read, so a later job that omits those files withdraws whatever only they described. A readable set
+carrying **no** bus this version reads fails the run outright rather than reporting an empty network,
+because an empty complete snapshot would delete the network a previous run described; one extract of
+a set having no cluster is perfectly normal, since the gate is over the union. And the
+software-component level (the data mappings between components) is deliberately not read: this is
+the network view.
 
 ### Finding a signal you cannot name
 

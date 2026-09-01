@@ -411,7 +411,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         /// </summary>
         private sealed class BusProtocol
         {
-            public BusProtocol(String cluster, String channel, String frame, String frameTriggering,
+            public BusProtocol(String cluster, String channel, String? frame, String? frameTriggering,
                 String protocol)
             {
                 ClusterElement = cluster;
@@ -425,9 +425,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
             public String ChannelElement { get; }
 
-            public String FrameElement { get; }
+            /// <summary>The frame element's name, or NULL on a protocol with no frame layer.</summary>
+            public String? FrameElement { get; }
 
-            public String FrameTriggeringElement { get; }
+            /// <summary>The frame triggering's name, or NULL on a protocol with no frame layer.</summary>
+            public String? FrameTriggeringElement { get; }
+
+            /// <summary>Whether this protocol has a frame layer at all. Ethernet does not.</summary>
+            public Boolean HasFrames => FrameElement != null;
 
             /// <summary>The value written to <see cref="ArxmlProperties.Protocol" />.</summary>
             public String Protocol { get; }
@@ -469,6 +474,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 "FLEXRAY-FRAME-TRIGGERING", ArxmlProperties.FlexRayProtocol),
             new BusProtocol("CAN-CLUSTER", "CAN-PHYSICAL-CHANNEL", "CAN-FRAME",
                 "CAN-FRAME-TRIGGERING", ArxmlProperties.CanProtocol),
+
+            // NO FRAME LAYER, which is the whole reason this is a table. An Ethernet channel carries
+            // PDU-TRIGGERING directly: the socket layer does what a frame does elsewhere, so there is no
+            // frame element, no frame triggering and no PDU-to-frame mapping to look for. Nulls rather than
+            // empty strings, so a missing name is a case the code has to handle rather than a search for an
+            // element called "".
+            new BusProtocol("ETHERNET-CLUSTER", "ETHERNET-PHYSICAL-CHANNEL", null, null,
+                ArxmlProperties.EthernetProtocol),
         };
 
         /// <summary>
@@ -482,7 +495,6 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         /// </summary>
         private static readonly String[] UnreadClusterElements =
         {
-            "ETHERNET-CLUSTER",
             "LIN-CLUSTER",
             "TTCAN-CLUSTER",
             "J1939-CLUSTER",
@@ -635,31 +647,22 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         private static void CollectCluster(String path, String shortName, XElement element,
             Collected collected, BusProtocol bus)
         {
-            // The NETWORK is the CLUSTER and never the channel. A FlexRay cluster's channels A and B are
-            // physical redundancy of one bus carrying one schedule, so an element per channel would split a
-            // single network into two that no ECU on it experiences as separate, and would double every
-            // frame. A CAN cluster has exactly one channel, so the question does not arise there. The
-            // channel still matters internally, because a PDU triggering's path runs through it.
-            // Counted by DISTINCT short name, not by element: a cluster's variants each repeat the same
-            // physical channels, so counting elements would report a two-channel bus as having four.
+            // The NETWORK is the CLUSTER and never the channel, still: a FlexRay cluster's channels A and
+            // B are physical redundancy of one bus carrying one schedule, so a network per channel would
+            // split a single bus into two that no ECU on it experiences as separate, and would double every
+            // frame. What changed is that the channel is now an ELEMENT UNDER the network rather than
+            // something walked through - because on Ethernet a channel is a VLAN, and which one an ECU sits
+            // on is a question the graph has to be able to answer.
             var channels = new List<XElement>();
-            var channelNames = new HashSet<String>(StringComparer.Ordinal);
             foreach (var channel in Descendants(element, n => n == bus.ChannelElement))
             {
                 channels.Add(channel);
-                var name = Text(channel.Element(Ar + ShortNameElement));
-                if (name != null)
-                {
-                    channelNames.Add(name);
-                }
             }
 
             var network = new ArxmlElement(path, ArxmlKinds.Network)
             {
                 [ArxmlProperties.Name] = shortName,
                 [ArxmlProperties.Protocol] = bus.Protocol,
-                [ArxmlProperties.ChannelCount] =
-                    channelNames.Count.ToString(CultureInfo.InvariantCulture),
                 // Protocol-NEUTRAL: the standard carries these on the cluster conditional of every
                 // protocol, so they are read once here rather than per protocol.
                 [ArxmlProperties.Baudrate] = First(element, "BAUDRATE"),
@@ -695,18 +698,45 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
                 var channelPath = path + "/" + channelName;
 
+                // One element per channel, claimed like any other: a cluster's VARIANTS each repeat the
+                // same physical channels, and the claim is what makes the second declaration of one channel
+                // the same element rather than a duplicate. (This is what the removed channelCount had to
+                // count by distinct short name to get right.)
+                var channelElement = new ArxmlElement(channelPath, ArxmlKinds.Channel)
+                {
+                    [ArxmlProperties.Name] = channelName,
+                    // Denormalised from the network so a channel can be filtered on its own. A query for
+                    // "every VLAN in this vehicle" should not have to join to the cluster to find out that
+                    // these channels are the Ethernet ones.
+                    [ArxmlProperties.Protocol] = bus.Protocol,
+                    [ArxmlProperties.VlanId] = First(channel, "VLAN-IDENTIFIER"),
+                    [ArxmlProperties.VlanName] = VlanNameOf(channel),
+                };
+
+                if (collected.Claim(channelElement, collected.Channels) == PathClaim.Recorded)
+                {
+                    collected.Pending.Add(new Pending(channelPath, ArxmlRelations.PartOf, path, false));
+                }
+
                 foreach (var reference in Descendants(channel, n => n == "COMMUNICATION-CONNECTOR-REF"))
                 {
                     var connector = Clean(reference.Value);
                     if (connector != null)
                     {
+                        // BOTH, and see ArxmlRelations.AttachedTo for why: the network edge is the
+                        // protocol-neutral "on this bus", the channel edge is the broadcast domain.
                         collected.AttachConnector(path, connector);
+                        collected.AttachConnector(channelPath, connector);
                     }
                 }
 
-                foreach (var triggering in Descendants(channel, n => n == bus.FrameTriggeringElement))
+                if (bus.HasFrames)
                 {
-                    CollectFrameTriggering(triggering, collected, bus);
+                    foreach (var triggering in Descendants(channel,
+                                 n => n == bus.FrameTriggeringElement))
+                    {
+                        CollectFrameTriggering(triggering, collected, bus);
+                    }
                 }
 
                 foreach (var triggering in Descendants(channel, n => n == "I-SIGNAL-TRIGGERING"))
@@ -1257,6 +1287,26 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             }
         }
 
+        /// <summary>
+        ///   The name of the VLAN an Ethernet channel carries, which the standard puts on a VLAN element
+        ///   INSIDE the channel rather than as a field on it - so it is that element's short name, not a
+        ///   value. Null on CAN and FlexRay, where there is no VLAN element to find, which is exactly the
+        ///   "absent means not applicable" the property documents.
+        /// </summary>
+        private static String? VlanNameOf(XElement channel)
+        {
+            foreach (var vlan in Descendants(channel, n => n == "VLAN"))
+            {
+                var name = Text(vlan.Element(Ar + ShortNameElement));
+                if (name != null)
+                {
+                    return name;
+                }
+            }
+
+            return null;
+        }
+
         private static String? First(XElement element, String localName)
         {
             foreach (var candidate in element.Descendants(Ar + localName))
@@ -1351,7 +1401,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             foreach (var bus in BusProtocols)
             {
                 set.Add(bus.ClusterElement);
-                set.Add(bus.FrameElement);
+                if (bus.FrameElement != null)
+                {
+                    set.Add(bus.FrameElement);
+                }
             }
 
             // The cluster kinds this version does NOT read are in the interest set too, and that is the
@@ -1387,7 +1440,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             var map = new Dictionary<String, BusProtocol>(StringComparer.Ordinal);
             foreach (var bus in BusProtocols)
             {
-                map[bus.FrameElement] = bus;
+                if (bus.FrameElement != null)
+                {
+                    map[bus.FrameElement] = bus;
+                }
             }
 
             return map;
@@ -1506,6 +1562,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             private readonly HashSet<String> _flowSeen = new HashSet<String>(StringComparer.Ordinal);
 
             public Dictionary<String, ArxmlElement> Networks { get; } = New();
+
+            public Dictionary<String, ArxmlElement> Channels { get; } = New();
 
             public Dictionary<String, ArxmlElement> Ecus { get; } = New();
 
