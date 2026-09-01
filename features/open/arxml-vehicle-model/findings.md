@@ -116,7 +116,7 @@ thing this line of work exists to make visible.
 | # | Decision |
 |---|---|
 | N1 | A faithful AUTOSAR mirror, roughly 20 entity kinds |
-| N2 | A vehicle is part of the claim key, named by the job. **Done** |
+| N2 | A vehicle is part of the claim key, named by the job. **Done**, together with per-scope completeness: a job declares what it is complete OVER, an element may carry several scopes of one identity, and it is deleted only when the last claim goes |
 | N3 | Resumable chunked upload into a run-scoped staging area |
 | N4 | Model the Ethernet-only structure in full |
 | N5 | Normalise the Ethernet socket layer onto one set of kinds, keeping the source spelling as a property |
@@ -134,8 +134,7 @@ revision-stable, and **the XML namespace does not identify the revision**, so a 
 
 ```
 Phase 1  engine: cheap withdrawal, batched claim indexing        DONE
-Phase 2  vehicle-scoped identity                                 identity DONE,
-                                                                 per-scope completeness OPEN
+Phase 2  vehicle-scoped identity, per-scope completeness         DONE
 Phase 3  staged resumable upload, streaming parse                open
 Phase 4  the three-bus faithful model                            open
 Phase 5  the Ethernet detail layer                               open
@@ -149,11 +148,10 @@ warns against.
 
 ## 8. Next steps
 
-1. **Per-scope completeness**, the other half of Phase 2: a job-declared scope on the claim property,
-   reconciled per (identity, scope), with an element able to carry several scopes of one identity so
-   a shared signal survives losing one and is deleted only on losing the last.
-2. **Drop the JSON transport arm** and raise the per-job ceiling toward the proxy budget, which
-   removes a code path and roughly halves how many jobs a source needs.
+1. **Drop the JSON transport arm** and raise the per-job ceiling toward the proxy budget, which
+   removes a code path and reduces how many jobs a source needs.
+2. **Phase 3**: a staged resumable upload and a streaming parse, so peak memory stops tracking the
+   largest file and a vehicle's extracts can be delivered without holding them all at once.
 
 ## 9. Scope of what is known
 
