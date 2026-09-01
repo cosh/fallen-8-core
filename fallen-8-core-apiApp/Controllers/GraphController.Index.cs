@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
@@ -220,6 +221,102 @@ namespace NoSQL.GraphDB.App.Controllers
             }
             _logger.LogError("Could not find index {IndexId}.", indexId);
             return false;
+        }
+
+        /// <summary>
+        /// Adds many graph elements to an existing index in one request
+        /// </summary>
+        /// <param name="indexId">The ID of the index</param>
+        /// <param name="definitions">The entries to add, in order</param>
+        /// <returns>How many entries were taken, and the positions of any that were refused</returns>
+        /// <remarks>
+        /// The single-entry form of this route costs one request per entry, which is what an
+        /// integration pays when it indexes its claim on every element it just wrote: a
+        /// many-element import issued about half a million sequential requests through it.
+        ///
+        /// A batch is NOT atomic. A refused entry is reported by its zero-based position rather
+        /// than failing the request, for the same reason the single-entry form answers a miss with
+        /// 200 and a false body: a missing index or element is an answer, not a transport failure.
+        /// Positions are used because one element may appear several times in one batch under
+        /// different keys, so a graph element id does not identify an entry.
+        ///
+        /// Sample request:
+        ///
+        ///     PUT /index/nameIndex/batch
+        ///     [
+        ///       { "graphElementId": 123, "key": { "propertyValue": "John Smith", "fullQualifiedTypeName": "System.String" } },
+        ///       { "graphElementId": 124, "key": { "propertyValue": "Jane Smith", "fullQualifiedTypeName": "System.String" } }
+        ///     ]
+        /// </remarks>
+        /// <response code="200">The number of entries taken, and the positions of those refused. A missing index refuses every entry rather than failing the request</response>
+        /// <response code="400">A null list, an entry with no key, or more entries than the page cap allows</response>
+        [HttpPut("/index/{indexId}/batch")]
+        [Consumes("application/json")]
+        [Produces("application/json")]
+        [ProducesResponseType(typeof(IndexBatchResultREST), StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public ActionResult<IndexBatchResultREST> AddToIndexBatch(
+            [FromRoute] String indexId, [FromBody] List<IndexAddToSpecification> definitions)
+        {
+            if (definitions == null)
+            {
+                return ProblemResults.BadRequest("A list of index entries is required.");
+            }
+
+            if (definitions.Count > MaxPageSize)
+            {
+                return ProblemResults.BadRequest(String.Format(
+                    "At most {0} entries can be indexed in one request (asked for {1}).",
+                    MaxPageSize, definitions.Count));
+            }
+
+            // Validated up front rather than per entry, so a malformed body is a 400 and not a
+            // partial write followed by one. A null key cannot be turned into an index key at all,
+            // which is a different thing from an entry the index refuses.
+            for (var i = 0; i < definitions.Count; i++)
+            {
+                if (definitions[i] == null || definitions[i].Key == null)
+                {
+                    return ProblemResults.BadRequest(String.Format(
+                        "Entry at position {0} has no key.", i));
+                }
+            }
+
+            var result = new IndexBatchResultREST();
+
+            // One lookup for the whole batch. The single-entry route resolves the index per call,
+            // which is most of what made the per-entry form expensive on top of the request itself.
+            if (!_fallen8.IndexFactory.TryGetIndex(out var idx, indexId))
+            {
+                _logger.LogError("Could not find index {IndexId}.", indexId);
+                for (var i = 0; i < definitions.Count; i++)
+                {
+                    result.Declined.Add(i);
+                }
+
+                return result;
+            }
+
+            for (var i = 0; i < definitions.Count; i++)
+            {
+                if (_fallen8.TryGetGraphElement(out var graphElement, definitions[i].GraphElementId))
+                {
+                    idx.AddOrUpdate(ServiceHelper.CreateObject(definitions[i].Key), graphElement);
+                    result.Accepted++;
+                }
+                else
+                {
+                    result.Declined.Add(i);
+                }
+            }
+
+            if (result.Declined.Count > 0)
+            {
+                _logger.LogError("{Declined} of {Total} index entries named a graph element that does not exist.",
+                    result.Declined.Count, definitions.Count);
+            }
+
+            return result;
         }
 
         /// <summary>

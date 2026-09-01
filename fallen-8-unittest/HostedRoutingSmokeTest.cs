@@ -666,5 +666,136 @@ namespace NoSQL.GraphDB.Tests
         }
 
         #endregion
+
+        #region PUT /index/{indexId}/batch (feature cheap-withdrawal)
+
+        /// <summary>One batch entry as JSON.</summary>
+        private static string BatchEntry(int graphElementId, string keyValue)
+        {
+            return "{\"graphElementId\":" + graphElementId + ",\"key\":{\"propertyId\":\"key\"," +
+                   "\"propertyValue\":\"" + keyValue + "\",\"fullQualifiedTypeName\":\"System.String\"}}";
+        }
+
+        /// <summary>
+        ///   The batch route must take the entries it can and report the rest BY POSITION, and the
+        ///   entries it took must really be in the index rather than merely counted. The refused
+        ///   entry sits in the MIDDLE on purpose: a position bug that always reported the last
+        ///   entry, or reported a count instead of an index, would pass if it were at either end.
+        /// </summary>
+        [TestMethod]
+        public async Task IndexBatch_TakesTheGoodEntries_AndReportsTheRefusedOneByPosition()
+        {
+            using var factory = new RoutingFactory();
+            var client = factory.CreateClient();
+
+            await CreateVertexViaApi(client, "BatchAlice", 30);
+            await CreateVertexViaApi(client, "BatchBob", 31);
+            await CreateVertexViaApi(client, "BatchCarol", 32);
+            var ids = await VerticesByName(client);
+            await CreateIndexViaApi(client, "batchIdx", "DictionaryIndex");
+
+            // Position 1 names an element that does not exist.
+            var body = "[" +
+                BatchEntry(ids["BatchAlice"], "a") + "," +
+                BatchEntry(999_999, "ghost") + "," +
+                BatchEntry(ids["BatchBob"], "b") + "," +
+                BatchEntry(ids["BatchCarol"], "c") + "]";
+
+            using var response = await client.PutAsync("/index/batchIdx/batch", Json(body));
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+
+            var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+            Assert.AreEqual(3, result.GetProperty("accepted").GetInt32(), "three entries were addable");
+
+            var declined = result.GetProperty("declined").EnumerateArray().Select(e => e.GetInt32()).ToList();
+            CollectionAssert.AreEqual(new[] { 1 }, declined.ToArray(),
+                "the refused entry must be reported by its zero-based position");
+
+            // And they are really indexed: the scan is what proves the write happened rather than
+            // the response merely claiming a count.
+            CollectionAssert.AreEqual(new[] { ids["BatchAlice"] }, (await IndexScanEquals(client, "batchIdx", "a")).ToArray());
+            CollectionAssert.AreEqual(new[] { ids["BatchBob"] }, (await IndexScanEquals(client, "batchIdx", "b")).ToArray());
+            CollectionAssert.AreEqual(new[] { ids["BatchCarol"] }, (await IndexScanEquals(client, "batchIdx", "c")).ToArray());
+            Assert.AreEqual(0, (await IndexScanEquals(client, "batchIdx", "ghost")).Count,
+                "the refused entry must not have been indexed under its key");
+        }
+
+        /// <summary>
+        ///   A missing index refuses every position rather than failing the request, which is the
+        ///   same reading the single-entry route gives a miss (200 with a false body). The caller
+        ///   needs to know WHICH entries did not land, and "all of them" is an answer.
+        /// </summary>
+        [TestMethod]
+        public async Task IndexBatch_AgainstAMissingIndex_RefusesEveryPosition()
+        {
+            using var factory = new RoutingFactory();
+            var client = factory.CreateClient();
+
+            await CreateVertexViaApi(client, "BatchNoIdx", 40);
+            var ids = await VerticesByName(client);
+
+            var body = "[" + BatchEntry(ids["BatchNoIdx"], "a") + "," + BatchEntry(ids["BatchNoIdx"], "b") + "]";
+            using var response = await client.PutAsync("/index/thereIsNoSuchIndex/batch", Json(body));
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+
+            var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+            Assert.AreEqual(0, result.GetProperty("accepted").GetInt32());
+            CollectionAssert.AreEqual(new[] { 0, 1 },
+                result.GetProperty("declined").EnumerateArray().Select(e => e.GetInt32()).ToArray());
+        }
+
+        /// <summary>
+        ///   An entry with no key is a malformed body, not an entry the index refuses, so it is a 400
+        ///   and NOTHING is written. Checked up front for that reason: a per-entry check would write
+        ///   the entries before it and then fail.
+        /// </summary>
+        [TestMethod]
+        public async Task IndexBatch_WithAnEntryThatHasNoKey_IsABadRequestAndWritesNothing()
+        {
+            using var factory = new RoutingFactory();
+            var client = factory.CreateClient();
+
+            await CreateVertexViaApi(client, "BatchNoKey", 50);
+            var ids = await VerticesByName(client);
+            await CreateIndexViaApi(client, "noKeyIdx", "DictionaryIndex");
+
+            var body = "[" + BatchEntry(ids["BatchNoKey"], "a") + ",{\"graphElementId\":" + ids["BatchNoKey"] + "}]";
+            using var response = await client.PutAsync("/index/noKeyIdx/batch", Json(body));
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode, await response.Content.ReadAsStringAsync());
+
+            Assert.AreEqual(0, (await IndexScanEquals(client, "noKeyIdx", "a")).Count,
+                "the valid entry before the malformed one must NOT have been written");
+        }
+
+        /// <summary>
+        ///   The batch route must not shadow the single-entry route, and neither must shadow the
+        ///   other's template. Both are pinned here because they differ only by a trailing segment,
+        ///   which is exactly the shape route precedence gets wrong.
+        /// </summary>
+        [TestMethod]
+        public async Task IndexBatch_AndTheSingleEntryRoute_BothStillResolve()
+        {
+            using var factory = new RoutingFactory();
+            var client = factory.CreateClient();
+
+            await CreateVertexViaApi(client, "BatchBoth", 60);
+            var ids = await VerticesByName(client);
+            await CreateIndexViaApi(client, "bothIdx", "DictionaryIndex");
+
+            // The single-entry route still answers a bare boolean.
+            await AddToIndexViaApi(client, "bothIdx", ids["BatchBoth"], "single", "System.String");
+
+            // And the batch route answers an object under the longer template.
+            using var response = await client.PutAsync("/index/bothIdx/batch",
+                Json("[" + BatchEntry(ids["BatchBoth"], "batched") + "]"));
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            var result = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+            Assert.AreEqual(1, result.GetProperty("accepted").GetInt32());
+
+            CollectionAssert.AreEqual(new[] { ids["BatchBoth"] }, (await IndexScanEquals(client, "bothIdx", "single")).ToArray());
+            CollectionAssert.AreEqual(new[] { ids["BatchBoth"] }, (await IndexScanEquals(client, "bothIdx", "batched")).ToArray());
+        }
+
+        #endregion
     }
 }

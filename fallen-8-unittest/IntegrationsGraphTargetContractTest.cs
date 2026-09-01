@@ -286,6 +286,62 @@ namespace NoSQL.GraphDB.Tests
                 "duplicated on the next resolve, so the refusal must reach the report");
         }
 
+        /// <summary>
+        ///   More entries than one request carries must all be indexed, and a refusal in the middle
+        ///   of a later chunk must still come back naming the right entry.
+        ///
+        ///   <para>The REST implementation batches these into requests of 500 (feature
+        ///   cheap-withdrawal, replacing one request per entry), and the route reports refusals by
+        ///   their POSITION WITHIN THE REQUEST. So an off-by-one chunk boundary, or a position read
+        ///   against the whole submission instead of against its chunk, both surface here and
+        ///   nowhere else: with 1,200 entries and the bad one at 700, the answer is only right if
+        ///   the position is resolved relative to the second chunk.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task IndexingMoreEntriesThanOneRequestCarries_IndexesAllOfThem_AndNamesTheRightRefusal()
+        {
+            using var target = await CreateTargetAsync();
+            await target.EnsureIndicesAsync(CancellationToken.None);
+
+            const Int32 count = 1200;
+            const Int32 badAt = 700;
+
+            var writes = new List<VertexWrite>(count);
+            for (var i = 0; i < count; i++)
+            {
+                writes.Add(new VertexWrite("device", new[]
+                {
+                    new GraphProperty(ClaimSchema.ClaimProperty(Instance), "System.String", Instance),
+                }));
+            }
+
+            var ids = await target.CreateVerticesAsync(writes, CancellationToken.None);
+            Assert.AreEqual(count, ids.Count, "every vertex was created");
+
+            var entries = new List<IndexEntry>(count);
+            for (var i = 0; i < count; i++)
+            {
+                // The entry at badAt names an element that does not exist, so it must be declined
+                // while everything around it lands.
+                var elementId = i == badAt ? 987_654 : ids[i];
+                entries.Add(new IndexEntry(ClaimSchema.ClaimsIndexId, Instance, elementId));
+            }
+
+            var outcome = await target.IndexClaimsAsync(entries, CancellationToken.None);
+
+            Assert.AreEqual(count - 1, outcome.Accepted, "every entry but the bad one was indexed");
+            Assert.AreEqual(1, outcome.Declined.Length, "exactly one entry was refused");
+            Assert.AreEqual(987_654, outcome.Declined[0].ElementId,
+                "the refusal must name the entry that was actually refused, not one at the same " +
+                "position in a different chunk");
+
+            // And the claim index really holds the rest, which is what makes the next run match
+            // them instead of duplicating them.
+            var claimed = await target.ElementsClaimedByAsync(Instance, CancellationToken.None);
+            Assert.AreEqual(count - 1, claimed.Count,
+                "the index must name every element whose entry was accepted");
+        }
+
         [TestMethod]
         public async Task AClaimWrittenToTheIndex_IsFoundByTheKey_AndOnlyByTheKey()
         {

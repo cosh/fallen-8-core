@@ -404,34 +404,118 @@ namespace NoSQL.GraphDB.Integrations.Graph
             var accepted = 0;
             var declined = ImmutableArray.CreateBuilder<IndexEntry>();
 
-            foreach (var entry in entries)
+            // BATCHED (feature cheap-withdrawal). The per-entry form of this cost one request per
+            // index entry: about half a million sequential requests for a many-element import,
+            // which is the create-path counterpart of the removal cost fixed in the engine.
+            //
+            // Grouped by index because the route is per index and one call may carry entries for
+            // several, and each group keeps SUBMISSION ORDER, which is what makes the positions the
+            // route returns map back to entries.
+            foreach (var group in GroupByIndex(entries))
             {
-                var body = new
-                {
-                    graphElementId = entry.ElementId,
-                    key = new
-                    {
-                        // Only the type and the value are the key; propertyId names the property this index
-                        // projects, so the request says what it is doing rather than repeating the index name.
-                        propertyId = ProjectedPrefix(entry.IndexId),
-                        fullQualifiedTypeName = WireValues.StringTypeName,
-                        propertyValue = entry.Key,
-                    },
-                };
+                var suffix = "index/" + Uri.EscapeDataString(group.Key) + "/batch";
+                var forIndex = group.Value;
 
-                var ok = await SendAsync<Boolean>(HttpMethod.Put, "index/" + Uri.EscapeDataString(entry.IndexId),
-                    body, cancellationToken).ConfigureAwait(false);
-                if (ok)
+                for (var offset = 0; offset < forIndex.Count; offset += WriteBatchSize)
                 {
-                    accepted++;
-                }
-                else
-                {
-                    declined.Add(entry);
+                    var take = Math.Min(WriteBatchSize, forIndex.Count - offset);
+                    var batch = forIndex.GetRange(offset, take);
+                    var body = new List<Object>(take);
+                    foreach (var entry in batch)
+                    {
+                        body.Add(new
+                        {
+                            graphElementId = entry.ElementId,
+                            key = new
+                            {
+                                // Only the type and the value are the key; propertyId names the property this index
+                                // projects, so the request says what it is doing rather than repeating the index name.
+                                propertyId = ProjectedPrefix(entry.IndexId),
+                                fullQualifiedTypeName = WireValues.StringTypeName,
+                                propertyValue = entry.Key,
+                            },
+                        });
+                    }
+
+                    var result = await SendAsync<IndexBatchResult>(HttpMethod.Put, suffix, body, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    if (result == null)
+                    {
+                        // An empty answer is treated as "none of them landed", never as success: an
+                        // element findable by none of its claims is DUPLICATED on the next resolve, so
+                        // the safe reading of silence is the one that reports a diagnostic.
+                        declined.AddRange(batch);
+                        continue;
+                    }
+
+                    // The POSITIONS are authoritative and the accepted count is derived from them, so a
+                    // count that disagrees with them cannot inflate the total quietly. The route
+                    // documents accepted + declined == submitted; this does not depend on it.
+                    var declinedHere = 0;
+                    if (result.Declined != null)
+                    {
+                        foreach (var position in result.Declined)
+                        {
+                            if (position >= 0 && position < batch.Count)
+                            {
+                                declined.Add(batch[position]);
+                                declinedHere++;
+                            }
+                        }
+                    }
+
+                    accepted += take - declinedHere;
                 }
             }
 
             return new IndexWriteOutcome(accepted, declined.ToImmutable());
+        }
+
+        /// <summary>
+        ///   Groups entries by their index, preserving both the order the indices were first seen and
+        ///   the order of the entries within each one. Almost every call carries a single index (the
+        ///   claim index), so the common case allocates one group.
+        /// </summary>
+        private static List<KeyValuePair<String, List<IndexEntry>>> GroupByIndex(IReadOnlyList<IndexEntry> entries)
+        {
+            var order = new List<String>();
+            var byIndex = new Dictionary<String, List<IndexEntry>>(StringComparer.Ordinal);
+
+            foreach (var entry in entries)
+            {
+                if (!byIndex.TryGetValue(entry.IndexId, out var forIndex))
+                {
+                    forIndex = new List<IndexEntry>();
+                    byIndex.Add(entry.IndexId, forIndex);
+                    order.Add(entry.IndexId);
+                }
+
+                forIndex.Add(entry);
+            }
+
+            var groups = new List<KeyValuePair<String, List<IndexEntry>>>(order.Count);
+            foreach (var indexId in order)
+            {
+                groups.Add(new KeyValuePair<String, List<IndexEntry>>(indexId, byIndex[indexId]));
+            }
+
+            return groups;
+        }
+
+        /// <summary>The batch route's answer: how many entries were taken, and the zero-based
+        /// positions of those refused.</summary>
+        private sealed class IndexBatchResult
+        {
+            public Int32 Accepted
+            {
+                get; set;
+            }
+
+            public List<Int32>? Declined
+            {
+                get; set;
+            }
         }
 
         /// <inheritdoc />

@@ -4336,6 +4336,86 @@
         }
       }
     },
+    "/index/{indexId}/batch": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Adds many graph elements to an existing index in one request",
+        "description": "The single-entry form of this route costs one request per entry, which is what an\r\nintegration pays when it indexes its claim on every element it just wrote: a\r\nmany-element import issued about half a million sequential requests through it.\r\n\r\nA batch is NOT atomic. A refused entry is reported by its zero-based position rather\r\nthan failing the request, for the same reason the single-entry form answers a miss with\r\n200 and a false body: a missing index or element is an answer, not a transport failure.\r\nPositions are used because one element may appear several times in one batch under\r\ndifferent keys, so a graph element id does not identify an entry.\r\n\r\nSample request:\r\n\r\n    PUT /index/nameIndex/batch\r\n    [\r\n      { \"graphElementId\": 123, \"key\": { \"propertyValue\": \"John Smith\", \"fullQualifiedTypeName\": \"System.String\" } },\r\n      { \"graphElementId\": 124, \"key\": { \"propertyValue\": \"Jane Smith\", \"fullQualifiedTypeName\": \"System.String\" } }\r\n    ]",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The entries to add, in order",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/IndexAddToSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/IndexAddToSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The number of entries taken, and the positions of those refused. A missing index refuses every entry rather than failing the request",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexBatchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, an entry with no key, or more entries than the page cap allows",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/index/{indexId}/propertyValue": {
       "delete": {
         "tags": [
@@ -10131,6 +10211,94 @@
               "application/json; ver=0.1": {
                 "schema": {
                   "type": "boolean"
+                }
+              },
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/ns/{ns}/index/{indexId}/batch": {
+      "put": {
+        "tags": [
+          "Graph"
+        ],
+        "summary": "Adds many graph elements to an existing index in one request",
+        "description": "The single-entry form of this route costs one request per entry, which is what an\r\nintegration pays when it indexes its claim on every element it just wrote: a\r\nmany-element import issued about half a million sequential requests through it.\r\n\r\nA batch is NOT atomic. A refused entry is reported by its zero-based position rather\r\nthan failing the request, for the same reason the single-entry form answers a miss with\r\n200 and a false body: a missing index or element is an answer, not a transport failure.\r\nPositions are used because one element may appear several times in one batch under\r\ndifferent keys, so a graph element id does not identify an entry.\r\n\r\nSample request:\r\n\r\n    PUT /index/nameIndex/batch\r\n    [\r\n      { \"graphElementId\": 123, \"key\": { \"propertyValue\": \"John Smith\", \"fullQualifiedTypeName\": \"System.String\" } },\r\n      { \"graphElementId\": 124, \"key\": { \"propertyValue\": \"Jane Smith\", \"fullQualifiedTypeName\": \"System.String\" } }\r\n    ]",
+        "parameters": [
+          {
+            "name": "indexId",
+            "in": "path",
+            "description": "The ID of the index",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ns",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The entries to add, in order",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/IndexAddToSpecification"
+                }
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/IndexAddToSpecification"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The number of entries taken, and the positions of those refused. A missing index refuses every entry rather than failing the request",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexBatchResultREST"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "A null list, an entry with no key, or more entries than the page cap allows",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               },
               "application/json": { }
@@ -20455,6 +20623,44 @@
         "example": {
           "propertyId": "name",
           "replace": false
+        }
+      },
+      "IndexBatchResultREST": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "description": "How many of the submitted entries the index took. `accepted` plus the length of\r\n`declined` always equals the number of entries submitted.",
+            "format": "int32",
+            "example": 498
+          },
+          "declined": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": [
+                "integer",
+                "string"
+              ],
+              "format": "int32"
+            },
+            "description": "The ZERO-BASED positions, in the submitted array, of the entries the index refused.\r\nEmpty when every entry was taken. An entry is refused when the index does not exist or\r\nthe graph element does not exist; when the index itself is missing, every position is\r\nlisted rather than the request failing."
+          }
+        },
+        "description": "The result of a `PUT /index/{indexId}/batch` (feature cheap-withdrawal): how many\r\nentries the index took, and WHICH of the submitted ones it refused.\r\n\r\nA batch is NOT atomic, deliberately. The single-entry route reports a miss as\r\n200 with a false body rather than a 404, because a missing index or a\r\nmissing graph element is an answer and not a transport failure; this route keeps that\r\nreading and simply reports it per entry. Refusing the whole batch because one element had\r\nalready been deleted would be worse for the only caller that needs this route, which is\r\nindexing a just-written claim and wants the other several hundred entries to land.\r\n\r\nWhy declined entries are reported as POSITIONS. The obvious alternative,\r\nechoing back the refused entries or their graph element ids, does not identify them: one\r\nelement may legitimately appear several times in one batch under different keys, so an id\r\nis not unique per entry. The zero-based position in the submitted array is, and it is also\r\nthe smallest thing that can be returned. The server never reorders, so position is stable.",
+        "example": {
+          "accepted": 498,
+          "declined": [
+            12,
+            341
+          ]
         }
       },
       "IndexDescriptionREST": {
