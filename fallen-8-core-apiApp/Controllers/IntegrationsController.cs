@@ -72,9 +72,9 @@ namespace NoSQL.GraphDB.App.Controllers
         ///   <c>multipart/form-data</c> the files travel as raw bytes, so a maximal legal job is 512 MiB
         ///   plus part framing; over <c>application/json</c> they are base64, which costs a third, so the
         ///   same job arrives at about 683 MiB. Either way this bound never fires for a job the runtime
-        ///   would accept. Real files set both numbers: the first extract anybody pointed at this feature
-        ///   was a large size, an earlier 48 MiB bound refused it with a bare transport 413, and a vehicle
-        ///   arrives as several such extracts that reference each other.</para>
+        ///   would accept. Real files set both numbers: an ordinary extract runs to tens of megabytes, an earlier
+        ///   48 MiB bound refused one with a bare transport 413, and a vehicle arrives as several
+        ///   such extracts that reference each other.</para>
         ///
         ///   <para>BELOW the runtime's own transport bound (832 MiB, fixed). That ordering is the point:
         ///   an absurd body has to be refused HERE, with a 413 whose meaning is plain, because a body

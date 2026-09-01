@@ -53,7 +53,7 @@ describe("byte sizes", () => {
   });
 
   it("reaches GiB rather than reporting gigabytes as thousands of MiB", () => {
-    // The failure that motivated this: gigabytes of ARXML. A refusal that spells it "gigabytes"
+    // The failure that motivated this: several gibibytes of files. A refusal that spells it in mebibytes
     // leaves the reader doing the division while being told no.
     expect(formatBytes(6274678784)).toBe("5.8 GiB");
     // And it saturates rather than inventing a TiB unit it has no entry for.

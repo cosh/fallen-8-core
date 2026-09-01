@@ -173,7 +173,7 @@ Mutation-checked: inverting the flag reddens that test alone.
 ## Carried forward, deliberately
 
 1. ~~**Acceptance 1 is unproven at scale.**~~ **MEASURED 2026-08-25, and it failed.** A real run
-   over a many-entity extract embedded exactly **many chunks and then died on the 86th**,
+   over a large extract embedded exactly **many chunks and then died on the 86th**,
    leaving the graph a fifth embedded and losing ~2 h of inference. Cause: a chunk's duration is
    model inference, and the measured cost against this deployment's CPU-backed bge-m3 is **~3.5 s
    per element**, so 32 elements is ~113 s against the graph target's **120 s** client timeout

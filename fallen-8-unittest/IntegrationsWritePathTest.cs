@@ -663,7 +663,7 @@ namespace NoSQL.GraphDB.Tests
         {
             // The defect this pins was silent at fixture size and fatal at real size: every summary went out in
             // ONE post, the route refuses a batch over Fallen8:Embedding:MaxBatchSize (default 64, and 32 under
-            // the Nahil compose), and 400 is correctly NOT in the degrade set - so a many-entity system extract
+            // the Nahil compose), and 400 is correctly NOT in the degrade set - so a large system extract
             // failed the run with errorKind "graph" AFTER its graph writes had landed and BEFORE reconciliation.
             var handler = new EmbedBatchRecordingHandler();
             using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
@@ -678,7 +678,7 @@ namespace NoSQL.GraphDB.Tests
             // (the Nahil compose), and exceeding it answers 400 - outside the degrade set, so it fails a run
             // whose graph writes already landed. 16 is the TIME budget: a chunk is model inference, and at the
             // ~3.5 s per element a CPU-backed bge-m3 actually costs, 32 elements is ~113 s against this
-            // target's 120 s client timeout. A real many-entity extract died on its 86th chunk of 32 for
+            // target's 120 s client timeout. A real large extract died on its 86th chunk of 32 for
             // exactly that reason, so this pins the tighter bound rather than the cap.
             Assert.IsTrue(handler.BatchSizes.All(size => size <= 16),
                 "a chunk must stay inside BOTH the smallest shipped item cap and the client timeout: " +

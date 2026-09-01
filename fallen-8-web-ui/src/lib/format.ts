@@ -42,7 +42,7 @@ export function formatExact(value: number): string {
  * A size in bytes, in binary units up to GiB ("0 B", "512 B", "1.5 KiB", "5.8 GiB").
  *
  * GiB and not MiB because two callers need it: a save-game registry, and the refusal that tells
- * someone their gigabytes of files is over the ceiling. Reporting that as "gigabytes" is arithmetic
+ * someone their several gibibytes of files are over the ceiling. Reporting that in mebibytes is arithmetic
  * the reader should not have to do while being told no.
  */
 export function formatBytes(bytes: number): string {

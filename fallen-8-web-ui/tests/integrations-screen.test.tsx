@@ -318,7 +318,7 @@ function shippedLimits(): FileLimits {
 
 /**
  * A file of a stated size with no bytes behind it. `size` is what every ceiling check reads, so
- * spoofing it runs the gigabytes scenario in microseconds instead of allocating it - and allocating
+ * spoofing it runs the multi-gibibyte scenario in microseconds instead of allocating it - and allocating
  * it is not merely slow, it is the exact thing this feature stopped doing.
  */
 function sized(name: string, bytes: number): File {

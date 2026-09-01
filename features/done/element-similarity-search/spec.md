@@ -31,7 +31,7 @@ Three things are wrong today, in descending order of how much they cost:
   (`docker-compose.nahil.yml`; the apiApp defaults to 64), and the client TIMEOUT, which is what
   actually decides it. A chunk is model inference rather than graph work, and at the ~3.5 s per
   element a CPU-backed bge-m3 costs, 32 elements is ~113 s against the graph target's 120 s client
-  timeout. *(Corrected 2026-08-25 from 32, after a real many-entity extract died on its 86th chunk
+  timeout. *(Corrected 2026-08-25 from 32, after a real large extract died on its 86th chunk
   for exactly that reason - see the run ledger.)* A chunk that fails follows the existing rule, widened by one status: `{403, 429, 502,
   503}` degrade the write to absent with a diagnostic, anything else is a graph failure. 429 is
   in that set *because* of chunking: the route carries the sensitive-endpoint rate limit, so many

@@ -45,7 +45,7 @@ namespace NoSQL.GraphDB.Integrations.Run
     ///   of a report this runtime produces, any real source outlives the proxy that would carry it, and
     ///   the run is built on purpose to outlive its caller. Without a slot to read afterwards, a
     ///   two-hour import that half-succeeded could report that to nobody, ever - which is exactly what
-    ///   happened to a real many-entity import before this existed.</para>
+    ///   happened to a real large import before this existed.</para>
     /// </summary>
     public sealed class RunTracker
     {

@@ -93,7 +93,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///   duration is model inference, not graph work: measured against a CPU-backed bge-m3, one element
         ///   costs ~3.5 s, so 32 elements is ~113 s - which was six percent of headroom against the fixed
         ///   120 s this runtime used to hold every call to. That was not a theoretical margin. A real
-        ///   many-entity extract embedded exactly many chunks and then died on the 86th, losing two
+        ///   large extract embedded exactly many chunks and then died on the 86th, losing two
         ///   hours of inference and leaving the graph a fifth embedded. The deadline is now the operator's
         ///   (<c>Fallen8Target:TimeoutSeconds</c>, default 330), so the margin is no longer thin - but 16
         ///   stays, because it also halves the interval between progress ticks on the one phase that runs
@@ -112,7 +112,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
         ///
         ///   <para>It also keeps each body far inside the route's <c>[RequestSizeLimit(1_048_576)]</c>,
         ///   which is a compile-time attribute no configuration can raise. ONE unchunked body for the
-        ///   recorded many-entity system extract was both hundreds of times over the item cap and past
+        ///   recorded system extract was both hundreds of times over the item cap and past
         ///   that megabyte, which is why no real extract could be embedded before this.</para>
         /// </summary>
         private const Int32 EmbedBatchSize = 16;
@@ -603,7 +603,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
             {
                 for (var offset = 0; offset < summaries.Count; offset += EmbedBatchSize)
                 {
-                    // THE SAFE POINT THIS FEATURE EXISTS FOR. This loop is the hours: a many-entity extract
+                    // THE SAFE POINT THIS FEATURE EXISTS FOR. This loop is the hours: a large extract
                     // at sixteen per chunk against CPU inference runs overnight, so a stop honoured only after
                     // it would not be a stop. Checked BETWEEN chunks and never during one - a chunk is one
                     // atomic write on the target, and abandoning it in flight would leave a vector that landed
