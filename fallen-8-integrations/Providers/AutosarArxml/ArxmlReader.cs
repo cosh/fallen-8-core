@@ -1191,13 +1191,37 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         }
 
         /// <summary>
-        ///   A socket's port and transport, from the application endpoint's transport configuration. The
-        ///   TRANSPORT is why this is not one lookup: UDP and TCP are different elements rather than a value,
-        ///   so which one is present IS the answer, and the port number sits inside whichever it is.
+        ///   A socket's port and transport. The TRANSPORT is why this is not one lookup: UDP and TCP are
+        ///   different elements rather than a value, so which one is present IS the answer, and the port
+        ///   number sits inside whichever it is.
+        ///
+        ///   <para>The APPLICATION ENDPOINT's configuration wins, and the socket's own subtree is only the
+        ///   fallback. Not a preference: in the newer revision a socket address also CONTAINS its static
+        ///   socket connections, so a search over the whole subtree would take whichever transport element
+        ///   came first in document order - and a connection's could precede the endpoint's, giving the
+        ///   socket a port it does not listen on. The fallback stays because a revision that puts the
+        ///   configuration directly on the socket address is then read rather than silently portless.</para>
         /// </summary>
         private static void PortOf(XElement socket, ArxmlElement element)
         {
-            foreach (var transport in Descendants(socket, n => n == "UDP-TP" || n == "TCP-TP"))
+            foreach (var endpoint in Descendants(socket, n => n == "APPLICATION-ENDPOINT"))
+            {
+                if (TransportOf(endpoint, element))
+                {
+                    return;
+                }
+            }
+
+            TransportOf(socket, element);
+        }
+
+        /// <summary>
+        ///   The first transport configuration under an element, written onto the socket. Returns whether one
+        ///   was found, which is what lets the caller prefer the application endpoint's over the socket's.
+        /// </summary>
+        private static Boolean TransportOf(XElement scope, ArxmlElement element)
+        {
+            foreach (var transport in Descendants(scope, n => n == "UDP-TP" || n == "TCP-TP"))
             {
                 element[ArxmlProperties.Transport] =
                     String.Equals(transport.Name.LocalName, "UDP-TP", StringComparison.Ordinal)
@@ -1205,8 +1229,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                         : "tcp";
                 element[ArxmlProperties.Port] = First(transport, "PORT-NUMBER")
                                                 ?? First(transport, "DYNAMICALLY-ASSIGNED");
-                return;
+                return true;
             }
+
+            return false;
         }
 
         /// <summary>
@@ -1214,6 +1240,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   pass composes one: this element's short name, preceded by every named ancestor up to the
         ///   subtree's root, whose own path is <paramref name="rootPath" />. Null when the element has no
         ///   short name, which in the standard's terms means it has no identity to be referenced by.
+        ///
+        ///   <para><paramref name="element" /> must be a STRICT descendant of <paramref name="root" />, which
+        ///   every caller satisfies because they all come from <c>Descendants</c> and that excludes self.
+        ///   Handing it the root itself would walk past the root and compose a path from the ancestors above
+        ///   it - a wrong identity rather than an error, which is why the precondition is written down.</para>
         /// </summary>
         private static String? PathWithin(XElement root, String rootPath, XElement element)
         {

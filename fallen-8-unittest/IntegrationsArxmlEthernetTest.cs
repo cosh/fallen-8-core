@@ -285,6 +285,51 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   A socket's port is its APPLICATION ENDPOINT's, even when a transport configuration somewhere
+        ///   else in the socket's subtree comes FIRST in document order. In the newer revision a socket
+        ///   address also CONTAINS its static connections, and the element order inside a class is the
+        ///   schema's rather than this reader's, so first-in-subtree would be a coin toss: the socket could
+        ///   be given a port it does not listen on, which is worse than none because nothing downstream can
+        ///   tell it is wrong.
+        ///
+        ///   <para>The interloper is injected BEFORE the application endpoint on purpose. Injected after it,
+        ///   this test passes whether or not the precedence exists - which is how it was written the first
+        ///   time, and the mutation check is what caught it.</para>
+        /// </summary>
+        [TestMethod]
+        public void ASocketsPortIsItsApplicationEndpointsAndNotOneThatPrecedesIt()
+        {
+            var network = ArxmlReader.Read(StaticExtract.Replace(
+                "<SHORT-NAME>SA_HubServer</SHORT-NAME>",
+                "<SHORT-NAME>SA_HubServer</SHORT-NAME>" +
+                "<TP-CONFIGURATION><TCP-TP><PORT-NUMBER>1</PORT-NUMBER></TCP-TP></TP-CONFIGURATION>",
+                StringComparison.Ordinal));
+
+            var socket = Element(network, "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer");
+            Assert.AreEqual("30490", socket[ArxmlProperties.Port],
+                "the port is the one the application endpoint declares");
+            Assert.AreEqual("udp", socket[ArxmlProperties.Transport],
+                "and so is the transport, rather than the TCP the interloper declares");
+        }
+
+        /// <summary>
+        ///   And the fallback still works: a socket that carries its transport configuration DIRECTLY, with
+        ///   no application endpoint, is read rather than left portless. Preferring the endpoint must not
+        ///   become requiring one.
+        /// </summary>
+        [TestMethod]
+        public void ASocketCarryingItsTransportDirectlyIsStillRead()
+        {
+            var network = ArxmlReader.Read(BundleExtract
+                .Replace("<APPLICATION-ENDPOINT>", "<NOT-AN-ENDPOINT>", StringComparison.Ordinal)
+                .Replace("</APPLICATION-ENDPOINT>", "</NOT-AN-ENDPOINT>", StringComparison.Ordinal));
+
+            var socket = Element(network, "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer");
+            Assert.AreEqual("30490", socket[ArxmlProperties.Port],
+                "with no application endpoint to prefer, the socket's own subtree is what is read");
+        }
+
+        /// <summary>
         ///   A port reference naming the APPLICATION ENDPOINT rather than the socket address still lands on
         ///   the socket. Both spellings exist in the wild, and the alternative to accepting them is an
         ///   unresolved-reference diagnostic on a file that is perfectly clear about what it means.
