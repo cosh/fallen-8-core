@@ -36,10 +36,10 @@ namespace NoSQL.GraphDB.Tests
 {
     /// <summary>
     ///   Opt-in benchmark for bucket-index removal cost. It exists because an integration run that
-    ///   withdraws elements was measured at few elements/s against 372 elements/s for creates, and
-    ///   the suspected cause is that a bucket index removes a value by rebuilding the whole bucket
-    ///   while it adds one in log time. An integration's claim index puts EVERY element an identity
-    ///   claims under a SINGLE key, so that bucket is the whole graph.
+    ///   withdraws elements was observed to be orders of magnitude slower than the same run creating
+    ///   them, and the suspected cause is that a bucket index removes a value by rebuilding the whole
+    ///   bucket while it adds one in log time. An integration's claim index puts EVERY element an
+    ///   identity claims under a SINGLE key, so that bucket is the whole graph.
     ///
     ///   <para>The control case is the point of this file, not the headline: the same number of
     ///   elements removed from MANY small buckets isolates bucket size as the cause. Without it a
@@ -141,8 +141,8 @@ namespace NoSQL.GraphDB.Tests
         ///   element it creates, vertices AND edges, so the bucket is the whole graph rather than
         ///   its vertices; and removing a vertex cascades to its incident edges, which purges each
         ///   of them from every index and detaches each from the OTHER endpoint's adjacency. The
-        ///   measured shape is the real one: many elements to many edges is 2.5 edges per
-        ///   vertex, giving many entries in one bucket.</para>
+        ///   default of two edges per vertex keeps the bucket a realistic multiple of the vertex
+        ///   count rather than equal to it, which is what makes the removal cost visible.</para>
         /// </summary>
         [TestMethod]
         [TestCategory("Benchmark")]

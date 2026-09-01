@@ -1731,11 +1731,13 @@ namespace NoSQL.GraphDB.Tests
                 ceiling, ceiling / 1048576.0, ceiling * 4.0 / 3.0 / 1048576.0, budget / 1048576.0,
                 overJson / 1048576.0));
 
-            // And it really does have to be above the vehicle it was raised for, or the raise bought
-            // nothing: one measured CAN-plus-FlexRay export is a large size.
-            Assert.IsTrue(ceiling >= 541_300_000L,
-                "the ceiling no longer covers a whole vehicle's readable buses in one job, which is the " +
-                "only shape that does not withdraw the buses a smaller job leaves out");
+            // And it has to stay close to what the JSON arm can actually deliver, or the ceiling is
+            // lower than the transport allows for no reason and a multi-bus vehicle needs more jobs
+            // than the bound requires. Half a gibibyte is the floor: below that the raise this test
+            // guards bought nothing.
+            Assert.IsTrue(ceiling >= 536_870_912L,
+                "the ceiling dropped below half a gibibyte, so a multi-bus source needs more jobs than " +
+                "the transport bound requires, and every extra job withdraws what the others left out");
         }
 
         [TestMethod]

@@ -69,10 +69,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         /// <summary>
         ///   The one identifier type this provider claims. Its value is the VEHICLE followed by the
-        ///   element's AUTOSAR reference path, because the path alone does not identify an element:
-        ///   two vehicle programs in one real export declare many of many element paths in
-        ///   common, including their single Ethernet cluster, so a key built from the path alone
-        ///   asserts that two different cars share those elements.
+        ///   element's AUTOSAR reference path, because the path alone does not identify an element.
+        ///   The standard makes a reference path unique within ONE system description and says
+        ///   nothing across several, and it could not: the standardised platform packages appear in
+        ///   essentially every extract by construction. A key built from the path alone therefore
+        ///   asserts that two different vehicles share those elements.
         /// </summary>
         public const String VehiclePathClaimType = "arxml-vehicle-path";
 
@@ -113,9 +114,9 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 "them. FlexRay and CAN buses are read. Several extracts of one vehicle are read as one " +
                 "source, so a frame in one of them can carry a signal defined in another and an ECU on " +
                 "two buses is one element attached to both. The job names the VEHICLE, which becomes " +
-                "part of every element's identity: two vehicles can be imported under one identity " +
-                "without merging, which they otherwise would, because different vehicles reuse the " +
-                "same AUTOSAR paths.",
+                "part of every element's identity, so two vehicles can be imported under one identity " +
+                "without merging: an AUTOSAR reference path identifies an element within one system " +
+                "description, not across several.",
             Settings = new[]
             {
                 new ProviderSetting
@@ -127,9 +128,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     Help =
                         "The vehicle these extracts describe, such as a programme or platform name. It " +
                         "becomes part of every element's identity, so two vehicles imported under one " +
-                        "identity stay separate elements even where their AUTOSAR paths are identical - " +
-                        "and they often are: two programmes in one real export share many element " +
-                        "paths, including their single Ethernet cluster. REQUIRED, with no default, " +
+                        "identity stay separate elements even where their AUTOSAR paths are identical. " +
+                        "They routinely are: the standard makes a reference path unique within one " +
+                        "system description and not across several, and the standardised platform " +
+                        "packages appear in essentially every extract. REQUIRED, with no default, " +
                         "because a default would silently merge the second vehicle into the first. Use " +
                         "the SAME name for every job describing one vehicle, so its buses join up; use " +
                         "a different name for a different vehicle. Letters, digits, dot, dash and " +

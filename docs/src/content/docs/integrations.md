@@ -604,9 +604,10 @@ that release removed is withdrawn, which leaves the [change feed](/change-feed/)
 with nothing extra to set up.
 
 The **Vehicle** setting is required and has no default, because a default would quietly merge one
-car into another. AUTOSAR paths are not unique across vehicles: in one real two-programme export,
-the two programmes declare the same single Ethernet cluster, 18 of 24 physical channels and many
-of many element paths in common. Naming the vehicle is what lets both cars live in one namespace
+car into another. AUTOSAR paths are not unique across vehicles: the standard makes a reference path
+unique within **one** system description and says nothing across several, and the standardised
+platform packages appear in essentially every extract by construction, so two vehicles routinely use
+the same path for different elements. Naming the vehicle is what lets both cars live in one namespace
 under one identity without resolving onto each other. Use the **same** name for every job describing
 one vehicle, so its buses join up into one graph; use a different name for a different vehicle.
 

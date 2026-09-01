@@ -92,11 +92,10 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   <see cref="MaxFileBytes" /> and is worse here in the same proportion - bytes held, one file
         ///   decoded to text at a time - so a maximal job peaks well over a gigabyte.</para>
         ///
-        ///   <para>WHY 560 AND NOT MORE, which is the part to read before raising it. A vehicle's readable
-        ///   buses arrive together: one measured CAN-plus-FlexRay export is a large size, which 512 MiB refused
-        ///   by 29 MiB, and the whole set has to be submitted in ONE job because the snapshot is complete
-        ///   over what it was given and a later job carrying less withdraws the difference. So the ceiling
-        ///   had to rise. It could not rise as far as it looks, though: every request reaches this runtime
+        ///   <para>WHY 560 AND NOT MORE, which is the part to read before raising it. A multi-bus
+        ///   vehicle's extracts arrive together, and the whole set has to be submitted in ONE job because
+        ///   the snapshot is complete over what it was given and a later job carrying less withdraws the
+        ///   difference. A set like that does not fit inside half a gibibyte, so the ceiling had to rise. It could not rise as far as it looks, though: every request reaches this runtime
         ///   through the apiApp's fixed 768 MiB transport bound, and over the JSON transport a job's files
         ///   travel base64, which expands them by a third. That puts the largest job the JSON arm can
         ///   deliver at about 575 MiB of decoded bytes. A ceiling above that would have this runtime accept

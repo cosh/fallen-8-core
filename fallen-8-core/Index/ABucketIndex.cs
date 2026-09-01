@@ -63,8 +63,9 @@ namespace NoSQL.GraphDB.Core.Index
     ///   Measured on this machine before the change, removing every value from one bucket:
     ///   8,000 elements 0.57 s, 16,000 elements 1.93 s, 32,000 elements 7.79 s - each doubling
     ///   quadrupling the time - while the same element count spread over 4,000 keys stayed flat
-    ///   at over a million removals a second. A real withdrawal of many claimed entries
-    ///   extrapolates to about 520 s of index work alone.</para>
+    ///   at over a million removals a second. Extrapolated onto a claims bucket holding a
+    ///   few hundred thousand entries, which is an ordinary size for one identity's graph, that
+    ///   curve reaches several minutes of index work for a single reconcile.</para>
     ///
     ///   <para>So a removal now only RECORDS that an element is gone, in log time, and the
     ///   posting list is rebuilt once per halving instead of once per element. Reads never see a

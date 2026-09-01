@@ -569,9 +569,10 @@ namespace NoSQL.GraphDB.Tests
                 "identity would otherwise claim the same element");
             Assert.IsFalse(path.TryCanonicalise("/AUTOSAR_Platform/BaseTypes/uint8", out _),
                 "and the same path WITHOUT a vehicle must be refused. This is the whole change: the " +
-                "vehicle-less shape is what let two vehicle programmes, which share many element paths " +
-                "in one real export, resolve onto each other's elements. Refusing it here means a provider " +
-                "that forgets the vehicle fails to compose a key at all rather than silently fusing cars");
+                "vehicle-less shape is what let two vehicles resolve onto each other's elements, since " +
+                "the standard makes a path unique within one system description and not across several. " +
+                "Refusing it here means a provider that forgets the vehicle fails to compose a key at " +
+                "all rather than silently fusing cars");
             Assert.IsFalse(path.TryCanonicalise("testcar/ISignals/9SIG_VehSpd", out _),
                 "a segment starting with a digit is not an AUTOSAR identifier, and keying it anyway would " +
                 "assert an identity the standard cannot express");

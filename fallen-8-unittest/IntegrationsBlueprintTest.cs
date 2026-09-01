@@ -1508,10 +1508,11 @@ namespace NoSQL.GraphDB.Tests
 
         /// <summary>
         ///   THE POINT OF THE FEATURE. Two vehicles described by the SAME extract, under ONE identity,
-        ///   must claim different elements. Measured necessity rather than a hypothetical: two vehicle
-        ///   programmes in one real export declare many of many element paths in common, including
-        ///   their single Ethernet cluster, so with a path-only claim the second import resolves onto
-        ///   the first's elements and then reconciliation withdraws whatever it did not describe.
+        ///   must claim different elements. Not a hypothetical: the standard makes an AUTOSAR reference
+        ///   path unique within ONE system description and says nothing across several, and the
+        ///   standardised platform packages appear in essentially every extract by construction. So with
+        ///   a path-only claim the second vehicle's import resolves onto the first's elements, and then
+        ///   reconciliation withdraws whatever it did not describe.
         /// </summary>
         [TestMethod]
         public async Task TwoVehiclesDescribedByTheSamePaths_ClaimDifferentElements()
