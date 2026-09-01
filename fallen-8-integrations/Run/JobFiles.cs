@@ -95,8 +95,33 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   extracts of tens of megabytes each, and a call returning every text at once would hold all of
         ///   them decoded - UTF-16 in memory, on top of the bytes the job already holds - for the whole
         ///   parse. One at a time keeps the peak at the bytes plus ONE decoded file.</para>
+        ///
+        ///   <para>For a parser that can consume a stream, <see cref="OpenAtAsync" /> drops the "plus ONE
+        ///   decoded file" as well.</para>
         /// </summary>
         Task<String> ReadAtAsync(String settingKey, Int32 index, CancellationToken cancellationToken);
+
+        /// <summary>
+        ///   Opens the file at that position as a STREAM over the bytes the job carried, for a parser that
+        ///   consumes one rather than needing the whole text.
+        ///
+        ///   <para>Why both exist. Decoding a file to a string costs a second copy at two bytes per
+        ///   character, so a 128 MiB extract is 256 MiB of UTF-16 held for the whole parse ON TOP of the
+        ///   bytes - and the AUTOSAR reader never wanted the text: it has always driven an
+        ///   <c>XmlReader</c> over it and materialises only the subtrees it collects. A stream removes that
+        ///   copy without changing what the reader does. <see cref="ReadAtAsync" /> stays for the providers
+        ///   whose format genuinely is a string (a delimited file is parsed line by line from one).</para>
+        ///
+        ///   <para>Encoding is the caller's, and for XML that is a CORRECTNESS gain rather than a
+        ///   trade: <see cref="ReadAtAsync" /> detects a byte-order mark and otherwise assumes UTF-8,
+        ///   whereas an <c>XmlReader</c> given the bytes honours the document's own declaration, so an
+        ///   extract written in a non-UTF-8 encoding with no mark stops arriving as mojibake in its short
+        ///   names.</para>
+        ///
+        ///   <para>The stream is the CALLER's to dispose and reads only the bytes this run already holds:
+        ///   nothing is opened on disk here either.</para>
+        /// </summary>
+        Task<Stream> OpenAtAsync(String settingKey, Int32 index, CancellationToken cancellationToken);
     }
 
     /// <summary>
@@ -195,6 +220,27 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <inheritdoc />
         public Task<String> ReadAtAsync(String settingKey, Int32 index, CancellationToken cancellationToken)
         {
+            return Task.FromResult(Decode(Locate(settingKey, index, cancellationToken).Content));
+        }
+
+        /// <inheritdoc />
+        public Task<Stream> OpenAtAsync(String settingKey, Int32 index, CancellationToken cancellationToken)
+        {
+            // Non-writable and over the run's OWN array rather than a copy of it: the point of this seam is
+            // that a large extract is not duplicated to be parsed, so copying here would reintroduce the
+            // very cost it exists to remove. A caller cannot write through it, and Dispose leaves the bytes
+            // exactly as readable for the next file - only the run's end drops them.
+            var payload = Locate(settingKey, index, cancellationToken);
+            return Task.FromResult<Stream>(new MemoryStream(payload.Content, writable: false));
+        }
+
+        /// <summary>
+        ///   The file at that position, with every refusal both readers share decided ONCE. Counts as a read
+        ///   the moment it hands the payload over, because what the conformance suite judges is that the run
+        ///   took its data from this seam, not how it then consumed it.
+        /// </summary>
+        private JobFilePayload Locate(String settingKey, Int32 index, CancellationToken cancellationToken)
+        {
             if (!TryResolve(settingKey, out var failure))
             {
                 // CONFIGURATION and not source: the job is what is wrong, and both shipped providers
@@ -217,7 +263,7 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             cancellationToken.ThrowIfCancellationRequested();
             _reads++;
-            return Task.FromResult(Decode(set.Files[index].Content));
+            return set.Files[index];
         }
 
         /// <summary>Drops what this run held: the bytes stop being readable.</summary>

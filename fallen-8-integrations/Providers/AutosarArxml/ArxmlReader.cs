@@ -47,16 +47,17 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
     ///
     ///   <para>SEVERAL DOCUMENTS MAKE ONE DESCRIPTION. A vehicle network is handed over as one extract per
     ///   domain or per bus, and those extracts reference each other by path, so every document
-    ///   <see cref="Add"/>ed streams into ONE table and <see cref="Complete"/> resolves once over their
-    ///   union: that, and nothing else, is what makes a reference from one extract into another resolve
+    ///   <see cref="Add(String, Stream)"/>ed streams into ONE table and <see cref="Complete"/> resolves once
+    ///   over their union: that, and nothing else, is what makes a reference from one extract into another resolve
     ///   exactly like a reference within one file. Order is part of the meaning - where two documents declare
     ///   one path, the earlier one owns it - so the caller's order is kept rather than sorted.</para>
     ///
     ///   <para>It streams. A system extract is routinely tens of megabytes of which the communication matrix
     ///   is a small fraction, so only the elements in the interest set are materialised as subtrees and
     ///   everything else advances the reader without allocating. One document at a time, too: a caller hands
-    ///   over one text per <see cref="Add"/> and nothing here keeps it, which is what stops a set of
-    ///   tens-of-megabytes extracts from being held decoded all at once.</para>
+    ///   over one file per <see cref="Add(String, Stream)"/> and nothing here keeps it, which is what stops a
+    ///   set of tens-of-megabytes extracts from being held all at once. Bytes rather than text, for the
+    ///   reason given on that overload.</para>
     /// </summary>
     public sealed class ArxmlReader
     {
@@ -135,7 +136,21 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         public static ArxmlNetwork Read(String xml)
         {
             var reader = new ArxmlReader();
-            reader.Consume(String.Empty, xml);
+            reader.Add(String.Empty, xml);
+            return reader.Complete();
+        }
+
+        /// <summary>
+        ///   Reads ONE document from its bytes, for a caller that composes nothing. The shape to prefer, for
+        ///   the reasons on <see cref="Add(String, Stream)" />.
+        /// </summary>
+        /// <param name="xml">The document's bytes.</param>
+        /// <exception cref="ArxmlFormatException">The bytes are not an AUTOSAR r4.0 extract this reader will
+        /// read, as on the text overload.</exception>
+        public static ArxmlNetwork Read(Stream xml)
+        {
+            var reader = new ArxmlReader();
+            reader.Add(String.Empty, xml);
             return reader.Complete();
         }
 
@@ -158,7 +173,51 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 throw new ArgumentNullException(nameof(fileName));
             }
 
-            Consume(fileName, xml);
+            if (xml == null)
+            {
+                throw new ArgumentNullException(nameof(xml));
+            }
+
+            using (var text = new StringReader(xml))
+            {
+                Consume(fileName, settings => XmlReader.Create(text, settings));
+            }
+        }
+
+        /// <summary>
+        ///   Streams one more document into this read from its BYTES, which is the shape a run actually
+        ///   has and the one to prefer.
+        ///
+        ///   <para>Not a convenience over the string overload: it is a document less held. This reader has
+        ///   always driven an <c>XmlReader</c> and materialises only the subtrees it collects, so handing it
+        ///   text meant decoding a whole extract to UTF-16 - two bytes per character, held for the parse, on
+        ///   top of the bytes the run holds anyway - for a reader that never wanted a string. From bytes,
+        ///   peak memory stops tracking the largest file.</para>
+        ///
+        ///   <para>It also reads MORE documents correctly. Decoding to text detects a byte-order mark and
+        ///   otherwise assumes UTF-8, whereas an <c>XmlReader</c> over the bytes honours the document's own
+        ///   declaration, so an extract written in another encoding without a mark stops arriving with
+        ///   mojibake in its short names - which are identities here, not display text.</para>
+        ///
+        ///   <para>The stream is the CALLER's to dispose, and is read forwards once.</para>
+        /// </summary>
+        /// <param name="fileName">What the document is called, as a name and never a path.</param>
+        /// <param name="xml">The document's bytes. They are not retained.</param>
+        /// <exception cref="ArxmlFormatException">This document is not readable as an AUTOSAR r4.0 extract,
+        /// which fails the WHOLE read, for the reason given on the text overload.</exception>
+        public void Add(String fileName, Stream xml)
+        {
+            if (fileName == null)
+            {
+                throw new ArgumentNullException(nameof(fileName));
+            }
+
+            if (xml == null)
+            {
+                throw new ArgumentNullException(nameof(xml));
+            }
+
+            Consume(fileName, settings => XmlReader.Create(xml, settings));
         }
 
         /// <summary>
@@ -181,14 +240,13 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         /// <summary>
         ///   One document, streamed into the shared table under its own root gate.
+        ///
+        ///   <para>Takes HOW to open the reader rather than the document, so text and bytes share one code
+        ///   path: the hardening below, the root gate, the "no elements at all" refusal and the way a
+        ///   refusal names its file are decided once and cannot differ by input shape.</para>
         /// </summary>
-        private void Consume(String fileName, String xml)
+        private void Consume(String fileName, Func<XmlReaderSettings, XmlReader> open)
         {
-            if (xml == null)
-            {
-                throw new ArgumentNullException(nameof(xml));
-            }
-
             if (_completed)
             {
                 throw new InvalidOperationException(
@@ -215,8 +273,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             Boolean sawRoot;
             try
             {
-                using (var text = new StringReader(xml))
-                using (var reader = XmlReader.Create(text, settings))
+                using (var reader = open(settings))
                 {
                     sawRoot = Stream(reader, _collected, fileName);
                 }

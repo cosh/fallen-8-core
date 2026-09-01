@@ -242,14 +242,18 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             try
             {
                 // One file at a time, in JOB ORDER, into one reader. The order is what decides which extract
-                // owns a path two of them declare, and reading them one by one rather than gathering the
-                // texts first is what keeps a set of tens-of-megabytes extracts from being held decoded all
-                // at once.
+                // owns a path two of them declare, and reading them one by one rather than gathering them
+                // first is what keeps a set of tens-of-megabytes extracts from being held all at once.
+                //
+                // As BYTES rather than text: the reader drives an XmlReader over them, so asking for the
+                // text would decode a whole extract to UTF-16 for a parser that never wanted a string, and
+                // would read a document declaring a non-UTF-8 encoding without a mark as mojibake.
                 for (var index = 0; index < fileNames.Count; index++)
                 {
-                    var text = await context.RequireFileTextAtAsync(FileSetting, index, cancellationToken)
+                    using var bytes = await context
+                        .RequireFileStreamAtAsync(FileSetting, index, cancellationToken)
                         .ConfigureAwait(false);
-                    reader.Add(fileNames[index], text);
+                    reader.Add(fileNames[index], bytes);
                 }
 
                 // Resolved ONCE, over the union: a frame in one extract carrying a signal defined in another

@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
@@ -549,6 +550,147 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region a file can be read as a STREAM (feature arxml-vehicle-model, phase 3)
+
+        /// <summary>
+        ///   The two seams deliver the same file. This is the safety argument for a provider switching to
+        ///   streams: whatever a large extract costs to hold, the run must not observe anything different.
+        /// </summary>
+        [TestMethod]
+        public async Task AFileReadAsAStreamCarriesWhatReadingItAsTextDid()
+        {
+            using var asText = new Harness();
+            using var asStream = new Harness();
+            asText.Provider.ReadMany = true;
+            asStream.Provider.ReadMany = true;
+            asStream.Provider.ReadManyAsStreams = true;
+
+            var text = await asText.RunAsync(JobWithMany(
+                FileOf("chassis.arxml", "chassis"), FileOf("body.arxml", "body")));
+            var stream = await asStream.RunAsync(JobWithMany(
+                FileOf("chassis.arxml", "chassis"), FileOf("body.arxml", "body")));
+
+            Assert.IsNull(text.ErrorKind, "the text run must succeed: " + text.Error);
+            Assert.IsNull(stream.ErrorKind, "the stream run must succeed: " + stream.Error);
+            CollectionAssert.AreEqual(asText.Provider.ManyTexts.ToArray(),
+                asStream.Provider.ManyTexts.ToArray(),
+                "reading a file as a stream must hand over the same bytes, in the same order, as reading it " +
+                "as text. The point of the stream is that a tens-of-megabytes extract is not also held " +
+                "decoded to UTF-16; it is not a different file");
+        }
+
+        /// <summary>
+        ///   A UTF-16 file still arrives intact through the stream seam. The runtime no longer does the
+        ///   decoding for a provider that asks for bytes, so the mark has to survive the transport and be
+        ///   THERE for the provider's own reader - which is what this asserts, from the position of a
+        ///   provider that decodes with mark detection exactly as the runtime used to.
+        /// </summary>
+        [TestMethod]
+        public async Task AUtf16FileReadAsAStreamStillCarriesItsMark()
+        {
+            using var harness = new Harness();
+            harness.Provider.ReadMany = true;
+            harness.Provider.ReadManyAsStreams = true;
+
+            var report = await harness.RunAsync(JobWithMany(
+                FileOf("wide.arxml", "chassis", Encoding.Unicode)));
+
+            Assert.IsNull(report.ErrorKind, "the run must succeed: " + report.Error);
+            CollectionAssert.AreEqual(new[] { "chassis" }, harness.Provider.ManyTexts.ToArray(),
+                "the bytes reach the provider as the caller sent them, mark included, so a reader that " +
+                "detects one gets the same text the runtime's own decode produced");
+        }
+
+        /// <summary>
+        ///   The stream is READ-ONLY. It is a view over the run's own array rather than a copy - which is the
+        ///   whole saving - so a writable one would let a provider edit the bytes the caller sent, and the
+        ///   run would then report as observed something the source never said.
+        /// </summary>
+        [TestMethod]
+        public async Task AFileStreamRefusesAWrite_SoAProviderCannotEditWhatTheCallerSent()
+        {
+            using var harness = new Harness();
+            harness.Provider.ReadMany = true;
+            harness.Provider.ReadManyAsStreams = true;
+
+            var report = await harness.RunAsync(JobWithMany(FileOf("chassis.arxml", "chassis")));
+
+            Assert.IsNull(report.ErrorKind, "the run must succeed: " + report.Error);
+            Assert.IsTrue(harness.Provider.EveryStreamWasReadOnly,
+                "the stream must not be writable: it is a view over the bytes the job carried, not a copy " +
+                "of them, so a provider could otherwise rewrite its own source between reading and " +
+                "describing it");
+        }
+
+        /// <summary>
+        ///   Each open is its OWN stream. A single shared one would be spent after the first read, so a
+        ///   provider that looks at a file twice - a cheap pre-scan then a parse, say - would see an empty
+        ///   document the second time and describe a source with nothing in it. That is the shape that
+        ///   withdraws everything an identity claimed.
+        /// </summary>
+        [TestMethod]
+        public async Task OpeningTheSameFileTwiceReadsItTwice()
+        {
+            using var harness = new Harness();
+            harness.Provider.ReadMany = true;
+            harness.Provider.ReadManyAsStreams = true;
+            harness.Provider.OpenTheFirstFileTwice = true;
+
+            var report = await harness.RunAsync(JobWithMany(
+                FileOf("chassis.arxml", "chassis"), FileOf("body.arxml", "body")));
+
+            Assert.IsNull(report.ErrorKind, "the run must succeed: " + report.Error);
+            Assert.AreEqual("chassis", harness.Provider.SecondOpenOfTheFirstFile,
+                "a second open of the same file must read it in full again. A seam handing back one spent " +
+                "stream would give a provider an empty file and no error to explain it");
+        }
+
+        /// <summary>
+        ///   Reading past the end is the same provider defect through either seam, and it matters that it
+        ///   stays one: the range check lives in the shared locate step, so a stream path that grew its own
+        ///   would be free to answer with the first file instead - silently parsing one extract twice.
+        /// </summary>
+        [TestMethod]
+        public async Task OpeningPastTheEndOfASetIsAProviderDefect_AsReadingPastItIs()
+        {
+            using var harness = new Harness();
+            harness.Provider.ReadMany = true;
+            harness.Provider.ReadManyAsStreams = true;
+            harness.Provider.ReadPastEndAt = 5;
+
+            var report = await harness.RunAsync(JobWithMany(FileOf("a.arxml", "a"), FileOf("b.arxml", "b")));
+
+            Assert.AreEqual(JobErrorKinds.Source, report.ErrorKind,
+                "a provider opening past its own file list must fail the run: " + report.Error);
+            Assert.AreEqual(0, report.ElementsCreated, "and nothing is written on the way out");
+        }
+
+        /// <summary>
+        ///   Opening a file after the run has ended throws, exactly as reading one does. The lifetime rule is
+        ///   the caller's data being dropped when their job is over, so a second way in that outlived it
+        ///   would make the published guarantee false rather than merely inconsistent.
+        /// </summary>
+        [TestMethod]
+        public async Task OpeningAFileAfterTheRunHasEndedThrows()
+        {
+            using var harness = new Harness();
+
+            var report = await harness.RunAsync(Job(FileOf(FileName, Text)));
+            Assert.IsNull(report.ErrorKind, "the run must succeed first: " + report.Error);
+
+            var late = Assert.ThrowsException<InvalidOperationException>(
+                () => harness.Provider.KeptContext
+                    .RequireFileStreamAtAsync(FileSetting, 0, CancellationToken.None)
+                    .GetAwaiter().GetResult(),
+                "the stream seam must be time-boxed to the run exactly as the text seam is: the run's files " +
+                "belong to whoever submitted that job and to nothing else");
+
+            StringAssert.Contains(late.Message, "dropped",
+                "and it says the file is gone rather than that the setting was wrong");
+        }
+
+        #endregion
+
         #region the file is dropped when the run ends
 
         [TestMethod]
@@ -735,6 +877,15 @@ namespace NoSQL.GraphDB.Tests
             /// <summary>Whether to read the MULTIPLE setting, the way a composing provider does.</summary>
             public Boolean ReadMany { get; set; }
 
+            /// <summary>
+            ///   Whether to read that set as STREAMS rather than as text, which is what a provider whose
+            ///   format parses incrementally does (the AUTOSAR reader drives an XmlReader over one).
+            /// </summary>
+            public Boolean ReadManyAsStreams { get; set; }
+
+            /// <summary>Whether to open the SAME file twice, for the "each open is its own stream" case.</summary>
+            public Boolean OpenTheFirstFileTwice { get; set; }
+
             /// <summary>How far past the end of the list to read, for the provider-defect case.</summary>
             public Int32 ReadPastEndAt { get; set; } = -1;
 
@@ -753,6 +904,16 @@ namespace NoSQL.GraphDB.Tests
 
             /// <summary>Each of those files' text, read one at a time and in the same order.</summary>
             public List<String> ManyTexts { get; } = new List<String>();
+
+            /// <summary>
+            ///   Whether every stream the runtime handed over refused a write. A provider must not be able to
+            ///   edit the bytes the caller sent: the run reports what it OBSERVED, and a seam that handed out
+            ///   a writable view of the job's own array would let a provider change what its source said.
+            /// </summary>
+            public Boolean EveryStreamWasReadOnly { get; private set; } = true;
+
+            /// <summary>What the second open of the FIRST file read, when asked to open it twice.</summary>
+            public String SecondOpenOfTheFirstFile { get; private set; }
 
             /// <summary>The effective VALUE of the multiple setting, which is what a message about it says.</summary>
             public String ManySettingValue { get; private set; }
@@ -808,6 +969,31 @@ namespace NoSQL.GraphDB.Tests
                 ReadOnly = true,
             };
 
+            /// <summary>
+            ///   One file of the set, through whichever seam this run is exercising. Text and bytes go
+            ///   through ONE call site on purpose: a test that compares them is then comparing the runtime's
+            ///   two seams rather than two hand-written provider loops.
+            /// </summary>
+            private async Task<String> ReadOneAsync(ProviderContext context, Int32 index,
+                CancellationToken cancellationToken)
+            {
+                if (!ReadManyAsStreams)
+                {
+                    return await context.RequireFileTextAtAsync(MultiFileSetting, index, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                using var bytes = await context
+                    .RequireFileStreamAtAsync(MultiFileSetting, index, cancellationToken)
+                    .ConfigureAwait(false);
+
+                EveryStreamWasReadOnly &= !bytes.CanWrite;
+
+                using var reader = new StreamReader(bytes, Encoding.UTF8,
+                    detectEncodingFromByteOrderMarks: true);
+                return await reader.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+            }
+
             public async Task<SnapshotDocument> ObserveAsync(ProviderContext context,
                 CancellationToken cancellationToken)
             {
@@ -831,21 +1017,28 @@ namespace NoSQL.GraphDB.Tests
                     ManySettingValue = context.Optional(MultiFileSetting);
                     for (var i = 0; i < ManyNames.Count; i++)
                     {
-                        ManyTexts.Add(await context
-                            .RequireFileTextAtAsync(MultiFileSetting, i, cancellationToken)
+                        ManyTexts.Add(await ReadOneAsync(context, i, cancellationToken)
                             .ConfigureAwait(false));
+                    }
+
+                    if (OpenTheFirstFileTwice && ManyNames.Count > 0)
+                    {
+                        SecondOpenOfTheFirstFile = await ReadOneAsync(context, 0, cancellationToken)
+                            .ConfigureAwait(false);
                     }
 
                     if (ReadPastEndAt >= 0)
                     {
-                        ManyTexts.Add(await context
-                            .RequireFileTextAtAsync(MultiFileSetting, ReadPastEndAt, cancellationToken)
+                        ManyTexts.Add(await ReadOneAsync(context, ReadPastEndAt, cancellationToken)
                             .ConfigureAwait(false));
                     }
                 }
 
                 // Deliberately EMPTY and complete: this fixture is about how the file arrived, and an
                 // entity would drag claim resolution into every assertion above.
+                //
+                // (ReadOneAsync below is the one place either shape is chosen, so a test comparing the two
+                // is comparing the seams and not two differently written fixtures.)
                 return new SnapshotDocument
                 {
                     ProviderId = context.ProviderId,

@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -435,6 +436,161 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region a document is read from its BYTES
+
+        /// <summary>
+        ///   The two input shapes describe the SAME network, asserted on the order-sensitive serialisation
+        ///   rather than on counts. This is the whole safety argument for the provider switching to bytes:
+        ///   the reader was already streaming, so nothing about what it collects may change with how the
+        ///   document was handed over.
+        /// </summary>
+        [TestMethod]
+        public void TheSameDocumentReadAsBytesAndAsTextDescribesTheSameNetwork()
+        {
+            var asText = ArxmlReader.Read(Fixture);
+
+            using var bytes = new MemoryStream(new UTF8Encoding(false).GetBytes(Fixture), writable: false);
+            var asBytes = ArxmlReader.Read(bytes);
+
+            Assert.AreEqual(Describe(asText), Describe(asBytes),
+                "reading a document from its bytes must describe exactly what reading its text described, " +
+                "element for element and relation for relation, in the same order: the provider now hands " +
+                "over bytes for every extract, so any difference here is a difference in what the graph " +
+                "gets");
+        }
+
+        /// <summary>
+        ///   THE CORRECTNESS GAIN, and it is the reason to prefer bytes rather than a bonus. Decoding a
+        ///   document to text first can only guess at its encoding - a byte-order mark, else UTF-8 - while
+        ///   an XmlReader given the bytes honours the document's own declaration. So a document declaring a
+        ///   single-byte encoding with no mark is read correctly from bytes and CORRUPTED through text.
+        ///
+        ///   <para>The unit is where a real extract carries a non-ASCII character: a short name may not hold
+        ///   one, and a unit's display name is DENORMALISED onto every signal that reaches it, so a wrong
+        ///   decode here is wrong data on many elements rather than one cosmetic string.</para>
+        ///
+        ///   <para>Asserted in both directions on purpose: the second half is the mutation check. If the byte
+        ///   path ever grows a decode-to-string step, the first assertion starts failing - and if the text
+        ///   path stops corrupting it, this test has stopped testing anything.</para>
+        /// </summary>
+        [TestMethod]
+        public void ADocumentDeclaringASingleByteEncodingIsReadByItsDeclaration_OnlyFromBytes()
+        {
+            var document = Fixture
+                .Replace("encoding=\"UTF-8\"", "encoding=\"iso-8859-1\"", StringComparison.Ordinal)
+                .Replace("<DISPLAY-NAME>km</DISPLAY-NAME>", "<DISPLAY-NAME>km\u00b2</DISPLAY-NAME>",
+                    StringComparison.Ordinal);
+            var encoded = Encoding.GetEncoding("iso-8859-1").GetBytes(document);
+
+            using var stream = new MemoryStream(encoded, writable: false);
+            var fromBytes = ArxmlReader.Read(stream);
+            var fromText = ArxmlReader.Read(Encoding.UTF8.GetString(encoded));
+
+            Assert.AreEqual("km\u00b2", Element(fromBytes, "/ISignals/SIG_OdoTotalDist")[ArxmlProperties.Unit],
+                "an XmlReader over the bytes honours encoding=\"iso-8859-1\", so the superscript arrives as " +
+                "itself. This is the case a mount-era reader got right and decoding to text silently broke");
+            Assert.AreNotEqual("km\u00b2", Element(fromText, "/ISignals/SIG_OdoTotalDist")[ArxmlProperties.Unit],
+                "and the text path CANNOT get it right, because by the time it is text the declaration is " +
+                "unreadable. If this ever starts failing, the two paths have converged and the assertion " +
+                "above is passing for a different reason than the one it names");
+        }
+
+        /// <summary>
+        ///   UTF-16 with a mark still reads, which the decode-to-text path handled and a byte path must not
+        ///   regress: an extract written by a tool that emits UTF-16 is the ordinary case that seam was
+        ///   careful about before it streamed.
+        /// </summary>
+        [TestMethod]
+        public void AUtf16DocumentWithAMarkReadsFromBytes()
+        {
+            var document = Fixture.Replace("encoding=\"UTF-8\"", "encoding=\"utf-16\"",
+                StringComparison.Ordinal);
+            var preamble = Encoding.Unicode.GetPreamble();
+            var body = Encoding.Unicode.GetBytes(document);
+            var encoded = new Byte[preamble.Length + body.Length];
+            Buffer.BlockCopy(preamble, 0, encoded, 0, preamble.Length);
+            Buffer.BlockCopy(body, 0, encoded, preamble.Length, body.Length);
+
+            using var stream = new MemoryStream(encoded, writable: false);
+            var network = ArxmlReader.Read(stream);
+
+            Assert.AreEqual(Describe(ArxmlReader.Read(Fixture)), Describe(network),
+                "a UTF-16 extract must read from bytes exactly as its UTF-8 twin does, mark detection " +
+                "included: the transport carries whatever the tool wrote, and this is the encoding an " +
+                "AUTOSAR export is most likely to arrive in after UTF-8");
+        }
+
+        /// <summary>
+        ///   A SET of documents read as bytes resolves across them exactly as the text path does. Not implied
+        ///   by the single-document parity: the union table and the first-declaration-wins rule live across
+        ///   Add calls, so this is what says a per-file stream did not become a per-file read.
+        /// </summary>
+        [TestMethod]
+        public void ASetOfDocumentsReadAsBytesResolvesAcrossThemAsTheTextPathDoes()
+        {
+            var asText = ReadSet(("chassis.arxml", ChassisExtract), ("body.arxml", BodyExtract));
+            var asBytes = ReadSetAsBytes(("chassis.arxml", ChassisExtract), ("body.arxml", BodyExtract));
+
+            Assert.AreEqual(Describe(asText), Describe(asBytes),
+                "a frame in one extract carrying a signal defined in another is the whole reason a job may " +
+                "carry several, and that resolution has to survive the switch to bytes");
+        }
+
+        /// <summary>
+        ///   The byte overload goes through the SAME gate as the text one. A separate implementation that
+        ///   skipped it would silently add a document to a read whose resolution has already happened, and
+        ///   that document would be described by nothing.
+        /// </summary>
+        [TestMethod]
+        public void ADocumentAddedAsBytesAfterCompleteIsRefused()
+        {
+            var reader = new ArxmlReader();
+            reader.Add("first.arxml", ChassisExtract);
+            reader.Complete();
+
+            using var stream = new MemoryStream(new UTF8Encoding(false).GetBytes(BodyExtract), false);
+
+            var refused = Assert.ThrowsException<InvalidOperationException>(
+                () => reader.Add("second.arxml", stream),
+                "adding a document after Complete must be refused whichever shape it arrives in");
+            StringAssert.Contains(refused.Message, "resolution has already run", refused.Message);
+        }
+
+        /// <summary>
+        ///   A malformed document read as bytes is still an ArxmlFormatException naming the FILE, not an
+        ///   XmlException escaping to the caller: the provider turns the former into a failed run and would
+        ///   let the latter through as an unexplained crash.
+        /// </summary>
+        [TestMethod]
+        public void MalformedBytesAreRefusedWithTheFileNamed()
+        {
+            var reader = new ArxmlReader();
+            using var stream = new MemoryStream(
+                new UTF8Encoding(false).GetBytes("<AUTOSAR xmlns=\"http://autosar.org/schema/r4.0\">"), false);
+
+            var refused = Assert.ThrowsException<ArxmlFormatException>(
+                () => reader.Add("truncated.arxml", stream));
+
+            StringAssert.Contains(refused.Message, "truncated.arxml",
+                "the refusal has to name the file, which is the only actionable part when several extracts " +
+                "arrived in one job: " + refused.Message);
+        }
+
+        [TestMethod]
+        public void AMissingByteArgumentIsRefusedRatherThanTreatedAsAnEmptyDocument()
+        {
+            var reader = new ArxmlReader();
+
+            Assert.ThrowsException<ArgumentNullException>(() => reader.Add("x.arxml", (Stream)null),
+                "a null stream is a caller defect, and reading it as 'a document with nothing in it' would " +
+                "describe an empty network - which withdraws every element the identity claimed");
+            Assert.ThrowsException<ArgumentNullException>(
+                () => reader.Add(null, new MemoryStream(Array.Empty<Byte>())),
+                "and a document with no name cannot be named by the refusal that mentions it");
+        }
+
+        #endregion
+
         #region helpers
 
         private static ArxmlNetwork Read()
@@ -479,6 +635,19 @@ namespace NoSQL.GraphDB.Tests
             foreach (var document in documents)
             {
                 reader.Add(document.Name, document.Xml);
+            }
+
+            return reader.Complete();
+        }
+
+        /// <summary>The same set, handed over as BYTES: one stream per document, disposed as a run does.</summary>
+        private static ArxmlNetwork ReadSetAsBytes(params (String Name, String Xml)[] documents)
+        {
+            var reader = new ArxmlReader();
+            foreach (var document in documents)
+            {
+                using var bytes = new MemoryStream(new UTF8Encoding(false).GetBytes(document.Xml), false);
+                reader.Add(document.Name, bytes);
             }
 
             return reader.Complete();

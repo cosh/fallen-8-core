@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -53,16 +54,19 @@ namespace NoSQL.GraphDB.Integrations.Contract
         private readonly Func<String, String?> _resolveFileFailure;
         private readonly Func<String, IReadOnlyList<String>> _fileNames;
         private readonly Func<String, Int32, CancellationToken, Task<String>> _readFileAt;
+        private readonly Func<String, Int32, CancellationToken, Task<Stream>> _openFileAt;
 
         internal ProviderContext(String providerId, String instanceId,
             IReadOnlyDictionary<String, String> settings, CredentialLease credentials, HttpClient http,
             ILogger logger, IList<DiagnosticDto> diagnostics,
             Func<String, CancellationToken, Task<String>> readFile, Func<String, String?> resolveFileFailure,
             Func<String, IReadOnlyList<String>> fileNames,
-            Func<String, Int32, CancellationToken, Task<String>> readFileAt)
+            Func<String, Int32, CancellationToken, Task<String>> readFileAt,
+            Func<String, Int32, CancellationToken, Task<Stream>> openFileAt)
         {
             _fileNames = fileNames;
             _readFileAt = readFileAt;
+            _openFileAt = openFileAt;
             ProviderId = providerId;
             InstanceId = instanceId;
             _settings = settings;
@@ -262,9 +266,7 @@ namespace NoSQL.GraphDB.Integrations.Contract
         {
             Required(settingKey);
             var names = _fileNames(settingKey);
-            var fileName = index >= 0 && index < names.Count
-                ? names[index]
-                : settingKey;
+            var fileName = FileNameAt(names, settingKey, index);
 
             try
             {
@@ -274,12 +276,64 @@ namespace NoSQL.GraphDB.Integrations.Contract
                                             && failure is not ProviderConfigurationException
                                             && failure is not ProviderSourceException)
             {
-                throw new ProviderSourceException(String.Format(CultureInfo.InvariantCulture,
-                    "The file '{0}', one of {1} supplied for setting '{2}', could not be read: {3}. The run " +
-                    "fails and withdraws nothing: reporting an empty source would withdraw every element " +
-                    "this identity claimed, because \"I could not look\" must never become \"there is " +
-                    "nothing there\".", fileName, names.Count, settingKey, failure.Message), failure);
+                throw new ProviderSourceException(SourceFailure(fileName, names.Count, settingKey, failure),
+                    failure);
             }
+        }
+
+        /// <summary>
+        ///   The file at that position as a STREAM, for a parser that consumes one. Same refusals and the
+        ///   same source-failure wrapping as <see cref="RequireFileTextAtAsync" />; what differs is that the
+        ///   file is never copied into a string, which for an extract of tens of megabytes is the difference
+        ///   between holding it once and holding it twice over (a string costs two bytes per character).
+        ///   Prefer it whenever the format can be parsed incrementally, which XML can.
+        ///
+        ///   <para>The stream is the CALLER's to dispose.</para>
+        /// </summary>
+        /// <exception cref="ProviderConfigurationException">The setting was not supplied.</exception>
+        /// <exception cref="ProviderSourceException">That file could not be opened.</exception>
+        public async Task<Stream> RequireFileStreamAtAsync(String settingKey, Int32 index,
+            CancellationToken cancellationToken)
+        {
+            Required(settingKey);
+            var names = _fileNames(settingKey);
+            var fileName = FileNameAt(names, settingKey, index);
+
+            try
+            {
+                return await _openFileAt(settingKey, index, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException
+                                            && failure is not ProviderConfigurationException
+                                            && failure is not ProviderSourceException)
+            {
+                throw new ProviderSourceException(SourceFailure(fileName, names.Count, settingKey, failure),
+                    failure);
+            }
+        }
+
+        /// <summary>
+        ///   What a refusal calls the file at that position. The SETTING key when there is nothing at it,
+        ///   because a provider that counted its files wrongly is a defect and inventing a file name for it
+        ///   would send an operator looking for a file that was never sent.
+        /// </summary>
+        private static String FileNameAt(IReadOnlyList<String> names, String settingKey, Int32 index)
+        {
+            return index >= 0 && index < names.Count ? names[index] : settingKey;
+        }
+
+        /// <summary>
+        ///   One sentence for "that file could not be read", shared by both per-file readers so the two
+        ///   cannot drift into telling an operator different things about the same failure.
+        /// </summary>
+        private static String SourceFailure(String fileName, Int32 count, String settingKey,
+            Exception failure)
+        {
+            return String.Format(CultureInfo.InvariantCulture,
+                "The file '{0}', one of {1} supplied for setting '{2}', could not be read: {3}. The run " +
+                "fails and withdraws nothing: reporting an empty source would withdraw every element " +
+                "this identity claimed, because \"I could not look\" must never become \"there is " +
+                "nothing there\".", fileName, count, settingKey, failure.Message);
         }
     }
 

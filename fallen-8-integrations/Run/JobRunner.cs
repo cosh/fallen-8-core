@@ -283,7 +283,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                         _loggers.CreateLogger("NoSQL.GraphDB.Integrations.Providers." + descriptor.Id),
                         diagnostics, runFiles.ReadAsync,
                         key => runFiles.TryResolve(key, out var failure) ? null : failure,
-                        runFiles.NamesOf, runFiles.ReadAtAsync);
+                        runFiles.NamesOf, runFiles.ReadAtAsync, runFiles.OpenAtAsync);
 
                     // Named before the call, because this is the phase that looks like a hang: a large
                     // extract parses for minutes and writes nothing, so "observe" is the only thing that

@@ -242,9 +242,11 @@ Two more consequences of the union:
   with one name make each of those messages ambiguous, and the commonest cause is the same file
   picked twice by mistake.
 
-Bytes rather than text on both transports, because the encoding is not yours to guess: an AUTOSAR
-extract a vendor tool wrote as UTF-16 decodes correctly, where a transport carrying "the text" would
+Bytes rather than text, all the way to the integration, because the encoding is not yours to guess: an
+AUTOSAR extract a tool wrote as UTF-16 reads correctly, where a transport carrying "the text" would
 have handed the integration mojibake and written that into your graph without a word on the report.
+An XML extract goes further and is read by its own **encoding declaration**, so one written in a
+single-byte encoding with no byte-order mark reads correctly too.
 
 The runtime **mounts no files and opens none on disk**. There is no directory to prepare, no
 staged upload to clean up and no file name that could point somewhere it should not: a file lives

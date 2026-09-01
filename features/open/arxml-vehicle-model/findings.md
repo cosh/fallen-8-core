@@ -72,32 +72,35 @@ a required setting with no default, and the claim value carries it. The accept p
 vehicle-less shape outright, so a provider that forgets the vehicle fails to compose a key rather
 than silently merging cars.
 
-## 4. Why a vehicle does not import in one job
+## 4. Why a vehicle needs more than one job, and why that is now safe
 
 | bound | value | fixed? |
 |---|---|---|
 | apiApp proxy job transport | 768 MiB | fixed const, no setting |
 | effective files budget after the envelope allowance | 767 MiB | fixed |
-| largest job the JSON arm can deliver, decoded | 575.25 MiB | fixed by 4/3 base64 expansion |
-| `Integrations:MaxJobFileBytes` | 560 MiB | configurable |
+| `Integrations:MaxJobFileBytes` | 760 MiB | configurable, and already the whole budget less framing |
 | `Integrations:MaxFileBytes` | 128 MiB | configurable |
 
-A multi-bus vehicle's extracts exceed these and have to arrive together, because a complete snapshot
-withdraws whatever a later job leaves out. The sharp form of the problem is not "it needs several
-jobs":
+A multi-bus vehicle's extracts exceed these, and the original problem was not that it needed several
+jobs. It was sharper than that:
 
-> **Under one identity with today's transport, two bus families cannot be in the graph at the same
-> time.** A job carrying both is refused; a job carrying one withdraws the other. So the shared
-> system signals of section 1 are unobservable.
+> **Under one identity, two bus families could not be in the graph at the same time.** A job carrying
+> both was refused; a job carrying one withdrew the other, because a complete snapshot withdraws
+> whatever it does not mention. So the shared system signals of section 1 were unobservable.
 
-**Per-network scoping does not fix it**, because a vehicle's Ethernet extracts commonly declare a
-single cluster: two jobs scoped to that network still withdraw each other. The scope has to be
-**declared by the job**.
+**Resolved by the job declaring a SCOPE** (N2, done). Reconciliation compares against that scope alone,
+so a vehicle's CAN extracts and its Ethernet extracts coexist under one identity. Per-*network* scoping
+would not have worked: a vehicle's Ethernet extracts commonly declare a single cluster, so two jobs
+scoped to that network would still withdraw each other. The scope had to be the job's to declare.
 
-**And the scope must be a SEPARATE dimension from the vehicle.** A vehicle's CAN extracts and its
-Ethernet extracts share system signals, and those shared signals ARE the cross-bus join. Folding the
-completeness scope into identity would split every one of them into two elements and destroy the
-thing this line of work exists to make visible.
+**And the scope is a SEPARATE dimension from the vehicle**, deliberately. A vehicle's CAN and Ethernet
+extracts share system signals, and those shared signals ARE the cross-bus join. Folding completeness
+into identity would split every one of them into two elements and destroy the thing this line of work
+exists to make visible. What makes that work is that a scope lives in the claim property's KEY, so one
+element carries a claim per scope and is deleted only when the last of them goes.
+
+The base64 arm is gone, so the table has one fewer row and 200 MiB more headroom: while a job could
+arrive encoded, the ceiling had to hold for that transport, and its third came off every job's budget.
 
 ## 5. Engine costs, and what was done about them
 
@@ -107,9 +110,16 @@ thing this line of work exists to make visible.
   compacted once per halving. Verified by a benchmark whose data it generates itself.
 - **The create path issued one HTTP request per index entry.** **Fixed:** `PUT /index/{indexId}/batch`
   takes a list and reports refusals by position.
-- **Whole-file decode.** A file's bytes are held for the run and one whole file is decoded to a
-  UTF-16 string, so peak memory tracks the largest file. Not fixed; it is the streaming read the
-  ARXML spec already names as a prerequisite.
+- **Whole-file decode.** A file's bytes are held for the run and one whole file was decoded to a
+  UTF-16 string to be parsed, so peak memory tracked the largest file twice over. **Fixed:** a file can
+  be opened as a stream, and the AUTOSAR provider reads its extracts that way. The reader never wanted
+  a string - it has always driven an `XmlReader` and materialises only the subtrees it collects - so
+  nothing about what it collects changed, pinned by comparing the two paths on the order-sensitive
+  serialisation. Measured on a synthetic 15.7 MiB extract: 63.1 MiB less allocated (225.5 → 162.4 MiB),
+  four times the document rather than the two the string alone accounts for, and 23% faster as a side
+  effect. It also reads MORE documents correctly: an `XmlReader` over the bytes honours the document's
+  own encoding declaration, while decoding first could only look for a byte-order mark and otherwise
+  assume UTF-8.
 
 ## 6. Decisions in force
 
@@ -117,10 +127,23 @@ thing this line of work exists to make visible.
 |---|---|
 | N1 | A faithful AUTOSAR mirror, roughly 20 entity kinds |
 | N2 | A vehicle is part of the claim key, named by the job. **Done**, together with per-scope completeness: a job declares what it is complete OVER, an element may carry several scopes of one identity, and it is deleted only when the last claim goes |
-| N3 | Resumable chunked upload into a run-scoped staging area |
+| N3 | Resumable chunked upload into a run-scoped staging area. **Deferred**, with a named trigger - see below |
 | N4 | Model the Ethernet-only structure in full |
 | N5 | Normalise the Ethernet socket layer onto one set of kinds, keeping the source spelling as a property |
 | N6 | Fix the withdrawal cost and the per-entry index writes first. **Done** |
+
+**N3 is deferred rather than open.** Two things changed under it. Per-scope completeness (N2) removed
+the correctness need: a source too large for one job now arrives as several jobs that each declare a
+scope, and each reconciles against its own scope alone, so nothing withdraws anything else. And the
+staging area would have to hold a caller's file BYTES on disk, which contradicts a published guarantee
+rather than merely costing work: the runtime mounts no directory, and the one optional mount it does
+have (the in-flight run spool) never holds a credential or a file's bytes and is empty whenever nothing
+is running. Paying that for a convenience is the wrong trade while the alternative is one extra job.
+
+**The trigger to revisit it:** a single SCOPE whose files exceed what the transport carries in one
+request (760 MiB, itself bounded by the proxy's fixed 768 MiB). Splitting cannot help there, because a
+scope is the unit reconciliation compares against. If that shows up, N3 is the answer and the disk
+guarantee has to be re-decided in the open rather than quietly.
 
 N5 exists because the socket layer's element names **differ between AUTOSAR revisions with no
 overlap**: the older revisions name a socket connection, its bundle and its PDU identifier one way,
@@ -135,10 +158,16 @@ revision-stable, and **the XML namespace does not identify the revision**, so a 
 ```
 Phase 1  engine: cheap withdrawal, batched claim indexing        DONE
 Phase 2  vehicle-scoped identity, per-scope completeness         DONE
-Phase 3  staged resumable upload, streaming parse                open
+Phase 3  streaming parse                                         DONE
+         staged resumable upload                                 deferred (N3, with a trigger)
 Phase 4  the three-bus faithful model                            open
 Phase 5  the Ethernet detail layer                               open
 ```
+
+The transport step that section 8 called for landed with phase 3: a file's bytes arrive as a multipart
+part and nowhere else, and the job ceiling rose to what the transport actually carries (760 MiB, from
+560). Base64 was what held it down - a job could arrive encoded, so the ceiling had to hold for that
+transport, and its third was subtracted from every job's budget including the ones not using it.
 
 Phase 1's third planned item, a cancellation safe point inside reconcile, was **cancelled by
 measurement**. The code says there deliberately is none *because reconciliation is fast*, and that
@@ -148,10 +177,10 @@ warns against.
 
 ## 8. Next steps
 
-1. **Drop the JSON transport arm** and raise the per-job ceiling toward the proxy budget, which
-   removes a code path and reduces how many jobs a source needs.
-2. **Phase 3**: a staged resumable upload and a streaming parse, so peak memory stops tracking the
-   largest file and a vehicle's extracts can be delivered without holding them all at once.
+1. **Phase 4**, the faithful model (N1, N4, N5): roughly 20 entity kinds across CAN, FlexRay and
+   Ethernet, with the socket layer normalised onto one set of kinds and the AUTOSAR revision detected
+   from `xsi:schemaLocation` rather than from the XML namespace, which does not carry it.
+2. **Phase 5**, the Ethernet detail layer.
 
 ## 9. Scope of what is known
 
