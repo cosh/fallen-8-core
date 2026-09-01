@@ -175,8 +175,8 @@ namespace NoSQL.GraphDB.Core.Index.Range
                 return keys;
             }
 
-            keys = new IComparable[_idx.Count];
-            _idx.Keys.CopyTo(keys, 0);
+            keys = new IComparable[KeyCount];
+            CopyKeysTo(keys);
             Array.Sort(keys); // default comparer == IComparable.CompareTo, matching the old range predicates
             _sortedKeys = keys;
             return keys;
@@ -198,7 +198,7 @@ namespace NoSQL.GraphDB.Core.Index.Range
             for (int i = startInclusive; i < endExclusive; i++)
             {
                 ImmutableList<AGraphElementModel> bucket;
-                if (_idx.TryGetValue(keys[i], out bucket))
+                if (TryGetLiveValues(keys[i], out bucket))
                 {
                     builder.AddRange(bucket);
                 }
