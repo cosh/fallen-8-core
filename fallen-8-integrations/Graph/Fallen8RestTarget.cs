@@ -236,10 +236,10 @@ namespace NoSQL.GraphDB.Integrations.Graph
         }
 
         /// <inheritdoc />
-        public Task<IReadOnlyList<Int32>> ElementsClaimedByAsync(String instanceId,
+        public Task<IReadOnlyList<Int32>> ElementsClaimedByAsync(String claimLiteral,
             CancellationToken cancellationToken)
         {
-            return ScanIndexAsync(ClaimSchema.ClaimsIndexId, instanceId, cancellationToken);
+            return ScanIndexAsync(ClaimSchema.ClaimsIndexId, claimLiteral, cancellationToken);
         }
 
         /// <inheritdoc />

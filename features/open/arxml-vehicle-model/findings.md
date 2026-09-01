@@ -52,11 +52,16 @@ first-class elements, and DoIP.
 
 This is the load-bearing conclusion, and it follows from the standard.
 
-AUTOSAR makes a reference path unique **within one system description**. It says nothing about
-uniqueness **across** system descriptions, and could not: the standardised platform packages are
-present in essentially every extract by construction, and package trees are commonly organised by
-domain rather than by vehicle. So two different vehicles routinely use the same path for different
-elements.
+A short-name is unique among its siblings, so a reference path identifies an element **within one
+model**. Nothing in the standard coordinates package names **across** independently authored models,
+and it could not: the standardised packages are common to all of them by construction, and package
+trees are commonly organised by domain rather than by vehicle. So two different vehicles routinely
+use the same path for different elements.
+
+The ARXML form is specified by AUTOSAR's
+[ARXML Serialization Rules](https://www.autosar.org/fileadmin/standards/R20-11/FO/AUTOSAR_TPS_ARXMLSerializationRules.pdf)
+(`AUTOSAR_TPS_ARXMLSerializationRules`, R20-11); AUTOSAR itself is summarised on
+[Wikipedia](https://en.wikipedia.org/wiki/AUTOSAR).
 
 Instance scope does not cover this. It stops one integration **instance** reconciling away another's,
 which is a different collision from two vehicles arriving under **one** instance, and a fleet in one

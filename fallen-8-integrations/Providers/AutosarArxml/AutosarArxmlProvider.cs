@@ -70,10 +70,12 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         /// <summary>
         ///   The one identifier type this provider claims. Its value is the VEHICLE followed by the
         ///   element's AUTOSAR reference path, because the path alone does not identify an element.
-        ///   The standard makes a reference path unique within ONE system description and says
-        ///   nothing across several, and it could not: the standardised platform packages appear in
-        ///   essentially every extract by construction. A key built from the path alone therefore
-        ///   asserts that two different vehicles share those elements.
+        ///   A short-name is unique among its siblings, so a reference path identifies an element
+        ///   within ONE model; nothing in the standard coordinates package names across independently
+        ///   authored models, and the standardised packages are common to all of them by construction.
+        ///   A key built from the path alone therefore asserts that two different vehicles share those
+        ///   elements. The ARXML form is specified by AUTOSAR's ARXML Serialization Rules
+        ///   (AUTOSAR_TPS_ARXMLSerializationRules, R20-11).
         /// </summary>
         public const String VehiclePathClaimType = "arxml-vehicle-path";
 

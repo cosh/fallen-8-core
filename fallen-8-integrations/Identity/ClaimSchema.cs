@@ -66,8 +66,15 @@ namespace NoSQL.GraphDB.Integrations.Identity
         /// <summary>The index projecting <see cref="IdentityPrefix"/>: claim key to element ids.</summary>
         public const String IdentityIndexId = "f8i-identity";
 
-        /// <summary>The index projecting <see cref="ClaimPrefix"/>: instance id to element ids.</summary>
+        /// <summary>The index projecting <see cref="ClaimPrefix"/>: claim literal to element ids.</summary>
         public const String ClaimsIndexId = "f8i-claims";
+
+        /// <summary>
+        ///   Separates an instance id from a SCOPE in a claim property and in the claim index literal.
+        ///   A hash is used because <see cref="IsValidInstanceId"/> and <see cref="IsValidScope"/> both
+        ///   exclude it, so the split is unambiguous in both directions.
+        /// </summary>
+        public const String ScopeSeparator = "#";
 
         /// <summary>
         ///   The longest an integration instance id may be. The value is substituted into a property key
@@ -86,15 +93,54 @@ namespace NoSQL.GraphDB.Integrations.Identity
             return IdentityPrefix + ordinal.ToString(CultureInfo.InvariantCulture);
         }
 
-        /// <summary>The property by which <paramref name="instanceId"/> asserts an element.</summary>
-        public static String ClaimProperty(String instanceId)
+        /// <summary>The longest a scope may be, bounded for the same reason an instance id is.</summary>
+        public const Int32 MaxScopeLength = 64;
+
+        /// <summary>
+        ///   The property by which <paramref name="instanceId"/> asserts an element, within
+        ///   <paramref name="scope"/> when the job declared one.
+        ///
+        ///   <para>A SCOPE exists because completeness is otherwise the whole identity, and a source
+        ///   too large for one job cannot then be described at all: each job would be a complete
+        ///   snapshot that does not mention the other's elements, so each would withdraw the other's.
+        ///   With a scope, a job declares itself complete over the part it carried and reconciliation
+        ///   compares only that part.</para>
+        ///
+        ///   <para>ONE ELEMENT MAY CARRY SEVERAL SCOPES OF ONE IDENTITY, which is the whole design and
+        ///   not an edge case: two scopes of one source routinely describe the same element, and it
+        ///   must survive losing one of them and be deleted only on losing the last. That is why the
+        ///   scope lives in the property KEY rather than its value, so the properties coexist.</para>
+        ///
+        ///   <para>An absent scope keeps the unscoped form, which is what a provider describing its
+        ///   whole source in one job writes, and what every element written before scopes existed
+        ///   carries.</para>
+        /// </summary>
+        public static String ClaimProperty(String instanceId, String? scope = null)
         {
             if (String.IsNullOrEmpty(instanceId))
             {
                 throw new ArgumentException("An instance id is required.", nameof(instanceId));
             }
 
-            return ClaimPrefix + instanceId;
+            return String.IsNullOrEmpty(scope)
+                ? ClaimPrefix + instanceId
+                : ClaimPrefix + instanceId + ScopeSeparator + scope;
+        }
+
+        /// <summary>
+        ///   The literal the claim index projects for (<paramref name="instanceId"/>,
+        ///   <paramref name="scope"/>), which is what reconciliation scans. Scoping the INDEX and not
+        ///   only the property is what makes a scoped reconcile read one scope's elements rather than
+        ///   every element the identity ever claimed.
+        /// </summary>
+        public static String ClaimIndexKey(String instanceId, String? scope = null)
+        {
+            if (String.IsNullOrEmpty(instanceId))
+            {
+                throw new ArgumentException("An instance id is required.", nameof(instanceId));
+            }
+
+            return String.IsNullOrEmpty(scope) ? instanceId : instanceId + ScopeSeparator + scope;
         }
 
         /// <summary>Whether a key is one this runtime reserves for itself.</summary>
@@ -115,10 +161,67 @@ namespace NoSQL.GraphDB.Integrations.Identity
             return key != null && key.StartsWith(ClaimPrefix, StringComparison.Ordinal);
         }
 
-        /// <summary>The claimant a <c>$claim:</c> key names, or null for any other key.</summary>
+        /// <summary>
+        ///   The claimant a <c>$claim:</c> key names, WITHOUT any scope, or null for any other key.
+        ///   Callers asking "who claims this" mean the identity; the scope is a separate question,
+        ///   answered by <see cref="ScopeOf"/>.
+        /// </summary>
         public static String? ClaimantOf(String? key)
         {
-            return IsClaimProperty(key) ? key!.Substring(ClaimPrefix.Length) : null;
+            if (!IsClaimProperty(key))
+            {
+                return null;
+            }
+
+            var rest = key!.Substring(ClaimPrefix.Length);
+            var separator = rest.IndexOf(ScopeSeparator, StringComparison.Ordinal);
+            return separator < 0 ? rest : rest.Substring(0, separator);
+        }
+
+        /// <summary>
+        ///   The scope a <c>$claim:</c> key names, or null when the key is unscoped or is not a claim
+        ///   key at all. An unscoped claim and a scoped one are different properties and never merge.
+        /// </summary>
+        public static String? ScopeOf(String? key)
+        {
+            if (!IsClaimProperty(key))
+            {
+                return null;
+            }
+
+            var rest = key!.Substring(ClaimPrefix.Length);
+            var separator = rest.IndexOf(ScopeSeparator, StringComparison.Ordinal);
+            return separator < 0 || separator == rest.Length - 1
+                ? null
+                : rest.Substring(separator + ScopeSeparator.Length);
+        }
+
+        /// <summary>
+        ///   Validates a scope on the same allow-list as an instance id, and for the same reason: the
+        ///   value is substituted into a property key and into the claim index literal, so a separator
+        ///   character inside it would let two scopes compose one key and let one job reconcile away
+        ///   another's elements.
+        /// </summary>
+        public static Boolean IsValidScope(String? scope)
+        {
+            if (String.IsNullOrEmpty(scope) || scope!.Length > MaxScopeLength)
+            {
+                return false;
+            }
+
+            foreach (var character in scope)
+            {
+                var allowed = (character >= 'a' && character <= 'z') ||
+                              (character >= 'A' && character <= 'Z') ||
+                              (character >= '0' && character <= '9') ||
+                              character == '.' || character == '-' || character == '_';
+                if (!allowed)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         /// <summary>

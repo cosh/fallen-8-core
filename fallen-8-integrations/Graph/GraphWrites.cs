@@ -398,10 +398,40 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// <summary>Every property, keyed by property key.</summary>
         public ImmutableDictionary<String, GraphProperty> Properties { get; }
 
-        /// <summary>Whether the named instance asserts this element.</summary>
-        public Boolean IsClaimedBy(String instanceId)
+        /// <summary>
+        ///   Whether the named instance asserts this element IN THIS SCOPE exactly. A null or empty
+        ///   scope asks about the unscoped claim, which is a different property from any scoped one.
+        ///
+        ///   <para>This is the question the write path and reconciliation ask, because a run may only
+        ///   add or withdraw its OWN scope's claim. For "may this run touch the element at all", which
+        ///   is a question about the identity rather than the scope, see
+        ///   <see cref="IsClaimedByIdentity"/>.</para>
+        /// </summary>
+        public Boolean IsClaimedBy(String instanceId, String? scope = null)
         {
-            return Properties.ContainsKey(ClaimSchema.ClaimProperty(instanceId));
+            return Properties.ContainsKey(ClaimSchema.ClaimProperty(instanceId, scope));
+        }
+
+        /// <summary>
+        ///   Whether the named instance asserts this element under ANY scope, or unscoped.
+        ///
+        ///   <para>THIS is what decides whether a run may write to an element, and it is deliberately
+        ///   scope-blind: two scopes of one source routinely describe the same element - a signal
+        ///   carried on two buses is the case this exists for - and the second scope's run must be
+        ///   allowed to write to what the first one created. Asking the scoped question here would
+        ///   make every shared element unwritable by all but the scope that happened to create it.</para>
+        /// </summary>
+        public Boolean IsClaimedByIdentity(String instanceId)
+        {
+            foreach (var key in Properties.Keys)
+            {
+                if (String.Equals(ClaimSchema.ClaimantOf(key), instanceId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>Whether ANY instance asserts this element.</summary>
@@ -480,7 +510,10 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 return false;
             }
 
-            return element.IsClaimedBy(instanceId) || !element.HasAnyClaim();
+            // Scope-blind ON PURPOSE: see IsClaimedByIdentity. A run must be able to write to an
+            // element another scope of the SAME identity created, or a shared element would be
+            // writable only by whichever scope reached it first.
+            return element.IsClaimedByIdentity(instanceId) || !element.HasAnyClaim();
         }
     }
 }

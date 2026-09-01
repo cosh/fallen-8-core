@@ -1317,7 +1317,7 @@ namespace NoSQL.GraphDB.Tests
         /// counts on it are the whole question there, and a report created in here would be unreachable.</param>
         private static async Task<JobReport> ApplyAsync(IGraphTarget target, SnapshotDocument document,
             SummaryRequest summary = null, IRunProgress progress = null, RunAbort abort = default,
-            JobReport into = null)
+            JobReport into = null, String scope = null)
         {
             var validator = new SnapshotValidator(IdentifierVocabulary.Shipped);
             var validated = validator.Validate(document);
@@ -1332,9 +1332,138 @@ namespace NoSQL.GraphDB.Tests
 
             var applier = new SnapshotApplier(new IdentityResolver());
             await applier.ApplyAsync(validated, Instance, target, report, summary, CancellationToken.None,
-                progress, abort);
+                progress, abort, null, scope);
             return report;
         }
+
+        #region completeness is scoped to what a job declared (feature per-scope-completeness)
+
+        private const String MacShared = "44:D2:44:00:00:01";
+        private const String MacOnlyOne = "44:D2:44:00:00:02";
+        private const String MacOnlyTwo = "44:D2:44:00:00:03";
+
+        /// <summary>Every element a scope currently claims, by the scoped claim literal.</summary>
+        private static Task<IReadOnlyList<Int32>> ClaimedInScope(IGraphTarget target, String scope)
+        {
+            return target.ElementsClaimedByAsync(ClaimSchema.ClaimIndexKey(Instance, scope),
+                CancellationToken.None);
+        }
+
+        /// <summary>
+        ///   TWO SCOPES OF ONE IDENTITY DO NOT WITHDRAW EACH OTHER. Without a scope, completeness is the
+        ///   whole identity, so a source too large for one job cannot be described at all: each job is a
+        ///   complete snapshot that does not mention the other's elements, so each withdraws the other's.
+        /// </summary>
+        [TestMethod]
+        public async Task TwoScopesOfOneIdentity_DoNotWithdrawEachOther()
+        {
+            var graph = new InMemoryGraphTarget();
+
+            await ApplyAsync(graph, Document(Device(MacOnlyOne), Device(MacShared)), scope: "part-a");
+            var second = await ApplyAsync(graph, Document(Device(MacOnlyTwo)), scope: "part-b");
+
+            Assert.AreEqual(0, second.ClaimsWithdrawn,
+                "the second scope must NOT withdraw the first scope's elements: it declared itself " +
+                "complete over its own part, not over everything this identity claims");
+            Assert.AreEqual(0, second.ElementsDeleted, "and must certainly not delete them");
+
+            Assert.AreEqual(2, (await ClaimedInScope(graph, "part-a")).Count, "part-a keeps its own");
+            Assert.AreEqual(1, (await ClaimedInScope(graph, "part-b")).Count, "part-b names its own");
+        }
+
+        /// <summary>
+        ///   THE CASE THE DESIGN EXISTS FOR. An element described by BOTH scopes carries both claims,
+        ///   survives one scope withdrawing it, and is deleted only when the last claim goes.
+        ///
+        ///   <para>This is the ordinary shape of an AUTOSAR import rather than a curiosity: a signal
+        ///   carried on two buses is ONE bus-independent <c>SYSTEM-SIGNAL</c> with a per-bus
+        ///   <c>I-SIGNAL</c> each, so the system signal is described by every scope carrying any of its
+        ///   buses. If withdrawing one scope deleted it, the surviving scope's signals would be left
+        ///   pointing at nothing.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task AnElementInTwoScopes_SurvivesOneWithdrawal_AndGoesOnTheLast()
+        {
+            var graph = new InMemoryGraphTarget();
+
+            await ApplyAsync(graph, Document(Device(MacShared), Device(MacOnlyOne)), scope: "bus-one");
+            await ApplyAsync(graph, Document(Device(MacShared), Device(MacOnlyTwo)), scope: "bus-two");
+
+            // One element, claimed by both scopes: the scopes MATCHED it rather than duplicating it.
+            var inOne = await ClaimedInScope(graph, "bus-one");
+            var inTwo = await ClaimedInScope(graph, "bus-two");
+            var shared = inOne.Intersect(inTwo).ToList();
+            Assert.AreEqual(1, shared.Count,
+                "the element both scopes describe must be ONE element claimed twice, not one per scope");
+
+            var sharedId = shared[0];
+            var before = (await graph.ReadElementsAsync(new[] { sharedId }, CancellationToken.None))[sharedId];
+            Assert.IsTrue(before.IsClaimedBy(Instance, "bus-one"), "the first scope claims it");
+            Assert.IsTrue(before.IsClaimedBy(Instance, "bus-two"),
+                "and so does the second: the scope lives in the property KEY, so the two coexist");
+
+            // The first scope now describes a source that no longer mentions the shared element.
+            var reduced = await ApplyAsync(graph, Document(Device(MacOnlyOne)), scope: "bus-one");
+            Assert.AreEqual(1, reduced.ClaimsWithdrawn, "exactly the shared element's bus-one claim");
+            Assert.AreEqual(0, reduced.ElementsDeleted,
+                "and NOTHING deleted: the element still carries the other scope's claim, and deletion " +
+                "happens on the last claim rather than on this one");
+
+            var after = (await graph.ReadElementsAsync(new[] { sharedId }, CancellationToken.None))[sharedId];
+            Assert.IsFalse(after.IsClaimedBy(Instance, "bus-one"), "the withdrawn scope's claim is gone");
+            Assert.IsTrue(after.IsClaimedBy(Instance, "bus-two"), "the surviving scope's claim is untouched");
+            Assert.IsTrue(after.HasAnyClaim(), "so the element is not an orphan");
+
+            // And when the LAST scope stops describing it, it goes.
+            var last = await ApplyAsync(graph, Document(Device(MacOnlyTwo)), scope: "bus-two");
+            Assert.AreEqual(1, last.ClaimsWithdrawn, "the last claim is withdrawn");
+            Assert.AreEqual(1, last.ElementsDeleted,
+                "and NOW it is deleted, because no claim of any kind remains");
+        }
+
+        /// <summary>
+        ///   An unscoped run still reconciles over the whole identity, which is what every job meant
+        ///   before scopes existed. Pinned so adding scopes cannot quietly change the default.
+        /// </summary>
+        [TestMethod]
+        public async Task AnUnscopedRun_StillReconcilesOverTheWholeIdentity()
+        {
+            var graph = new InMemoryGraphTarget();
+
+            await ApplyAsync(graph, Document(Device(MacOnlyOne), Device(MacOnlyTwo)));
+            var second = await ApplyAsync(graph, Document(Device(MacOnlyOne)));
+
+            Assert.AreEqual(1, second.ClaimsWithdrawn,
+                "an unscoped complete snapshot withdraws what it did not mention, exactly as before");
+            Assert.AreEqual(1, second.ElementsDeleted);
+        }
+
+        /// <summary>
+        ///   A scoped run and an unscoped one are different claims on purpose, so an unscoped run does
+        ///   not silently adopt or withdraw what a scoped one wrote. Mixing the two on one identity is
+        ///   the caller's mistake to avoid, and this pins that it is at least not destructive.
+        /// </summary>
+        [TestMethod]
+        public async Task AScopedClaimAndAnUnscopedOne_AreDifferentClaims()
+        {
+            var graph = new InMemoryGraphTarget();
+
+            await ApplyAsync(graph, Document(Device(MacShared)), scope: "part-a");
+            var unscoped = await ApplyAsync(graph, Document(Device(MacShared)));
+
+            Assert.AreEqual(0, unscoped.ClaimsWithdrawn,
+                "the unscoped run matched the element and claimed it too; it withdrew nothing because " +
+                "the scoped claim is a different property and its own scan named nothing before");
+            Assert.AreEqual(0, unscoped.ElementsDeleted);
+
+            var ids = await ClaimedInScope(graph, "part-a");
+            Assert.AreEqual(1, ids.Count);
+            var state = (await graph.ReadElementsAsync(new[] { ids[0] }, CancellationToken.None))[ids[0]];
+            Assert.IsTrue(state.IsClaimedBy(Instance, "part-a"), "the scoped claim survives");
+            Assert.IsTrue(state.IsClaimedBy(Instance), "and the unscoped claim sits beside it");
+        }
+
+        #endregion
 
         private static async Task AssertDeletionDeferred(TargetDurability durability, String expectedReason)
         {

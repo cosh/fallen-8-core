@@ -333,6 +333,36 @@ Nothing can detect either from inside, which is why the field is documented rath
 defaulted. Its shape is checked (letters, digits, dot, dash, underscore, at most 64 characters)
 because the value is substituted into property keys.
 
+### `scope`: when one source needs more than one job
+
+A complete snapshot withdraws what it does not mention, and by default it is complete over
+**everything the identity claims**. That is right for a source one job can carry, and it makes a
+larger source impossible: split it across two jobs and each is a complete snapshot that never
+mentions the other's elements, so each withdraws the other's.
+
+Naming a **`scope`** on the job says what this run is complete *over*. Reconciliation then compares
+only that part, so two jobs under one identity coexist:
+
+```json
+{ "providerId": "autosar-arxml", "integrationInstanceId": "fleet", "scope": "chassis-buses" }
+```
+
+Use the **same** scope for every job describing the same part, and a different one for a different
+part. Omit it and nothing changes: the run is complete over the whole identity, as before.
+
+The part worth understanding is what happens to an element **two scopes both describe**. It is one
+element carrying both scopes' claims, and withdrawing one scope removes only that scope's claim: the
+element survives, and is deleted only when the last claim of any kind goes. This is the ordinary case
+rather than a curiosity - a signal carried on two buses is one bus-independent `SYSTEM-SIGNAL` with a
+per-bus `I-SIGNAL` each, so the system signal belongs to every scope carrying any of its buses.
+
+A scope is a **different thing** from any identity a provider puts inside its own claims, such as the
+ARXML reader's vehicle. The vehicle says *which element this is*; the scope says *which jobs are
+responsible for it*. Folding them together would split every shared element in two.
+
+Its shape is checked on the same allow-list as the identity, and for the same reason: the value is
+substituted into a property key and into the claim index.
+
 ## What lands in the graph
 
 One vertex per thing the source described, labelled with its kind, carrying:
@@ -604,10 +634,13 @@ that release removed is withdrawn, which leaves the [change feed](/change-feed/)
 with nothing extra to set up.
 
 The **Vehicle** setting is required and has no default, because a default would quietly merge one
-car into another. AUTOSAR paths are not unique across vehicles: the standard makes a reference path
-unique within **one** system description and says nothing across several, and the standardised
-platform packages appear in essentially every extract by construction, so two vehicles routinely use
-the same path for different elements. Naming the vehicle is what lets both cars live in one namespace
+car into another. AUTOSAR paths are not unique across vehicles: a short-name is unique among its
+siblings, so a reference path identifies an element within **one** model, and nothing in the standard
+coordinates package names across independently authored models. The standardised packages are common
+to all of them by construction, so two vehicles routinely use the same path for different elements.
+The ARXML form is specified by AUTOSAR's
+[ARXML Serialization Rules](https://www.autosar.org/fileadmin/standards/R20-11/FO/AUTOSAR_TPS_ARXMLSerializationRules.pdf)
+(R20-11). Naming the vehicle is what lets both cars live in one namespace
 under one identity without resolving onto each other. Use the **same** name for every job describing
 one vehicle, so its buses join up into one graph; use a different name for a different vehicle.
 

@@ -103,9 +103,15 @@ namespace NoSQL.GraphDB.Integrations.Run
         /// <param name="journal">Where the one thing an interrupted run cannot recompute is written down,
         /// and where a RESUMED run reads it back. Null means no run survives a restart, which is the
         /// default and what every caller meant before it existed.</param>
+        /// <param name="scope">
+        ///   What this run declares itself complete OVER, or null for the whole identity. It travels at
+        ///   the end of the parameter list rather than beside <paramref name="instanceId" /> only so
+        ///   that adding it broke no caller; read the two as one pair.
+        /// </param>
         public async Task ApplyAsync(ValidatedSnapshot snapshot, String instanceId, IGraphTarget target,
             JobReport report, SummaryRequest? summary, CancellationToken cancellationToken,
-            IRunProgress? progress = null, RunAbort abort = default, IRunJournal? journal = null)
+            IRunProgress? progress = null, RunAbort abort = default, IRunJournal? journal = null,
+            String? scope = null)
         {
             progress ??= NoRunProgress.Instance;
 
@@ -188,7 +194,8 @@ namespace NoSQL.GraphDB.Integrations.Run
             // and its index write. Counted so the heal is visible in the report instead of silent.
             var reindexed = 0;
 
-            var claimProperty = ClaimSchema.ClaimProperty(instanceId);
+            var claimProperty = ClaimSchema.ClaimProperty(instanceId, scope);
+            var claimLiteral = ClaimSchema.ClaimIndexKey(instanceId, scope);
 
             for (var i = 0; i < snapshot.Entities.Length; i++)
             {
@@ -290,13 +297,18 @@ namespace NoSQL.GraphDB.Integrations.Run
                     }
                 }
 
-                if (!state.IsClaimedBy(instanceId))
+                if (!state.IsClaimedBy(instanceId, scope))
                 {
                     // The absent case is the ORPHAN BEING RECLAIMED: an element carrying this instance's
                     // identity claims and no claim property, left by a withdrawal whose deletion was deferred.
+                    //
+                    // It is ALSO the shared-element case, and the scoped question is what makes that work:
+                    // an element another scope of this identity already claims is written to here (it is in
+                    // scope) and gains THIS scope's claim beside the other one, so withdrawing either scope
+                    // leaves it claimed by the remaining one.
                     propertyWrites.Add(PropertyWrite.Set(elementId,
-                        new GraphProperty(claimProperty, WireValues.StringTypeName, instanceId)));
-                    indexEntries.Add(new IndexEntry(ClaimSchema.ClaimsIndexId, instanceId, elementId));
+                        new GraphProperty(claimProperty, WireValues.StringTypeName, claimLiteral)));
+                    indexEntries.Add(new IndexEntry(ClaimSchema.ClaimsIndexId, claimLiteral, elementId));
                 }
             }
 
@@ -399,11 +411,19 @@ namespace NoSQL.GraphDB.Integrations.Run
             // being written.
             progress.EnterPhase(RunPhases.WriteEdges);
             progress.Advance(0, plan.Count);
-            await WireEdgesAsync(plan, instanceId, target, report, lookup, elementIdByEntity, claimedNow,
-                indexEntries, progress, cancellationToken).ConfigureAwait(false);
+            var edgeClaimWrites = new List<PropertyWrite>();
+            await WireEdgesAsync(plan, instanceId, scope, target, report, lookup, elementIdByEntity, claimedNow,
+                indexEntries, edgeClaimWrites, progress, cancellationToken).ConfigureAwait(false);
 
             // The edges' own claims; the list was cleared above, so this indexes exactly what wiring added.
             await FlushIndexEntriesAsync(target, report, indexEntries, cancellationToken).ConfigureAwait(false);
+
+            // An edge another scope of this identity already wired gains THIS scope's claim, so that
+            // withdrawing that scope does not delete an edge this one still describes.
+            if (edgeClaimWrites.Count > 0)
+            {
+                await target.ApplyPropertyWritesAsync(edgeClaimWrites, cancellationToken).ConfigureAwait(false);
+            }
 
             // SAFE POINT. The graph is fully written at this line - elements, properties, edges and every
             // index entry - and only the embedding is outstanding. It is also the most valuable stop in the
@@ -450,7 +470,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                 // rather than by anything here. A cancel arriving now simply loses the race, and the slot
                 // says so with cancelRequested true beside a report that is not cancelled.
                 progress.EnterPhase(RunPhases.Reconcile);
-                await ReconcileAsync(instanceId, target, report, claimedNow, cancellationToken)
+                await ReconcileAsync(instanceId, scope, target, report, claimedNow, cancellationToken)
                     .ConfigureAwait(false);
             }
 
@@ -621,9 +641,10 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   plan entries needing no write and then the write itself: the batching below that belongs to the
         ///   target, and the interface's counter is documented as per batch rather than per item.
         /// </remarks>
-        private static async Task WireEdgesAsync(List<EdgePlan> plan, String instanceId, IGraphTarget target,
-            JobReport report, ClaimLookup lookup, Int32[] elementIdByEntity, HashSet<Int32> claimedNow,
-            List<IndexEntry> indexEntries, IRunProgress progress, CancellationToken cancellationToken)
+        private static async Task WireEdgesAsync(List<EdgePlan> plan, String instanceId, String? scope,
+            IGraphTarget target, JobReport report, ClaimLookup lookup, Int32[] elementIdByEntity,
+            HashSet<Int32> claimedNow, List<IndexEntry> indexEntries, List<PropertyWrite> claimWrites,
+            IRunProgress progress, CancellationToken cancellationToken)
         {
             if (plan.Count == 0)
             {
@@ -632,7 +653,8 @@ namespace NoSQL.GraphDB.Integrations.Run
 
             var writes = new List<EdgeWrite>();
             var writtenKeys = new List<String>();
-            var claimProperty = ClaimSchema.ClaimProperty(instanceId);
+            var claimProperty = ClaimSchema.ClaimProperty(instanceId, scope);
+            var claimLiteral = ClaimSchema.ClaimIndexKey(instanceId, scope);
 
             foreach (var edge in plan)
             {
@@ -659,7 +681,11 @@ namespace NoSQL.GraphDB.Integrations.Run
                 {
                     foreach (var id in existing)
                     {
-                        if (lookup.Elements.TryGetValue(id, out var state) && state.IsClaimedBy(instanceId) &&
+                        // The IDENTITY question, not the scoped one: an edge another scope of this
+                        // identity wired is the same edge, and creating a second one would duplicate the
+                        // topology. Its claim is topped up below.
+                        if (lookup.Elements.TryGetValue(id, out var state) &&
+                            state.IsClaimedByIdentity(instanceId) &&
                             (alreadyWired == NoElement || id < alreadyWired))
                         {
                             alreadyWired = id;
@@ -670,6 +696,17 @@ namespace NoSQL.GraphDB.Integrations.Run
                 if (alreadyWired != NoElement)
                 {
                     claimedNow.Add(alreadyWired);
+
+                    // Top up the claim when the edge is another scope's: without this it carries only that
+                    // scope's claim, and withdrawing that scope deletes an edge this one still describes.
+                    if (lookup.Elements.TryGetValue(alreadyWired, out var wired) &&
+                        !wired.IsClaimedBy(instanceId, scope))
+                    {
+                        claimWrites.Add(PropertyWrite.Set(alreadyWired,
+                            new GraphProperty(claimProperty, WireValues.StringTypeName, claimLiteral)));
+                        indexEntries.Add(new IndexEntry(ClaimSchema.ClaimsIndexId, claimLiteral, alreadyWired));
+                    }
+
                     continue;
                 }
 
@@ -689,7 +726,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                 writes.Add(new EdgeWrite(sourceId, targetId, edge.EdgeType, new[]
                 {
                     new GraphProperty(ClaimSchema.IdentityProperty(0), WireValues.StringTypeName, edge.DerivedKey),
-                    new GraphProperty(claimProperty, WireValues.StringTypeName, instanceId),
+                    new GraphProperty(claimProperty, WireValues.StringTypeName, claimLiteral),
                 }));
                 writtenKeys.Add(edge.DerivedKey);
             }
@@ -819,13 +856,18 @@ namespace NoSQL.GraphDB.Integrations.Run
         ///   Withdraws by set difference, then deletes only on the LAST claim, and only when the target's
         ///   durability makes deleting safe.
         /// </summary>
-        private static async Task ReconcileAsync(String instanceId, IGraphTarget target, JobReport report,
-            HashSet<Int32> claimedNow, CancellationToken cancellationToken)
+        private static async Task ReconcileAsync(String instanceId, String? scope, IGraphTarget target,
+            JobReport report, HashSet<Int32> claimedNow, CancellationToken cancellationToken)
         {
+            // The SCOPED literal, which is the whole point: an unscoped reconcile compares against every
+            // element the identity ever claimed, so a job carrying part of a source would withdraw the
+            // rest. Scoped, it compares against exactly the part this job declared itself complete over.
+            var claimLiteral = ClaimSchema.ClaimIndexKey(instanceId, scope);
+
             IReadOnlyList<Int32> claimedBefore;
             try
             {
-                claimedBefore = await target.ElementsClaimedByAsync(instanceId, cancellationToken)
+                claimedBefore = await target.ElementsClaimedByAsync(claimLiteral, cancellationToken)
                     .ConfigureAwait(false);
             }
             catch (GraphIndexMissingException)
@@ -851,7 +893,7 @@ namespace NoSQL.GraphDB.Integrations.Run
             {
                 if (!named.Contains(id))
                 {
-                    reassert.Add(new IndexEntry(ClaimSchema.ClaimsIndexId, instanceId, id));
+                    reassert.Add(new IndexEntry(ClaimSchema.ClaimsIndexId, claimLiteral, id));
                 }
             }
 
@@ -885,11 +927,15 @@ namespace NoSQL.GraphDB.Integrations.Run
             // the removal would report a withdrawal and a mutation on every future run over a completely
             // unchanged source. Ids the index still names but the graph no longer has are simply absent here,
             // and are neither withdrawn nor deleted.
-            var claimProperty = ClaimSchema.ClaimProperty(instanceId);
+            var claimProperty = ClaimSchema.ClaimProperty(instanceId, scope);
             var removals = new List<PropertyWrite>();
             foreach (var id in withdrawSet)
             {
-                if (before.TryGetValue(id, out var state) && state.IsClaimedBy(instanceId))
+                // Only THIS scope's claim is removed. Another scope's claim on the same element is left
+                // exactly where it is, which is what makes the deletion decision below correct: an element
+                // shared by two scopes loses one property and survives, and is deleted only when the last
+                // claim of any kind goes.
+                if (before.TryGetValue(id, out var state) && state.IsClaimedBy(instanceId, scope))
                 {
                     removals.Add(PropertyWrite.Remove_(id, claimProperty));
                 }

@@ -113,7 +113,13 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// <exception cref="GraphIndexMissingException">The index does not exist. Reconciliation is then
         /// SKIPPED rather than retried, because an empty answer reads as "this instance claims nothing",
         /// which would withdraw everything the instance ever asserted.</exception>
-        Task<IReadOnlyList<Int32>> ElementsClaimedByAsync(String instanceId, CancellationToken cancellationToken);
+        /// <param name="claimLiteral">
+        ///   The claim literal to scan, which is the instance id alone for an unscoped run and
+        ///   <c>instance#scope</c> for a scoped one. Compose it with
+        ///   <c>ClaimSchema.ClaimIndexKey</c> rather than by hand.
+        /// </param>
+        /// <param name="cancellationToken">Cancels the scan.</param>
+        Task<IReadOnlyList<Int32>> ElementsClaimedByAsync(String claimLiteral, CancellationToken cancellationToken);
 
         /// <summary>
         ///   Reads many elements' current state in one call. An id that resolves to no live element is simply

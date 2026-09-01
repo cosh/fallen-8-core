@@ -57,6 +57,28 @@ namespace NoSQL.GraphDB.Integrations.Run
         [JsonPropertyName("integrationInstanceId")]
         public String? IntegrationInstanceId { get; set; }
 
+        /// <summary>
+        ///   What this run declares itself COMPLETE OVER, or null for the whole identity.
+        ///
+        ///   <para>Completeness is otherwise the identity, and a source too large for one job cannot then
+        ///   be described at all: every job is a complete snapshot that does not mention the other jobs'
+        ///   elements, so each withdraws the others'. Naming a scope makes a job complete over the part
+        ///   it carried, and reconciliation compares only that part.</para>
+        ///
+        ///   <para>USE THE SAME SCOPE for every job describing the same part, and a different one for a
+        ///   different part. It is a SEPARATE dimension from any identity a provider puts in its claim
+        ///   values: two scopes of one source routinely describe the same element, and such an element
+        ///   carries both scopes' claims and is deleted only when the last one goes. Folding the two
+        ///   together would instead split every shared element in two.</para>
+        ///
+        ///   <para>Letters, digits, dot, dash and underscore, at most 64 characters. The caller owns its
+        ///   stability exactly as it owns the identity's, and for the same reason: nothing inside can
+        ///   tell a renamed scope from a new one, and a renamed scope withdraws nothing while the old
+        ///   scope's elements stay claimed by a scope no later run mentions.</para>
+        /// </summary>
+        [JsonPropertyName("scope")]
+        public String? Scope { get; set; }
+
         /// <summary>The namespace to write into, defaulting to the target's configured default.</summary>
         [JsonPropertyName("namespace")]
         public String? Namespace { get; set; }

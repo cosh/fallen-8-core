@@ -219,11 +219,11 @@ namespace NoSQL.GraphDB.Integrations.Graph
         }
 
         /// <inheritdoc />
-        public Task<IReadOnlyList<Int32>> ElementsClaimedByAsync(String instanceId,
+        public Task<IReadOnlyList<Int32>> ElementsClaimedByAsync(String claimLiteral,
             CancellationToken cancellationToken)
         {
             var index = Index(ClaimSchema.ClaimsIndexId);
-            var ids = index.TryGetValue(instanceId, out var found)
+            var ids = index.TryGetValue(claimLiteral, out var found)
                 ? new List<Int32>(found)
                 : new List<Int32>();
             return Task.FromResult<IReadOnlyList<Int32>>(ids);

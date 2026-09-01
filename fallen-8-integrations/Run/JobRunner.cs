@@ -150,6 +150,23 @@ namespace NoSQL.GraphDB.Integrations.Run
                     normalized.InstanceId, ClaimSchema.MaxInstanceIdLength));
             }
 
+            // A DECLARED scope is validated on the same allow-list and for the same reason as the
+            // identity: both are substituted into a property key and into the claim index literal, and
+            // both are separated by characters the allow-list excludes. An ABSENT scope is not an error;
+            // it means the job describes the whole of what this identity claims, which is what every job
+            // meant before scopes existed.
+            var scope = String.IsNullOrWhiteSpace(job.Scope) ? null : job.Scope!.Trim();
+            if (scope != null && !ClaimSchema.IsValidScope(scope))
+            {
+                throw new JobRejectedException(JobErrorKinds.Configuration, String.Format(
+                    "'{0}' is not a usable scope: letters, digits, dot, dash and underscore only, at most " +
+                    "{1} characters. A scope says what this run is COMPLETE OVER, and its value is " +
+                    "substituted into a claim property key and into the claim index literal, so a " +
+                    "separator character inside it would let two scopes compose one key and let one job " +
+                    "reconcile away another's elements.",
+                    job.Scope, ClaimSchema.MaxScopeLength));
+            }
+
             var settings = BuildSettings(descriptor, normalized);
             var instanceId = normalized.InstanceId!;
 
@@ -392,7 +409,7 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // answer becomes yes the moment control enters the applier.
                     applyStarted = true;
                     await _applier.ApplyAsync(validated, instanceId, target, report, summary,
-                            CancellationToken.None, progress, abort, journal)
+                            CancellationToken.None, progress, abort, journal, scope)
                         .ConfigureAwait(false);
 
                     return Complete(report, stopwatch, null, null, descriptor.Id);
