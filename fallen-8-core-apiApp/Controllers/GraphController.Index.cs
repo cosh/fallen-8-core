@@ -231,8 +231,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <returns>How many entries were taken, and the positions of any that were refused</returns>
         /// <remarks>
         /// The single-entry form of this route costs one request per entry, which is what an
-        /// integration pays when it indexes its claim on every element it just wrote: a
-        /// many-element import issued about half a million sequential requests through it.
+        /// integration pays when it indexes its claim on every element it just wrote, so a
+        /// large import issues one sequential request per element and edge it created.
         ///
         /// A batch is NOT atomic. A refused entry is reported by its zero-based position rather
         /// than failing the request, for the same reason the single-entry form answers a miss with

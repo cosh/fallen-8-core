@@ -405,8 +405,8 @@ namespace NoSQL.GraphDB.Integrations.Graph
             var declined = ImmutableArray.CreateBuilder<IndexEntry>();
 
             // BATCHED (feature cheap-withdrawal). The per-entry form of this cost one request per
-            // index entry: about half a million sequential requests for a many-element import,
-            // which is the create-path counterpart of the removal cost fixed in the engine.
+            // index entry, so a large import issues one sequential request per element and edge
+            // it created, which is the create-path counterpart of the removal cost fixed in the engine.
             //
             // Grouped by index because the route is per index and one call may carry entries for
             // several, and each group keeps SUBMISSION ORDER, which is what makes the positions the
