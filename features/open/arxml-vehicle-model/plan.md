@@ -4,8 +4,8 @@ Phases 1 to 3 are done. What follows is phases 4 and 5 of
 [findings.md](findings.md) section 7, broken into steps that each leave the suite green and the
 graph usable.
 
-**Where this stands:** steps 1 to 4 are DONE. Step 4 was brought forward ahead of step 3, because it
-is the deliverable and does not depend on the socket layer. Step 5 is open.
+**Where this stands:** every step is DONE. Step 4 was brought forward ahead of step 3, because it is
+the deliverable and does not depend on the socket layer.
 
 ## Step 1 - the channel becomes first-class (DONE)
 
@@ -74,12 +74,23 @@ removing the newer spelling from the table: the two tests that must fail do.
     differ.
 16. The docs' AUTOSAR section gains the kinds, the relations and that traversal as its example.
 
-## Step 5 - the detail layer (phase 5) (open)
+## Step 5 - the detail layer (phase 5) (DONE)
 
-17. `service`: SOME/IP provided and consumed service instances, and what they reference.
-18. `coupling`: switch coupling ports, so the topology below an Ethernet cluster is visible.
+17. `service`: SOME/IP provided and consumed instances, one kind with the role as a property, `partOf`
+    the socket that offers or consumes them. NOT joined to each other on `serviceId`: an instance is
+    per socket and the file states no relationship between them, so matching them is a query rather
+    than an inference. The identifier is a property precisely so that query can be written.
+18. `coupling`: switch coupling ports, `partOf` their ECU, with `connectedTo` between them read from
+    the channel because a link belongs to neither end. One edge per link, in the direction the file
+    states it.
 
-Both are additive and neither changes a shape step 4 depends on, which is why they are last.
+Both were additive and neither changed a shape step 4 depends on, which is why they were last.
+
+Tests: both roles read with their identifiers; a service belongs to its SOCKET rather than to the
+application endpoint, which is not an element; two instances of one service stay two elements; the
+coupling topology is one edge per link; a half-stated link is neither an edge nor a diagnostic while a
+link to an undeclared port is reported; and a CAN extract grows neither kind. Mutation-checked by
+removing the consumed-service entry and the coupling-connection element name: four tests fail.
 
 ## Not doing, and why
 

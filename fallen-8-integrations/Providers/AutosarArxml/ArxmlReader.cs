@@ -129,6 +129,18 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         };
 
         /// <summary>
+        ///   The two SOME/IP service-instance elements of the classic platform, mapped to the role each
+        ///   states. A table rather than a name test, so the role is read from the element the standard uses
+        ///   rather than inferred from a substring of it.
+        /// </summary>
+        private static readonly Dictionary<String, String> ServiceElements =
+            new Dictionary<String, String>(StringComparer.Ordinal)
+            {
+                { "PROVIDED-SERVICE-INSTANCE", ArxmlProperties.ProvidedRole },
+                { "CONSUMED-SERVICE-INSTANCE", ArxmlProperties.ConsumedRole },
+            };
+
+        /// <summary>
         ///   Every reference element that names one END of a connection. A socket address reference is here
         ///   as well as the port spellings, because the newer form names remote ADDRESSES rather than ports.
         /// </summary>
@@ -644,6 +656,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 return;
             }
 
+            // A CONTAINER, so this runs whoever owns the element: an ECU's declaration is bus-local, and one
+            // extract's copy of it carries only that bus's controller and therefore only that bus's ports.
+            CollectCouplingPorts(path, element, collected);
+
             foreach (var connector in Descendants(element, n => n.EndsWith("COMMUNICATION-CONNECTOR",
                          StringComparison.Ordinal)))
             {
@@ -799,6 +815,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 if (bus.HasSocketLayer)
                 {
                     CollectSocketLayer(channelPath, channel, collected);
+                    CollectCouplingConnections(channel, collected);
                 }
 
                 foreach (var triggering in Descendants(channel, n => n == "I-SIGNAL-TRIGGERING"))
@@ -845,6 +862,118 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                             collected.Flow(pduRef, port);
                         }
                     }
+                }
+            }
+        }
+
+        /// <summary>
+        ///   THE SOME/IP SERVICE INSTANCES on one socket: what an application actually asks for, above the
+        ///   signals. Both roles land on one <c>service</c> kind with the role as a property, so "what
+        ///   services does this unit take part in" is one query.
+        ///
+        ///   <para>Two units offering the same service carry the same <c>serviceId</c> on different
+        ///   elements, and that is deliberate: an instance is per socket, so a provided instance and the
+        ///   consumed instances that use it are separate elements joined by nothing in the file. Matching
+        ///   them on the identifier would be inference, and this reader mirrors rather than infers - the
+        ///   identifier is a property precisely so a query can do that join explicitly.</para>
+        /// </summary>
+        private static void CollectServices(XElement channel, String channelPath, String socketPath,
+            XElement socket, Collected collected)
+        {
+            foreach (var service in Descendants(socket, n => ServiceElements.ContainsKey(n)))
+            {
+                var path = PathWithin(channel, channelPath, service);
+                if (path == null)
+                {
+                    continue;
+                }
+
+                var element = new ArxmlElement(path, ArxmlKinds.Service)
+                {
+                    [ArxmlProperties.Name] = Text(service.Element(Ar + ShortNameElement)),
+                    [ArxmlProperties.Role] = ServiceElements[service.Name.LocalName],
+                    [ArxmlProperties.SourceSpelling] = service.Name.LocalName,
+                    [ArxmlProperties.ServiceId] = First(service, "SERVICE-IDENTIFIER"),
+                    [ArxmlProperties.InstanceId] = First(service, "INSTANCE-IDENTIFIER"),
+                };
+                Describe(element, service);
+
+                if (collected.Claim(element, collected.Services) == PathClaim.Recorded)
+                {
+                    collected.Pending.Add(new Pending(path, ArxmlRelations.PartOf, socketPath));
+                }
+            }
+        }
+
+        /// <summary>
+        ///   THE COUPLING PORTS of one ECU: the physical ports of the switch fabric its Ethernet controller
+        ///   sits behind. Collected from the ECU rather than from the channel because that is where they are
+        ///   declared, and the connections BETWEEN them are read from the channel (see
+        ///   <see cref="CollectCouplingConnections" />) because a link belongs to neither end.
+        ///
+        ///   <para>A coupling port is not a <see cref="ArxmlKinds.Socket" />: one is a physical port, the
+        ///   other a transport port on an address, and conflating them would answer "which switch port is
+        ///   this unit on" with a UDP port number.</para>
+        /// </summary>
+        private static void CollectCouplingPorts(String ecuPath, XElement ecu, Collected collected)
+        {
+            foreach (var port in Descendants(ecu, n => n == "COUPLING-PORT"))
+            {
+                var path = PathWithin(ecu, ecuPath, port);
+                if (path == null)
+                {
+                    continue;
+                }
+
+                var element = new ArxmlElement(path, ArxmlKinds.Coupling)
+                {
+                    [ArxmlProperties.Name] = Text(port.Element(Ar + ShortNameElement)),
+                };
+                Describe(element, port);
+
+                if (collected.Claim(element, collected.Couplings) == PathClaim.Recorded)
+                {
+                    collected.Pending.Add(new Pending(path, ArxmlRelations.PartOf, ecuPath));
+                }
+            }
+        }
+
+        /// <summary>
+        ///   The LINKS between coupling ports, which the channel declares. One edge per connection, in the
+        ///   direction the file states, because a link is one fact: two edges for it would make every count
+        ///   over the topology wrong and neither direction is more true than the other.
+        /// </summary>
+        private static void CollectCouplingConnections(XElement channel, Collected collected)
+        {
+            foreach (var connection in Descendants(channel, n => n == "COUPLING-PORT-CONNECTION"))
+            {
+                String? first = null;
+                String? second = null;
+                foreach (var reference in Descendants(connection, n => n == "FIRST-PORT-REF" ||
+                                                                      n == "SECOND-PORT-REF"))
+                {
+                    var value = Clean(reference.Value);
+                    if (value == null)
+                    {
+                        continue;
+                    }
+
+                    if (String.Equals(reference.Name.LocalName, "FIRST-PORT-REF", StringComparison.Ordinal))
+                    {
+                        first ??= value;
+                    }
+                    else
+                    {
+                        second ??= value;
+                    }
+                }
+
+                // BOTH ends or nothing. A link with one end named is not half a link: emitting an edge from
+                // it would need a target invented, and reporting it as unresolved would be a diagnostic
+                // about a reference the file never wrote.
+                if (first != null && second != null)
+                {
+                    collected.Pending.Add(new Pending(first, ArxmlRelations.ConnectedTo, second));
                 }
             }
         }
@@ -925,6 +1054,12 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 {
                     collected.Pending.Add(new Pending(path, ArxmlRelations.BoundTo, endpointRef));
                 }
+
+                // Services are collected HERE, inside the socket, because that is where the standard puts
+                // them and because it is what makes their partOf reach the socket: a service instance sits
+                // on the application endpoint, which is not an element of its own, so composing the edge
+                // from the enclosing socket is the only way it lands on something.
+                CollectServices(channel, channelPath, path, socket, collected);
             }
 
             foreach (var connection in Descendants(channel, n => ConnectionElements.Contains(n)))
@@ -2005,6 +2140,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             public Dictionary<String, ArxmlElement> Sockets { get; } = New();
 
             public Dictionary<String, ArxmlElement> Connections { get; } = New();
+
+            public Dictionary<String, ArxmlElement> Services { get; } = New();
+
+            public Dictionary<String, ArxmlElement> Couplings { get; } = New();
 
             public Dictionary<String, String> UnitDisplayNames { get; } =
                 new Dictionary<String, String>(StringComparer.Ordinal);

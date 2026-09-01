@@ -652,6 +652,26 @@ are read onto the one `connection` kind instead, and `sourceSpelling` keeps the 
 actually used, so nothing is hidden. Both spellings are read unconditionally - there is nothing to
 detect, since a document can only be using one of them.
 
+### Services, and the switch below them
+
+Two more kinds sit either side of the socket layer.
+
+**`service`** is a SOME/IP service instance, which is the level a modern vehicle's Ethernet traffic is
+actually organised at: signals still exist below it, but what an application asks for is a service.
+Each is `partOf` the socket that offers or consumes it, and carries `role` (`provided` or `consumed`),
+`serviceId` and `instanceId`. One kind for both roles, so "what services does this unit take part in"
+is one query. A provided instance and the consumers that use it stay **separate elements** carrying
+the same `serviceId`: the extract joins them by nothing, so matching them is a query you write rather
+than an inference the reader makes for you.
+
+**`coupling`** is a physical port of the switch fabric, `partOf` the ECU whose Ethernet controller
+declares it, and `connectedTo` the port it is wired to. That is a different question from a socket's
+port number - "which switch port is this unit plugged into" rather than "which port does this service
+listen on" - which is why it is a different kind. A link is **one** edge in the direction the file
+states it; two would make every count over the topology wrong. A connection the extract only half
+states produces no edge and no complaint, while one naming a port nothing declares is reported like
+any other unresolved reference.
+
 **If a channel's socket layer comes up empty, the run says so** (`arxmlSocketLayerUnrecognised`),
 naming the schema the file declared and the element names it actually found under that channel. This
 is the one diagnostic here more likely to be about the *reader* than about your file: a spelling this

@@ -117,8 +117,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 "frame layer, so its signals are reached through the PDU instead, each of its channels is " +
                 "a VLAN an ECU is or is not on, and what addresses a PDU there is the socket layer: " +
                 "network endpoints, sockets over UDP or TCP, and the connections between them, read onto " +
-                "one set of kinds whichever AUTOSAR revision's spelling the extract uses. Several " +
-                "extracts of one vehicle are read as " +
+                "one set of kinds whichever AUTOSAR revision's spelling the extract uses. Above that it " +
+                "reads the SOME/IP service instances each socket offers or consumes, and below it the " +
+                "switch coupling ports and the links between them. Several extracts of one vehicle are " +
+                "read as " +
                 "one source, so a frame in one of them can carry a signal defined in another and an ECU " +
                 "on two buses is one element attached to both; a value carried on several buses is one " +
                 "system signal with a per-bus signal each, which is what joins the buses to each other. " +
@@ -177,6 +179,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 ArxmlKinds.Endpoint,
                 ArxmlKinds.Socket,
                 ArxmlKinds.Connection,
+                ArxmlKinds.Service,
+                ArxmlKinds.Coupling,
             },
             ClaimTypes = new[] { VehiclePathClaimType },
             RelationTypes = new[]
@@ -193,6 +197,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 ArxmlRelations.BoundTo,
                 ArxmlRelations.ServerPort,
                 ArxmlRelations.ClientPort,
+                ArxmlRelations.ConnectedTo,
             },
             CanObserveCompleteState = true,
             ReadOnly = true,

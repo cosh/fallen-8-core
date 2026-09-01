@@ -1,7 +1,12 @@
 # A vehicle communication model across CAN, FlexRay and Ethernet
 
-Status: **open**. Phases 1 to 3 are done (see [findings.md](findings.md) section 7); this spec covers
-phases 4 and 5, the model itself.
+Status: **implemented, pending review**. Every phase is done; the steps are in
+[plan.md](plan.md) and the record in [findings.md](findings.md).
+
+This spec is a historical record and is written in the present tense of the day it was written, so
+"today the channel is not an element" and "what it does not do is read Ethernet" describe the state it
+was specifying AGAINST. It is not rewritten to match the result; **section 8 records where the build
+departed from it**, which is the part to read if the two disagree.
 
 ## 1. What this is for
 
@@ -66,8 +71,8 @@ Added:
 | `endpoint` | a network endpoint: an address on a channel | Ethernet |
 | `socket` | a socket address and its application endpoint: a port over UDP or TCP | Ethernet |
 | `connection` | a socket connection: the pairing of two sockets that carries PDUs, with their header ids | Ethernet |
-| `service` | a SOME/IP service instance, provided or consumed (phase 5) | Ethernet |
-| `coupling` | a switch's coupling port, where the topology below the cluster lives (phase 5) | Ethernet |
+| `service` | a SOME/IP service instance, provided or consumed | Ethernet |
+| `coupling` | a switch's coupling port, where the topology below the cluster lives | Ethernet |
 
 That is 13, not the "roughly 20" of N1, and the difference is deliberate: N1 counted the socket
 layer's revision-specific spellings as distinct kinds, which N5 then normalises away. A kind per
@@ -172,3 +177,33 @@ elements this reader has no interest in, and reporting them would bury everythin
   away.
 - The revision handling is judged on BOTH detection paths (`xsi:schemaLocation` present, and absent
   with vocabulary as the fallback) and on the normalisation producing one shape from two spellings.
+
+## 8. As built: where this departed from the spec
+
+Four differences, none of them silent. The reasoning for each is on the code that implements it.
+
+1. **No revision DETECTION** (4.4). `xsi:schemaLocation` is read from the document element and kept,
+   but the vocabulary fallback was dropped and nothing branches on the revision. It turned out to be
+   unnecessary rather than hard: the spellings do not overlap, so reading for both is unambiguous, and
+   a detector would be a second thing to get wrong for no gain. What the file declared appears in the
+   socket-layer diagnostic, where it is actionable; the diagnostic also lists the vocabulary it saw,
+   which is what the fallback would have inferred and more useful raw.
+
+2. **One `networkMask` property, not `networkMask` or `prefixLength`** (4.3). An IPv4 mask and an IPv6
+   prefix answer the same question, and a query that had to know the version to ask it would be
+   written twice for no reason. `ipVersion` is there for anyone who needs to tell them apart.
+
+3. **A connection carries `headerIdCount`, not the ids, and no `transport`** (4.3). The count because a
+   header id is only meaningful against its own PDU and the PDU is already reached by `carries`; no
+   transport because the transport is the socket's, and repeating it on the connection would be two
+   places to disagree.
+
+4. **`partOf` covers two more pairs and there is one more relation than 4.2 lists.** `service` →
+   `socket` and `coupling` → `ecu` are structural containment like the rest, which is what having one
+   relation for it was for. The addition is `connectedTo`, one coupling port to another: the switch
+   topology is not containment, and it needed a word.
+
+One thing 4.5 deliberately does NOT extend to: there is no "we found no services" or "we found no
+coupling ports" report. Absence there is ordinary - an extract with no service layer is not a
+suspicious extract - whereas an Ethernet channel with no addressing at all is either unusual or a
+reader that guessed a name wrong.

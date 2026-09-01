@@ -336,6 +336,154 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region the detail layer: services and switch ports (step 5)
+
+        /// <summary>
+        ///   SOME/IP service instances, which is the layer a modern vehicle's Ethernet traffic is actually
+        ///   organised at: signals still exist below it, but what an application asks for is a service.
+        /// </summary>
+        [TestMethod]
+        public void ServiceInstancesOnASocketAreElements_WithTheirRoleAsAProperty()
+        {
+            var network = ArxmlReader.Read(ServiceExtract);
+
+            var provided = Element(network,
+                "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer/AE_Hub/PSI_WheelSpeed");
+            Assert.AreEqual(ArxmlKinds.Service, provided.Kind);
+            Assert.AreEqual(ArxmlProperties.ProvidedRole, provided[ArxmlProperties.Role],
+                "the role is a PROPERTY and not a kind, so 'what services does this unit take part in' is " +
+                "one query rather than two");
+            Assert.AreEqual("PROVIDED-SERVICE-INSTANCE", provided[ArxmlProperties.SourceSpelling]);
+            Assert.AreEqual("4660", provided[ArxmlProperties.ServiceId]);
+            Assert.AreEqual("1", provided[ArxmlProperties.InstanceId]);
+
+            var consumed = Element(network,
+                "/Clusters/BACKBONE/CH_SOCKETS/SA_DriveClient/AE_Drive/CSI_WheelSpeed");
+            Assert.AreEqual(ArxmlProperties.ConsumedRole, consumed[ArxmlProperties.Role]);
+            Assert.AreEqual("4660", consumed[ArxmlProperties.ServiceId],
+                "the consumer names the same SERVICE, which is what makes the identifier worth keeping as " +
+                "a property: the file joins the two by nothing, so a query does it explicitly");
+        }
+
+        /// <summary>
+        ///   A service instance is <c>partOf</c> its SOCKET, not its application endpoint. The endpoint is
+        ///   not an element - it is folded into the socket - so an edge to it would point at nothing.
+        /// </summary>
+        [TestMethod]
+        public void AServiceInstanceBelongsToItsSocket()
+        {
+            var network = ArxmlReader.Read(ServiceExtract);
+
+            CollectionAssert.AreEqual(new[] { "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer" },
+                Targets(network, "/Clusters/BACKBONE/CH_SOCKETS/SA_HubServer/AE_Hub/PSI_WheelSpeed",
+                    ArxmlRelations.PartOf).ToArray(),
+                "so a walk from a service reaches the port it listens on, and from there the address and " +
+                "the channel");
+            Assert.AreEqual(0,
+                network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.UnresolvedReference),
+                "and nothing dangles: " + String.Join("; ",
+                    network.Diagnostics.Select(d => d.Kind + " " + d.Subject)));
+        }
+
+        /// <summary>
+        ///   Two instances of ONE service are two elements. Deliberately not merged: an instance is per
+        ///   socket, and matching them on the identifier would be inference rather than reading.
+        /// </summary>
+        [TestMethod]
+        public void TwoInstancesOfOneServiceAreTwoElements()
+        {
+            var network = ArxmlReader.Read(ServiceExtract);
+
+            var services = network.Elements.Where(e => e.Kind == ArxmlKinds.Service).ToList();
+            Assert.AreEqual(2, services.Count);
+            Assert.AreEqual(2, services.Count(s => s[ArxmlProperties.ServiceId] == "4660"),
+                "both carry the same service identifier and stay separate elements: the provided instance " +
+                "and the consumed one are different things in the file, and a reader that merged them " +
+                "would be asserting a relationship the file does not state");
+        }
+
+        /// <summary>
+        ///   COUPLING PORTS: the physical ports of the switch fabric, and the links between them. A
+        ///   different question from a socket's port number, which is why it is a different kind.
+        /// </summary>
+        [TestMethod]
+        public void CouplingPortsAreTheSwitchTopology()
+        {
+            var network = ArxmlReader.Read(ServiceExtract);
+
+            var port = Element(network, "/Ecus/SENSOR_HUB/HUB_CTRL/CP_Hub_1");
+            Assert.AreEqual(ArxmlKinds.Coupling, port.Kind);
+            CollectionAssert.AreEqual(new[] { "/Ecus/SENSOR_HUB" },
+                Targets(network, "/Ecus/SENSOR_HUB/HUB_CTRL/CP_Hub_1", ArxmlRelations.PartOf).ToArray(),
+                "a coupling port belongs to the ECU whose controller declares it");
+
+            CollectionAssert.AreEqual(new[] { "/Ecus/SWITCH_ECU/SW_CTRL/CP_Switch_1" },
+                Targets(network, "/Ecus/SENSOR_HUB/HUB_CTRL/CP_Hub_1", ArxmlRelations.ConnectedTo).ToArray(),
+                "and the link is ONE edge in the direction the file states it: a link is one fact, and two " +
+                "edges for it would make every count over the topology wrong");
+            Assert.AreEqual(1, network.Relations.Count(r => r.Type == ArxmlRelations.ConnectedTo),
+                "one connection, one edge");
+        }
+
+        /// <summary>
+        ///   A coupling-port connection naming only one end produces NO edge and no diagnostic. Emitting one
+        ///   would need a target invented; reporting it would be a diagnostic about a reference the file
+        ///   never wrote.
+        /// </summary>
+        [TestMethod]
+        public void AHalfDeclaredCouplingConnectionIsNeitherAnEdgeNorADiagnostic()
+        {
+            var network = ArxmlReader.Read(ServiceExtract.Replace(
+                "<SECOND-PORT-REF DEST=\"COUPLING-PORT\">/Ecus/SWITCH_ECU/SW_CTRL/CP_Switch_1</SECOND-PORT-REF>",
+                String.Empty, StringComparison.Ordinal));
+
+            Assert.AreEqual(0, network.Relations.Count(r => r.Type == ArxmlRelations.ConnectedTo));
+            Assert.AreEqual(0,
+                network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.UnresolvedReference),
+                "a link the file only half stated is not an unresolved reference: " + String.Join("; ",
+                    network.Diagnostics.Select(d => d.Kind + " " + d.Subject)));
+            Assert.AreEqual(2, network.Elements.Count(e => e.Kind == ArxmlKinds.Coupling),
+                "and both ports are still elements, because they were declared");
+        }
+
+        /// <summary>
+        ///   A coupling-port connection naming a port nothing declares IS reported: that is a reference the
+        ///   file wrote and this reader could not follow, which is a different fact from a link left half
+        ///   stated.
+        /// </summary>
+        [TestMethod]
+        public void ACouplingConnectionToAPortNothingDeclaresIsReported()
+        {
+            var network = ArxmlReader.Read(ServiceExtract.Replace(
+                "/Ecus/SWITCH_ECU/SW_CTRL/CP_Switch_1</SECOND-PORT-REF>",
+                "/Ecus/SWITCH_ECU/SW_CTRL/CP_NoSuchPort</SECOND-PORT-REF>",
+                StringComparison.Ordinal));
+
+            Assert.AreEqual(0, network.Relations.Count(r => r.Type == ArxmlRelations.ConnectedTo),
+                "no edge to something that is not there");
+            Assert.AreEqual(1,
+                network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.UnresolvedReference),
+                "and it is named: " + String.Join("; ",
+                    network.Diagnostics.Select(d => d.Kind + " " + d.Subject)));
+        }
+
+        /// <summary>
+        ///   A CAN ECU is never asked about coupling ports either. The ECU collector runs on every protocol,
+        ///   so this says the search costs nothing where there is nothing to find rather than that it is
+        ///   gated - and that a CAN extract cannot grow spurious switch topology.
+        /// </summary>
+        [TestMethod]
+        public void ACanEcuContributesNoCouplingPorts()
+        {
+            var network = ArxmlReader.Read(EthernetExtract.Replace("ETHERNET-", "CAN-",
+                StringComparison.Ordinal));
+
+            Assert.AreEqual(0, network.Elements.Count(e => e.Kind == ArxmlKinds.Coupling));
+            Assert.AreEqual(0, network.Elements.Count(e => e.Kind == ArxmlKinds.Service));
+        }
+
+        #endregion
+
         #region a socket layer this reader does not recognise
 
         /// <summary>
@@ -620,6 +768,117 @@ namespace NoSQL.GraphDB.Tests
         private static readonly String StaticExtract = SocketFixture
             .Replace("__CHANNEL_CONNECTION__", String.Empty, StringComparison.Ordinal)
             .Replace("__SOCKET_CONNECTION__", StaticConnection, StringComparison.Ordinal);
+
+        /// <summary>
+        ///   An invented Ethernet segment carrying the DETAIL layer: a provided SOME/IP service on the hub's
+        ///   socket, a consumed one on the drive unit's, and a switch with a coupling port wired to the hub's.
+        /// </summary>
+        private const String ServiceExtract = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Ecus</SHORT-NAME>
+                  <ELEMENTS>
+                    <ECU-INSTANCE>
+                      <SHORT-NAME>SENSOR_HUB</SHORT-NAME>
+                      <COMM-CONTROLLERS>
+                        <ETHERNET-COMMUNICATION-CONTROLLER>
+                          <SHORT-NAME>HUB_CTRL</SHORT-NAME>
+                          <COUPLING-PORTS>
+                            <COUPLING-PORT>
+                              <SHORT-NAME>CP_Hub_1</SHORT-NAME>
+                            </COUPLING-PORT>
+                          </COUPLING-PORTS>
+                        </ETHERNET-COMMUNICATION-CONTROLLER>
+                      </COMM-CONTROLLERS>
+                      <COMM-CONNECTORS>
+                        <ETHERNET-COMMUNICATION-CONNECTOR>
+                          <SHORT-NAME>HUB_CONN</SHORT-NAME>
+                        </ETHERNET-COMMUNICATION-CONNECTOR>
+                      </COMM-CONNECTORS>
+                    </ECU-INSTANCE>
+                    <ECU-INSTANCE>
+                      <SHORT-NAME>SWITCH_ECU</SHORT-NAME>
+                      <COMM-CONTROLLERS>
+                        <ETHERNET-COMMUNICATION-CONTROLLER>
+                          <SHORT-NAME>SW_CTRL</SHORT-NAME>
+                          <COUPLING-PORTS>
+                            <COUPLING-PORT>
+                              <SHORT-NAME>CP_Switch_1</SHORT-NAME>
+                            </COUPLING-PORT>
+                          </COUPLING-PORTS>
+                        </ETHERNET-COMMUNICATION-CONTROLLER>
+                      </COMM-CONTROLLERS>
+                    </ECU-INSTANCE>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <ETHERNET-CLUSTER>
+                      <SHORT-NAME>BACKBONE</SHORT-NAME>
+                      <ETHERNET-CLUSTER-VARIANTS>
+                        <ETHERNET-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <ETHERNET-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>CH_SOCKETS</SHORT-NAME>
+                              <COUPLING-PORT-CONNECTIONS>
+                                <COUPLING-PORT-CONNECTION>
+                                  <FIRST-PORT-REF DEST="COUPLING-PORT">/Ecus/SENSOR_HUB/HUB_CTRL/CP_Hub_1</FIRST-PORT-REF>
+                                  <SECOND-PORT-REF DEST="COUPLING-PORT">/Ecus/SWITCH_ECU/SW_CTRL/CP_Switch_1</SECOND-PORT-REF>
+                                </COUPLING-PORT-CONNECTION>
+                              </COUPLING-PORT-CONNECTIONS>
+                              <SO-AD-CONFIG>
+                                <SOCKET-ADDRESSS>
+                                  <SOCKET-ADDRESS>
+                                    <SHORT-NAME>SA_HubServer</SHORT-NAME>
+                                    <APPLICATION-ENDPOINT>
+                                      <SHORT-NAME>AE_Hub</SHORT-NAME>
+                                      <TP-CONFIGURATION>
+                                        <UDP-TP>
+                                          <PORT-NUMBER>30490</PORT-NUMBER>
+                                        </UDP-TP>
+                                      </TP-CONFIGURATION>
+                                      <PROVIDED-SERVICE-INSTANCES>
+                                        <PROVIDED-SERVICE-INSTANCE>
+                                          <SHORT-NAME>PSI_WheelSpeed</SHORT-NAME>
+                                          <SERVICE-IDENTIFIER>4660</SERVICE-IDENTIFIER>
+                                          <INSTANCE-IDENTIFIER>1</INSTANCE-IDENTIFIER>
+                                        </PROVIDED-SERVICE-INSTANCE>
+                                      </PROVIDED-SERVICE-INSTANCES>
+                                    </APPLICATION-ENDPOINT>
+                                  </SOCKET-ADDRESS>
+                                  <SOCKET-ADDRESS>
+                                    <SHORT-NAME>SA_DriveClient</SHORT-NAME>
+                                    <APPLICATION-ENDPOINT>
+                                      <SHORT-NAME>AE_Drive</SHORT-NAME>
+                                      <TP-CONFIGURATION>
+                                        <UDP-TP>
+                                          <PORT-NUMBER>30491</PORT-NUMBER>
+                                        </UDP-TP>
+                                      </TP-CONFIGURATION>
+                                      <CONSUMED-SERVICE-INSTANCES>
+                                        <CONSUMED-SERVICE-INSTANCE>
+                                          <SHORT-NAME>CSI_WheelSpeed</SHORT-NAME>
+                                          <SERVICE-IDENTIFIER>4660</SERVICE-IDENTIFIER>
+                                          <INSTANCE-IDENTIFIER>1</INSTANCE-IDENTIFIER>
+                                        </CONSUMED-SERVICE-INSTANCE>
+                                      </CONSUMED-SERVICE-INSTANCES>
+                                    </APPLICATION-ENDPOINT>
+                                  </SOCKET-ADDRESS>
+                                </SOCKET-ADDRESSS>
+                              </SO-AD-CONFIG>
+                            </ETHERNET-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </ETHERNET-CLUSTER-CONDITIONAL>
+                      </ETHERNET-CLUSTER-VARIANTS>
+                    </ETHERNET-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
 
         /// <summary>
         ///   An Ethernet channel whose socket layer this reader does NOT recognise, and a schema nobody has

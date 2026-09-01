@@ -161,7 +161,7 @@ Phase 2  vehicle-scoped identity, per-scope completeness         DONE
 Phase 3  streaming parse                                         DONE
          staged resumable upload                                 deferred (N3, with a trigger)
 Phase 4  the three-bus faithful model                            DONE
-Phase 5  the Ethernet detail layer                               open
+Phase 5  the Ethernet detail layer                               DONE
 ```
 
 Phase 4 landed as four steps, recorded in [plan.md](plan.md): the channel became an element, the
@@ -185,9 +185,18 @@ warns against.
 
 ## 8. Next steps
 
-1. **Phase 5**, the Ethernet detail layer: SOME/IP service instances, and switch coupling ports so
-   the topology below an Ethernet cluster is visible. Both additive, neither changing a shape the
-   three-bus traversal depends on.
+Every phase is done. What remains is review, and the two things worth reviewing hardest are named
+here rather than left to be found:
+
+1. **The Ethernet element NAMES are read from the standard, not from a corpus of exports.** The socket
+   layer, the service instances and the coupling ports are all name-driven tables, and no export was
+   available to check them against. That is why the socket layer reports what it saw when it finds
+   nothing (section 6, N5) - the mitigation is that a wrong name is a table entry and a legible
+   report, not silent data loss. The same report does NOT exist for services or coupling ports,
+   because absence there is ordinary: an extract with no service layer is not a suspicious extract.
+2. **The channel change alters existing graphs.** A re-run of an existing identity reconciles onto the
+   new shape, which is what a complete snapshot is for, and `channelCount` is gone. Stated in the docs
+   rather than migrated.
 
 ## 9. Scope of what is known
 

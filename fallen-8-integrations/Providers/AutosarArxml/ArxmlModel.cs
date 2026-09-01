@@ -297,6 +297,27 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   mirrored - see <see cref="ArxmlProperties.SourceSpelling" />.
         /// </summary>
         public const String Connection = "connection";
+
+        /// <summary>
+        ///   A SOME/IP SERVICE INSTANCE, provided or consumed. Ethernet only, and the layer at which a
+        ///   modern vehicle's Ethernet traffic is actually organised: signals still exist below it, but what
+        ///   an application asks for is a service.
+        ///
+        ///   <para>ONE kind for both roles, with the role a property, for the same reason a PDU's flavour is
+        ///   a property: "what services does this unit take part in" must not need a label per role, and the
+        ///   pair is what an impact query walks.</para>
+        /// </summary>
+        public const String Service = "service";
+
+        /// <summary>
+        ///   A COUPLING PORT: a port of the switch fabric an ECU's Ethernet controller sits behind, and with
+        ///   <see cref="ArxmlRelations.ConnectedTo" /> the physical topology below a cluster.
+        ///
+        ///   <para>Distinct from a <see cref="Socket" />, which is a transport port on an address. This is a
+        ///   physical port: the difference is the one between "which port number does this service listen
+        ///   on" and "which switch port is this ECU plugged into", and both are asked.</para>
+        /// </summary>
+        public const String Coupling = "coupling";
     }
 
     /// <summary>The relation types this provider emits, which become edge types.</summary>
@@ -352,6 +373,13 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         /// <summary>Connection to a socket on its CLIENT side. See <see cref="ServerPort" />.</summary>
         public const String ClientPort = "clientPort";
+
+        /// <summary>
+        ///   PHYSICAL topology: one coupling port to the coupling port it is wired to. Symmetric in meaning
+        ///   and emitted ONCE, in the direction the file states it, because a link is one fact and two edges
+        ///   for it would make every count over the topology wrong.
+        /// </summary>
+        public const String ConnectedTo = "connectedTo";
     }
 
     /// <summary>
@@ -494,6 +522,27 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   have.</para>
         /// </summary>
         public const String SourceSpelling = "sourceSpelling";
+
+        /// <summary>
+        ///   A SOME/IP service's identifier, which is what identifies the service itself rather than this
+        ///   instance of it. Two units offering the same service carry the same one.
+        /// </summary>
+        public const String ServiceId = "serviceId";
+
+        /// <summary>Which INSTANCE of that service this is, where the file states one.</summary>
+        public const String InstanceId = "instanceId";
+
+        /// <summary>
+        ///   Whether a service instance is <c>provided</c> or <c>consumed</c>. The role rather than a kind,
+        ///   so "what services does this unit take part in" is one query rather than two.
+        /// </summary>
+        public const String Role = "role";
+
+        /// <summary>The value of <see cref="Role" /> for a service instance a unit OFFERS.</summary>
+        public const String ProvidedRole = "provided";
+
+        /// <summary>The value of <see cref="Role" /> for a service instance a unit CONSUMES.</summary>
+        public const String ConsumedRole = "consumed";
 
         /// <summary>
         ///   How many PDU header ids a connection carries. A COUNT rather than the ids: a connection
