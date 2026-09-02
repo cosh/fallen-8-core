@@ -75,15 +75,25 @@ Four rows, each optional, active when filled, AND-composed over the canvas verti
   same way Find similar does), `closer than | farther than`, and a threshold **in the metric's
   raw units** (the same raw-score contract as the vector search screen and the traversal
   semantic block: the response says `metric` and `higherIsBetter`, the client never re-derives).
-  One `POST /embedding/search` call with `kind: "vertex"` and `k = SEMANTIC_K` (20,000, the
-  canvas element cap); canvas vertices found in the result carry their score, the rest are
+  One `POST /embedding/search` call with `kind: "vertex"` and `k = MAX_K`; canvas vertices found
+  in the result carry their score, the rest are
   **unscored and never match**, and the preview reports "N of M matched vertices had no score".
   The row is offered only when the instance has an embedding provider and at least one bound
   vector index exists; when it cannot run, the row says why instead of greying out silently
   (the `findSimilar` principle).
 
-A status line always shows what is active and what matches: `2 filters · 37 of 240 vertices
-match`. With a costly filter active the count reads `evaluate to match` until Preview runs.
+A status line always shows what is active and what matches: `filtered · 37 of 240 vertices
+match`. With a costly filter active the count reads `evaluate to match` until Preview runs, and a
+row that is half filled in (a value term with no key, a semantic text with no threshold) reads what
+is missing and **disables both verbs** rather than falling back to matching everything - the
+keystroke that empties a degree box would otherwise move the panel from its safest state to its
+most destructive one.
+
+> Shipped note: `k` is `MAX_K` (1024, `lib/vectorSearch.ts`), the engine's own kNN ceiling, NOT a
+> number derived from the canvas. An earlier draft of this spec said 20,000 (the canvas element
+> cap); the engine refuses any `k` above 1024 with a 400, after the provider has already embedded
+> the text, so that would have made this filter unusable on every real instance. The window it
+> leaves is disclosed in the panel and in the docs instead of being hidden.
 
 ### 3. Preview
 
@@ -104,17 +114,29 @@ match`. With a costly filter active the count reads `evaluate to match` until Pr
 Both act on the current match set, are **view-only** (the database is never touched - the
 standing canvas rule, restated in the panel), and show the count on the button:
 
-- **Remove from view (N)** - `removeFromCanvas` per matched vertex; incident edges go with
-  them (existing semantics). If the Detail panel's selected element is among them, the
-  selection clears (the single-remove precedent).
+- **Remove from view (N)** - `removeManyFromCanvas`, ONE store write for the whole set; incident
+  edges go with their endpoints (existing semantics). A per-vertex loop was the first shape and is
+  not viable: the canvas is persisted, so it re-serializes the whole workspace once per vertex
+  (~10ms each, measured), which freezes the tab on a real match set. If the Detail panel's
+  selected element is among them - or is an edge leaving with its endpoint - the selection clears
+  (the single-remove precedent).
 - **Expand (N)** - per matched vertex, `fetchVertexNeighborhood` with the existing
   `EXPAND_EDGE_CAP` (200) per vertex and `skipNeighborIds` = the live canvas, merged as each
-  batch lands (`CONNECT_BATCH_SIZE`-style concurrency), progress `vertex X of Y`, Cancel keeps
-  what landed. Refused above `EXPAND_SWEEP_CAP` (100 matched vertices) - a single expand can
+  batch lands (`CONNECT_BATCH_SIZE`-style concurrency), progress `vertex X of Y`, Cancel offered
+  whenever a run is in flight (filter or no filter) and stopping the requests themselves rather
+  than only their answers (the signal reaches the fetches). Cancel works in whole BATCHES: completed
+  ones are kept and counted, the in-flight one is dropped and counted as nothing, because the
+  neighborhood primitive answers an aborted fetch with empty arrays and crediting those reported
+  "expanded 8 of 20" over an unchanged canvas.
+  Refused above `EXPAND_SWEEP_CAP` (100 matched vertices) - a single expand can
   cost hundreds of requests, so the filters are the narrowing tool and the refusal says so.
-  The sweep also **stops early** when the canvas reaches `CANVAS_ELEMENT_CAP` (20,000
-  elements), reporting `stopped at the canvas cap after X of Y vertices` - the same honesty as
-  the whole-graph truncation notice.
+  The sweep also **stops early** when the canvas reaches `CANVAS_EXPAND_CEILING` (40,000
+  elements, the SUM of both kinds), reporting it - the same honesty as the whole-graph truncation
+  notice. Deliberately not `CANVAS_ELEMENT_CAP`: that bounds each KIND of a fetch, so "Show whole
+  graph" can leave 20,000 vertices AND 20,000 edges, and a sweep refusing to grow a canvas the app
+  itself just filled would enforce a ceiling nothing else in the product has. The report states
+  what it EXPANDED (not what it attempted, so a failure cannot be counted twice) and names how
+  many neighbourhoods the per-vertex edge cap cut short.
 
 ### 5. Consolidation
 
@@ -135,7 +157,7 @@ for the single-element path.
   `interactSemanticDirection` "closer", `interactSemanticThreshold` "". Evaluated scores,
   match previews, and progress are ephemeral component state, like every result in the Studio.
 - Pure logic in `src/lib/canvasInteract.ts` (the `connectPaths.ts` idiom): the constants
-  (`DEGREE_SWEEP_CAP`, `EXPAND_SWEEP_CAP`, `SEMANTIC_K`), cheap-filter matching over
+  (`DEGREE_SWEEP_CAP`, `EXPAND_SWEEP_CAP`), cheap-filter matching over
   `CanvasNode`s plus the canvas edges (on-canvas degree delegates to the style engine's
   `visibleDegrees`), threshold application over scored results (metric-direction aware), and
   the degree/expand sweeps - all unit-testable without a DOM.
@@ -150,6 +172,9 @@ for the single-element path.
 | Feature / layer | Impact | Handling |
 |---|---|---|
 | Engine / REST / MCP / OpenAPI | **None** - existing routes only | No snapshot regeneration, no MCP coverage change |
+| Studio REST wrappers (`api/endpoints.ts`) | `getInDegree`, `getOutDegree`, `embeddingSearch` and the four adjacency wrappers gain an optional trailing `signal?: AbortSignal` (the `findPaths` precedent), which is what makes a batched sweep cancellable rather than merely ignored; `fetchVertexNeighborhood` takes one too and threads it | Additive, no caller changes. Recorded here because the pre-implementation table said "existing routes only" and this is the one place that was not literally true |
+| Canvas store (`instanceStore.ts`) | Adds `removeManyFromCanvas` and a `CANVAS_TABS` / `isCanvasTab` guard, and normalizes a persisted `tab` on rehydration (the `isTraverseTab` precedent) | An unknown persisted tab id would otherwise render a strip with nothing selected and an empty area under it |
+| `lib/vectorSearch.ts` (new) | ONE home for the engine's kNN ceiling `MAX_K`, which `QueryScreen` had as a local literal | Both callers now share it; a k from any other quantity is a 400, not a degradation |
 | Canvas Detail panel ([canvas-view-controls](../../done/canvas-view-controls/spec.md)) | Expand implementation moves to the shared lib; buttons and behaviour unchanged | Existing canvas tests must stay green unmodified |
 | [canvas-find-connect](../../done/canvas-find-connect/spec.md) | Fourth tab in the strip; FindPanel/ConnectPanel untouched; the eclipse hover-spotlight is reused | Tab-strip tests extend, none change meaning |
 | Style tab / `styleEngine` | Degree-based node sizing untouched; its exported `visibleDegrees` gains a second caller (the on-canvas degree source), so there is ONE home for counting canvas degree | No behaviour change in styling; the filter's field help says which source reads what |

@@ -384,23 +384,42 @@ export const getGraphElements = (i: InstanceConfig, ids: number[], signal?: Abor
     signal,
   });
 
-export const getOutEdgeProperties = (i: InstanceConfig, id: number) =>
-  apiRequest<string[]>(i, `/vertex/${id}/edges/out`);
+// These four take a signal for the same reason the degree pair below does: a neighborhood fetch
+// fans out over them, and a cancelled expand sweep has to stop ISSUING requests (one vertex can
+// cost hundreds), not merely stop reading their answers.
+export const getOutEdgeProperties = (i: InstanceConfig, id: number, signal?: AbortSignal) =>
+  apiRequest<string[]>(i, `/vertex/${id}/edges/out`, { signal });
 
-export const getInEdgeProperties = (i: InstanceConfig, id: number) =>
-  apiRequest<string[]>(i, `/vertex/${id}/edges/in`);
+export const getInEdgeProperties = (i: InstanceConfig, id: number, signal?: AbortSignal) =>
+  apiRequest<string[]>(i, `/vertex/${id}/edges/in`, { signal });
 
-export const getOutEdges = (i: InstanceConfig, id: number, edgePropertyId: string) =>
-  apiRequest<number[]>(i, `/vertex/${id}/edges/out/${encodeURIComponent(edgePropertyId)}`);
+export const getOutEdges = (
+  i: InstanceConfig,
+  id: number,
+  edgePropertyId: string,
+  signal?: AbortSignal,
+) =>
+  apiRequest<number[]>(i, `/vertex/${id}/edges/out/${encodeURIComponent(edgePropertyId)}`, {
+    signal,
+  });
 
-export const getInEdges = (i: InstanceConfig, id: number, edgePropertyId: string) =>
-  apiRequest<number[]>(i, `/vertex/${id}/edges/in/${encodeURIComponent(edgePropertyId)}`);
+export const getInEdges = (
+  i: InstanceConfig,
+  id: number,
+  edgePropertyId: string,
+  signal?: AbortSignal,
+) =>
+  apiRequest<number[]>(i, `/vertex/${id}/edges/in/${encodeURIComponent(edgePropertyId)}`, {
+    signal,
+  });
 
-export const getInDegree = (i: InstanceConfig, id: number) =>
-  apiRequest<number>(i, `/vertex/${id}/edges/indegree`);
+// The signal is what makes a batched degree sweep cancellable (feature canvas-interact): a
+// cancelled sweep must stop issuing requests, not just stop reading them.
+export const getInDegree = (i: InstanceConfig, id: number, signal?: AbortSignal) =>
+  apiRequest<number>(i, `/vertex/${id}/edges/indegree`, { signal });
 
-export const getOutDegree = (i: InstanceConfig, id: number) =>
-  apiRequest<number>(i, `/vertex/${id}/edges/outdegree`);
+export const getOutDegree = (i: InstanceConfig, id: number, signal?: AbortSignal) =>
+  apiRequest<number>(i, `/vertex/${id}/edges/outdegree`, { signal });
 
 export const getEdgePropertyDegree = (
   i: InstanceConfig,
@@ -497,10 +516,15 @@ export const embedElement = (i: InstanceConfig, spec: EmbedElementSpecification)
   apiRequest<boolean>(i, "/embedding/element", { method: "POST", body: spec });
 
 /** Semantic search: embed the query text once, then kNN — same result shape as scanVector. */
-export const embeddingSearch = (i: InstanceConfig, spec: EmbeddingSearchSpecification) =>
+export const embeddingSearch = (
+  i: InstanceConfig,
+  spec: EmbeddingSearchSpecification,
+  signal?: AbortSignal,
+) =>
   apiRequest<VectorSearchResultREST>(i, "/embedding/search", {
     method: "POST",
     body: spec,
+    signal,
   });
 
 // ---- index lifecycle + content (FR-10, surfaced on the Indexes screen) ----

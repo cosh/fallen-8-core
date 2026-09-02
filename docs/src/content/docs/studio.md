@@ -119,7 +119,7 @@ Stored queries are not managed here: a stored query is unique to its scenario (`
 
 Renders exactly what you send from the Browser, Query, Traverse, Analytics, Knowledge, or Samples screens; it never loads anything on its own. Two toolbar actions control that working set, both view-only (the database is never touched). **Show whole graph** is the one explicit way to put everything on the canvas in a single click: it merges up to 20,000 vertices and 20,000 edges into the view, and when the namespace is bigger an honest "showing the first X of Y" notice appears next to the element count instead of silently pretending the graph is complete. **Clear view** empties the working set entirely: nodes, edges, the path overlay, and the current selection; your style configuration and the other screens' state survive.
 
-The right-hand panel is a tool strip with three tabs (**Style**, **Find**, and **Connect**) over a shared **detail** panel that always shows whatever node or edge you have selected. Style, the default tab, is sectioned:
+The right-hand panel is a tool strip with four tabs (**Style**, **Find**, **Connect**, and **Interact**) over a shared **detail** panel that always shows whatever node or edge you have selected. Style, the default tab, is sectioned:
 
 ![Canvas style panel: node color and size driven by a graph property, each with an editable property-name field](../../assets/images/screen-canvas-style.png)
 
@@ -140,7 +140,22 @@ When you switch **color by** or **size by** (and the edge equivalents) to **prop
 
 ![Canvas Connect tab: a picked set of canvas vertices, the pair budget, and the found-connection summary over the rendered graph](../../assets/images/screen-canvas-connect.png)
 
-A legend (categorical or gradient) reflects the active color mode. Selecting a node or edge (on the canvas, or from a Find result) opens the detail panel with its properties; **Expand neighbors** merges a vertex's 1-hop neighborhood, and **Remove from view** affects only the canvas: it never deletes from the database. A path found on the Traverse screen arrives as a highlighted overlay.
+**Interact** applies the same two verbs to *many* vertices at once. You filter the canvas down to a match set, then **Expand** every match's neighborhood or **Remove** every match from the view. There is no "all" switch: with no filter set the match set is simply every vertex here, which is how you expand the whole canvas (to *empty* it, "Clear view" in the toolbar is the one-step way). Four filters combine, and each is off while its field is blank; a row you have half filled in, such as a value term with no property key, disables both verbs and says what is missing rather than quietly matching everything:
+
+- **label**, matched exactly (a vertex the canvas holds only as an edge endpoint has no label read yet, so it never matches one);
+- **property**, a key with an optional value term, matched against the canvas snapshot (scalars, strings capped at 200 characters, so the Find tab remains the server-side search);
+- **degree**, over or under a number in the direction you pick, counted either from **the database** (the vertex's true degree, so "remove the real hubs" means what it says) or from **edges on canvas** (instant, and the number you actually see: a vertex you never expanded reads 0 here);
+- **semantic distance**, keeping vertices whose stored embedding is closer or farther than a threshold from a text you type. The threshold is in the index metric's own raw units, exactly as a search reports them, and the panel names the index and which direction its metric calls "closer". The row appears only where an embedding provider and a bound vector index can answer it, and says which is missing otherwise.
+
+Database degree and semantic distance cost server round trips, so they run behind **Preview**, which shows the evaluated match set as a hoverable list before anything happens to it. Editing a filter or changing the canvas retires that result and asks you to preview again, because acting on a match set the canvas has moved on from is exactly the mistake worth preventing.
+
+What it could not measure is always counted rather than folded into the answer, because a bulk remove deserves better than a confident number. A vertex the semantic search returned **no score** for matches neither direction: it may carry no embedding, or sit outside the nearest-1024 window the search ranks, and either way nothing measured it. A vertex whose **degree the server would not answer** (deleted since it landed on the canvas, say) is likewise left out rather than counted as zero, so "under 5" cannot sweep it up. Both appear next to the match count.
+
+An expand sweep is capped at 100 matched vertices (each one costs several requests), reports how many it really expanded, names any hub whose neighbourhood the per-vertex edge cap cut short, and stops at a 40,000-element canvas ceiling rather than looking like a graph with fewer neighbours. **Cancel** appears whenever something is running, filter or no filter, and abandons the requests already issued rather than merely ignoring their answers. It works in whole batches: the vertices already merged stay, and the batch in flight is dropped without being counted, so the report never credits an expansion that did not land.
+
+![Canvas Interact tab: a filtered match set with the two bulk actions over the rendered graph](../../assets/images/screen-canvas-interact.png)
+
+A legend (categorical or gradient) reflects the active color mode. Selecting a node or edge (on the canvas, or from a Find or Interact result) opens the detail panel with its properties; **Expand neighbors** merges that one vertex's 1-hop neighborhood, and **Remove from view** affects only the canvas: it never deletes from the database. Those two are the single-element form of the Interact tab's verbs and run the same code. A path found on the Traverse screen arrives as a highlighted overlay.
 
 ## Traverse
 

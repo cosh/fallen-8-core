@@ -1,6 +1,6 @@
 // MIT License
 //
-// canvasCap.ts
+// vectorSearch.ts
 //
 // Copyright (c) 2011-2026 Henning Rauch
 //
@@ -24,20 +24,24 @@
 // SOFTWARE.
 
 /**
- * The one canvas element cap (feature canvas-view-controls): the upper bound on elements
- * fetched into the canvas working set PER KIND, since `GET /graph?maxElements=` caps
- * vertices and edges independently (the server clamps each to 100,000). Used by the
- * sample-graph loaders and the Canvas screen's "Show whole graph" load.
+ * The engine's own ceiling on a kNN `k`, mirrored client-side.
+ *
+ * ONE home, because every caller of `/scan/index/vector` and `/embedding/search` has to agree with
+ * the server or the request is refused outright: `VectorIndex.MaxK` is 1024 and
+ * `VectorIndex.TryNearestNeighbors` rejects anything above it, which the embedding controller
+ * turns into a 400 AFTER the provider has already embedded the query text. So a k picked from some
+ * other quantity does not degrade, it fails, and it fails having spent a model call.
+ *
+ * That is not hypothetical: the canvas Interact tab first shipped this asking for the canvas
+ * element cap (20,000) worth of neighbours, which made its semantic filter unusable on every real
+ * instance while every mocked test passed.
  */
-export const CANVAS_ELEMENT_CAP = 20_000;
+export const MAX_K = 1024;
 
 /**
- * The most elements (vertices PLUS edges) a bulk expand will grow the canvas to before it stops
- * and says so (feature canvas-interact).
- *
- * A separate number from `CANVAS_ELEMENT_CAP` on purpose: that one bounds each KIND of a fetch, so
- * "Show whole graph" can legitimately leave 20,000 vertices AND 20,000 edges on the canvas. A
- * sweep refusing to grow a canvas the app itself just filled would be enforcing a ceiling nothing
- * else in the product has, which is why this is the sum and twice the size.
+ * A kNN window that cannot exceed the engine's ceiling, for a caller who wants "as many as I might
+ * need" rather than a number a person typed. `wanted` is what the caller would ideally ask for.
  */
-export const CANVAS_EXPAND_CEILING = 2 * CANVAS_ELEMENT_CAP;
+export function boundedK(wanted: number): number {
+  return Math.max(1, Math.min(Math.floor(wanted), MAX_K));
+}

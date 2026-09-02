@@ -30,11 +30,13 @@ import { GraphCanvas, type ElementRef } from "../canvas/GraphCanvas";
 import { StylePanel } from "../canvas/StylePanel";
 import { FindPanel } from "../canvas/FindPanel";
 import { ConnectPanel } from "../canvas/ConnectPanel";
+import { InteractPanel } from "../canvas/InteractPanel";
 import { buildLegend, knownPropertyKeys } from "../canvas/styleEngine";
 import { GRADIENT_HIGH, GRADIENT_LOW } from "../canvas/styling";
 import { getEdge, getGraph, getGraphElement, getStatus } from "../api/endpoints";
 import { CANVAS_ELEMENT_CAP } from "../lib/canvasCap";
-import { EXPAND_EDGE_CAP, fetchVertexNeighborhood } from "../lib/neighborhood";
+import { expandVertices } from "../lib/canvasInteract";
+import { CANVAS_TABS } from "../state/instanceStore";
 import { useNavigate } from "@tanstack/react-router";
 import { useStatus } from "../state/status";
 import { previewVector } from "../lib/embeddingProperties";
@@ -101,13 +103,14 @@ export function CanvasScreen() {
 
   const expand = useMutation({
     mutationFn: async (vertexId: number) => {
-      // Expand-on-demand (FR-18): hydrate the vertex's 1-hop neighborhood and merge -
-      // never a whole-graph reload. Endpoints already on the canvas are not re-fetched.
-      const { vertices, edges } = await fetchVertexNeighborhood(instance, vertexId, {
-        cap: EXPAND_EDGE_CAP,
-        skipNeighborIds: new Set(Object.keys(canvasNodes).map(Number)),
+      // Expand-on-demand (FR-18) through the shared sweep (feature canvas-interact), which is
+      // the ONE home for it: this is that sweep over a single id, so the focused-element gesture
+      // and the Interact tab's bulk expand cannot drift apart. Merge-only, never a whole-graph
+      // reload; endpoints already on the canvas are not re-fetched.
+      await expandVertices(instance, [vertexId], {
+        skipIds: () => new Set(Object.keys(store.getState().canvasNodes).map(Number)),
+        onMerge: mergeIntoCanvas,
       });
-      mergeIntoCanvas(vertices, edges);
     },
   });
 
@@ -241,11 +244,12 @@ export function CanvasScreen() {
 
       <aside className="w-80 shrink-0 space-y-3 overflow-auto">
         <div className="panel">
-          {/* Tool strip (feature canvas-find-connect): Style is the default; Find searches the
-              graph and Connect links canvas vertices via path search. The Detail panel below is
-              selection-driven and independent of the active tab. */}
+          {/* Tool strip (feature canvas-find-connect, extended by canvas-interact): Style is the
+              default; Find searches the graph, Connect links canvas vertices via path search, and
+              Interact filters the working set to expand or remove it in bulk. The Detail panel
+              below is selection-driven and independent of the active tab. */}
           <div className="border-line flex border-b" role="tablist">
-            {(["style", "find", "connect"] as const).map((t) => (
+            {CANVAS_TABS.map((t) => (
               <button
                 key={t}
                 type="button"
@@ -273,6 +277,9 @@ export function CanvasScreen() {
           )}
           {activeTab === "find" && <FindPanel onSelect={setSelected} onHover={setHovered} />}
           {activeTab === "connect" && <ConnectPanel />}
+          {activeTab === "interact" && (
+            <InteractPanel selected={selected} onSelect={setSelected} onHover={setHovered} />
+          )}
         </div>
         <div className="panel">
           <div className="panel-title">detail</div>

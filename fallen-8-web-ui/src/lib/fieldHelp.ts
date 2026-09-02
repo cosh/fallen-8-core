@@ -244,6 +244,22 @@ export const FIELD_HELP = {
   saveGameDeleteFiles:
     "Also delete the checkpoint's files on the server's disk, not just its registry entry. The data is then unrecoverable.",
 
+  // ---- canvas: interact tab (feature canvas-interact) ----
+  interactLabel:
+    "Match only vertices carrying exactly this label. A vertex the canvas holds only as an edge's endpoint has no label read yet, so it never matches a label filter.",
+  interactProperty:
+    "Match vertices carrying this property key; add a term to require the value to contain it (case-insensitive). This reads the canvas snapshot, which holds scalars only and caps strings at 200 characters, so a term that occurs only past that cap will not match. The Find tab is the server-side search.",
+  interactDegreeSource:
+    "Which edges the degree counts. 'the database' asks the server for the vertex's true degree, one small request per candidate, so it needs Preview. 'edges on canvas' counts only the edges currently loaded: instant, and the number you see, but a vertex you never expanded reads 0 there whatever the database knows.",
+  interactDegree:
+    "Keep vertices whose degree is strictly over (or under) this number, counted in the chosen direction. Leave the number empty to switch the filter off; 0 is a real bound, not 'off'.",
+  interactSemantic:
+    "Keep vertices whose stored embedding is closer (or farther) than a threshold from this text. The provider embeds the text once, then the bound vector index ranks your elements. The threshold is in the index metric's RAW units, exactly as the search reports them: with Cosine/DotProduct a higher score is closer, with L2 a lower one is.",
+  interactDegreeUnreadable:
+    "Vertices whose degree the server would not answer (deleted since they landed on the canvas, or an instance that stopped answering). They are left OUT of the match set rather than counted as 0, so 'under x' cannot sweep up a vertex nobody measured, and they are counted here so a shrunken match set is never mistaken for a measurement.",
+  interactSemanticUnscored:
+    "A canvas vertex the search returned no score for (no embedding stored, or outside the search window) matches NEITHER direction, and the preview counts it. Nothing measured it, so calling it 'far' would remove vertices on no evidence.",
+
   // ---- events panel (feature studio-event-feed) ----
   feedKinds:
     "Event kinds to show and count. Dimensions combine like the REST filter grammar: AND across dimensions, OR within one. Resync events are exempt and always shown, because they mean continuity was lost.",
