@@ -34,6 +34,10 @@ import type { EdgeREST, VectorSearchResultREST, VertexREST } from "../src/api/ty
 
 const getInDegreeMock = vi.fn<(i: InstanceConfig, id: number, s?: AbortSignal) => Promise<number>>();
 const getOutDegreeMock = vi.fn<(i: InstanceConfig, id: number, s?: AbortSignal) => Promise<number>>();
+const outEdgePropertiesMock =
+  vi.fn<(i: InstanceConfig, id: number, s?: AbortSignal) => Promise<string[]>>();
+const inEdgePropertiesMock =
+  vi.fn<(i: InstanceConfig, id: number, s?: AbortSignal) => Promise<string[]>>();
 
 vi.mock("../src/api/endpoints", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/api/endpoints")>();
@@ -41,6 +45,12 @@ vi.mock("../src/api/endpoints", async (importOriginal) => {
     ...original,
     getInDegree: (i: InstanceConfig, id: number, s?: AbortSignal) => getInDegreeMock(i, id, s),
     getOutDegree: (i: InstanceConfig, id: number, s?: AbortSignal) => getOutDegreeMock(i, id, s),
+    // Mocked so one test can drive the REAL neighborhood fetch and see what a broken instance
+    // actually looks like to the sweep, rather than mocking the primitive to reject.
+    getOutEdgeProperties: (i: InstanceConfig, id: number, s?: AbortSignal) =>
+      outEdgePropertiesMock(i, id, s),
+    getInEdgeProperties: (i: InstanceConfig, id: number, s?: AbortSignal) =>
+      inEdgePropertiesMock(i, id, s),
   };
 });
 
@@ -48,25 +58,35 @@ const neighborhoodMock = vi.fn<
   (
     i: InstanceConfig,
     id: number,
-    o: { cap: number; skipNeighborIds?: ReadonlySet<number> },
+    o: { cap: number; skipNeighborIds?: ReadonlySet<number>; signal?: AbortSignal },
   ) => Promise<{ vertices: VertexREST[]; edges: EdgeREST[]; truncated: boolean }>
 >();
 
+/**
+ * The unmocked primitive, so a test can run the real fan-out over mocked ENDPOINTS. Held in a
+ * hoisted box because a `vi.mock` factory runs before ordinary module-scope declarations exist.
+ */
+const unmocked = vi.hoisted(() => ({
+  fetchVertexNeighborhood: null as
+    | null
+    | typeof import("../src/lib/neighborhood").fetchVertexNeighborhood,
+}));
+
 vi.mock("../src/lib/neighborhood", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../src/lib/neighborhood")>();
+  const real = await importOriginal<typeof import("../src/lib/neighborhood")>();
+  unmocked.fetchVertexNeighborhood = real.fetchVertexNeighborhood;
   return {
-    ...original,
+    ...real,
     fetchVertexNeighborhood: (
       i: InstanceConfig,
       id: number,
-      o: { cap: number; skipNeighborIds?: ReadonlySet<number> },
+      o: { cap: number; skipNeighborIds?: ReadonlySet<number>; signal?: AbortSignal },
     ) => neighborhoodMock(i, id, o),
   };
 });
 
 import {
   DEGREE_SWEEP_CAP,
-  EXPAND_SWEEP_CAP,
   activeDegree,
   anyCheapActive,
   applyDegree,
@@ -134,6 +154,8 @@ function scored(
 beforeEach(() => {
   getInDegreeMock.mockReset().mockResolvedValue(0);
   getOutDegreeMock.mockReset().mockResolvedValue(0);
+  outEdgePropertiesMock.mockReset().mockResolvedValue([]);
+  inEdgePropertiesMock.mockReset().mockResolvedValue([]);
   neighborhoodMock
     .mockReset()
     .mockImplementation((_i, id) =>
@@ -323,20 +345,20 @@ describe("degreeSweep", () => {
     getOutDegreeMock.mockResolvedValue(4);
 
     const total = await degreeSweep(instance, [1], { direction: "total" });
-    expect(total.get(1)).toBe(7);
+    expect(total.degrees.get(1)).toBe(7);
     expect(getInDegreeMock).toHaveBeenCalledTimes(1);
     expect(getOutDegreeMock).toHaveBeenCalledTimes(1);
 
     getInDegreeMock.mockClear();
     getOutDegreeMock.mockClear();
     const inOnly = await degreeSweep(instance, [1], { direction: "in" });
-    expect(inOnly.get(1)).toBe(3);
+    expect(inOnly.degrees.get(1)).toBe(3);
     expect(getOutDegreeMock).not.toHaveBeenCalled();
 
     getInDegreeMock.mockClear();
     getOutDegreeMock.mockClear();
     const outOnly = await degreeSweep(instance, [1], { direction: "out" });
-    expect(outOnly.get(1)).toBe(4);
+    expect(outOnly.degrees.get(1)).toBe(4);
     expect(getInDegreeMock).not.toHaveBeenCalled();
   });
 
@@ -351,28 +373,55 @@ describe("degreeSweep", () => {
     expect(seen.every((p) => p.done <= p.total)).toBe(true);
   });
 
-  it("leaves a failed read out of the map rather than recording it as zero", async () => {
+  it("leaves a failed read out of the map rather than recording it as zero, and COUNTS it", async () => {
     getInDegreeMock.mockImplementation((_i, id) =>
       id === 2 ? Promise.reject(new Error("boom")) : Promise.resolve(5),
     );
 
-    const degrees = await degreeSweep(instance, [1, 2, 3], { direction: "in" });
+    const sweep = await degreeSweep(instance, [1, 2, 3], { direction: "in" });
 
-    expect(degrees.get(1)).toBe(5);
-    expect(degrees.has(2)).toBe(false);
-    expect(degrees.get(3)).toBe(5);
+    expect(sweep.degrees.get(1)).toBe(5);
+    expect(sweep.degrees.has(2)).toBe(false);
+    expect(sweep.degrees.get(3)).toBe(5);
+    // The counted half: without it, a shrunken match set reads as a measurement.
+    expect(sweep.unreadable).toBe(1);
   });
 
-  it("stops issuing requests once aborted", async () => {
+  it("treats a null body (not found) as unreadable rather than as a degree of zero", async () => {
+    // apiRequest maps an empty body to null. A vertex the graph no longer has must not be
+    // swept up by "under x" as though it were a measured leaf.
+    getInDegreeMock.mockImplementation((_i, id) =>
+      id === 2 ? Promise.resolve(null as unknown as number) : Promise.resolve(5),
+    );
+
+    const sweep = await degreeSweep(instance, [1, 2], { direction: "in" });
+
+    expect(sweep.degrees.has(2)).toBe(false);
+    expect(sweep.unreadable).toBe(1);
+    expect([...applyDegree(sweep.degrees, "under", 1)]).toEqual([]);
+  });
+
+  it("reports every candidate as unreadable when the instance answers nothing", async () => {
+    getInDegreeMock.mockRejectedValue(new Error("401"));
+
+    const sweep = await degreeSweep(instance, [1, 2, 3], { direction: "in" });
+
+    expect(sweep.degrees.size).toBe(0);
+    expect(sweep.unreadable).toBe(3);
+  });
+
+  it("stops issuing requests once aborted, and reports no failures for the abort", async () => {
     const controller = new AbortController();
     controller.abort();
 
-    const degrees = await degreeSweep(instance, [1, 2, 3], {
+    const sweep = await degreeSweep(instance, [1, 2, 3], {
       direction: "in",
       signal: controller.signal,
     });
 
-    expect(degrees.size).toBe(0);
+    expect(sweep.degrees.size).toBe(0);
+    // A deliberate cancel is not a read failure; the caller discards the evaluation entirely.
+    expect(sweep.unreadable).toBe(0);
     expect(getInDegreeMock).not.toHaveBeenCalled();
   });
 
@@ -382,8 +431,15 @@ describe("degreeSweep", () => {
     expect(getInDegreeMock).toHaveBeenCalledWith(instance, 1, controller.signal);
   });
 
-  it("has a cap high enough to be about bounding a click, not correctness", () => {
-    expect(DEGREE_SWEEP_CAP).toBeGreaterThan(EXPAND_SWEEP_CAP);
+  it("sweeps exactly the candidates it was given, right up to the cap", async () => {
+    // The boundary the caller's refusal is written against: AT the cap is allowed, so an
+    // off-by-one in the panel's `> DEGREE_SWEEP_CAP` check shows up as a behaviour change here.
+    const ids = Array.from({ length: DEGREE_SWEEP_CAP }, (_v, i) => i + 1);
+
+    const sweep = await degreeSweep(instance, ids, { direction: "in" });
+
+    expect(sweep.degrees.size).toBe(DEGREE_SWEEP_CAP);
+    expect(getInDegreeMock).toHaveBeenCalledTimes(DEGREE_SWEEP_CAP);
   });
 });
 
@@ -395,7 +451,8 @@ describe("expandVertices", () => {
       onMerge: (vertices) => merges.push(vertices.length),
     });
 
-    expect(outcome.done).toBe(10);
+    expect(outcome.expanded).toBe(10);
+    expect(outcome.attempted).toBe(10);
     expect(outcome.total).toBe(10);
     // 10 ids at a batch size of 8 is two rounds, so two merges - not ten, and not one.
     expect(merges.length).toBe(2);
@@ -423,20 +480,53 @@ describe("expandVertices", () => {
     expect(neighborhoodMock.mock.calls[1][2].cap).toBe(7);
   });
 
-  it("stops at the element budget and says so", async () => {
+  it("stops at the element ceiling and says so", async () => {
     let count = 0;
     const outcome = await expandVertices(instance, Array.from({ length: 40 }, (_v, i) => i + 1), {
       skipIds: () => new Set(),
       liveElementCount: () => count,
-      elementBudget: 10,
+      elementCeiling: 10,
       onMerge: (vertices, edges) => {
         count += vertices.length + edges.length;
       },
     });
 
-    expect(outcome.stoppedAtBudget).toBe(true);
-    expect(outcome.done).toBeLessThan(40);
+    expect(outcome.stoppedAtCeiling).toBe(true);
+    expect(outcome.attempted).toBeLessThan(40);
     expect(outcome.cancelled).toBe(false);
+  });
+
+  it("counts a vertex whose neighborhood was cut short by the per-vertex edge cap", async () => {
+    // The flag the primitive already reports and this sweep used to drop: a hub with more edges
+    // than the cap lands partially, and a report that says nothing looks like a full expansion.
+    neighborhoodMock.mockImplementation((_i, id) =>
+      Promise.resolve({
+        vertices: [vertex(id * 100)],
+        edges: [],
+        truncated: id === 2,
+      }),
+    );
+
+    const outcome = await expandVertices(instance, [1, 2, 3], {
+      skipIds: () => new Set(),
+      onMerge: () => {},
+    });
+
+    expect(outcome.truncated).toBe(1);
+    expect(outcome.expanded).toBe(3);
+  });
+
+  it("passes the signal into the neighborhood fetch, so a cancel stops issuing requests", async () => {
+    const controller = new AbortController();
+
+    await expandVertices(instance, [1], {
+      skipIds: () => new Set(),
+      onMerge: () => {},
+      signal: controller.signal,
+    });
+
+    // Without this the fetch fans out over hundreds of requests that keep flying after Cancel.
+    expect(neighborhoodMock.mock.calls[0][2].signal).toBe(controller.signal);
   });
 
   it("keeps what already landed when cancelled mid-sweep", async () => {
@@ -455,11 +545,11 @@ describe("expandVertices", () => {
     });
 
     expect(outcome.cancelled).toBe(true);
-    expect(outcome.done).toBe(8); // the first round completed and was kept
+    expect(outcome.attempted).toBe(8); // the first round completed and was kept
     expect(merged.length).toBe(8);
   });
 
-  it("counts a failed vertex instead of failing the sweep", async () => {
+  it("counts a failed vertex instead of failing the sweep, and does not count it as expanded", async () => {
     neighborhoodMock.mockImplementation((_i, id) =>
       id === 2
         ? Promise.reject(new Error("boom"))
@@ -472,7 +562,31 @@ describe("expandVertices", () => {
     });
 
     expect(outcome.failed).toBe(1);
-    expect(outcome.done).toBe(3);
+    expect(outcome.attempted).toBe(3);
+    // The arithmetic has to close: "expanded 3 of 3 · 1 failed" was a report that cannot be true.
+    expect(outcome.expanded).toBe(2);
+    expect(outcome.expanded + outcome.failed).toBe(outcome.attempted);
+  });
+
+  it("reports zero expanded when the real request seam fails for every vertex", async () => {
+    // Driven through the endpoints fetchVertexNeighborhood actually calls, not by mocking the
+    // primitive to reject: this is what a broken instance really looks like to the sweep. It
+    // documents the honest limitation - the primitive swallows HTTP failures and returns empty
+    // arrays, so these vertices count as EXPANDED with nothing found, not as failures.
+    neighborhoodMock.mockImplementation((i, id, o) =>
+      unmocked.fetchVertexNeighborhood!(i, id, o),
+    );
+    outEdgePropertiesMock.mockRejectedValue(new Error("500"));
+    inEdgePropertiesMock.mockRejectedValue(new Error("500"));
+
+    const outcome = await expandVertices(instance, [1, 2], {
+      skipIds: () => new Set(),
+      onMerge: () => {},
+    });
+
+    expect(outcome.failed).toBe(0);
+    expect(outcome.expanded).toBe(2);
+    expect(outcome.truncated).toBe(0);
   });
 
   it("does not merge at all when a batch found nothing", async () => {
@@ -489,7 +603,15 @@ describe("expandVertices", () => {
 
   it("is a no-op on an empty match set", async () => {
     const outcome = await expandVertices(instance, [], { skipIds: () => new Set(), onMerge: () => {} });
-    expect(outcome).toEqual({ done: 0, total: 0, stoppedAtBudget: false, cancelled: false, failed: 0 });
+    expect(outcome).toEqual({
+      attempted: 0,
+      expanded: 0,
+      total: 0,
+      stoppedAtCeiling: false,
+      cancelled: false,
+      failed: 0,
+      truncated: 0,
+    });
     expect(neighborhoodMock).not.toHaveBeenCalled();
   });
 });

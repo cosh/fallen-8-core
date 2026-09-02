@@ -255,6 +255,8 @@ export const FIELD_HELP = {
     "Keep vertices whose degree is strictly over (or under) this number, counted in the chosen direction. Leave the number empty to switch the filter off; 0 is a real bound, not 'off'.",
   interactSemantic:
     "Keep vertices whose stored embedding is closer (or farther) than a threshold from this text. The provider embeds the text once, then the bound vector index ranks your elements. The threshold is in the index metric's RAW units, exactly as the search reports them: with Cosine/DotProduct a higher score is closer, with L2 a lower one is.",
+  interactDegreeUnreadable:
+    "Vertices whose degree the server would not answer (deleted since they landed on the canvas, or an instance that stopped answering). They are left OUT of the match set rather than counted as 0, so 'under x' cannot sweep up a vertex nobody measured, and they are counted here so a shrunken match set is never mistaken for a measurement.",
   interactSemanticUnscored:
     "A canvas vertex the search returned no score for (no embedding stored, or outside the search window) matches NEITHER direction, and the preview counts it. Nothing measured it, so calling it 'far' would remove vertices on no evidence.",
 

@@ -62,6 +62,7 @@ import {
   vectorIndexPluginOptions,
 } from "../lib/vectorIndexCreate";
 import { hydrateElements, isEdge, type HydrationProgress } from "../lib/hydrate";
+import { MAX_K } from "../lib/vectorSearch";
 import { TypedLiteralEditor } from "../components/TypedLiteralEditor";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
@@ -89,13 +90,11 @@ const MODE_LABELS: Record<QueryMode, string> = {
 
 const VECTOR_KINDS = ["any", "vertex", "edge"] as const;
 
-/**
- * The engine's own ceiling on k. Module scope because the shared parameter fields, the readiness
- * check and the find-similar over-fetch all have to agree on it: the over-fetch has to respect
- * it or a find-similar search at the advertised maximum answers 400 instead of dropping one hit,
- * which is the same clamp the MCP bridge applies to that trick.
- */
-const MAX_K = 1024;
+// The engine's ceiling on k lives in lib/vectorSearch.ts: the shared parameter fields, the
+// readiness check and the find-similar over-fetch all have to agree on it (the over-fetch has to
+// respect it, or a find-similar search at the advertised maximum answers 400 instead of dropping
+// one hit, which is the same clamp the MCP bridge applies to that trick) - and so does every
+// OTHER screen that searches a vector index.
 
 const OPERATORS = Object.keys(BINARY_OPERATORS) as BinaryOperatorName[];
 

@@ -61,18 +61,19 @@ async function directedEdgeIds(
   instance: InstanceConfig,
   vertexId: number,
   direction: "out" | "in",
+  signal?: AbortSignal,
 ): Promise<Map<number, string>> {
   const properties =
     (direction === "out"
-      ? await getOutEdgeProperties(instance, vertexId).catch(() => [])
-      : await getInEdgeProperties(instance, vertexId).catch(() => [])) ?? [];
+      ? await getOutEdgeProperties(instance, vertexId, signal).catch(() => [])
+      : await getInEdgeProperties(instance, vertexId, signal).catch(() => [])) ?? [];
   const perProperty = await Promise.all(
     properties.map(async (property) => ({
       property,
       ids:
         (direction === "out"
-          ? await getOutEdges(instance, vertexId, property).catch(() => [])
-          : await getInEdges(instance, vertexId, property).catch(() => [])) ?? [],
+          ? await getOutEdges(instance, vertexId, property, signal).catch(() => [])
+          : await getInEdges(instance, vertexId, property, signal).catch(() => [])) ?? [],
     })),
   );
   const byId = new Map<number, string>();
@@ -88,11 +89,12 @@ async function hydrateEdges(
   instance: InstanceConfig,
   ids: number[],
   propertyById: Map<number, string>,
+  signal?: AbortSignal,
 ): Promise<EdgeREST[]> {
   // The Edge DTO carries its type (edgePropertyId) since feature edge-type-vs-label; the
   // adjacency-map attribution built by directedEdgeIds stays as the fallback for servers
   // predating the field.
-  return (await Promise.all(ids.map((id) => getEdge(instance, id).catch(() => null))))
+  return (await Promise.all(ids.map((id) => getEdge(instance, id, signal).catch(() => null))))
     .filter((e): e is EdgeREST => e !== null)
     .map((e) => ({ ...e, edgePropertyId: e.edgePropertyId ?? propertyById.get(e.id) ?? null }));
 }
@@ -104,17 +106,18 @@ async function hydrateEdges(
 export async function fetchVertexNeighborhood(
   instance: InstanceConfig,
   vertexId: number,
-  options: { cap: number; skipNeighborIds?: ReadonlySet<number> },
+  options: { cap: number; skipNeighborIds?: ReadonlySet<number>; signal?: AbortSignal },
 ): Promise<Neighborhood> {
   const skip = options.skipNeighborIds ?? new Set<number>();
+  const signal = options.signal;
   const [outIds, inIds] = await Promise.all([
-    directedEdgeIds(instance, vertexId, "out"),
-    directedEdgeIds(instance, vertexId, "in"),
+    directedEdgeIds(instance, vertexId, "out", signal),
+    directedEdgeIds(instance, vertexId, "in", signal),
   ]);
   const propertyById = new Map([...outIds, ...[...inIds].filter(([id]) => !outIds.has(id))]);
 
   const edgeIds = [...propertyById.keys()];
-  const edges = await hydrateEdges(instance, edgeIds.slice(0, options.cap), propertyById);
+  const edges = await hydrateEdges(instance, edgeIds.slice(0, options.cap), propertyById, signal);
 
   const neighborIds = new Set<number>();
   for (const edge of edges) {
@@ -126,7 +129,7 @@ export async function fetchVertexNeighborhood(
     await Promise.all(
       wanted
         .slice(0, options.cap)
-        .map((id) => getGraphElement(instance, id).catch(() => null)),
+        .map((id) => getGraphElement(instance, id, signal).catch(() => null)),
     )
   ).filter((v): v is VertexREST => v !== null);
 

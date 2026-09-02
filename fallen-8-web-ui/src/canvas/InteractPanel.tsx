@@ -40,9 +40,12 @@ import {
   expandVertices,
   matchCheap,
   type CheapFilters,
+  type ExpandOutcome,
   type SweepProgress,
 } from "../lib/canvasInteract";
-import { CANVAS_ELEMENT_CAP } from "../lib/canvasCap";
+import { CANVAS_EXPAND_CEILING } from "../lib/canvasCap";
+import { EXPAND_EDGE_CAP } from "../lib/neighborhood";
+import { MAX_K } from "../lib/vectorSearch";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 import { DISPLAY_CAP } from "../lib/truncate";
 import type { ElementRef } from "./GraphCanvas";
@@ -55,17 +58,14 @@ import { ErrorBox } from "../components/ErrorBox";
 /** What a Preview evaluated: the ids that survived every filter, and what could not be judged. */
 interface Evaluated {
   ids: number[];
+  /** Candidates the semantic search returned no score for; they matched nothing. */
   unscored: number;
+  /** Candidates whose degree the server would not answer; they matched nothing. */
+  unreadable: number;
 }
 
 /** What the last expand sweep did, kept so the panel can report it after the run. */
-interface ExpandReport {
-  done: number;
-  total: number;
-  stoppedAtBudget: boolean;
-  cancelled: boolean;
-  failed: number;
-}
+type ExpandReport = ExpandOutcome;
 
 /**
  * Canvas "Interact" tab (feature canvas-interact): filters build a MATCH SET over the canvas
@@ -95,7 +95,7 @@ export function InteractPanel({
   const canvasNodes = store((s) => s.canvasNodes);
   const canvasEdges = store((s) => s.canvasEdges);
   const mergeIntoCanvas = store((s) => s.mergeIntoCanvas);
-  const removeFromCanvas = store((s) => s.removeFromCanvas);
+  const removeManyFromCanvas = store((s) => s.removeManyFromCanvas);
 
   const status = useStatus(instance).data;
   const suggestions = shapeSuggestions(useGraphShape(instance).data);
@@ -104,7 +104,16 @@ export function InteractPanel({
   const [progress, setProgress] = useState<SweepProgress | null>(null);
   const [expandReport, setExpandReport] = useState<ExpandReport | null>(null);
   const [overCap, setOverCap] = useState<string | null>(null);
-  const controllerRef = useRef<AbortController | null>(null);
+  /**
+   * The two runs get SEPARATE controllers, which is load-bearing rather than tidy: an
+   * invalidation aborts an in-flight Preview (it measured a canvas that has since changed), but an
+   * expand sweep merges into the canvas on every batch and so invalidates continuously. One shared
+   * controller made the sweep abort itself after its first batch and report the rest as skipped.
+   */
+  const previewControllerRef = useRef<AbortController | null>(null);
+  const expandControllerRef = useRef<AbortController | null>(null);
+  /** Set while a cancel is deliberate, so the abort is not reported as a failure. */
+  const cancelledRef = useRef(false);
 
   const filters: CheapFilters = useMemo(
     () => ({
@@ -148,26 +157,58 @@ export function InteractPanel({
   );
   const providerOn = status?.embedding?.enabled === true;
   const semanticAvailable = providerOn && boundIndices.length > 0;
-  const semanticIndexId = draft.interactSemanticIndexId || boundIndices[0]?.indexId || "";
+  // Normalized against the LIVE bound set, not trusted: a persisted id naming an index that has
+  // since been dropped or renamed would send every Preview to a 404 with no control to fix it,
+  // because the picker only appears when there is a choice to make.
+  const semanticIndexId =
+    boundIndices.find((index) => index.indexId === draft.interactSemanticIndexId)?.indexId ??
+    boundIndices[0]?.indexId ??
+    "";
+  const semanticIndex = boundIndices.find((index) => index.indexId === semanticIndexId);
 
   const semanticThreshold = draft.interactSemanticThreshold.trim();
-  const semanticActive =
-    semanticAvailable &&
-    draft.interactSemanticText.trim() !== "" &&
-    semanticThreshold !== "" &&
-    Number.isFinite(Number(semanticThreshold));
+  const semanticTextTyped = draft.interactSemanticText.trim() !== "";
+  const semanticThresholdTyped = semanticThreshold !== "" && Number.isFinite(Number(semanticThreshold));
+  const semanticActive = semanticAvailable && semanticTextTyped && semanticThresholdTyped;
   const databaseDegreeActive =
     draft.interactDegreeSource === "database" && activeDegree(filters) !== null;
   const costly = databaseDegreeActive || semanticActive;
+
+  /**
+   * A filter row the user has begun filling in but which cannot yet be applied: a property term
+   * with no key, or a semantic half-pair. Load-bearing rather than cosmetic - without it, typing
+   * "turbine vibration" and no threshold reads "no filter" and arms `Remove from view` over the
+   * WHOLE canvas, and so does the keystroke where a degree box is mid-edit ("1e", or cleared to
+   * retype), because a type=number input reports those as empty. So an incomplete filter disables
+   * the verbs instead of silently widening them to everything.
+   */
+  const incomplete: string | null = (() => {
+    if (draft.interactPropTerm.trim() !== "" && draft.interactPropKey.trim() === "") {
+      return "The property term needs a key to look in.";
+    }
+    if (semanticAvailable && semanticTextTyped && !semanticThresholdTyped) {
+      return "The semantic filter needs a threshold as well as a text.";
+    }
+    if (semanticAvailable && !semanticTextTyped && semanticThresholdTyped) {
+      return "The semantic filter needs a text as well as a threshold.";
+    }
+    return null;
+  })();
 
   // Any filter edit or canvas change RETIRES an evaluated match set: acting on one taken against
   // a canvas that has since changed is the bug this lifecycle exists to prevent. The canvas deps
   // are the store objects themselves, which zustand replaces on every merge and removal, so a
   // swap of one vertex for another invalidates as surely as a change in count would.
   //
+  // Clearing state is only HALF of it: a Preview already in flight would otherwise resolve after
+  // this and write its now-stale answer back, re-arming the verbs against filters the user has
+  // since changed. Aborting it is what prevents that, since every phase returns without writing
+  // once its signal is aborted.
+  //
   // Deliberately NOT clearing the expand report: it describes a run that really happened, and the
   // merge that run performed is itself one of the canvas changes landing here.
   useEffect(() => {
+    previewControllerRef.current?.abort();
     setEvaluated(null);
     setOverCap(null);
   }, [
@@ -180,18 +221,29 @@ export function InteractPanel({
     draft.interactSemanticThreshold,
   ]);
 
-  // Clear a lingering spotlight when this tab unmounts, like the Find tab.
-  useEffect(() => () => onHover?.(null), [onHover]);
+  // Clear a lingering spotlight when this tab unmounts, like the Find tab, and STOP whatever is
+  // running: switching tabs unmounts this panel, and a sweep left running would keep issuing
+  // requests with its Cancel button gone, while the button on remount invites a second one over
+  // the same ids.
+  useEffect(
+    () => () => {
+      onHover?.(null);
+      previewControllerRef.current?.abort();
+      expandControllerRef.current?.abort();
+    },
+    [onHover],
+  );
 
   /** The ids the verbs will act on: the evaluated set when costly filters are on, else the live one. */
-  const matchIds = costly ? (evaluated?.ids ?? null) : cheapMatches.map((n) => n.id);
+  const matchIds = incomplete !== null ? null : costly ? (evaluated?.ids ?? null) : cheapMatches.map((n) => n.id);
   const matchCount = matchIds?.length ?? 0;
-  const filtersActive = anyCheapActive(filters) || costly;
+  const filtersActive = anyCheapActive(filters) || costly || incomplete !== null;
 
   const preview = useMutation({
     mutationFn: async () => {
       const controller = new AbortController();
-      controllerRef.current = controller;
+      previewControllerRef.current = controller;
+      cancelledRef.current = false;
       setEvaluated(null);
       setOverCap(null);
 
@@ -199,6 +251,7 @@ export function InteractPanel({
       // makes a big canvas evaluable at all.
       let ids = cheapMatches.map((n) => n.id);
       let unscored = 0;
+      let unreadable = 0;
 
       if (databaseDegreeActive) {
         if (ids.length > DEGREE_SWEEP_CAP) {
@@ -209,23 +262,29 @@ export function InteractPanel({
         }
         const degree = activeDegree(filters)!;
         setProgress({ done: 0, total: ids.length });
-        const degrees = await degreeSweep(instance, ids, {
+        const sweep = await degreeSweep(instance, ids, {
           direction: degree.direction,
           signal: controller.signal,
           onProgress: setProgress,
         });
         if (controller.signal.aborted) return;
-        const matched = applyDegree(degrees, degree.op, degree.value);
+        const matched = applyDegree(sweep.degrees, degree.op, degree.value);
         ids = ids.filter((id) => matched.has(id));
+        unreadable = sweep.unreadable;
       }
 
       if (semanticActive) {
+        // MAX_K, not "as many as the canvas could hold": the engine refuses k over 1024 outright
+        // (and only after the provider has embedded the text), so a k taken from any other
+        // quantity does not degrade, it 400s. The window this leaves is a real limitation and is
+        // reported below rather than hidden - a canvas vertex outside the index's global top-k
+        // comes back unscored, and an unscored vertex matches neither direction.
         const result = await embeddingSearch(
           instance,
           {
             indexId: semanticIndexId,
             text: draft.interactSemanticText,
-            k: CANVAS_ELEMENT_CAP,
+            k: MAX_K,
             kind: "vertex",
           },
           controller.signal,
@@ -241,27 +300,37 @@ export function InteractPanel({
         unscored = verdict.unscored;
       }
 
-      setEvaluated({ ids, unscored });
+      setEvaluated({ ids, unscored, unreadable });
     },
     onSettled: () => {
       setProgress(null);
-      controllerRef.current = null;
+      previewControllerRef.current = null;
     },
   });
 
   const remove = () => {
     if (!matchIds || matchIds.length === 0) return;
-    for (const id of matchIds) removeFromCanvas("node", id);
+    const dropped = new Set(matchIds);
+    // ONE store write for the whole set: a per-vertex loop rebuilds the edge map and re-persists
+    // the workspace once per vertex, which froze the tab on a large match set.
+    removeManyFromCanvas(matchIds);
     // The selection is content too (the single-remove precedent): if the Detail panel was showing
-    // one of these vertices, it returns to its empty hint rather than describing what just left.
-    if (selected?.kind === "node" && matchIds.includes(selected.id)) onSelect(null);
+    // one of these vertices - or an edge that leaves with it - it returns to its empty hint rather
+    // than describing something no longer on the canvas.
+    if (selected?.kind === "node" && dropped.has(selected.id)) {
+      onSelect(null);
+    } else if (selected?.kind === "edge") {
+      const edge = canvasEdges[selected.id];
+      if (edge && (dropped.has(edge.source) || dropped.has(edge.target))) onSelect(null);
+    }
   };
 
   const expand = useMutation({
     mutationFn: async () => {
-      if (!matchIds) return;
+      if (!matchIds || matchCount > EXPAND_SWEEP_CAP) return;
       const controller = new AbortController();
-      controllerRef.current = controller;
+      expandControllerRef.current = controller;
+      cancelledRef.current = false;
       setExpandReport(null);
       setProgress({ done: 0, total: matchIds.length });
 
@@ -271,7 +340,7 @@ export function InteractPanel({
           const state = store.getState();
           return Object.keys(state.canvasNodes).length + Object.keys(state.canvasEdges).length;
         },
-        elementBudget: CANVAS_ELEMENT_CAP,
+        elementCeiling: CANVAS_EXPAND_CEILING,
         onMerge: mergeIntoCanvas,
         onProgress: setProgress,
         signal: controller.signal,
@@ -280,12 +349,16 @@ export function InteractPanel({
     },
     onSettled: () => {
       setProgress(null);
-      controllerRef.current = null;
+      expandControllerRef.current = null;
     },
   });
 
   const expandOverCap = matchCount > EXPAND_SWEEP_CAP;
   const busy = preview.isPending || expand.isPending;
+  // react-query does not treat an aborted MUTATION as a cancellation, so without this the person
+  // who pressed Cancel gets a red error box for doing exactly what the button offered (the
+  // Integrations screen's send-cancel is the precedent).
+  const failed = (preview.isError || expand.isError) && !cancelledRef.current;
   const { shown, total } = capList(evaluated?.ids ?? []);
   const labelOptions = [
     ...new Set([
@@ -438,20 +511,30 @@ export function InteractPanel({
                 placeholder="raw score"
               />
             </div>
-            {boundIndices.length > 1 && (
-              <select
-                data-testid="interact-semantic-index"
-                className="input"
-                value={semanticIndexId}
-                onChange={(e) => setDraft({ interactSemanticIndexId: e.target.value })}
-              >
-                {boundIndices.map((index) => (
-                  <option key={index.indexId} value={index.indexId}>
-                    {index.indexId} ({index.embeddingName})
-                  </option>
-                ))}
-              </select>
-            )}
+            {/* Always rendered, even for a single bound index: it is the only place that says
+                WHICH index produced a match set, and which metric decides what "closer" means. */}
+            <select
+              data-testid="interact-semantic-index"
+              className="input"
+              value={semanticIndexId}
+              onChange={(e) => setDraft({ interactSemanticIndexId: e.target.value })}
+            >
+              {boundIndices.map((index) => (
+                <option key={index.indexId} value={index.indexId}>
+                  {index.indexId} ({index.embeddingName})
+                </option>
+              ))}
+            </select>
+            <p className="text-fg-faint text-[10px]" data-testid="interact-semantic-window">
+              {semanticIndex?.model ? `${semanticIndex.model}. ` : ""}
+              {status?.embedding?.intendedMetric
+                ? `Metric ${status.embedding.intendedMetric}: ${
+                    status.embedding.intendedMetric === "L2" ? "lower" : "higher"
+                  } is closer. `
+                : ""}
+              Ranks the index's nearest {MAX_K.toLocaleString()}, so a canvas vertex outside that
+              window has no score and matches neither direction.
+            </p>
           </div>
         </Field>
       ) : (
@@ -464,7 +547,11 @@ export function InteractPanel({
 
       <div className="text-fg-dim" data-testid="interact-count">
         {filtersActive ? "filtered" : "no filter"} ·{" "}
-        {costly && !evaluated ? (
+        {incomplete !== null ? (
+          <span className="text-warn" data-testid="interact-incomplete">
+            {incomplete}
+          </span>
+        ) : costly && !evaluated ? (
           <span className="text-warn">evaluate to match</span>
         ) : (
           <>
@@ -479,6 +566,16 @@ export function InteractPanel({
           >
             {" "}
             · {evaluated.unscored} had no score
+          </span>
+        )}
+        {evaluated && evaluated.unreadable > 0 && (
+          <span
+            className="text-warn"
+            data-testid="interact-unreadable"
+            title={help("interactDegreeUnreadable")}
+          >
+            {" "}
+            · {evaluated.unreadable} degree{evaluated.unreadable === 1 ? "" : "s"} unreadable
           </span>
         )}
       </div>
@@ -499,7 +596,11 @@ export function InteractPanel({
               type="button"
               className="btn"
               data-testid="interact-cancel"
-              onClick={() => controllerRef.current?.abort()}
+              onClick={() => {
+                cancelledRef.current = true;
+                previewControllerRef.current?.abort();
+                expandControllerRef.current?.abort();
+              }}
             >
               Cancel
             </button>
@@ -517,8 +618,7 @@ export function InteractPanel({
           {overCap}
         </div>
       )}
-      {preview.isError && <ErrorBox error={preview.error} />}
-      {expand.isError && <ErrorBox error={expand.error} />}
+      {failed && <ErrorBox error={preview.error ?? expand.error} />}
 
       {evaluated && evaluated.ids.length > 0 && (
         <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
@@ -586,13 +686,21 @@ export function InteractPanel({
 
       {expandReport && (
         <div className="text-fg-dim" data-testid="interact-expand-report">
-          expanded {expandReport.done} of {expandReport.total} vertices
+          {/* `expanded`, not `attempted`: a failure is not an expansion, so the two numbers cannot
+              be allowed to sum past the total the way "3 of 3 · 1 failed" did. */}
+          expanded {expandReport.expanded} of {expandReport.total} vertices
           {expandReport.failed > 0 && ` · ${expandReport.failed} failed`}
           {expandReport.cancelled && " · cancelled"}
-          {expandReport.stoppedAtBudget && (
+          {expandReport.truncated > 0 && (
             <span className="text-warn">
               {" "}
-              · stopped at the {CANVAS_ELEMENT_CAP.toLocaleString()}-element canvas cap
+              · {expandReport.truncated} had more than {EXPAND_EDGE_CAP} edges and were cut short
+            </span>
+          )}
+          {expandReport.stoppedAtCeiling && (
+            <span className="text-warn">
+              {" "}
+              · stopped at the {CANVAS_EXPAND_CEILING.toLocaleString()}-element canvas ceiling
             </span>
           )}
         </div>

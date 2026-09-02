@@ -230,12 +230,24 @@ export interface SweepProgress {
   total: number;
 }
 
+/** A degree sweep's answer: what it read, and what it could NOT read. */
+export interface DegreeSweepResult {
+  degrees: Map<number, number>;
+  /**
+   * Candidates whose degree the server would not answer. They are absent from `degrees`, so they
+   * match nothing - and the caller must SAY so, because "0 of 500 match" is otherwise
+   * indistinguishable from "500 vertices measured and none qualified".
+   */
+  unreadable: number;
+}
+
 /**
  * Every candidate's DATABASE degree in one direction, batched and abortable.
  *
  * `total` costs both requests per vertex; a direction costs one. A vertex whose degree cannot be
  * read is left OUT of the map rather than recorded as 0, so it fails the comparison instead of
- * being swept up by "under x" - the same rule the semantic filter applies to an unscored vertex.
+ * being swept up by "under x" by a bulk remove - and it is COUNTED, which is the half that makes
+ * the rule honest rather than merely safe (the semantic filter's unscored count is the precedent).
  */
 export async function degreeSweep(
   instance: InstanceConfig,
@@ -245,9 +257,10 @@ export async function degreeSweep(
     signal?: AbortSignal;
     onProgress?: (progress: SweepProgress) => void;
   },
-): Promise<Map<number, number>> {
+): Promise<DegreeSweepResult> {
   const degrees = new Map<number, number>();
   const { direction, signal } = options;
+  let unreadable = 0;
 
   for (let i = 0; i < ids.length; i += INTERACT_BATCH_SIZE) {
     if (signal?.aborted) break;
@@ -259,31 +272,50 @@ export async function degreeSweep(
             direction === "out" ? 0 : getInDegree(instance, id, signal),
             direction === "in" ? 0 : getOutDegree(instance, id, signal),
           ]);
-          return { id, degree: (inDegree ?? 0) + (outDegree ?? 0) };
+          // A null body is how apiRequest reports "not found", so it is NOT a degree of 0: a
+          // vertex the graph no longer has must not be counted as a measured leaf.
+          if (inDegree === null || outDegree === null) return null;
+          return { id, degree: inDegree + outDegree };
         } catch {
           return null;
         }
       }),
     );
-    for (const result of results) {
+    for (let j = 0; j < results.length; j++) {
+      const result = results[j];
       if (result) degrees.set(result.id, result.degree);
+      // An abort is not a failed read: the caller discards a cancelled evaluation entirely.
+      else if (!signal?.aborted) unreadable++;
     }
     options.onProgress?.({ done: Math.min(i + batch.length, ids.length), total: ids.length });
   }
 
-  return degrees;
+  return { degrees, unreadable };
 }
 
 /** What an expand sweep actually did, which is never assumed to be "all of it". */
 export interface ExpandOutcome {
-  /** Vertices whose neighborhood was fetched and merged. */
-  done: number;
+  /** Vertices the sweep ATTEMPTED (its progress position), failures included. */
+  attempted: number;
+  /** Vertices whose neighborhood came back and was merged. `expanded + failed === attempted`. */
+  expanded: number;
   total: number;
-  /** True when the canvas element budget stopped the sweep before the last vertex. */
-  stoppedAtBudget: boolean;
+  /** True when the canvas element ceiling stopped the sweep before the last vertex. */
+  stoppedAtCeiling: boolean;
   cancelled: boolean;
-  /** Vertices whose neighborhood fetch failed outright (counted, never silent). */
+  /**
+   * Vertices whose neighborhood fetch threw. NOTE the honest limitation: the neighborhood
+   * primitive swallows per-request HTTP failures and returns empty arrays, so a vertex whose
+   * adjacency the server refused looks exactly like a vertex with no neighbors. This counts only
+   * what reaches us as an exception (a malformed answer, an aborted fetch), which is why the
+   * panel never presents it as "everything that went wrong".
+   */
   failed: number;
+  /**
+   * Vertices where the per-vertex edge cap cut the neighborhood short, so the canvas holds only
+   * part of what they touch. Reported, because the alternative is a hub that looks fully expanded.
+   */
+  truncated: number;
 }
 
 /**
@@ -294,9 +326,10 @@ export interface ExpandOutcome {
  * re-read per batch through `liveElementCount`/`skipIds` callbacks rather than captured once,
  * because each merge changes what the next batch would re-fetch.
  *
- * The sweep stops when the canvas reaches `elementBudget` and SAYS so (`stoppedAtBudget`), the
+ * The sweep stops when the canvas reaches `elementCeiling` and SAYS so (`stoppedAtCeiling`), the
  * same honesty as the whole-graph truncation notice - silently expanding half a match set would
- * look identical to a graph that simply has fewer neighbors.
+ * look identical to a graph that simply has fewer neighbors. The signal reaches the fetches
+ * themselves, so a cancel stops issuing requests rather than only stopping the next batch.
  */
 export async function expandVertices(
   instance: InstanceConfig,
@@ -306,8 +339,8 @@ export async function expandVertices(
     skipIds: () => ReadonlySet<number>;
     /** Current canvas element count, re-read before each batch. */
     liveElementCount?: () => number;
-    /** Stop once the canvas holds this many elements. Omitted = no budget. */
-    elementBudget?: number;
+    /** Stop once the canvas holds this many elements. Omitted = no ceiling. */
+    elementCeiling?: number;
     onMerge: (vertices: VertexREST[], edges: EdgeREST[]) => void;
     onProgress?: (progress: SweepProgress) => void;
     signal?: AbortSignal;
@@ -317,11 +350,13 @@ export async function expandVertices(
 ): Promise<ExpandOutcome> {
   const cap = options.cap ?? EXPAND_EDGE_CAP;
   const outcome: ExpandOutcome = {
-    done: 0,
+    attempted: 0,
+    expanded: 0,
     total: ids.length,
-    stoppedAtBudget: false,
+    stoppedAtCeiling: false,
     cancelled: false,
     failed: 0,
+    truncated: 0,
   };
 
   for (let i = 0; i < ids.length; i += INTERACT_BATCH_SIZE) {
@@ -330,10 +365,10 @@ export async function expandVertices(
       break;
     }
     if (
-      options.elementBudget !== undefined &&
-      (options.liveElementCount?.() ?? 0) >= options.elementBudget
+      options.elementCeiling !== undefined &&
+      (options.liveElementCount?.() ?? 0) >= options.elementCeiling
     ) {
-      outcome.stoppedAtBudget = true;
+      outcome.stoppedAtCeiling = true;
       break;
     }
 
@@ -341,7 +376,11 @@ export async function expandVertices(
     const skip = options.skipIds();
     const neighborhoods = await Promise.all(
       batch.map((id) =>
-        fetchVertexNeighborhood(instance, id, { cap, skipNeighborIds: skip }).catch(() => null),
+        fetchVertexNeighborhood(instance, id, {
+          cap,
+          skipNeighborIds: skip,
+          signal: options.signal,
+        }).catch(() => null),
       ),
     );
 
@@ -352,14 +391,16 @@ export async function expandVertices(
         outcome.failed++;
         continue;
       }
+      outcome.expanded++;
+      if (neighborhood.truncated) outcome.truncated++;
       vertices.push(...neighborhood.vertices);
       edges.push(...neighborhood.edges);
     }
     // One merge per batch: N store writes per round would re-render the canvas N times.
     if (vertices.length > 0 || edges.length > 0) options.onMerge(vertices, edges);
 
-    outcome.done = Math.min(i + batch.length, ids.length);
-    options.onProgress?.({ done: outcome.done, total: ids.length });
+    outcome.attempted = Math.min(i + batch.length, ids.length);
+    options.onProgress?.({ done: outcome.attempted, total: ids.length });
   }
 
   if (options.signal?.aborted) outcome.cancelled = true;

@@ -432,9 +432,21 @@ export const DEFAULT_ANALYTICS_DRAFT: AnalyticsDraft = {
  * state (re-run on demand), exactly like every other result in the studio - only the inputs here
  * persist.
  */
+/**
+ * The tabs of the canvas tool strip, in strip order. ONE home for the ids: the strip renders them
+ * and the persisted `canvasToolsDraft.tab` is validated against them on rehydration.
+ */
+export const CANVAS_TABS = ["style", "find", "connect", "interact"] as const;
+
+export type CanvasTab = (typeof CANVAS_TABS)[number];
+
+/** Guard for the untrusted source of a canvas tab id: persisted storage. */
+export const isCanvasTab = (value: unknown): value is CanvasTab =>
+  typeof value === "string" && (CANVAS_TABS as readonly string[]).includes(value);
+
 export interface CanvasToolsDraft {
   /** Which right-panel tab is active: styling, element search, path connecting, or interacting. */
-  tab: "style" | "find" | "connect" | "interact";
+  tab: CanvasTab;
   /** Find: the all-property contains term (fed to POST /scan/graph/properties). */
   findTerm: string;
   /** Find: optional exact-match label restrictor; empty searches every label. */
@@ -549,6 +561,8 @@ export interface WorkspaceState {
 
   mergeIntoCanvas: (vertices: VertexREST[], edges: EdgeREST[]) => void;
   removeFromCanvas: (kind: "node" | "edge", id: number) => void;
+  /** Removes a SET of vertices (and their incident edges) in one write - see the implementation. */
+  removeManyFromCanvas: (ids: readonly number[]) => void;
   clearCanvas: () => void;
   setWholeGraphTruncation: (truncation: WholeGraphTruncation | null) => void;
   setStyleConfig: (patch: Partial<StyleConfig>) => void;
@@ -618,6 +632,28 @@ function createWorkspaceStore(instanceId: string) {
                 ([, e]) => e.source !== id && e.target !== id,
               ),
             );
+            return { canvasNodes, canvasEdges };
+          }),
+
+        removeManyFromCanvas: (ids) =>
+          set((s) => {
+            // ONE write for the whole set (feature canvas-interact). Looping removeFromCanvas is
+            // O(V+E) per vertex AND, because the canvas is persisted, one whole-workspace
+            // serialization per vertex: measured at ~10ms per removed vertex on a 20k-element
+            // canvas, so a bulk remove of a few thousand froze the tab for tens of seconds.
+            if (ids.length === 0) return {};
+            const drop = new Set<number>(ids);
+            const canvasNodes: Record<number, CanvasNode> = {};
+            for (const [key, node] of Object.entries(s.canvasNodes)) {
+              if (!drop.has(Number(key))) canvasNodes[Number(key)] = node;
+            }
+            const canvasEdges: Record<number, CanvasEdge> = {};
+            for (const [key, edge] of Object.entries(s.canvasEdges)) {
+              // An edge follows its endpoint off the canvas, exactly as in the single removal.
+              if (!drop.has(edge.source) && !drop.has(edge.target)) {
+                canvasEdges[Number(key)] = edge;
+              }
+            }
             return { canvasNodes, canvasEdges };
           }),
 
@@ -727,7 +763,17 @@ function createWorkspaceStore(instanceId: string) {
                   },
             browserDraft: { ...DEFAULT_BROWSER_DRAFT, ...(p.browserDraft ?? {}) },
             analyticsDraft: { ...DEFAULT_ANALYTICS_DRAFT, ...(p.analyticsDraft ?? {}) },
-            canvasToolsDraft: { ...DEFAULT_CANVAS_TOOLS_DRAFT, ...(p.canvasToolsDraft ?? {}) },
+            canvasToolsDraft: {
+              ...DEFAULT_CANVAS_TOOLS_DRAFT,
+              ...(p.canvasToolsDraft ?? {}),
+              // Normalized for the same reason as traverseTab below: the canvas tool strip renders
+              // one panel per known id, so a tab this build does not know (a workspace persisted by
+              // a newer Studio, a rolled-back container, hand-edited storage) would show a strip
+              // with nothing selected and an empty area under it.
+              tab: isCanvasTab(p.canvasToolsDraft?.tab)
+                ? p.canvasToolsDraft.tab
+                : DEFAULT_CANVAS_TOOLS_DRAFT.tab,
+            },
             // Normalized, not trusted: a tab id this build does not know (hand-edited storage,
             // a renamed tab) would leave the Traverse screen with every panel hidden.
             traverseTab: isTraverseTab(p.traverseTab) ? p.traverseTab : DEFAULT_TRAVERSE_TAB,

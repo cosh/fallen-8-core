@@ -36,6 +36,7 @@ import { GRADIENT_HIGH, GRADIENT_LOW } from "../canvas/styling";
 import { getEdge, getGraph, getGraphElement, getStatus } from "../api/endpoints";
 import { CANVAS_ELEMENT_CAP } from "../lib/canvasCap";
 import { expandVertices } from "../lib/canvasInteract";
+import { CANVAS_TABS } from "../state/instanceStore";
 import { useNavigate } from "@tanstack/react-router";
 import { useStatus } from "../state/status";
 import { previewVector } from "../lib/embeddingProperties";
@@ -248,7 +249,7 @@ export function CanvasScreen() {
               Interact filters the working set to expand or remove it in bulk. The Detail panel
               below is selection-driven and independent of the active tab. */}
           <div className="border-line flex border-b" role="tablist">
-            {(["style", "find", "connect", "interact"] as const).map((t) => (
+            {CANVAS_TABS.map((t) => (
               <button
                 key={t}
                 type="button"

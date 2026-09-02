@@ -24,7 +24,7 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { InstanceConfig } from "../src/instances/types";
@@ -68,7 +68,7 @@ const neighborhoodMock = vi.fn<
   (
     i: InstanceConfig,
     id: number,
-    o: { cap: number; skipNeighborIds?: ReadonlySet<number> },
+    o: { cap: number; skipNeighborIds?: ReadonlySet<number>; signal?: AbortSignal },
   ) => Promise<{ vertices: VertexREST[]; edges: EdgeREST[]; truncated: boolean }>
 >();
 
@@ -92,7 +92,8 @@ import { CanvasScreen } from "../src/screens/CanvasScreen";
 import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/instanceStore";
 import { SAME_ORIGIN_INSTANCE } from "../src/instances/registry";
 import { EXPAND_SWEEP_CAP } from "../src/lib/canvasInteract";
-import { CANVAS_ELEMENT_CAP } from "../src/lib/canvasCap";
+import { CANVAS_ELEMENT_CAP, CANVAS_EXPAND_CEILING } from "../src/lib/canvasCap";
+import { MAX_K } from "../src/lib/vectorSearch";
 
 const store = () => getInstanceStore(SAME_ORIGIN_INSTANCE.id);
 
@@ -332,6 +333,31 @@ describe("remove", () => {
     expect(screen.getByText("node #1")).toBeInTheDocument();
   });
 
+  it("removes a large set in ONE store write, not one per vertex", async () => {
+    const user = userEvent.setup();
+    // The canvas is persisted, so a per-vertex loop re-serializes the whole workspace once per
+    // vertex: measured at ~10ms each, which froze the tab on a real match set. Counting writes is
+    // the behavioural way to pin that, and it also pins that edges leave with their endpoints.
+    seedVertices(...Array.from({ length: 300 }, (_v, i) => vertex(i + 1, "person")));
+    store()
+      .getState()
+      .mergeIntoCanvas(
+        [],
+        Array.from({ length: 300 }, (_v, i) => restEdge(10_000 + i, i + 1, ((i + 1) % 300) + 1)),
+      );
+    renderScreen();
+    await openInteract(user);
+
+    let writes = 0;
+    const unsubscribe = store().subscribe(() => writes++);
+    await user.click(screen.getByTestId("interact-remove"));
+    unsubscribe();
+
+    expect(writes).toBe(1);
+    expect(canvasNodeIds()).toEqual([]);
+    expect(Object.keys(store().getState().canvasEdges)).toEqual([]);
+  });
+
   it("is disabled when the match set is empty", async () => {
     const user = userEvent.setup();
     seedVertices(vertex(1, "person"));
@@ -345,6 +371,22 @@ describe("remove", () => {
 });
 
 describe("expand", () => {
+  it("keeps sweeping across BATCHES, because its own merges change the canvas", async () => {
+    const user = userEvent.setup();
+    // The trap: every batch merges, a merge invalidates an evaluated match set, and an
+    // invalidation that aborted indiscriminately would stop the sweep that caused it - leaving
+    // exactly one batch expanded and the rest silently skipped.
+    seedVertices(...Array.from({ length: 20 }, (_v, i) => vertex(i + 1)));
+    renderScreen();
+    await openInteract(user);
+
+    await user.click(screen.getByTestId("interact-expand"));
+
+    await waitFor(() => expect(screen.getByTestId("interact-expand-report")).toBeInTheDocument());
+    expect(screen.getByTestId("interact-expand-report")).toHaveTextContent("expanded 20 of 20");
+    expect(neighborhoodMock).toHaveBeenCalledTimes(20);
+  });
+
   it("expands every match and merges what it found", async () => {
     const user = userEvent.setup();
     seedVertices(vertex(1), vertex(2));
@@ -405,11 +447,38 @@ describe("expand", () => {
     expect(screen.getByTestId("interact-expand-report")).toHaveTextContent("1 failed");
   });
 
-  it("stops at the canvas element cap and says so rather than looking like a small graph", async () => {
+  it("stops at the canvas element ceiling and says so rather than looking like a small graph", async () => {
     const user = userEvent.setup();
-    // A canvas already at the cap: the budget is checked BEFORE a batch, so the sweep declines to
-    // grow it further. Filled with edges rather than vertices so the match set stays under the
-    // expand cap - it is the ELEMENT count that binds here, which is the point.
+    // A canvas already at the ceiling: it is checked BEFORE a batch, so the sweep declines to grow
+    // it further. Filled with edges rather than vertices so the match set stays under the expand
+    // cap - it is the ELEMENT count that binds here, which is the point. The ceiling is the SUM of
+    // both kinds, deliberately twice CANVAS_ELEMENT_CAP, because "Show whole graph" can leave
+    // 20,000 vertices AND 20,000 edges and a sweep must not refuse what the app itself produced.
+    seedVertices(...Array.from({ length: 5 }, (_v, i) => vertex(i + 1)));
+    store()
+      .getState()
+      .mergeIntoCanvas(
+        [],
+        Array.from({ length: CANVAS_EXPAND_CEILING }, (_v, i) => restEdge(1_000 + i, 1, 2)),
+      );
+    renderScreen();
+    await openInteract(user);
+
+    await user.click(screen.getByTestId("interact-expand"));
+
+    await waitFor(() => expect(screen.getByTestId("interact-expand-report")).toBeInTheDocument());
+    expect(screen.getByTestId("interact-expand-report")).toHaveTextContent(
+      // Grouped by the runtime's locale, like every other count in the studio.
+      `stopped at the ${CANVAS_EXPAND_CEILING.toLocaleString()}-element canvas ceiling`,
+    );
+    expect(screen.getByTestId("interact-expand-report")).toHaveTextContent("expanded 0 of 5");
+    expect(neighborhoodMock).not.toHaveBeenCalled();
+  });
+
+  it("does not refuse a canvas that Show whole graph legitimately filled to both caps", async () => {
+    const user = userEvent.setup();
+    // The regression this guards: the ceiling was first taken from CANVAS_ELEMENT_CAP, which is a
+    // PER-KIND fetch bound, so a canvas holding 20,000 vertices plus edges could expand nothing.
     seedVertices(...Array.from({ length: 5 }, (_v, i) => vertex(i + 1)));
     store()
       .getState()
@@ -423,12 +492,23 @@ describe("expand", () => {
     await user.click(screen.getByTestId("interact-expand"));
 
     await waitFor(() => expect(screen.getByTestId("interact-expand-report")).toBeInTheDocument());
-    expect(screen.getByTestId("interact-expand-report")).toHaveTextContent(
-      // Grouped by the runtime's locale, like every other count in the studio.
-      `stopped at the ${CANVAS_ELEMENT_CAP.toLocaleString()}-element canvas cap`,
+    expect(screen.getByTestId("interact-expand-report")).not.toHaveTextContent("ceiling");
+    expect(neighborhoodMock).toHaveBeenCalled();
+  });
+
+  it("reports a neighborhood the per-vertex edge cap cut short", async () => {
+    const user = userEvent.setup();
+    neighborhoodMock.mockImplementation((_i, id) =>
+      Promise.resolve({ vertices: [vertex(id * 100)], edges: [], truncated: id === 1 }),
     );
-    expect(screen.getByTestId("interact-expand-report")).toHaveTextContent("expanded 0 of 5");
-    expect(neighborhoodMock).not.toHaveBeenCalled();
+    seedVertices(vertex(1), vertex(2));
+    renderScreen();
+    await openInteract(user);
+
+    await user.click(screen.getByTestId("interact-expand"));
+
+    await waitFor(() => expect(screen.getByTestId("interact-expand-report")).toBeInTheDocument());
+    expect(screen.getByTestId("interact-expand-report")).toHaveTextContent("1 had more than");
   });
 });
 
@@ -666,7 +746,62 @@ describe("the semantic filter", () => {
     expect(screen.getByTestId("interact-remove")).toBeDisabled();
   });
 
-  it("stays inactive while the threshold is blank, because 'closer than nothing' is not a filter", async () => {
+  it("refuses to act on a half-filled semantic filter rather than widening to everything", async () => {
+    const user = userEvent.setup();
+    seedVertices(vertex(1), vertex(2));
+    renderScreen();
+    await openInteract(user);
+    await screen.findByTestId("interact-semantic-text");
+
+    await user.type(screen.getByTestId("interact-semantic-text"), "brake");
+
+    // The hazard: a text with no threshold cannot be applied, and the old behaviour called that
+    // "no filter" and armed Remove over the WHOLE canvas.
+    expect(screen.getByTestId("interact-incomplete")).toHaveTextContent("needs a threshold");
+    expect(screen.getByTestId("interact-remove")).toBeDisabled();
+    expect(screen.getByTestId("interact-expand")).toBeDisabled();
+    expect(screen.queryByTestId("interact-preview")).not.toBeInTheDocument();
+
+    await user.type(screen.getByTestId("interact-semantic-threshold"), "0.5");
+    expect(screen.queryByTestId("interact-incomplete")).not.toBeInTheDocument();
+    expect(screen.getByTestId("interact-preview")).toBeEnabled();
+  });
+
+  it("refuses to act on a property term with no key, for the same reason", async () => {
+    const user = userEvent.setup();
+    seedVertices(vertex(1, "person", { name: "Ada" }), vertex(2));
+    renderScreen();
+    await openInteract(user);
+
+    await user.type(screen.getByTestId("interact-prop-term"), "ada");
+
+    expect(screen.getByTestId("interact-incomplete")).toHaveTextContent("needs a key");
+    expect(screen.getByTestId("interact-remove")).toBeDisabled();
+
+    await user.type(screen.getByTestId("interact-prop-key"), "name");
+    expect(screen.queryByTestId("interact-incomplete")).not.toBeInTheDocument();
+    expect(screen.getByTestId("interact-count")).toHaveTextContent("1 of 2 vertices match");
+  });
+
+  it("disarms the verbs while a degree box is mid-edit instead of matching everything", async () => {
+    const user = userEvent.setup();
+    seedVertices(vertex(1), vertex(2), vertex(3));
+    renderScreen();
+    await openInteract(user);
+
+    await user.type(screen.getByTestId("interact-degree-value"), "5");
+    expect(screen.getByTestId("interact-count")).toHaveTextContent("evaluate to match");
+
+    // Clearing the box to retype: a type=number input reports "" here, and the old behaviour
+    // flipped straight from "evaluate to match" (safe) to "Remove from view (3)" (destructive)
+    // on that keystroke.
+    await user.clear(screen.getByTestId("interact-degree-value"));
+
+    expect(screen.getByTestId("interact-remove")).toHaveTextContent("Remove from view (3)");
+    expect(screen.getByTestId("interact-count")).toHaveTextContent("no filter");
+  });
+
+  it("sends a k the engine accepts, not a number taken from the canvas cap", async () => {
     const user = userEvent.setup();
     seedVertices(vertex(1));
     renderScreen();
@@ -674,9 +809,225 @@ describe("the semantic filter", () => {
     await screen.findByTestId("interact-semantic-text");
 
     await user.type(screen.getByTestId("interact-semantic-text"), "brake");
+    await user.type(screen.getByTestId("interact-semantic-threshold"), "0.5");
+    await user.click(screen.getByTestId("interact-preview"));
 
-    expect(screen.queryByTestId("interact-preview")).not.toBeInTheDocument();
-    expect(screen.getByTestId("interact-count")).toHaveTextContent("1 of 1 vertices match");
+    await waitFor(() => expect(embeddingSearchMock).toHaveBeenCalled());
+    // The engine rejects k over MAX_K outright, and only after the provider has embedded the
+    // text: this shipped once asking for 20,000 and the filter could never work.
+    const spec = embeddingSearchMock.mock.calls[0][1] as { k: number };
+    expect(spec.k).toBe(MAX_K);
+    expect(spec.k).toBeLessThanOrEqual(MAX_K);
+  });
+
+  it("names the index and the metric that decided the match, and that the window is bounded", async () => {
+    const user = userEvent.setup();
+    seedVertices(vertex(1));
+    renderScreen();
+    await openInteract(user);
+
+    // Rendered even for ONE bound index: it is the only place that says which index answered.
+    expect(await screen.findByTestId("interact-semantic-index")).toHaveValue("sem");
+    expect(screen.getByTestId("interact-semantic-window")).toHaveTextContent("higher is closer");
+    expect(screen.getByTestId("interact-semantic-window")).toHaveTextContent(
+      `${MAX_K.toLocaleString()}`,
+    );
+  });
+
+  it("falls back to a live bound index when the persisted one has been dropped", async () => {
+    const user = userEvent.setup();
+    // A persisted id naming an index that no longer exists would otherwise 404 every Preview with
+    // no control on screen to change it.
+    store().getState().setCanvasToolsDraft({ interactSemanticIndexId: "since-deleted" });
+    seedVertices(vertex(1));
+    renderScreen();
+    await openInteract(user);
+
+    await user.type(await screen.findByTestId("interact-semantic-text"), "brake");
+    await user.type(screen.getByTestId("interact-semantic-threshold"), "0.5");
+    await user.click(screen.getByTestId("interact-preview"));
+
+    await waitFor(() => expect(embeddingSearchMock).toHaveBeenCalled());
+    expect((embeddingSearchMock.mock.calls[0][1] as { indexId: string }).indexId).toBe("sem");
+  });
+});
+
+describe("cancelling, and what a cancelled evaluation is allowed to claim", () => {
+  it("keeps no match set, arms nothing, and shows no error for a deliberate cancel", async () => {
+    const user = userEvent.setup();
+    // A sweep that hangs until we abort it, so Cancel has something real to stop.
+    getInDegreeMock.mockImplementation(
+      (_i, _id, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        }),
+    );
+    seedVertices(vertex(1), vertex(2));
+    renderScreen();
+    await openInteract(user);
+
+    await user.type(screen.getByTestId("interact-degree-value"), "1");
+    await user.click(screen.getByTestId("interact-preview"));
+    await screen.findByTestId("interact-cancel");
+
+    await user.click(screen.getByTestId("interact-cancel"));
+
+    await waitFor(() => expect(screen.queryByTestId("interact-cancel")).not.toBeInTheDocument());
+    // Nothing was measured, so nothing may be acted on and nothing is claimed.
+    expect(screen.getByTestId("interact-count")).toHaveTextContent("evaluate to match");
+    expect(screen.getByTestId("interact-remove")).toBeDisabled();
+    expect(screen.getByTestId("interact-expand")).toBeDisabled();
+    // And no red box for pressing the button we offered.
+    expect(screen.queryByTestId("error-box")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Aborted/)).not.toBeInTheDocument();
+  });
+
+  it("shows no error box when a semantic Preview is cancelled either", async () => {
+    const user = userEvent.setup();
+    embeddingSearchMock.mockImplementation(
+      (_i, _spec, signal) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")));
+        }),
+    );
+    seedVertices(vertex(1));
+    renderScreen();
+    await openInteract(user);
+
+    await user.type(await screen.findByTestId("interact-semantic-text"), "brake");
+    await user.type(screen.getByTestId("interact-semantic-threshold"), "0.5");
+    await user.click(screen.getByTestId("interact-preview"));
+    await screen.findByTestId("interact-cancel");
+    await user.click(screen.getByTestId("interact-cancel"));
+
+    await waitFor(() => expect(screen.queryByTestId("interact-cancel")).not.toBeInTheDocument());
+    expect(screen.queryByTestId("error-box")).not.toBeInTheDocument();
+  });
+
+  it("does surface a REAL failure, which is the other half of the same rule", async () => {
+    const user = userEvent.setup();
+    embeddingSearchMock.mockRejectedValue(new Error("HTTP 400 k must be within [1, 1024]"));
+    seedVertices(vertex(1));
+    renderScreen();
+    await openInteract(user);
+
+    await user.type(await screen.findByTestId("interact-semantic-text"), "brake");
+    await user.type(screen.getByTestId("interact-semantic-threshold"), "0.5");
+    await user.click(screen.getByTestId("interact-preview"));
+
+    expect(await screen.findByText(/k must be within/)).toBeInTheDocument();
+    expect(screen.getByTestId("interact-remove")).toBeDisabled();
+  });
+});
+
+describe("a match set the panel has moved on from", () => {
+  it("refuses a Preview that resolves after a filter edit retired it", async () => {
+    const user = userEvent.setup();
+    // EVERY pending read is released, not just the last one: a half-released sweep never returns,
+    // which would pass this test without the panel doing anything right.
+    const pending: ((value: number) => void)[] = [];
+    getInDegreeMock.mockImplementation(
+      () => new Promise<number>((resolve) => pending.push(resolve)),
+    );
+    getOutDegreeMock.mockImplementation(
+      () => new Promise<number>((resolve) => pending.push(resolve)),
+    );
+    seedVertices(vertex(1, "person"), vertex(2, "pdu"));
+    renderScreen();
+    await openInteract(user);
+
+    await user.type(screen.getByTestId("interact-degree-value"), "1");
+    await user.click(screen.getByTestId("interact-preview"));
+    await waitFor(() => expect(pending.length).toBe(4)); // 2 vertices x in+out
+
+    // The user narrows while the sweep is still out. This retires the evaluation.
+    await user.type(screen.getByTestId("interact-label"), "pdu");
+    expect(screen.getByTestId("interact-count")).toHaveTextContent("evaluate to match");
+
+    // Now the whole stale answer lands. It must NOT re-arm the verbs against filters that have
+    // since changed: #1 is a `person` and the label filter now says `pdu`.
+    await act(async () => {
+      for (const resolve of pending) resolve(40);
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.queryByTestId("interact-cancel")).not.toBeInTheDocument());
+    expect(screen.getByTestId("interact-count")).toHaveTextContent("evaluate to match");
+    expect(screen.getByTestId("interact-remove")).toBeDisabled();
+    expect(screen.queryByTestId("interact-match-1")).not.toBeInTheDocument();
+  });
+
+  it("stops a sweep when the tab is switched away, rather than leaving it running unstoppable", async () => {
+    const user = userEvent.setup();
+    const signals: (AbortSignal | undefined)[] = [];
+    // The sweep must still be IN FLIGHT when the tab changes, or the test proves nothing: with
+    // instantly-resolving fetches it finishes inside the click and there is nothing left to abort.
+    const release: (() => void)[] = [];
+    neighborhoodMock.mockImplementation((_i, id, o) => {
+      signals.push(o.signal);
+      return new Promise((resolve) =>
+        release.push(() =>
+          resolve({ vertices: [vertex(id * 100)], edges: [], truncated: false }),
+        ),
+      );
+    });
+    seedVertices(...Array.from({ length: 20 }, (_v, i) => vertex(i + 1)));
+    renderScreen();
+    await openInteract(user);
+
+    await user.click(screen.getByTestId("interact-expand"));
+    await waitFor(() => expect(signals.length).toBeGreaterThan(0));
+
+    await user.click(screen.getByTestId("canvas-tab-style"));
+
+    // The panel is gone, so its Cancel button is too: the sweep has to have been aborted for it,
+    // or it keeps issuing requests with no way to stop it and no report anyone can read.
+    expect(signals.every((signal) => signal?.aborted)).toBe(true);
+
+    // Let the in-flight batch settle so the test leaves nothing pending.
+    await act(async () => {
+      for (const resolve of release) resolve();
+      await Promise.resolve();
+    });
+  });
+});
+
+describe("what the panel says when it could not measure", () => {
+  it("counts the degrees it could not read instead of calling them a match set", async () => {
+    const user = userEvent.setup();
+    // Three of five vertices are gone from the graph; a silent panel would report "2 of 5 match"
+    // as though five had been measured.
+    getInDegreeMock.mockImplementation((_i, id) =>
+      id > 2 ? Promise.reject(new Error("404")) : Promise.resolve(40),
+    );
+    getOutDegreeMock.mockResolvedValue(0);
+    seedVertices(...Array.from({ length: 5 }, (_v, i) => vertex(i + 1)));
+    renderScreen();
+    await openInteract(user);
+
+    await user.type(screen.getByTestId("interact-degree-value"), "1");
+    await user.click(screen.getByTestId("interact-preview"));
+
+    await waitFor(() => expect(screen.getByTestId("interact-unreadable")).toBeInTheDocument());
+    expect(screen.getByTestId("interact-unreadable")).toHaveTextContent("3 degrees unreadable");
+    expect(screen.getByTestId("interact-count")).toHaveTextContent("2 of 5 vertices match");
+  });
+
+  it("says nothing was measured when the instance answers nothing at all", async () => {
+    const user = userEvent.setup();
+    getInDegreeMock.mockRejectedValue(new Error("401"));
+    getOutDegreeMock.mockRejectedValue(new Error("401"));
+    seedVertices(vertex(1), vertex(2));
+    renderScreen();
+    await openInteract(user);
+
+    await user.type(screen.getByTestId("interact-degree-value"), "1");
+    await user.click(screen.getByTestId("interact-preview"));
+
+    await waitFor(() => expect(screen.getByTestId("interact-unreadable")).toBeInTheDocument());
+    // "0 of 2 match" alone would be a lie of omission in front of a bulk remove.
+    expect(screen.getByTestId("interact-unreadable")).toHaveTextContent("2 degrees unreadable");
+    expect(screen.getByTestId("interact-remove")).toBeDisabled();
   });
 });
 

@@ -384,17 +384,34 @@ export const getGraphElements = (i: InstanceConfig, ids: number[], signal?: Abor
     signal,
   });
 
-export const getOutEdgeProperties = (i: InstanceConfig, id: number) =>
-  apiRequest<string[]>(i, `/vertex/${id}/edges/out`);
+// These four take a signal for the same reason the degree pair below does: a neighborhood fetch
+// fans out over them, and a cancelled expand sweep has to stop ISSUING requests (one vertex can
+// cost hundreds), not merely stop reading their answers.
+export const getOutEdgeProperties = (i: InstanceConfig, id: number, signal?: AbortSignal) =>
+  apiRequest<string[]>(i, `/vertex/${id}/edges/out`, { signal });
 
-export const getInEdgeProperties = (i: InstanceConfig, id: number) =>
-  apiRequest<string[]>(i, `/vertex/${id}/edges/in`);
+export const getInEdgeProperties = (i: InstanceConfig, id: number, signal?: AbortSignal) =>
+  apiRequest<string[]>(i, `/vertex/${id}/edges/in`, { signal });
 
-export const getOutEdges = (i: InstanceConfig, id: number, edgePropertyId: string) =>
-  apiRequest<number[]>(i, `/vertex/${id}/edges/out/${encodeURIComponent(edgePropertyId)}`);
+export const getOutEdges = (
+  i: InstanceConfig,
+  id: number,
+  edgePropertyId: string,
+  signal?: AbortSignal,
+) =>
+  apiRequest<number[]>(i, `/vertex/${id}/edges/out/${encodeURIComponent(edgePropertyId)}`, {
+    signal,
+  });
 
-export const getInEdges = (i: InstanceConfig, id: number, edgePropertyId: string) =>
-  apiRequest<number[]>(i, `/vertex/${id}/edges/in/${encodeURIComponent(edgePropertyId)}`);
+export const getInEdges = (
+  i: InstanceConfig,
+  id: number,
+  edgePropertyId: string,
+  signal?: AbortSignal,
+) =>
+  apiRequest<number[]>(i, `/vertex/${id}/edges/in/${encodeURIComponent(edgePropertyId)}`, {
+    signal,
+  });
 
 // The signal is what makes a batched degree sweep cancellable (feature canvas-interact): a
 // cancelled sweep must stop issuing requests, not just stop reading them.
