@@ -73,9 +73,29 @@ export function capList<T>(
 }
 
 /**
- * Inline style that tells a `.scroll-list` wrapper how many rows to show before it caps its
- * height and scrolls. Custom CSS properties need the cast; this keeps it in one place.
+ * How tall ONE row is, in rem, for a list whose rows are not a single line. The cap is a row
+ * COUNT, so it needs a height per row to work with; the CSS default (2.5rem, see index.css) is a
+ * one-line table row, and a list of wrapped prose hits that ceiling several rows early and scrolls
+ * a list far shorter than its threshold. Add an entry only for a list that reads that way.
  */
-export function scrollRows(rows: number): CSSProperties {
-  return { "--scroll-rows": rows } as unknown as CSSProperties;
+export const SCROLL_ROW_REM = {
+  /**
+   * Available integrations (IntegrationsScreen): each row is a sentence describing what the
+   * integration reads, and it wraps to three or four lines on a narrow window.
+   */
+  integrations: 5,
+} as const;
+
+/**
+ * Inline style that tells a `.scroll-list` wrapper how many rows to show before it caps its
+ * height and scrolls, and optionally how tall to assume one row is (see {@link SCROLL_ROW_REM};
+ * omitted, the CSS default applies). Custom CSS properties need the cast; this keeps it in one place.
+ */
+export function scrollRows(rows: number, rowRem?: number): CSSProperties {
+  const style: Record<string, string | number> = { "--scroll-rows": rows };
+  if (rowRem !== undefined) {
+    style["--scroll-row-h"] = `${rowRem}rem`;
+  }
+
+  return style as unknown as CSSProperties;
 }

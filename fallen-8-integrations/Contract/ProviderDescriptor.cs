@@ -60,6 +60,20 @@ namespace NoSQL.GraphDB.Integrations.Contract
         [JsonPropertyName("description")]
         public String Description { get; set; } = String.Empty;
 
+        /// <summary>
+        ///   Optional: where the deep dive on this provider lives, as an ABSOLUTE http or https URL. It
+        ///   is what keeps <see cref="Description"/> a sentence: everything a reader needs beyond that
+        ///   sentence is one page away instead of crowded into a table cell.
+        ///
+        ///   <para>It is data on the descriptor rather than a map inside Studio for the same reason the
+        ///   settings are: a provider whose docs live on the author's own site brings its own link, and
+        ///   the screen needs no per-provider code. The catalog refuses anything but an absolute http or
+        ///   https URL at STARTUP, because Studio renders this as a link and a relative or
+        ///   <c>javascript:</c> value is either dead or dangerous there.</para>
+        /// </summary>
+        [JsonPropertyName("docsUrl")]
+        public String? DocsUrl { get; set; }
+
         /// <summary>The settings, as data.</summary>
         [JsonPropertyName("settings")]
         public IReadOnlyList<ProviderSetting> Settings { get; set; } = Array.Empty<ProviderSetting>();

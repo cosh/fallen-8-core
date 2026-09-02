@@ -107,6 +107,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.CsvDeviceList
                 "Reads a delimited text file of devices the job carries: one row per device, identified by " +
                 "the MAC address in its 'mac' column, carrying the name, owner note and hostname a " +
                 "controller does not know.",
+            DocsUrl = ShippedDocs.IntegrationsPage,
             Settings = new[]
             {
                 new ProviderSetting

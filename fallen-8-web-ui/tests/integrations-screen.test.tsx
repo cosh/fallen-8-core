@@ -44,7 +44,7 @@ import { getInstanceStore, resetInstanceStoresForTests } from "../src/state/inst
 import { SAME_ORIGIN_INSTANCE } from "../src/instances/registry";
 
 const store = () => getInstanceStore(SAME_ORIGIN_INSTANCE.id);
-import { capList, LIST_MAX_ROWS, SCROLL_ROWS } from "../src/lib/listCaps";
+import { capList, LIST_MAX_ROWS, SCROLL_ROW_REM, SCROLL_ROWS } from "../src/lib/listCaps";
 import { ListCapNote } from "../src/components/ListCapNote";
 
 /**
@@ -326,6 +326,43 @@ function sized(name: string, bytes: number): File {
   Object.defineProperty(file, "size", { value: bytes });
   return file;
 }
+
+describe("a row links the integration's own documentation", () => {
+  it("renders the link the descriptor declares, opening in a new tab", async () => {
+    listProvidersMock.mockResolvedValue([
+      { ...fourthIntegration(), docsUrl: "https://docs.example.com/fourth/#section" },
+    ]);
+    renderScreen();
+
+    const link = await screen.findByTestId("integration-docs-hypothetical-fourth");
+    expect(link).toHaveAttribute("href", "https://docs.example.com/fourth/#section");
+    expect(link).toHaveAttribute("target", "_blank");
+    // Without this a docs page could reach back into the Studio tab through window.opener.
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("renders no link for a provider that declares no documentation", async () => {
+    listProvidersMock.mockResolvedValue([fourthIntegration()]);
+    renderScreen();
+
+    // The row itself has to be there, or this passes on an empty table.
+    await screen.findByText("Hypothetical fourth");
+    expect(screen.queryByTestId("integration-docs-hypothetical-fourth")).toBeNull();
+  });
+
+  it.each([
+    ["javascript:alert(1)", "a scheme that would run in this tab"],
+    ["/integrations/", "a relative path that would resolve against Studio's own origin"],
+    ["file:///c:/docs.html", "a scheme a browser does not follow to a page"],
+    ["   ", "a value that is blank once trimmed"],
+  ])("drops %s, which is %s", async (docsUrl) => {
+    listProvidersMock.mockResolvedValue([{ ...fourthIntegration(), docsUrl }]);
+    renderScreen();
+
+    await screen.findByText("Hypothetical fourth");
+    expect(screen.queryByTestId("integration-docs-hypothetical-fourth")).toBeNull();
+  });
+});
 
 describe("the settings form is rendered from the descriptor alone", () => {
   it("renders one input per setting, of the kind the descriptor declares, with the descriptor's own help", async () => {
@@ -909,6 +946,13 @@ describe("the provider list obeys the standing list-cap policy", () => {
     expect(wrappers.length).toBeGreaterThanOrEqual(1);
     expect((wrappers[0] as HTMLElement).style.getPropertyValue("--scroll-rows")).toBe(
       String(SCROLL_ROWS.integrations),
+    );
+
+    // And how tall a row of this list actually is. The cap is a row COUNT times a row height, so
+    // the CSS default (one line) capped this list at four rows of wrapped prose and scrolled a list
+    // of four - the threshold said 8, the panel showed a scrollbar.
+    expect((wrappers[0] as HTMLElement).style.getPropertyValue("--scroll-row-h")).toBe(
+      `${SCROLL_ROW_REM.integrations}rem`,
     );
   });
 

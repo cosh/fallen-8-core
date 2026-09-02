@@ -109,24 +109,16 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         {
             Id = ProviderId,
             DisplayName = "AUTOSAR system extract (ARXML)",
+            // A sentence, with the rest a click away (DocsUrl). This one earned the longest description
+            // of any shipped provider - the socket layer, the revision spellings, how several extracts
+            // become one source - and all of it was reference material in a table cell, on the page
+            // that documents it too.
             Description =
-                "Reads the AUTOSAR classic-platform system extracts (ARXML, schema r4.0) the job carries " +
-                "and describes the communication matrix they hold: each bus, its channels, its ECUs, " +
-                "frames, PDUs, signals, system signals and scaling methods, with the send and receive " +
-                "flow between them. CAN, FlexRay and ETHERNET buses are read. An Ethernet bus has no " +
-                "frame layer, so its signals are reached through the PDU instead, each of its channels is " +
-                "a VLAN an ECU is or is not on, and what addresses a PDU there is the socket layer: " +
-                "network endpoints, sockets over UDP or TCP, and the connections between them, read onto " +
-                "one set of kinds whichever AUTOSAR revision's spelling the extract uses. Above that it " +
-                "reads the SOME/IP service instances each socket offers or consumes, and below it the " +
-                "switch coupling ports and the links between them. Several extracts of one vehicle are " +
-                "read as " +
-                "one source, so a frame in one of them can carry a signal defined in another and an ECU " +
-                "on two buses is one element attached to both; a value carried on several buses is one " +
-                "system signal with a per-bus signal each, which is what joins the buses to each other. " +
-                "The job names the VEHICLE, which becomes part of every element's identity, so two " +
-                "vehicles can be imported under one identity without merging: an AUTOSAR reference path " +
-                "identifies an element within one system description, not across several.",
+                "Reads the AUTOSAR system extracts (ARXML) the job carries and describes the vehicle " +
+                "communication matrix they hold across its CAN, FlexRay and Ethernet buses. Give it the " +
+                "whole set of extracts in one run: they reference each other, so together they are one " +
+                "source.",
+            DocsUrl = ShippedDocs.IntegrationsSection("reading-a-vehicle-network"),
             Settings = new[]
             {
                 new ProviderSetting

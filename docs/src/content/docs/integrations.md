@@ -134,7 +134,8 @@ schedule and no list of past runs.
 Ask `GET /integrations/providers` what each integration's settings are; every one carries a
 label, a kind and a sentence saying where to find the value in the source system. That is
 deliberately enough to render a form from, so a new integration needs no new UI code when a
-screen for it arrives.
+screen for it arrives. An integration describes ITSELF the same way: a sentence saying what it
+reads, and a `docsUrl` for the rest, so the detail lives on a page rather than in a table cell.
 
 ## Files
 
@@ -605,8 +606,9 @@ Three things decide whether a run does what you meant:
   reporting an empty network. The software-component level is deliberately not read: this is the
   network view.
 
-`GET /integrations/providers` describes, in the integration's own words, every kind it reads and how
-the buses join up to each other. Signal names in a real matrix are unguessable codes, so the summary
+`GET /integrations/providers` lists every kind it writes and every relation it emits, which is the
+vocabulary a query over the result is written against. Signal names in a real matrix are
+unguessable codes, so the summary
 [embedding](#semantic-search-over-what-landed) above is what makes them searchable by unit or
 description: constrain those queries with a `label`, since only some kinds carry prose worth
 embedding and the rest cluster by identifier shape.

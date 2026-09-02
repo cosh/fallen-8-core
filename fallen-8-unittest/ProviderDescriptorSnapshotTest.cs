@@ -69,7 +69,7 @@ namespace NoSQL.GraphDB.Tests
         private static readonly HashSet<String> DescriptorFields = new HashSet<String>(StringComparer.Ordinal)
         {
             "id", "displayName", "description", "settings", "entityKinds", "claimTypes", "relationTypes",
-            "canObserveCompleteState", "readOnly", "entitySummaryTemplate",
+            "canObserveCompleteState", "readOnly", "entitySummaryTemplate", "docsUrl",
         };
 
         /// <summary>

@@ -84,6 +84,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.FroniusSolar
                 "and describes the inverters it has seen in the last 24 hours plus the logging device " +
                 "that fronts them. Shape and coarse state only: no power, current, voltage or energy " +
                 "readings are read or recorded.",
+            DocsUrl = ShippedDocs.IntegrationsPage,
             Settings = new[]
             {
                 new ProviderSetting

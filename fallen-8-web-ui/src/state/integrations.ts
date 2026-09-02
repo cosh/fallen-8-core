@@ -78,6 +78,29 @@ export function isCapabilityRefusal(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 403 || error.status === 401);
 }
 
+/**
+ * The href for a provider's documentation link, or null when there is nothing safe to link.
+ *
+ * The runtime refuses anything but an absolute http(s) URL when it builds its catalog, so this is
+ * the second half of that check rather than the only one: the descriptor arrives over the network
+ * from a deployable Studio does not ship with, and a `javascript:` href here would run in the
+ * operator's browser. Anything else is dropped silently - the row simply carries no link, which is
+ * the same state as a provider that declares no documentation.
+ */
+export function docsHref(provider: Pick<IntegrationProvider, "docsUrl">): string | null {
+  const raw = provider.docsUrl?.trim();
+  if (!raw) return null;
+
+  try {
+    const url = new URL(raw);
+    return url.protocol === "http:" || url.protocol === "https:" ? url.href : null;
+  } catch {
+    // Not a URL at all, including every relative value: `new URL` needs an origin to resolve one,
+    // and resolving against Studio's own would send a click to a path Studio does not serve.
+    return null;
+  }
+}
+
 /** The capability verdict of a providers query, for the rail and for a deep link. */
 export function capabilityOf(query: {
   isError: boolean;
