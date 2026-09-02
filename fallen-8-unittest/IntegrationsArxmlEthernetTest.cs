@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Integrations.Providers.AutosarArxml;
 
@@ -555,6 +556,41 @@ namespace NoSQL.GraphDB.Tests
         ///   Reported ONCE for a run however many channels it happens to. A backbone has a couple of dozen
         ///   VLANs, and one line each would bury every diagnostic that means something.
         /// </summary>
+        /// <summary>
+        ///   STRUCTURAL WRAPPERS DO NOT CROWD THE BOUND. The report is capped at 12 distinct names, and a
+        ///   real Ethernet channel wraps every reference in a CONDITIONAL variant element (the standard's
+        ///   own pattern - see <c>CollectCluster</c>'s connector-ref handling): a filter that excluded only
+        ///   bare <c>-REF</c> elements would let those wrappers spend the budget's slots on structure that
+        ///   identifies no vocabulary at all, potentially crowding out the one name a maintainer actually
+        ///   needs to see.
+        ///
+        ///   <para>Twelve distinct filler wrappers are ahead of the genuinely novel element in document
+        ///   order, which is exactly the bound: if the wrappers were not filtered, the novel name would
+        ///   never appear in the report.</para>
+        /// </summary>
+        [TestMethod]
+        public void TheVocabularyReportIsNotCrowdedByStructuralConditionalWrappers()
+        {
+            var fillers = new StringBuilder();
+            for (var i = 0; i < 12; i++)
+            {
+                fillers.Append("<FILLER-").Append(i).Append("-CONDITIONAL><SHORT-NAME>filler-")
+                    .Append(i).Append("</SHORT-NAME></FILLER-").Append(i).Append("-CONDITIONAL>");
+            }
+
+            var network = ArxmlReader.Read(StrangeSocketExtract.Replace(
+                "<SOME-FUTURE-CONNECTION>",
+                fillers + "<SOME-FUTURE-CONNECTION>", StringComparison.Ordinal));
+
+            var said = network.Diagnostics.Single(d =>
+                d.Kind == ArxmlDiagnosticKind.SocketLayerUnrecognised);
+            StringAssert.Contains(said.Message, "SOME-FUTURE-CONNECTION", said.Message);
+            StringAssert.DoesNotMatch(said.Message, new System.Text.RegularExpressions.Regex(
+                "FILLER-\\d+-CONDITIONAL"),
+                "a purely structural variant wrapper carries no short name of its own and identifies no " +
+                "vocabulary, so it must not occupy one of the report's few slots: " + said.Message);
+        }
+
         [TestMethod]
         public void TheUnrecognisedSocketLayerIsReportedOncePerRun()
         {

@@ -637,11 +637,11 @@ addresses one.
 
 What addresses a PDU on Ethernet lands as three more kinds, all `partOf` their channel:
 
-| kind | what it is | properties |
-|---|---|---|
-| `endpoint` | a network endpoint: an address on the channel | `address`, `ipVersion`, `addressSource`, `networkMask` |
-| `socket` | a socket address and its application endpoint | `port`, `transport` (`udp` or `tcp`), `boundTo` its endpoint |
-| `connection` | the pairing of sockets that carries PDUs | `serverPort` and `clientPort` to its two ends, `carries` to each PDU, `headerIdCount`, `sourceSpelling` |
+| kind | what it is | properties | reaches |
+|---|---|---|---|
+| `endpoint` | a network endpoint: an address on the channel | `address`, `ipVersion`, `addressSource`, `networkMask` | |
+| `socket` | a socket address and its application endpoint | `port`, `transport` (`udp` or `tcp`) | `boundTo` its endpoint |
+| `connection` | the pairing of sockets that carries PDUs | `sourceSpelling`, `headerIdCount` | `serverPort` and `clientPort` to its two ends, `carries` to each PDU |
 
 **`sourceSpelling` is there because this layer is normalised.** Its element names differ between
 AUTOSAR revisions **with no overlap**: one revision names a connection bundle under the channel,
@@ -757,11 +757,12 @@ curl -sf -X POST http://localhost:8080/ns/vehicle/embedding/search \
      -d '{"indexId":"arxml-summary","text":"kilometer","k":10,"label":"signal"}'
 ```
 
-Note the `label`. It is not decoration. Only three of the seven ARXML entity kinds get a
-description read out of the extract at all -- signals, system signals and PDUs -- so a network, an
-ECU or a frame embeds as little more than its own name, and those vectors cluster by identifier
-shape rather than by meaning. An unconstrained similarity search therefore ranks that noise
-against real matches. Constrain every similarity query to the kind of thing you are looking for.
+Note the `label`. It is not decoration. Only six of the thirteen ARXML entity kinds get a
+description read out of the extract at all -- signals, system signals, PDUs, network endpoints,
+SOME/IP service instances and coupling ports -- so a network, an ECU, a frame or a socket embeds as
+little more than its own name, and those vectors cluster by identifier shape rather than by
+meaning. An unconstrained similarity search therefore ranks that noise against real matches.
+Constrain every similarity query to the kind of thing you are looking for.
 
 Once a signal is on your screen you can also search **from it** instead of describing it: the
 [Studio](/studio/) detail panel and the Browser's Embeddings tab both offer *Find similar*,

@@ -1279,6 +1279,14 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         ///   half of the socket-layer diagnostic. A maintainer reading "this channel contains
         ///   SOME-OTHER-SPELLING" can add a table entry; a maintainer reading "nothing was found" cannot do
         ///   anything at all.
+        ///
+        ///   <para>The bound is only 12, so what gets FILTERED matters as much as what gets kept: an
+        ///   Ethernet channel this reader already understands still carries <c>PDU-TRIGGERING</c>,
+        ///   <c>I-SIGNAL-TRIGGERING</c> and <c>VLAN</c> wrappers, and every reference on it is wrapped in a
+        ///   <c>...-REF-CONDITIONAL</c> variant element (the standard's own pattern - see
+        ///   <c>CollectCluster</c>). Filtering only <c>-REF</c> leaves that wrapper in, which would spend a
+        ///   slot on a structural element that carries no short name and identifies no vocabulary at all -
+        ///   exactly the diagnostic's own reasoning for excluding a bare reference, just one level up.</para>
         /// </summary>
         private static IReadOnlyList<String> VocabularyUnder(XElement channel)
         {
@@ -1289,10 +1297,12 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             {
                 var name = descendant.Name.LocalName;
                 if (name.EndsWith("-REF", StringComparison.Ordinal) ||
+                    name.EndsWith("-CONDITIONAL", StringComparison.Ordinal) ||
                     String.Equals(name, ShortNameElement, StringComparison.Ordinal))
                 {
-                    // References and short names say nothing about which VOCABULARY this is, and there are
-                    // hundreds of them: they would fill the bound with noise.
+                    // References, their CONDITIONAL variant wrappers, and short names say nothing about
+                    // which VOCABULARY this is, and there are hundreds of them: they would fill the bound
+                    // with noise before a maintainer ever saw the one name that matters.
                     continue;
                 }
 
