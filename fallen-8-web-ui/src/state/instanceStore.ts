@@ -433,8 +433,8 @@ export const DEFAULT_ANALYTICS_DRAFT: AnalyticsDraft = {
  * persist.
  */
 export interface CanvasToolsDraft {
-  /** Which right-panel tab is active: styling, element search, or path connecting. */
-  tab: "style" | "find" | "connect";
+  /** Which right-panel tab is active: styling, element search, path connecting, or interacting. */
+  tab: "style" | "find" | "connect" | "interact";
   /** Find: the all-property contains term (fed to POST /scan/graph/properties). */
   findTerm: string;
   /** Find: optional exact-match label restrictor; empty searches every label. */
@@ -445,6 +445,25 @@ export interface CanvasToolsDraft {
   connectMaxDepth: number;
   /** Connect: use every canvas vertex, or only a picked subset, as the pair endpoints. */
   connectScope: "all" | "pick";
+  /**
+   * Interact (feature canvas-interact): the filter rows that build the match set the tab's two
+   * verbs act on. Every one is INACTIVE when blank - which is why the two numeric thresholds are
+   * strings, since 0 is a legitimate degree bound and "" has to mean "not filtering" - and with
+   * none of them active the match set is every canvas vertex, i.e. "expand all".
+   */
+  interactLabel: string;
+  interactPropKey: string;
+  interactPropTerm: string;
+  /** Which edges the degree comparison counts: the database's answer, or the loaded ones. */
+  interactDegreeSource: "database" | "canvas";
+  interactDegreeDirection: "in" | "out" | "total";
+  interactDegreeOp: "over" | "under";
+  interactDegreeValue: string;
+  interactSemanticText: string;
+  interactSemanticIndexId: string;
+  interactSemanticDirection: "closer" | "farther";
+  /** The threshold in the metric's RAW units, as typed (blank = the filter is off). */
+  interactSemanticThreshold: string;
 }
 
 export const DEFAULT_CANVAS_TOOLS_DRAFT: CanvasToolsDraft = {
@@ -454,6 +473,17 @@ export const DEFAULT_CANVAS_TOOLS_DRAFT: CanvasToolsDraft = {
   findResultType: "Both",
   connectMaxDepth: 3,
   connectScope: "all",
+  interactLabel: "",
+  interactPropKey: "",
+  interactPropTerm: "",
+  interactDegreeSource: "database",
+  interactDegreeDirection: "total",
+  interactDegreeOp: "over",
+  interactDegreeValue: "",
+  interactSemanticText: "",
+  interactSemanticIndexId: "",
+  interactSemanticDirection: "closer",
+  interactSemanticThreshold: "",
 };
 
 /** One-shot navigation intent: "open Query with this index preselected" (cleared on consume). */

@@ -132,6 +132,8 @@ The right-hand panel is a tool strip with three tabs (**Style**, **Find**, and *
 
 When you switch **color by** or **size by** (and the edge equivalents) to **property**, a text field appears directly under the picker for the property key. It is seeded with the first property present on the canvas so it is never blank, suggests the other keys as you type, and stays free text, so you set the key yourself. You do not hand-pick the colors: each distinct value gets a stable color from a fixed palette, unless every value is numeric, in which case elements shade along a cyan→pink gradient; missing or blank values render grey. Sizes and widths from a numeric property are min-max scaled into a range. For edges, "label" anywhere on this panel means the display name: the edge's optional label, falling back to its type, `edgePropertyId` ([edge type vs label](/graph-model/#edge-type-vs-label)).
 
+The right-hand panel is a tool strip: **Style**, **Find**, **Connect**, and **Interact**, with the selection-driven detail panel below it under every tab.
+
 **Find** searches the whole graph without leaving the canvas. It reuses the all-property search (a case-insensitive substring across every property value, optionally narrowed to one label), so you type a term (e.g. `acme`), pick vertices/edges/both, and get a compact result list of matches. Each row shows the element's id and label, whether it is **already on the canvas**, and a one-click add; **Send all** adds every match at once (the first 500 are hydrated). Clicking a row's id selects it into the detail panel below, so you can inspect an element's full properties before deciding to add it. Hovering a row spotlights that element's node on the canvas with a brief eclipse-style corona, so you can see where a match already sits before adding more. It is an un-indexed discovery scan; for hot or very large graphs, an [index](/indexes/) is the right tool.
 
 ![Canvas Find tab: hovering a result row spotlights its node on the canvas with an eclipse corona](../../assets/images/screen-canvas-find.png)
@@ -140,7 +142,18 @@ When you switch **color by** or **size by** (and the edge equivalents) to **prop
 
 ![Canvas Connect tab: a picked set of canvas vertices, the pair budget, and the found-connection summary over the rendered graph](../../assets/images/screen-canvas-connect.png)
 
-A legend (categorical or gradient) reflects the active color mode. Selecting a node or edge (on the canvas, or from a Find result) opens the detail panel with its properties; **Expand neighbors** merges a vertex's 1-hop neighborhood, and **Remove from view** affects only the canvas: it never deletes from the database. A path found on the Traverse screen arrives as a highlighted overlay.
+**Interact** applies the same two verbs to *many* vertices at once. You filter the canvas down to a match set, then **Expand** every match's neighborhood or **Remove** every match from the view. There is no "all" switch: with no filter set the match set is simply every vertex here, which is how you expand or clear the whole canvas. Four filters combine, and each is off while its field is blank:
+
+- **label**, matched exactly (a vertex the canvas holds only as an edge endpoint has no label read yet, so it never matches one);
+- **property**, a key with an optional value term, matched against the canvas snapshot (scalars, strings capped at 200 characters, so the Find tab remains the server-side search);
+- **degree**, over or under a number in the direction you pick, counted either from **the database** (the vertex's true degree, so "remove the real hubs" means what it says) or from **edges on canvas** (instant, and the number you actually see: a vertex you never expanded reads 0 here);
+- **semantic distance**, keeping vertices whose stored embedding is closer or farther than a threshold from a text you type. The threshold is in the index metric's own raw units, exactly as a search reports them. The row appears only where an embedding provider and a bound vector index can answer it, and says which is missing otherwise.
+
+Database degree and semantic distance cost server round trips, so they run behind **Preview**, which shows the evaluated match set as a hoverable list before anything happens to it. Editing a filter or changing the canvas retires that result and asks you to preview again, because acting on a match set the canvas has moved on from is exactly the mistake worth preventing. A vertex the semantic search returned **no score** for matches neither direction and is counted separately: nothing measured it, so calling it far would remove it on no evidence. An expand sweep is capped (each vertex costs several requests), reports what it expanded, and stops honestly at the 20,000-element canvas ceiling rather than looking like a graph with fewer neighbours.
+
+![Canvas Interact tab: a filtered match set with the two bulk actions over the rendered graph](../../assets/images/screen-canvas-interact.png)
+
+A legend (categorical or gradient) reflects the active color mode. Selecting a node or edge (on the canvas, or from a Find or Interact result) opens the detail panel with its properties; **Expand neighbors** merges that one vertex's 1-hop neighborhood, and **Remove from view** affects only the canvas: it never deletes from the database. Those two are the single-element form of the Interact tab's verbs and run the same code. A path found on the Traverse screen arrives as a highlighted overlay.
 
 ## Traverse
 

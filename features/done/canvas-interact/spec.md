@@ -150,6 +150,7 @@ for the single-element path.
 | Feature / layer | Impact | Handling |
 |---|---|---|
 | Engine / REST / MCP / OpenAPI | **None** - existing routes only | No snapshot regeneration, no MCP coverage change |
+| Studio REST wrappers (`api/endpoints.ts`) | `getInDegree`, `getOutDegree` and `embeddingSearch` gain an optional trailing `signal?: AbortSignal` (the `findPaths` precedent), which is what makes a batched sweep cancellable rather than merely ignored | Additive, no caller changes. Recorded here because the pre-implementation table said "existing routes only" and this is the one place that was not literally true |
 | Canvas Detail panel ([canvas-view-controls](../../done/canvas-view-controls/spec.md)) | Expand implementation moves to the shared lib; buttons and behaviour unchanged | Existing canvas tests must stay green unmodified |
 | [canvas-find-connect](../../done/canvas-find-connect/spec.md) | Fourth tab in the strip; FindPanel/ConnectPanel untouched; the eclipse hover-spotlight is reused | Tab-strip tests extend, none change meaning |
 | Style tab / `styleEngine` | Degree-based node sizing untouched; its exported `visibleDegrees` gains a second caller (the on-canvas degree source), so there is ONE home for counting canvas degree | No behaviour change in styling; the filter's field help says which source reads what |
