@@ -529,12 +529,12 @@ describe("expandVertices", () => {
     expect(neighborhoodMock.mock.calls[0][2].signal).toBe(controller.signal);
   });
 
-  it("keeps what already landed when cancelled mid-sweep", async () => {
+  it("keeps the batches that completed and claims nothing for the one it abandoned", async () => {
     const controller = new AbortController();
     const merged: number[] = [];
     neighborhoodMock.mockImplementation((_i, id) => {
-      // Abort during the first round; the second must not run.
-      if (id === 1) controller.abort();
+      // Abort during the SECOND round, so the test can see both halves of the rule.
+      if (id === 9) controller.abort();
       return Promise.resolve({ vertices: [vertex(id * 100)], edges: [], truncated: false });
     });
 
@@ -545,8 +545,32 @@ describe("expandVertices", () => {
     });
 
     expect(outcome.cancelled).toBe(true);
-    expect(outcome.attempted).toBe(8); // the first round completed and was kept
+    // The first batch of 8 finished before the abort: kept, merged, and counted.
+    expect(outcome.attempted).toBe(8);
+    expect(outcome.expanded).toBe(8);
     expect(merged.length).toBe(8);
+  });
+
+  it("counts nothing at all when the abort lands in the very first batch", async () => {
+    const controller = new AbortController();
+    const merged: number[] = [];
+    neighborhoodMock.mockImplementation((_i, id) => {
+      if (id === 1) controller.abort();
+      return Promise.resolve({ vertices: [vertex(id * 100)], edges: [], truncated: false });
+    });
+
+    const outcome = await expandVertices(instance, Array.from({ length: 20 }, (_v, i) => i + 1), {
+      skipIds: () => new Set(),
+      signal: controller.signal,
+      onMerge: (vertices) => merged.push(...vertices.map((v) => v.id)),
+    });
+
+    // An aborted batch is abandoned whole: nothing is merged, so "expanded 0" is the truth. The
+    // alternative - counting it - reported "expanded 8 of 20 · cancelled" with an unchanged canvas.
+    expect(outcome.cancelled).toBe(true);
+    expect(outcome.expanded).toBe(0);
+    expect(outcome.attempted).toBe(0);
+    expect(merged).toEqual([]);
   });
 
   it("counts a failed vertex instead of failing the sweep, and does not count it as expanded", async () => {
@@ -568,11 +592,13 @@ describe("expandVertices", () => {
     expect(outcome.expanded + outcome.failed).toBe(outcome.attempted);
   });
 
-  it("reports zero expanded when the real request seam fails for every vertex", async () => {
+  it("cannot tell a server that refused every adjacency read from a vertex with no neighbors", async () => {
     // Driven through the endpoints fetchVertexNeighborhood actually calls, not by mocking the
-    // primitive to reject: this is what a broken instance really looks like to the sweep. It
-    // documents the honest limitation - the primitive swallows HTTP failures and returns empty
-    // arrays, so these vertices count as EXPANDED with nothing found, not as failures.
+    // primitive to reject: this is what a broken instance really looks like to the sweep, and the
+    // answer is that it looks like nothing at all. The primitive swallows HTTP failures and
+    // returns empty arrays, so these vertices count as EXPANDED with nothing found. This test
+    // exists to PIN that limitation rather than to endorse it: `failed` cannot be read as
+    // "everything that went wrong", which is why the panel never says that.
     neighborhoodMock.mockImplementation((i, id, o) =>
       unmocked.fetchVertexNeighborhood!(i, id, o),
     );

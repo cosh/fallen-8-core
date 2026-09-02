@@ -307,8 +307,10 @@ export interface ExpandOutcome {
    * Vertices whose neighborhood fetch threw. NOTE the honest limitation: the neighborhood
    * primitive swallows per-request HTTP failures and returns empty arrays, so a vertex whose
    * adjacency the server refused looks exactly like a vertex with no neighbors. This counts only
-   * what reaches us as an exception (a malformed answer, an aborted fetch), which is why the
-   * panel never presents it as "everything that went wrong".
+   * what reaches us as an exception (a malformed answer), which is why the panel never presents
+   * it as "everything that went wrong" - and why an ABORT is handled by discarding its batch
+   * rather than by counting it here, since an aborted fetch does not throw out of the primitive
+   * either.
    */
   failed: number;
   /**
@@ -383,6 +385,17 @@ export async function expandVertices(
         }).catch(() => null),
       ),
     );
+
+    // An ABORTED batch is not an expanded one, and it does not announce itself: the neighborhood
+    // primitive swallows each request's failure and hands back empty arrays, so an aborted vertex
+    // is indistinguishable from a vertex with no neighbors. Counting those as expanded reported
+    // "expanded 8 of 20 - cancelled" having merged nothing, which is the same class of lie the
+    // attempted/expanded split exists to remove. So the batch is discarded, and `attempted` is
+    // not advanced past it either.
+    if (options.signal?.aborted) {
+      outcome.cancelled = true;
+      break;
+    }
 
     const vertices: VertexREST[] = [];
     const edges: EdgeREST[] = [];

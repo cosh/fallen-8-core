@@ -122,8 +122,12 @@ standing canvas rule, restated in the panel), and show the count on the button:
   (the single-remove precedent).
 - **Expand (N)** - per matched vertex, `fetchVertexNeighborhood` with the existing
   `EXPAND_EDGE_CAP` (200) per vertex and `skipNeighborIds` = the live canvas, merged as each
-  batch lands (`CONNECT_BATCH_SIZE`-style concurrency), progress `vertex X of Y`, Cancel keeps
-  what landed and stops issuing further requests (the signal reaches the fetches themselves).
+  batch lands (`CONNECT_BATCH_SIZE`-style concurrency), progress `vertex X of Y`, Cancel offered
+  whenever a run is in flight (filter or no filter) and stopping the requests themselves rather
+  than only their answers (the signal reaches the fetches). Cancel works in whole BATCHES: completed
+  ones are kept and counted, the in-flight one is dropped and counted as nothing, because the
+  neighborhood primitive answers an aborted fetch with empty arrays and crediting those reported
+  "expanded 8 of 20" over an unchanged canvas.
   Refused above `EXPAND_SWEEP_CAP` (100 matched vertices) - a single expand can
   cost hundreds of requests, so the filters are the narrowing tool and the refusal says so.
   The sweep also **stops early** when the canvas reaches `CANVAS_EXPAND_CEILING` (40,000

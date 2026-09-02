@@ -62,7 +62,7 @@ import {
   vectorIndexPluginOptions,
 } from "../lib/vectorIndexCreate";
 import { hydrateElements, isEdge, type HydrationProgress } from "../lib/hydrate";
-import { MAX_K } from "../lib/vectorSearch";
+import { MAX_K, boundedK } from "../lib/vectorSearch";
 import { TypedLiteralEditor } from "../components/TypedLiteralEditor";
 import { Field } from "../components/Field";
 import { help } from "../lib/fieldHelp";
@@ -241,7 +241,7 @@ export function QueryScreen() {
   // on the over-fetch, and explained itself with a chip about a vector that query never had. It
   // is not cleared on the way out, so returning to the vector form finds it intact.
   const exclusionActive = excludeElementId !== null && vectorForm;
-  const fetchK = exclusionActive ? Math.min(Number(vectorK) + 1, MAX_K) : Number(vectorK);
+  const fetchK = exclusionActive ? boundedK(Number(vectorK) + 1) : Number(vectorK);
   useEffect(() => {
     if (scanPrefill) {
       // A prefill always carries a VECTOR (find similar reads the element's own embedding), so

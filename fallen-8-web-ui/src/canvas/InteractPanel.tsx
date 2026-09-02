@@ -27,6 +27,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { useInstanceStore } from "../instances/registry";
 import { embeddingSearch } from "../api/endpoints";
+import { wasCancelled } from "../api/client";
 import { useStatus } from "../state/status";
 import { shapeSuggestions, useGraphShape } from "../state/graphShape";
 import {
@@ -112,8 +113,6 @@ export function InteractPanel({
    */
   const previewControllerRef = useRef<AbortController | null>(null);
   const expandControllerRef = useRef<AbortController | null>(null);
-  /** Set while a cancel is deliberate, so the abort is not reported as a failure. */
-  const cancelledRef = useRef(false);
 
   const filters: CheapFilters = useMemo(
     () => ({
@@ -178,9 +177,14 @@ export function InteractPanel({
    * A filter row the user has begun filling in but which cannot yet be applied: a property term
    * with no key, or a semantic half-pair. Load-bearing rather than cosmetic - without it, typing
    * "turbine vibration" and no threshold reads "no filter" and arms `Remove from view` over the
-   * WHOLE canvas, and so does the keystroke where a degree box is mid-edit ("1e", or cleared to
-   * retype), because a type=number input reports those as empty. So an incomplete filter disables
-   * the verbs instead of silently widening them to everything.
+   * WHOLE canvas.
+   *
+   * The degree box is deliberately NOT covered, because it cannot be: a `type=number` input
+   * reports "1e" and "cleared to retype" as the same empty string an intentional "off" produces,
+   * so the two are indistinguishable and treating empty as incomplete would make switching the
+   * filter off impossible. Emptying it therefore does widen the match set to the whole canvas -
+   * visibly, since the count line then reads "no filter", and inertly, since widening arms a
+   * button rather than pressing it.
    */
   const incomplete: string | null = (() => {
     if (draft.interactPropTerm.trim() !== "" && draft.interactPropKey.trim() === "") {
@@ -221,6 +225,16 @@ export function InteractPanel({
     draft.interactSemanticThreshold,
   ]);
 
+  // An incomplete row retires an evaluated set too, and for a plainer reason than staleness: the
+  // panel would otherwise show a hoverable list of matches under a warning saying the filter
+  // cannot be applied, beside buttons reporting zero. Three different answers on one screen.
+  useEffect(() => {
+    if (incomplete !== null) {
+      previewControllerRef.current?.abort();
+      setEvaluated(null);
+    }
+  }, [incomplete]);
+
   // Clear a lingering spotlight when this tab unmounts, like the Find tab, and STOP whatever is
   // running: switching tabs unmounts this panel, and a sweep left running would keep issuing
   // requests with its Cancel button gone, while the button on remount invites a second one over
@@ -243,7 +257,6 @@ export function InteractPanel({
     mutationFn: async () => {
       const controller = new AbortController();
       previewControllerRef.current = controller;
-      cancelledRef.current = false;
       setEvaluated(null);
       setOverCap(null);
 
@@ -330,7 +343,6 @@ export function InteractPanel({
       if (!matchIds || matchCount > EXPAND_SWEEP_CAP) return;
       const controller = new AbortController();
       expandControllerRef.current = controller;
-      cancelledRef.current = false;
       setExpandReport(null);
       setProgress({ done: 0, total: matchIds.length });
 
@@ -355,10 +367,14 @@ export function InteractPanel({
 
   const expandOverCap = matchCount > EXPAND_SWEEP_CAP;
   const busy = preview.isPending || expand.isPending;
-  // react-query does not treat an aborted MUTATION as a cancellation, so without this the person
-  // who pressed Cancel gets a red error box for doing exactly what the button offered (the
-  // Integrations screen's send-cancel is the precedent).
-  const failed = (preview.isError || expand.isError) && !cancelledRef.current;
+  // An abort is not a failure. `wasCancelled` reads it off the ERROR (see api/client.ts, which
+  // owns this explanation and the Integrations screen's precedent), which matters here because a
+  // run is aborted by two different things: the Cancel button, and an invalidation retiring a
+  // Preview whose filters changed. A flag set by the button alone left the second one showing a
+  // bare red box to somebody who had merely typed in a filter field.
+  const failed =
+    (preview.isError && !wasCancelled(preview.error)) ||
+    (expand.isError && !wasCancelled(expand.error));
   const { shown, total } = capList(evaluated?.ids ?? []);
   const labelOptions = [
     ...new Set([
@@ -580,24 +596,28 @@ export function InteractPanel({
         )}
       </div>
 
-      {costly && (
+      {/* Preview belongs to the costly filters, but Cancel belongs to whatever is RUNNING: it sat
+          inside this block once, which left the commonest sweep of all - an unfiltered expand of
+          up to a hundred vertices - with no way to stop it at all. */}
+      {(costly || busy) && (
         <div className="flex gap-2">
-          <button
-            type="button"
-            className="btn btn-accent"
-            data-testid="interact-preview"
-            disabled={busy}
-            onClick={() => preview.mutate()}
-          >
-            {preview.isPending ? "Evaluating…" : "Preview"}
-          </button>
+          {costly && (
+            <button
+              type="button"
+              className="btn btn-accent"
+              data-testid="interact-preview"
+              disabled={busy || incomplete !== null}
+              onClick={() => preview.mutate()}
+            >
+              {preview.isPending ? "Evaluating…" : "Preview"}
+            </button>
+          )}
           {busy && (
             <button
               type="button"
               className="btn"
               data-testid="interact-cancel"
               onClick={() => {
-                cancelledRef.current = true;
                 previewControllerRef.current?.abort();
                 expandControllerRef.current?.abort();
               }}
@@ -618,7 +638,11 @@ export function InteractPanel({
           {overCap}
         </div>
       )}
-      {failed && <ErrorBox error={preview.error ?? expand.error} />}
+      {failed && (
+        <ErrorBox
+          error={preview.isError && !wasCancelled(preview.error) ? preview.error : expand.error}
+        />
+      )}
 
       {evaluated && evaluated.ids.length > 0 && (
         <div className="scroll-list" style={scrollRows(SCROLL_ROWS.default)}>
