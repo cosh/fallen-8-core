@@ -504,9 +504,12 @@ export function InteractPanel({
               placeholder="describe what matters…"
             />
             <div className="flex gap-1">
+              {/* Sized by flex-BASIS, for the reason spelled out on the degree row above:
+                  `.input` carries w-full, so w-auto lost and this select ate the whole row,
+                  leaving the threshold a sliver too narrow to type a score into. */}
               <select
                 data-testid="interact-semantic-direction"
-                className="input w-auto"
+                className="input min-w-0 flex-1"
                 value={draft.interactSemanticDirection}
                 onChange={(e) =>
                   setDraft({
@@ -521,7 +524,7 @@ export function InteractPanel({
                 data-testid="interact-semantic-threshold"
                 type="number"
                 step="any"
-                className="input min-w-0 flex-1"
+                className="input flex-[0_0_6.5rem]"
                 value={draft.interactSemanticThreshold}
                 onChange={(e) => setDraft({ interactSemanticThreshold: e.target.value })}
                 placeholder="raw score"
