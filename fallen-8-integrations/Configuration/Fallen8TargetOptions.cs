@@ -77,5 +77,36 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   </para>
         /// </summary>
         public Int32 TimeoutSeconds { get; set; } = 330;
+
+        /// <summary>
+        ///   How many summary-embedding chunks the run keeps in flight at once (feature
+        ///   integration-embed-concurrency). Default 1 is the strictly sequential behaviour this loop has
+        ///   always had, down to the order the requests go out in.
+        ///
+        ///   <para>It exists because the embed phase is the one measured in HOURS and, against a REMOTE
+        ///   backend, most of each round trip is network and queueing rather than inference: raising this
+        ///   fills that idle time. It is the right lever precisely because it changes nothing about a
+        ///   single request - not the chunk size, not the route's item cap
+        ///   (<c>Fallen8:Embedding:MaxBatchSize</c>, which the Nahil compose ships at 32), and not the
+        ///   per-request timeout that a bigger chunk would run into. Raising the chunk size instead was
+        ///   measured and rejected; see the feature spec.</para>
+        ///
+        ///   <para>Clamped to 1..<see cref="Graph.Fallen8RestTarget.MaxEmbedConcurrency" />, because it
+        ///   multiplies both the request rate against a rate-limited route and the number of bodies held in
+        ///   memory at once, and nothing downstream bounds either.</para>
+        ///
+        ///   <para>Three things to know before raising it. The embedding route carries the
+        ///   sensitive-endpoint rate limit (30 requests per 10 s window as shipped), and concurrency is
+        ///   exactly what makes that window easy to trip; a 429 is survivable rather than fatal, because
+        ///   the phase drops back to sequential, waits out the window and asks again. A run PICKED UP after
+        ///   an interruption may re-embed up to this many chunks minus one, because the resume cursor only
+        ///   advances over chunks whose predecessors have all landed - re-embedding is idempotent, so that
+        ///   is bounded rework rather than a correctness question. And against a backend that SERIALIZES
+        ///   inference (a single-slot local model), the Nth in-flight request spends N-1 inference times
+        ///   queued while its own client clock runs, so a high value can convert a slow-but-working phase
+        ///   into one that trips <see cref="TimeoutSeconds" />: this is a knob for a remote backend, where
+        ///   the idle time it fills is network rather than model.</para>
+        /// </summary>
+        public Int32 EmbedConcurrency { get; set; } = 1;
     }
 }

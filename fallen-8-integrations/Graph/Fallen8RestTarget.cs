@@ -117,22 +117,61 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// </summary>
         private const Int32 EmbedBatchSize = 16;
 
+        /// <summary>
+        ///   How long the embed phase waits after the target throttled it, before going on at a reduced
+        ///   rate. Sized to outlast the target's rate-limit WINDOW: the shipped one is a fixed 10 s window
+        ///   (<c>Fallen8:Security:RateLimitWindowSeconds</c>), and a wait shorter than the window is
+        ///   answered 429 again. The target names no <c>Retry-After</c>, so this is the runtime's own
+        ///   number rather than an honoured hint.
+        /// </summary>
+        private static readonly TimeSpan ThrottleBackoff = TimeSpan.FromSeconds(12);
+
         /// <summary>The equality operator's wire code, from the engine's own operator enum.</summary>
         private const Int32 EqualsOperator = 0;
 
         private readonly HttpClient _client;
         private readonly String _prefix;
         private readonly Boolean _ownsClient;
+        private readonly Int32 _embedConcurrency;
+        private readonly Func<TimeSpan, CancellationToken, Task> _wait;
 
         /// <param name="client">The configured client: base address and the api key header this runtime
         /// presents as ITSELF. A caller's credential is never forwarded.</param>
         /// <param name="namespaceName">The namespace to write into; the reserved default uses the bare routes.</param>
         /// <param name="ownsClient">Whether disposing this target disposes the client.</param>
-        public Fallen8RestTarget(HttpClient client, String? namespaceName, Boolean ownsClient = true)
+        /// <param name="embedConcurrency">How many summary chunks may be in flight at once
+        /// (<c>Fallen8Target:EmbedConcurrency</c>). Defaults to 1, which is the sequential behaviour this
+        /// loop has always had, so a caller that does not care - including every test that builds a target
+        /// directly - gets exactly today's request sequence.</param>
+        /// <param name="wait">How the embed phase waits out a throttle. Injectable so a test can assert
+        /// the BEHAVIOUR (the rate really drops, the phase really finishes) without spending the real
+        /// backoff; production leaves it null and gets <see cref="Task.Delay(TimeSpan, CancellationToken)" />.</param>
+        public Fallen8RestTarget(HttpClient client, String? namespaceName, Boolean ownsClient = true,
+            Int32 embedConcurrency = 1, Func<TimeSpan, CancellationToken, Task>? wait = null)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
             _ownsClient = ownsClient;
             _prefix = BuildPrefix(namespaceName);
+            // Clamped at both ends. The floor is what makes "unset" mean sequential; the ceiling is
+            // because this is an operator-typed number that multiplies both the request rate against a
+            // rate-limited route and the bodies held in memory at once, and nothing downstream bounds it.
+            _embedConcurrency = ClampEmbedConcurrency(embedConcurrency);
+            _wait = wait ?? ((delay, token) => Task.Delay(delay, token));
+        }
+
+        /// <summary>
+        ///   The most chunks this runtime will ever have in flight, whatever an operator configures.
+        ///   Beyond this the numbers stop being about filling network idle time: the request rate runs
+        ///   into the embedding route's rate-limit window, and every in-flight chunk is a body held in
+        ///   memory. A configured value above it is clamped rather than refused, because a run is not the
+        ///   place to argue about a tuning knob.
+        /// </summary>
+        public const Int32 MaxEmbedConcurrency = 16;
+
+        /// <summary>The clamp itself, exposed so the bound is testable without a run.</summary>
+        public static Int32 ClampEmbedConcurrency(Int32 configured)
+        {
+            return Math.Clamp(configured, 1, MaxEmbedConcurrency);
         }
 
         private Int32 _mutations;
@@ -599,9 +638,80 @@ namespace NoSQL.GraphDB.Integrations.Graph
             // the failure.
             var written = 0;
 
-            try
+            // The chunks, cut in order, and what each one has done. Two counters come out of this and
+            // they are deliberately DIFFERENT numbers once chunks may complete out of order (feature
+            // integration-embed-concurrency):
+            //
+            //   `written`  - every summary that landed anywhere, which is what the outcome, the exception
+            //                and report.SummariesEmbedded answer. Reporting less would be false about
+            //                vectors a bound index already answers searches over.
+            //   the CURSOR - only the completed PREFIX, reported through progress.Advance, because
+            //                SpooledProgress.Remaining() resumes by SKIPPING the first `Embedded`
+            //                entries of the plan. Advancing it past a gap would strand the gap's
+            //                summaries for ever: the applier embeds only entities whose data changed, so
+            //                a later run finds everything equal and embeds nothing. Cumulative ack, in
+            //                other words, and the reason this loop is not just a semaphore.
+            var chunks = new List<(Int32 Offset, Int32 Take)>();
+            for (var offset = 0; offset < summaries.Count; offset += EmbedBatchSize)
             {
-                for (var offset = 0; offset < summaries.Count; offset += EmbedBatchSize)
+                chunks.Add((offset, Math.Min(EmbedBatchSize, summaries.Count - offset)));
+            }
+
+            var landed = new Boolean[chunks.Count];
+            var cursor = 0;
+            var acked = 0;
+
+            void AckPrefix()
+            {
+                // Walk from the first chunk not yet acknowledged: a chunk that finished early contributes
+                // nothing until its predecessors have. Monotonic by construction, which the progress sink
+                // and the run panel both rely on.
+                var moved = false;
+                while (acked < chunks.Count && landed[acked])
+                {
+                    cursor += chunks[acked].Take;
+                    acked++;
+                    moved = true;
+                }
+
+                if (moved)
+                {
+                    // Per chunk, because that is the only tick this loop has. At ~3 s an element it is a
+                    // visible move roughly every 45 s, which is the difference between "working" and
+                    // "hung" for a phase that runs for hours.
+                    progress?.Advance(cursor, summaries.Count);
+                }
+            }
+
+            // Up to Fallen8Target:EmbedConcurrency chunks in flight. Every outcome a chunk can have is
+            // carried BACK here rather than thrown from inside it, because the one thing this loop may
+            // never do is let an exception escape while other chunks are still writing: those writes land
+            // and would go uncounted, which is exactly what the whole count discipline above is about.
+            // So a stop, a degrade and a failure all end DISPATCH, then drain, then decide.
+            var running = new List<Task<ChunkOutcome>>();
+            String? degraded = null;
+            Exception? failed = null;
+            var stopped = false;
+            var next = 0;
+
+            // A THROTTLE is the one refusal that expires, and this feature is what makes it reachable:
+            // the embedding route allows 30 requests per 10 s window, which a fast remote backend brushes
+            // even sequentially and blows through at concurrency 4. Degrading on it would end the phase
+            // with a diagnostic, complete the run, delete the journal - and those summaries could then
+            // never be embedded again, because the applier only embeds entities whose data CHANGED. So a
+            // 429 drops the rate to sequential for the rest of the phase, waits out the window, and asks
+            // for that chunk again. A second 429 at that reduced rate is the target throttling a
+            // sequential caller, which is the window rather than our burst, and degrades as before.
+            var retry = new Queue<Int32>();
+            var retried = new Boolean[chunks.Count];
+            var effective = _embedConcurrency;
+            var reduced = false;
+            var backoffPending = false;
+
+            while (retry.Count > 0 || next < chunks.Count || running.Count > 0)
+            {
+                while (!stopped && degraded == null && failed == null && !backoffPending &&
+                       (retry.Count > 0 || next < chunks.Count) && running.Count < effective)
                 {
                     // THE SAFE POINT THIS FEATURE EXISTS FOR. This loop is the hours: a large extract
                     // at sixteen per chunk against CPU inference runs overnight, so a stop honoured only after
@@ -609,65 +719,249 @@ namespace NoSQL.GraphDB.Integrations.Graph
                     // atomic write on the target, and abandoning it in flight would leave a vector that landed
                     // uncounted, which is the one thing the written count must never be wrong about.
                     //
-                    // The count leaves on the exception, exactly as a failure's does: the vectors already
-                    // written are element state, as valid as if the rest had never been asked for.
-                    abort.ThrowIfRequested(written);
-
-                    var take = Math.Min(EmbedBatchSize, summaries.Count - offset);
-                    var items = new List<Object>(take);
-                    for (var i = offset; i < offset + take; i++)
+                    // Asked non-throwingly here, unlike the sequential version that threw on the spot: with
+                    // chunks in flight, throwing would abandon them. The stop is raised after the drain, with
+                    // the count they contributed, exactly as a failure's is.
+                    if (abort.Requested)
                     {
-                        items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
+                        stopped = true;
+                        break;
                     }
 
-                    var response = await SendForResponseAsync(HttpMethod.Post, "embedding/elements",
-                        new { name = embeddingName, items }, "the embedding write", cancellationToken)
+                    // A chunk the target throttled goes out again before any new one, so the plan's
+                    // order is preserved as far as the cursor is concerned.
+                    var index = retry.Count > 0 ? retry.Dequeue() : next++;
+                    running.Add(EmbedChunkAsync(embeddingName, summaries, chunks[index], index,
+                        cancellationToken));
+                }
+
+                if (running.Count == 0)
+                {
+                    if (backoffPending && !stopped && degraded == null && failed == null)
+                    {
+                        // Everything has drained, so the window can now expire without this runtime
+                        // adding to it. Asked for AFTER the drain rather than instead of it, because a
+                        // wait with chunks still in flight would be a wait during which we kept sending.
+                        backoffPending = false;
+                        try
+                        {
+                            await _wait(ThrottleBackoff, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException ex)
+                        {
+                            failed ??= ex;
+                        }
+
+                        continue;
+                    }
+
+                    break;
+                }
+
+                var finished = await Task.WhenAny(running).ConfigureAwait(false);
+                running.Remove(finished);
+                var outcome = await finished.ConfigureAwait(false);
+
+                if (outcome.Landed)
+                {
+                    written += outcome.Take;
+                    landed[outcome.Index] = true;
+                    try
+                    {
+                        AckPrefix();
+                    }
+                    catch (Exception ex)
+                    {
+                        // The ONE call in this loop that runs code the target does not own (the progress
+                        // sink, which writes the resume journal). Letting it escape here would abandon the
+                        // chunks still in flight - the very thing every other path in this method drains
+                        // to avoid - so it is captured and raised after the drain like any other failure.
+                        failed ??= ex;
+                    }
+                }
+                else if (outcome.Throttled)
+                {
+                    // Per CHUNK, not per phase. Every sibling in flight when the window closed is refused
+                    // for the same reason, so they all deserve the one retry: keying this off "have we
+                    // reduced yet" degraded the phase on the second sibling of the very burst the
+                    // reduction was answering.
+                    if (retried[outcome.Index])
+                    {
+                        // Refused again, and by now the rate is sequential: that is the target's window
+                        // rather than our burst, which is what the degrade set is actually about.
+                        degraded ??= outcome.Degrade;
+                    }
+                    else
+                    {
+                        retried[outcome.Index] = true;
+                        retry.Enqueue(outcome.Index);
+
+                        // The rate drops ONCE and never grows back: this phase has no way to tell whether
+                        // the window has room again, and probing for it is what caused the refusal.
+                        if (!reduced)
+                        {
+                            reduced = true;
+                            effective = 1;
+                            backoffPending = true;
+                        }
+                    }
+                }
+                else if (outcome.Degrade != null)
+                {
+                    // FIRST reason wins: with several in flight they tend to answer the same way, and the
+                    // report reads better for the one that actually stopped the phase.
+                    degraded ??= outcome.Degrade;
+                }
+                else
+                {
+                    failed ??= outcome.Failure;
+                }
+            }
+
+            if (failed != null)
+            {
+                // A real refusal outranks a stop: it says the runtime sent something the route will never
+                // accept, which recurs on the next run and is the operator's to fix, where a cancel is
+                // satisfied by simply having stopped.
+                //
+                // THE one place a failure is given the count, rather than each throw site being trusted to
+                // remember: the chunks that landed are element state, and a connection that died mid extract
+                // used to report zero for them - which is false about vectors a bound index answers searches
+                // over, and sends the operator to a tabula rasa they do not need. Given to EVERY exception
+                // that carries the field, not just the graph one: a content read hitting the client timeout
+                // arrives as a bare TaskCanceledException, and reporting zero for 48 landed summaries
+                // because of the exception's TYPE would be the same false report by another route.
+                switch (failed)
+                {
+                    case GraphTargetException graphFailure:
+                        graphFailure.SummariesWritten = written;
+                        break;
+
+                    case Run.RunStoppedException stopFailure:
+                        stopFailure.SummariesWritten = written;
+                        break;
+                }
+
+                // Capture-and-throw, not `throw failed`: rethrowing an exception object that was caught
+                // elsewhere resets its stack to THIS line, which for the broad catch in EmbedChunkAsync
+                // would erase the only record of where the fault actually came from.
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failed).Throw();
+            }
+
+            if (stopped)
+            {
+                // The count leaves on the exception, exactly as a failure's does: the vectors already
+                // written are element state, as valid as if the rest had never been asked for.
+                abort.ThrowIfRequested(written);
+            }
+
+            return new EmbeddingWriteOutcome(written, degraded);
+        }
+
+        /// <summary>
+        ///   What one summary chunk did. A RESULT rather than an exception on every path, because several
+        ///   chunks may be in flight and an exception escaping one of them would abandon the others while
+        ///   their writes were landing (see the count discipline in <c>EmbedSummariesAsync</c>).
+        /// </summary>
+        private readonly struct ChunkOutcome
+        {
+            public ChunkOutcome(Int32 index, Int32 take, Boolean landed, String? degrade, Exception? failure,
+                Boolean throttled = false)
+            {
+                Index = index;
+                Take = take;
+                Landed = landed;
+                Degrade = degrade;
+                Failure = failure;
+                Throttled = throttled;
+            }
+
+            /// <summary>Its position in chunk order, which is what the resume cursor is walked over.</summary>
+            public Int32 Index { get; }
+
+            /// <summary>How many summaries it carried.</summary>
+            public Int32 Take { get; }
+
+            public Boolean Landed { get; }
+
+            /// <summary>Why the phase degrades to absent, when it does (the provider or the window).</summary>
+            public String? Degrade { get; }
+
+            /// <summary>
+            ///   The refusal was a THROTTLE (429), which is the only one that expires: the caller drops
+            ///   its rate, waits out the window and asks again rather than giving the phase up. When it
+            ///   is set, <see cref="Degrade" /> carries the reason to use if the retry is refused too.
+            /// </summary>
+            public Boolean Throttled { get; }
+
+            /// <summary>The refusal to surface as a run failure, when it is one.</summary>
+            public Exception? Failure { get; }
+        }
+
+        /// <summary>Posts one chunk and classifies the answer. Never throws.</summary>
+        private async Task<ChunkOutcome> EmbedChunkAsync(String embeddingName,
+            IReadOnlyList<SummaryWrite> summaries, (Int32 Offset, Int32 Take) chunk, Int32 index,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                // Built INSIDE the try, so "never throws" holds for the body composition too: outside it,
+                // a fault here would escape while sibling chunks were still writing.
+                var items = new List<Object>(chunk.Take);
+                for (var i = chunk.Offset; i < chunk.Offset + chunk.Take; i++)
+                {
+                    items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
+                }
+
+                var response = await SendForResponseAsync(HttpMethod.Post, "embedding/elements",
+                    new { name = embeddingName, items }, "the embedding write", cancellationToken)
+                    .ConfigureAwait(false);
+
+                using (response)
+                {
+                    if (response.IsSuccessStatusCode)
+                    {
+                        return new ChunkOutcome(index, chunk.Take, true, null, null);
+                    }
+
+                    var status = (Int32)response.StatusCode;
+
+                    // 403 is the capability switched off, 502 and 503 are the backend not answering, and 429 is
+                    // the target throttling this runtime. All four DEGRADE TO ABSENT rather than failing a run
+                    // whose whole purpose is the graph write: an embedding is an addition to what landed, never a
+                    // precondition for it. Anything else is a real graph failure and surfaces as one.
+                    //
+                    // 429 is in that set BECAUSE of chunking, and was not reachable before it: the embedding route
+                    // carries the sensitive-endpoint rate limit (one process-wide fixed window), so a large extract
+                    // sent as hundreds of chunks can trip a throttle that one request never could. Failing the run
+                    // for the target's own pacing would make chunking a regression for exactly the large extracts
+                    // it exists to support. Concurrency makes that window easier to trip, which is why
+                    // Fallen8Target:EmbedConcurrency defaults to 1 and is the operator's to raise.
+                    //
+                    // Degrading STOPS DISPATCH instead of trying the remaining chunks: every one of these statuses
+                    // describes the provider or the window rather than this batch, so the next chunk would answer
+                    // the same way and a run over a large extract would spend hundreds of round-trips proving it.
+                    if (status == 403 || status == 429 || status == 502 || status == 503)
+                    {
+                        var detail = await response.Content.ReadAsStringAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                        var reason = String.Format(CultureInfo.InvariantCulture,
+                            "the target answered {0} to the embedding write ({1})", status,
+                            String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim());
+
+                        // 429 is marked apart from the other three because it is the only one that
+                        // EXPIRES: the window is seconds long, so the caller slows down and asks again
+                        // instead of ending the phase (see the throttle handling in EmbedSummariesAsync).
+                        return new ChunkOutcome(index, chunk.Take, false, reason, null, throttled: status == 429);
+                    }
+
+                    var body = await response.Content.ReadAsStringAsync(cancellationToken)
                         .ConfigureAwait(false);
 
-                    using (response)
-                    {
-                        if (response.IsSuccessStatusCode)
-                        {
-                            written += take;
-                            // Per chunk, because that is the only tick this loop has. At ~3 s an element it is a
-                            // visible move roughly every 45 s, which is the difference between "working" and
-                            // "hung" for a phase that runs for hours.
-                            progress?.Advance(written, summaries.Count);
-                            continue;
-                        }
-
-                        var status = (Int32)response.StatusCode;
-
-                        // 403 is the capability switched off, 502 and 503 are the backend not answering, and 429 is
-                        // the target throttling this runtime. All four DEGRADE TO ABSENT rather than failing a run
-                        // whose whole purpose is the graph write: an embedding is an addition to what landed, never a
-                        // precondition for it. Anything else is a real graph failure and surfaces as one.
-                        //
-                        // 429 is in that set BECAUSE of chunking, and was not reachable before it: the embedding route
-                        // carries the sensitive-endpoint rate limit (one process-wide fixed window), so a large extract
-                        // sent as hundreds of chunks can trip a throttle that one request never could. Failing the run
-                        // for the target's own pacing would make chunking a regression for exactly the large extracts
-                        // it exists to support.
-                        //
-                        // Degrading STOPS the loop instead of trying the remaining chunks: every one of these statuses
-                        // describes the provider or the window rather than this batch, so the next chunk would answer
-                        // the same way and a run over a large extract would spend hundreds of round-trips proving it.
-                        if (status == 403 || status == 429 || status == 502 || status == 503)
-                        {
-                            var detail = await response.Content.ReadAsStringAsync(cancellationToken)
-                                .ConfigureAwait(false);
-                            return new EmbeddingWriteOutcome(written, String.Format(CultureInfo.InvariantCulture,
-                                "the target answered {0} to the embedding write ({1})", status,
-                                String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()));
-                        }
-
-                        var body = await response.Content.ReadAsStringAsync(cancellationToken)
-                            .ConfigureAwait(false);
-
-                        throw new GraphTargetException(String.Format(CultureInfo.InvariantCulture,
+                    return new ChunkOutcome(index, chunk.Take, false, null, new GraphTargetException(
+                        String.Format(CultureInfo.InvariantCulture,
                             "The graph refused the embedding write with {0}: {1}", status,
-                            String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim()));
-                    }
+                            String.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body.Trim())));
                 }
             }
             catch (GraphTargetTimeoutException)
@@ -676,24 +970,20 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 // embedding budget is longer than any other route's, this runtime cannot make a model answer
                 // faster, and an embedding is an addition to what landed rather than a precondition for it -
                 // so pre-empting it must not fail a run whose graph writes are already in. Every other call
-                // this target makes keeps timeout-as-failure. It stops the loop for the reason 503 does: the
+                // this target makes keeps timeout-as-failure. It stops dispatch for the reason 503 does: the
                 // next chunk faces the same model. A cancellation the CALLER requested never arrives here,
                 // because the token decides that and not the exception type (see RestSeam).
-                return new EmbeddingWriteOutcome(written,
+                return new ChunkOutcome(index, chunk.Take, false,
                     "the target did not answer the embedding write within this runtime's own timeout " +
-                    "(Fallen8Target:TimeoutSeconds)");
+                    "(Fallen8Target:TimeoutSeconds)", null);
             }
-            catch (GraphTargetException failure)
+            catch (Exception ex)
             {
-                // THE one place a failure is given the count, rather than each throw site being trusted to
-                // remember: the chunks that landed are element state, and a connection that died mid extract
-                // used to report zero for them - which is false about vectors a bound index answers searches
-                // over, and sends the operator to a tabula rasa they do not need.
-                failure.SummariesWritten = written;
-                throw;
+                // Everything else - a graph refusal, a cancellation of the caller's token, anything
+                // unforeseen - rides back as data so the drain can finish first. The caller decides what it
+                // means; nothing is swallowed.
+                return new ChunkOutcome(index, chunk.Take, false, null, ex);
             }
-
-            return new EmbeddingWriteOutcome(written, null);
         }
 
         public void Dispose()

@@ -578,6 +578,22 @@ Two things worth knowing before you run it:
 - **The summaries are written in batches**, so a large extract is many requests rather than one.
   If the provider stops answering half way, the vectors that already landed stay: the run reports
   the count that was written and a diagnostic naming the shortfall.
+- **Those batches can go out in parallel**, which is the one tuning worth knowing about for a phase
+  that runs for hours. `Fallen8Target:EmbedConcurrency` (`F8_INTEGRATIONS_EMBED_CONCURRENCY` in the
+  compose environment) is how many are in flight at once. It defaults to **1**, meaning strictly one
+  after another, and is capped at 16 whatever you configure. It deliberately makes no single request
+  bigger or slower, so it cannot run into the embedding route's per-batch item cap or its timeout.
+
+  Raise it against a **remote** embedding backend, where most of each round trip is network and
+  queueing rather than model time. Against a **local** model it does not merely fail to help: a
+  backend that answers one request at a time leaves the second and later requests queued while their
+  own clocks run, so a high setting can turn a slow-but-working phase into one that times out.
+
+  Two more things to know. The embedding route carries a rate limit, and parallel batches are what
+  make a fixed window easy to trip; a throttle is not fatal, because the run drops back to one
+  request at a time, waits out the window and asks again rather than abandoning those summaries.
+  And a run [picked up](#restarts) after an interruption may re-embed up to that many batches minus
+  one, because the resume point only moves past a batch once every batch before it has landed.
 
 ## Reading a vehicle network
 

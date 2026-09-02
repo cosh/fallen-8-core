@@ -91,7 +91,8 @@ namespace NoSQL.GraphDB.Integrations.Run
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
             var target = String.IsNullOrWhiteSpace(namespaceName) ? options.DefaultNamespace : namespaceName;
-            return new Fallen8RestTarget(client, target);
+            return new Fallen8RestTarget(client, target, ownsClient: true,
+                embedConcurrency: options.EmbedConcurrency);
         }
     }
 }
