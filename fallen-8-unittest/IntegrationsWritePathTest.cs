@@ -685,6 +685,174 @@ namespace NoSQL.GraphDB.Tests
                 String.Join(", ", handler.BatchSizes));
         }
 
+        #region embed concurrency (feature integration-embed-concurrency)
+
+        /// <summary>
+        /// THE test this feature exists for. The resume cursor is a PREFIX count - SpooledProgress.Remaining()
+        /// resumes by skipping the first `Embedded` entries of the plan - so a cursor advanced past a chunk
+        /// that has not landed strands that chunk's summaries PERMANENTLY: the applier embeds only entities
+        /// whose data changed, so a later run finds everything equal and embeds nothing. With chunks
+        /// completing out of order, the naive `written += take` does exactly that.
+        /// </summary>
+        [TestMethod]
+        public async Task WithChunksCompletingOutOfOrder_TheCursorNeverMovesPastAGap()
+        {
+            // The ordering that discriminates, which is narrower than "something finishes late". The cursor
+            // is only ever REPORTED when the prefix moves, so a gap alone proves nothing: the moment that
+            // tells a prefix from a total is a prefix ADVANCING while later chunks have already landed.
+            //
+            // So: chunk 2 (ordinal 2) is held for the whole assertion, and chunk 1 (ordinal 1) is made
+            // slower than its successors. Chunks 3 and 4 land first (nothing is reported, the prefix is
+            // still stuck at zero), then chunk 1 lands and moves the prefix to exactly 16 - while 48
+            // summaries have really landed. A prefix cursor says 16 there; a total says 48 and would strand
+            // chunk 2's summaries on a pickup.
+            var gate = new TaskCompletionSource<Boolean>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var handler = new EmbedBatchRecordingHandler(holdChunk: 2, held: gate.Task,
+                delayBy: ordinal => ordinal == 1 ? TimeSpan.FromMilliseconds(80) : TimeSpan.Zero);
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 4);
+
+            var advances = new List<Int32>();
+            var progress = new RecordingProgress(advances);
+
+            var run = target.EmbedSummariesAsync("default", Summaries(160), CancellationToken.None, progress);
+
+            // Wait for the CURSOR to move, not for the handler's answered count: the loop processes a
+            // completion after the handler has recorded it, so the two are not the same instant.
+            var beforeRelease = await progress.WaitForAdvances(1).ConfigureAwait(false);
+            Assert.AreNotEqual(0, beforeRelease.Length,
+                "the prefix must have moved once (chunk 1 landed), or this test proves nothing");
+            Assert.IsTrue(handler.BatchSizes.Count >= 3,
+                "and later chunks must already have landed, or there is no gap to run past: " +
+                handler.BatchSizes.Count + " answered");
+            gate.SetResult(true);
+            var outcome = await run.ConfigureAwait(false);
+
+            Assert.AreEqual(160, outcome.Written, "every summary landed once the straggler answered");
+            Assert.IsNull(outcome.Degraded);
+
+            // The gap is chunk index 1, i.e. summaries 16..31. Until it landed, NOTHING beyond summary 16
+            // may have been reported: reporting 48 there is the bug, and a pickup would then skip 16..31.
+            foreach (var reported in beforeRelease)
+            {
+                Assert.IsTrue(reported <= EmbedChunk,
+                    "the cursor ran past a chunk that had not landed, which strands its summaries for ever: " +
+                    String.Join(", ", beforeRelease));
+            }
+
+            var all = progress.Snapshot();
+            Assert.AreEqual(160, all[all.Length - 1],
+                "and once the gap closed the cursor caught up to the whole plan");
+            CollectionAssert.AreEqual(all.OrderBy(value => value).ToArray(), all,
+                "a cursor that goes backwards would rewrite the journal to an earlier point: " +
+                String.Join(", ", all));
+        }
+
+        [TestMethod]
+        public async Task ConcurrencyIsBounded_SoTheRouteNeverSeesMoreInFlightThanConfigured()
+        {
+            var handler = new EmbedBatchRecordingHandler(delay: TimeSpan.FromMilliseconds(30));
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 3);
+
+            var outcome = await target.EmbedSummariesAsync("default", Summaries(160), CancellationToken.None);
+
+            Assert.AreEqual(160, outcome.Written);
+            Assert.AreEqual(3, handler.MaxInFlight,
+                "the semaphore is what keeps a rate-limited route reachable: " + handler.MaxInFlight);
+        }
+
+        [TestMethod]
+        public async Task AtTheDefaultOfOne_TheRequestsGoOutOneAtATimeAndInChunkOrder()
+        {
+            // The default has to be today's behaviour exactly, or this feature is a silent change to every
+            // existing deployment rather than an opt-in.
+            var handler = new EmbedBatchRecordingHandler(delay: TimeSpan.FromMilliseconds(5));
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false);
+
+            var advances = new List<Int32>();
+            var outcome = await target.EmbedSummariesAsync("default", Summaries(64), CancellationToken.None,
+                new RecordingProgress(advances));
+
+            Assert.AreEqual(64, outcome.Written);
+            Assert.AreEqual(1, handler.MaxInFlight, "one at a time, as it always was");
+            CollectionAssert.AreEqual(new[] { 16, 32, 48, 64 }, advances,
+                "and the cursor ticks once per chunk, in order: " + String.Join(", ", advances));
+        }
+
+        [TestMethod]
+        public async Task AFailedChunkWithLaterOnesLanded_ReportsTheTotalWhileTheCursorHeldAtTheGap()
+        {
+            // The two numbers are deliberately different, and this is the case that proves it: the report
+            // must credit every vector that landed, while the cursor may only credit the prefix.
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 1, status: HttpStatusCode.BadRequest,
+                delay: TimeSpan.FromMilliseconds(15));
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 4);
+
+            var advances = new List<Int32>();
+            var failure = await Assert.ThrowsExceptionAsync<GraphTargetException>(
+                () => target.EmbedSummariesAsync("default", Summaries(64), CancellationToken.None,
+                    new RecordingProgress(advances)));
+
+            Assert.IsTrue(failure.SummariesWritten > 0,
+                "the chunks that landed while the first was failing are element state and must be reported");
+            Assert.AreEqual(0, advances.Count,
+                "but the CURSOR never moved, because the very first chunk is the gap: " +
+                String.Join(", ", advances));
+        }
+
+        [TestMethod]
+        public async Task AStopWithChunksInFlight_AwaitsThemSoTheirWritesAreCounted()
+        {
+            // Abandoning an in-flight chunk would leave a vector that landed uncounted, which is the one
+            // thing the written count must never be wrong about.
+            using var cancel = new CancellationTokenSource();
+            var handler = new EmbedBatchRecordingHandler(delay: TimeSpan.FromMilliseconds(25),
+                afterChunk: answered =>
+                {
+                    if (answered == 1)
+                    {
+                        cancel.Cancel();
+                    }
+                });
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 4);
+
+            var stopped = await Assert.ThrowsExceptionAsync<RunCancelledException>(
+                () => target.EmbedSummariesAsync("default", Summaries(160), CancellationToken.None, null,
+                    new RunAbort(cancel.Token)));
+
+            Assert.AreEqual(handler.BatchSizes.Count * EmbedChunk, stopped.SummariesWritten,
+                "every chunk the target answered is counted, including the ones that were in flight when " +
+                "the stop arrived: " + stopped.SummariesWritten + " for " + handler.BatchSizes.Count +
+                " answered chunks");
+            Assert.IsTrue(handler.BatchSizes.Count < 10,
+                "and the stop really stopped dispatch rather than letting the whole plan go out");
+        }
+
+        [TestMethod]
+        public async Task ADegradeWithConcurrencyOn_StopsDispatchInsteadOfSendingTheRest()
+        {
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 2, status: HttpStatusCode.TooManyRequests,
+                delay: TimeSpan.FromMilliseconds(10));
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 4);
+
+            var outcome = await target.EmbedSummariesAsync("default", Summaries(320), CancellationToken.None);
+
+            StringAssert.Contains(outcome.Degraded ?? String.Empty, "429",
+                "the throttle is reported rather than silently swallowed");
+            Assert.IsTrue(handler.BatchSizes.Count <= 8,
+                "a 429 describes the WINDOW, so the remaining chunks are not tried: a large extract would " +
+                "otherwise spend hundreds of round-trips proving the same thing (" +
+                handler.BatchSizes.Count + " sent of 20)");
+            Assert.IsTrue(outcome.Written > 0, "and what landed before the throttle is still reported");
+        }
+
+        #endregion
+
         [TestMethod]
         public async Task AProviderThatStopsAnsweringMidChunk_StillReportsWhatAlreadyLanded()
         {
@@ -2101,37 +2269,108 @@ namespace NoSQL.GraphDB.Tests
             /// <param name="afterChunk">Runs once a chunk has been answered, with the number answered so far.
             /// The seam a stop needs: it lets a test trip the run's abort BETWEEN two chunks, which is the only
             /// place the loop looks at it.</param>
+            /// <param name="delay">How long each answer takes, so several chunks can be in flight at once
+            /// (feature integration-embed-concurrency). Zero keeps every answer synchronous.</param>
+            /// <param name="holdChunk">The 1-based chunk to hold until <paramref name="held" /> completes,
+            /// which is how a test makes completion UNORDERED on purpose.</param>
+            /// <param name="held">The task that releases the held chunk.</param>
+            /// <param name="delayBy">Per-chunk delay, by 1-based arrival ordinal. The seam the out-of-order
+            /// test needs: making one chunk slower than its successors is how a LATER chunk lands before an
+            /// EARLIER one, which is the only shape that tells a prefix cursor apart from a total.</param>
             public EmbedBatchRecordingHandler(Int32 failOnCall = 0,
                 HttpStatusCode status = HttpStatusCode.ServiceUnavailable, Exception throwInstead = null,
-                Action<Int32> afterChunk = null)
+                Action<Int32> afterChunk = null, TimeSpan delay = default, Int32 holdChunk = 0,
+                Task held = null, Func<Int32, TimeSpan> delayBy = null)
             {
                 _failOnCall = failOnCall;
                 _status = status;
                 _throwInstead = throwInstead;
                 _afterChunk = afterChunk;
+                _delay = delay;
+                _holdChunk = holdChunk;
+                _held = held;
+                _delayBy = delayBy;
             }
 
+            private readonly Func<Int32, TimeSpan> _delayBy;
+            private readonly TimeSpan _delay;
+            private readonly Int32 _holdChunk;
+            private readonly Task _held;
+            private readonly Object _gate = new Object();
+            private Int32 _inFlight;
+
             public List<Int32> BatchSizes { get; } = new List<Int32>();
+
+            /// <summary>The most requests this handler ever had open at once: the bound, observed.</summary>
+            public Int32 MaxInFlight { get; private set; }
 
             protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
                 CancellationToken cancellationToken)
             {
                 var body = await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 using var parsed = JsonDocument.Parse(body);
-                BatchSizes.Add(parsed.RootElement.GetProperty("items").GetArrayLength());
+                var items = parsed.RootElement.GetProperty("items").GetArrayLength();
 
-                if (_failOnCall > 0 && BatchSizes.Count == _failOnCall)
+                Int32 ordinal;
+                lock (_gate)
                 {
-                    if (_throwInstead != null)
+                    _inFlight++;
+                    if (_inFlight > MaxInFlight)
                     {
-                        throw _throwInstead;
+                        MaxInFlight = _inFlight;
                     }
 
-                    return new HttpResponseMessage(_status) { Content = new StringContent("refused") };
+                    // The ordinal is taken on ARRIVAL and the size recorded on DEPARTURE, so BatchSizes
+                    // counts answered chunks (what the assertions are about) while the hold still targets
+                    // the chunk the caller meant.
+                    ordinal = _inFlight + BatchSizes.Count;
                 }
 
-                _afterChunk?.Invoke(BatchSizes.Count);
-                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("true") };
+                try
+                {
+                    if (_holdChunk > 0 && ordinal == _holdChunk && _held != null)
+                    {
+                        await _held.ConfigureAwait(false);
+                    }
+                    else if (_delayBy != null)
+                    {
+                        var wait = _delayBy(ordinal);
+                        if (wait > TimeSpan.Zero)
+                        {
+                            await Task.Delay(wait, cancellationToken).ConfigureAwait(false);
+                        }
+                    }
+                    else if (_delay > TimeSpan.Zero)
+                    {
+                        await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
+                    }
+
+                    if (_failOnCall > 0 && ordinal == _failOnCall)
+                    {
+                        if (_throwInstead != null)
+                        {
+                            throw _throwInstead;
+                        }
+
+                        return new HttpResponseMessage(_status) { Content = new StringContent("refused") };
+                    }
+
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("true") };
+                }
+                finally
+                {
+                    Action<Int32> after;
+                    Int32 answered;
+                    lock (_gate)
+                    {
+                        _inFlight--;
+                        BatchSizes.Add(items);
+                        answered = BatchSizes.Count;
+                        after = _afterChunk;
+                    }
+
+                    after?.Invoke(answered);
+                }
             }
         }
 
@@ -2303,6 +2542,69 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>Summaries enough to need more than one chunk, since one chunk is the whole defect.</summary>
+        /// <summary>
+        ///   The runtime's summary chunk size, mirrored so the concurrency assertions can speak in chunks.
+        ///   Deliberately a separate literal rather than a read of the private constant: if the runtime's
+        ///   size ever changes, these tests should FAIL and be re-reasoned rather than silently follow it,
+        ///   because both ceilings behind that 16 (the smallest shipped item cap and the per-request
+        ///   timeout) are exactly what a change to it would be about.
+        /// </summary>
+        private const Int32 EmbedChunk = 16;
+
+        /// <summary>Records the cursor values the embed loop reports, which is what the journal writes down.</summary>
+        private sealed class RecordingProgress : IRunProgress
+        {
+            private readonly List<Int32> _advances;
+
+            public RecordingProgress(List<Int32> advances)
+            {
+                _advances = advances;
+            }
+
+            public void EnterPhase(String phase)
+            {
+            }
+
+            public void Advance(Int32 done, Int32 total)
+            {
+                lock (_advances)
+                {
+                    _advances.Add(done);
+                }
+            }
+
+            /// <summary>
+            ///   The values so far, taken under the lock. A test waits on THIS rather than on the handler's
+            ///   answered count: the handler records a chunk in its own finally, and the loop processes that
+            ///   completion afterwards, so "three answered" does not yet mean "the cursor has moved".
+            /// </summary>
+            public Int32[] Snapshot()
+            {
+                lock (_advances)
+                {
+                    return _advances.ToArray();
+                }
+            }
+
+            /// <summary>Waits until at least <paramref name="count" /> cursor moves have been reported.</summary>
+            public async Task<Int32[]> WaitForAdvances(Int32 count)
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (DateTime.UtcNow < deadline)
+                {
+                    var seen = Snapshot();
+                    if (seen.Length >= count)
+                    {
+                        return seen;
+                    }
+
+                    await Task.Delay(5).ConfigureAwait(false);
+                }
+
+                return Snapshot();
+            }
+        }
+
         private static SummaryWrite[] Summaries(Int32 count)
         {
             var summaries = new SummaryWrite[count];

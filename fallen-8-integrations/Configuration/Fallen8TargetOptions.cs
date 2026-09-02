@@ -77,5 +77,27 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   </para>
         /// </summary>
         public Int32 TimeoutSeconds { get; set; } = 330;
+
+        /// <summary>
+        ///   How many summary-embedding chunks the run keeps in flight at once (feature
+        ///   integration-embed-concurrency). Default 1 is the strictly sequential behaviour this loop has
+        ///   always had, down to the order the requests go out in.
+        ///
+        ///   <para>It exists because the embed phase is the one measured in HOURS and, against a REMOTE
+        ///   backend, most of each round trip is network and queueing rather than inference: raising this
+        ///   fills that idle time. It is the right lever precisely because it changes nothing about a
+        ///   single request - not the chunk size, not the route's item cap
+        ///   (<c>Fallen8:Embedding:MaxBatchSize</c>, which the Nahil compose ships at 32), and not the
+        ///   per-request timeout that a bigger chunk would run into. Raising the chunk size instead was
+        ///   measured and rejected; see the feature spec.</para>
+        ///
+        ///   <para>Two costs to know before raising it. The embedding route carries the
+        ///   sensitive-endpoint rate limit, and concurrency is exactly what makes a fixed window easier
+        ///   to trip (a 429 degrades the phase to absent rather than failing the run). And a run PICKED UP
+        ///   after an interruption may re-embed up to this many chunks minus one, because the resume
+        ///   cursor only advances over chunks whose predecessors have all landed - re-embedding is
+        ///   idempotent, so that is bounded rework rather than a correctness question.</para>
+        /// </summary>
+        public Int32 EmbedConcurrency { get; set; } = 1;
     }
 }

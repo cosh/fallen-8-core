@@ -304,6 +304,14 @@ services:
       # second key. A caller's credential is NEVER forwarded: the runtime writes as itself.
       - Fallen8Target__BaseUrl=http://fallen8:8080
       - Fallen8Target__ApiKey=${F8_API_KEY:-}
+      # How many summary-embedding chunks the run keeps in flight (feature
+      # integration-embed-concurrency). 1 is sequential, which is what this phase always did; raise
+      # it against a REMOTE backend, where most of each round trip is network rather than inference.
+      # It changes nothing about a single request - not the chunk size, not the route's item cap, not
+      # the per-request timeout - which is exactly why it is the lever rather than a bigger chunk.
+      # Two costs: the embedding route's rate-limit window is easier to trip, and a run picked up
+      # after an interruption may re-embed up to this many chunks minus one.
+      - Fallen8Target__EmbedConcurrency=${F8_INTEGRATIONS_EMBED_CONCURRENCY:-1}
       # The two host lists, both configuration-only because a source address arrives in a job's
       # settings from whoever can reach the API. The allowed-host list is what stops a credential
       # being aimed at a host of somebody's choosing; the self-signed list is the ONE place this
