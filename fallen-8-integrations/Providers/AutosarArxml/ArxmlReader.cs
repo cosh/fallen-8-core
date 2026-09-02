@@ -1559,10 +1559,9 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     display = LastSegment(pair.Value);
                     network.Diagnostics.Add(new ArxmlDiagnostic(
                         ArxmlDiagnosticKind.UnresolvedReference,
-                        "What was read names a unit that nothing in it defines, so the unit's short name was " +
-                        "used as its label instead of the display name a person would recognise. The usual " +
-                        "cause is a partial export that left the unit package out, or a job that left out " +
-                        "the extract carrying it.",
+                        "Nothing in what was read defines this unit, so its short name was used as the " +
+                        "label instead of the display name a person would recognise. Usually a partial " +
+                        "export that left the unit package out, or an extract this job left out.",
                         pair.Value));
                 }
 
@@ -1623,11 +1622,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 network.UnreadClusters.Add(unread);
                 network.Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.UnreadCluster,
                     String.Format(CultureInfo.InvariantCulture,
-                        "The set carries a {0} in {1} file(s), and this version does not read that bus. " +
-                        "Everything under it was skipped, so its ECUs, frames and flow are absent, while " +
-                        "any signals and PDUs those files declare outside it were still read. The run is " +
-                        "reported as COMPLETE over what was read, so a later job that leaves these files " +
-                        "out withdraws whatever only they described.", unread.Element, unread.Files),
+                        "This version does not read a {0}, and {1} file(s) in the set declare one, so " +
+                        "everything under those clusters was skipped - their ECUs, frames and flow are " +
+                        "absent. The same files' other content was read. The run still counts as complete, " +
+                        "so a later job that leaves these files out withdraws whatever only they " +
+                        "described.", unread.Element, unread.Files),
                     unread.Element));
             }
 
@@ -1680,9 +1679,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     network.Diagnostics.Add(new ArxmlDiagnostic(
                         ArxmlDiagnosticKind.UndecidablePortDirection,
                         String.Format(CultureInfo.InvariantCulture,
-                            "This port declares the communication direction '{0}', which is neither IN nor " +
-                            "OUT, so which way the data flows through it cannot be decided and the edge was " +
-                            "dropped. A direction is how this reader tells a sender from a receiver.",
+                            "This port declares direction '{0}', which is neither IN nor OUT, so the flow " +
+                            "edge was dropped rather than pointed the wrong way round.",
                             direction.Length == 0 ? "(none)" : direction),
                         flow.Right));
                 }
@@ -1778,9 +1776,8 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
         {
             return new ArxmlDiagnostic(ArxmlDiagnosticKind.UnresolvedReference, String.Format(
                 CultureInfo.InvariantCulture,
-                "What was read names {0} that nothing in it defines, so what pointed at it was dropped. The " +
-                "usual cause is a partial export - an extract that references a package it did not include - " +
-                "or, where a job carries several extracts, one the job left out.", what),
+                "Nothing in what was read defines {0} at this path, so whatever pointed at it was dropped. " +
+                "Usually a partial export, or an extract this job left out.", what),
                 reference);
         }
 
@@ -2262,12 +2259,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
                 Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.RedeclaredPaths,
                     String.Format(CultureInfo.InvariantCulture,
-                        "An earlier file in the set already declared {0} of the reference paths this file " +
-                        "declares, so those elements stayed the earlier file's and this file's twins were " +
-                        "dropped along with the references they carried. This is the expected case rather " +
-                        "than a fault - every extract of one system repeats the standard's shared packages - " +
-                        "and it is reported ONCE for the file rather than once per path, because hundreds of " +
-                        "entries would bury the diagnostics that mean something.", _redeclared),
+                        "{0} elements in this file were already declared by an earlier file in the set. " +
+                        "The earlier file's elements were kept and this file's duplicates were dropped, " +
+                        "along with the references they carried. This is normal: every extract of one " +
+                        "system repeats the standard's shared packages.", _redeclared),
                     _documentName));
             }
 
@@ -2293,10 +2288,9 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     if (owner == _documents)
                     {
                         Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.DuplicatePath,
-                            "Two elements compose this same reference path, so only the first was described, " +
-                            "and nothing the later one referenced was recorded either. One path is one thing " +
-                            "in the standard's own terms, and keeping both would make which one wins depend " +
-                            "on the order the file happens to be written in.",
+                            "Two elements in this file share this reference path, so only the first was " +
+                            "read and whatever the second referenced was dropped. In AUTOSAR one path is " +
+                            "one element, so the file contradicts itself here.",
                             element.Path));
                         return PathClaim.DuplicateInThisFile;
                     }
@@ -2331,12 +2325,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 }
 
                 Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.RedeclaredCluster,
-                    "More than one file in the set declares this CLUSTER, so what they say about it was " +
-                    "MERGED into one network: the first file's own properties, and the channels, frames and " +
-                    "attachments of all of them. That is what one bus split across several extracts needs. " +
-                    "If these are really two different buses that happen to share a reference path, they " +
-                    "are now one network in the graph and nothing downstream can separate them again - " +
-                    "check the extracts describe the same bus.",
+                    "Several files in the set declare this cluster, so they were merged into one network: " +
+                    "the first file's properties, plus every file's channels, frames and attachments. That " +
+                    "is right for one bus split across extracts. If these are two different buses, nothing " +
+                    "downstream can separate them now - check that the extracts describe the same bus.",
                     path));
             }
 
@@ -2361,13 +2353,13 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
                 Diagnostics.Add(new ArxmlDiagnostic(ArxmlDiagnosticKind.SocketLayerUnrecognised,
                     String.Format(CultureInfo.InvariantCulture,
-                        "This Ethernet channel was read and its SOCKET LAYER yielded nothing: no network " +
-                        "endpoint, no socket and no connection, so the PDUs on it have no addressing in the " +
-                        "graph. Either the extract carries none - which is legal - or this reader does not " +
-                        "know the spelling this one uses: the socket layer's element names differ between " +
-                        "AUTOSAR revisions with no overlap. The file declares schema '{0}' and the channel " +
-                        "contains: {1}. Everything else on the bus imported normally. If those names look " +
-                        "like a socket layer, report them: it is a table entry, not a redesign.",
+                        "No socket layer was recognised on this Ethernet channel - no network endpoint, no " +
+                        "socket, no connection - so its PDUs have no addressing in the graph. Everything " +
+                        "else on the bus was read. The file declares schema '{0}', and under the channel " +
+                        "are: {1}. Either the extract carries no socket layer, which is legal, or those " +
+                        "names are a spelling this reader has not met, because the socket layer's element " +
+                        "names differ between AUTOSAR revisions. Report those names if they are a socket " +
+                        "layer.",
                         _schemaLocation.Length == 0 ? "(none stated)" : _schemaLocation,
                         vocabulary.Count == 0 ? "(nothing)" : String.Join(", ", vocabulary)),
                     channelPath));

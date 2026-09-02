@@ -258,7 +258,7 @@ namespace NoSQL.GraphDB.Tests
                 "the cluster collision is reported ONCE per path, however many files pile onto it: " +
                 Describe(network));
             Assert.AreEqual("/Clusters/SHAREDCAN", reported[0].Subject);
-            StringAssert.Contains(reported[0].Message, "MERGED", reported[0].Message);
+            StringAssert.Contains(reported[0].Message, "merged into one network", reported[0].Message);
             StringAssert.Contains(reported[0].Message, "same bus", reported[0].Message);
         }
 
@@ -297,10 +297,10 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1, unread.Files);
 
             var said = network.Diagnostics.Single(d => d.Kind == ArxmlDiagnosticKind.UnreadCluster);
-            StringAssert.Contains(said.Message, "does not read that bus", said.Message);
-            // The consequence is stated, not just the fact: the snapshot is still COMPLETE over what was
+            StringAssert.Contains(said.Message, "does not read a LIN-CLUSTER", said.Message);
+            // The consequence is stated, not just the fact: the snapshot is still complete over what was
             // read, so a later job that omits these files withdraws whatever only they described.
-            StringAssert.Contains(said.Message, "COMPLETE", said.Message);
+            StringAssert.Contains(said.Message, "still counts as complete", said.Message);
 
             // The readable bus still imported. That is the decision: import what we can, and say what we
             // could not.

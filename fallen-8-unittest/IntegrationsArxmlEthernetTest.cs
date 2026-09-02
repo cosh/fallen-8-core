@@ -549,7 +549,9 @@ namespace NoSQL.GraphDB.Tests
                 "the subject is the channel, which is what an operator can go and look at");
             StringAssert.Contains(said.Message, "SOME-FUTURE-CONNECTION", said.Message);
             StringAssert.Contains(said.Message, "AUTOSAR_00099.xsd", said.Message);
-            StringAssert.Contains(said.Message, "table entry", said.Message);
+            // And it asks for the names back, because an unmet spelling is a table entry in this reader
+            // rather than a defect in the file.
+            StringAssert.Contains(said.Message, "Report those names", said.Message);
         }
 
         /// <summary>
