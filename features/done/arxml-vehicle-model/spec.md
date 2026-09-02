@@ -1,6 +1,6 @@
 # A vehicle communication model across CAN, FlexRay and Ethernet
 
-Status: **implemented, pending review**. Every phase is done; the steps are in
+Status: **IMPLEMENTED.** Every phase is done, reviewed and merged; the steps are in
 [plan.md](plan.md) and the record in [findings.md](findings.md).
 
 This spec is a historical record and is written in the present tense of the day it was written, so
