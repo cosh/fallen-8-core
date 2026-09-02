@@ -191,6 +191,7 @@ Configure it under `Fallen8:Embedding` (off unless `Enabled`):
 | `Dimension` | (none) | Declared output length; a mismatch against real output latches 503 |
 | `IntendedMetric` | `Cosine` | Metric the vectors are meant for |
 | `MaxBatchSize` / `MaxTextLength` | 64 / 8192 | Request bounds, in items and **chars**. `MaxTextLength` is not a token window - see below |
+| `MaxConcurrentBatches` | `1` | How many `MaxBatchSize` requests [document ingestion](/unstructured-ingestion/) keeps in flight at once for one document; raise to 2, then 4 or 8, only while p95 latency and the failure rate stay acceptable |
 | `QueryPrefix` | `""` | Retrieval prefix applied to **query-time** embeddings only |
 | `Onnx.{ModelPath,VocabPath,…}`, `LLamaSharp.ModelPath`, `Ollama.{Endpoint,Model}`, `Nahil.{…}`, `OpenAI.{Endpoint,ApiKey,Model}` | (none) | Backend-specific settings |
 

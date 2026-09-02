@@ -354,6 +354,8 @@ namespace NoSQL.GraphDB.App.Configuration
                 + "stored index answer with a similarity it was not built for."));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Embedding:MaxBatchSize",
                 Fallen8SettingKind.Int, minimum: 1));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Embedding:MaxConcurrentBatches",
+                Fallen8SettingKind.Int, minimum: 1));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Embedding:MaxTextLength",
                 Fallen8SettingKind.Int, minimum: 1));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Embedding:QueryPrefix", Fallen8SettingKind.String));

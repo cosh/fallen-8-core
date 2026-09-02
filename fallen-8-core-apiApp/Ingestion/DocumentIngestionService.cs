@@ -893,7 +893,22 @@ namespace NoSQL.GraphDB.App.Ingestion
         {
             var vectors = new Single[chunks.Count][];
             var batchSize = Math.Max(1, _embeddingOptions.MaxBatchSize);
+
+            var offsets = new List<Int32>();
             for (var offset = 0; offset < chunks.Count; offset += batchSize)
+            {
+                offsets.Add(offset);
+            }
+
+            // Batches are independent embedding calls (order only matters for where each vector
+            // lands, handled below by writing at the batch's own offset), so several may be in
+            // flight at once - bounded, so a slow/overloaded backend never sees more concurrent
+            // requests than configured. Default 1 keeps this loop's old strictly-sequential
+            // behaviour; Fallen8:Embedding:MaxConcurrentBatches raises it.
+            var failures = new Embedding.EmbeddingProviderUnavailableException[offsets.Count];
+            using var semaphore = new SemaphoreSlim(Math.Max(1, _embeddingOptions.MaxConcurrentBatches));
+
+            var tasks = offsets.Select(async (offset, index) =>
             {
                 var count = Math.Min(batchSize, chunks.Count - offset);
                 var texts = new List<String>(count);
@@ -902,27 +917,42 @@ namespace NoSQL.GraphDB.App.Ingestion
                     texts.Add(chunks[offset + i].Text);
                 }
 
-                Single[][] batch;
+                await semaphore.WaitAsync(cancellationToken);
                 try
                 {
-                    batch = await _provider.EmbedAsync(texts, cancellationToken);
+                    var batch = await _provider.EmbedAsync(texts, cancellationToken);
+                    for (var i = 0; i < count; i++)
+                    {
+                        vectors[offset + i] = batch[i];
+                    }
                 }
                 catch (Embedding.EmbeddingProviderUnavailableException ex)
                 {
-                    // Name WHERE a long run stopped. A remote backend can refuse part way through
-                    // (a spent token budget, a model evicted mid-run), and the provider's message
-                    // alone - which is all this used to report - says nothing about how much of the
-                    // document was already embedded, so "re-run it" was the only possible response.
-                    // Nothing is written before every chunk is embedded, so the whole document is
-                    // re-runnable; this only makes the size of what failed visible.
+                    failures[index] = ex;
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks);
+
+            // Report the EARLIEST-offset failure, regardless of which batch actually raced to
+            // fail first under concurrency - "where a long run stopped" must describe the
+            // document, not the scheduler. Every batch before it in this loop is known to have
+            // succeeded (a lower index would have been reported instead), so "N already were" is
+            // still exact. Nothing is written before every chunk is embedded, so the whole
+            // document is re-runnable either way.
+            for (var index = 0; index < failures.Length; index++)
+            {
+                if (failures[index] != null)
+                {
+                    var offset = offsets[index];
+                    var count = Math.Min(batchSize, chunks.Count - offset);
                     throw new Embedding.EmbeddingProviderUnavailableException(String.Format(
                         "{0} Chunks {1}-{2} of {3} were not embedded ({4} already were).",
-                        ex.Message, offset + 1, offset + count, chunks.Count, offset), ex);
-                }
-
-                for (var i = 0; i < count; i++)
-                {
-                    vectors[offset + i] = batch[i];
+                        failures[index].Message, offset + 1, offset + count, chunks.Count, offset), failures[index]);
                 }
             }
 

@@ -65,6 +65,10 @@ services:
       # exactly ON the limit: one off-by-one on either side and a bulk re-index starts failing.
       # 32 leaves the headroom.
       - Fallen8__Embedding__MaxBatchSize=${F8_NAHIL_EMBED_BATCH:-32}
+      # Several 32-item requests in flight at once fills the network-idle time a remote backend
+      # spends waiting rather than embedding; raise past 2 only while p95 latency and the
+      # failure rate stay acceptable.
+      - Fallen8__Embedding__MaxConcurrentBatches=${F8_NAHIL_EMBED_CONCURRENCY:-2}
 
   # The local sidecar is parked on a profile nobody activates, which is how a compose OVERLAY
   # declines a service: merging cannot remove one. Nothing depends_on it, so the rest of the

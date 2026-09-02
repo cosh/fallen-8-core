@@ -88,6 +88,7 @@ docker compose -f docker-compose.yml -f docker-compose.nahil.yml up
 | `F8_NAHIL_EMBED_API_KEY` | no       | A separate key for embeddings, when you want the two metered apart.                          |
 | `F8_NAHIL_CHAT_TIMEOUT`  | no       | The chat budget in seconds; the overlay sets `600`.                                          |
 | `F8_NAHIL_EMBED_BATCH`   | no       | Items per embedding request; the overlay sets `32`.                                          |
+| `F8_NAHIL_EMBED_CONCURRENCY` | no   | Embedding requests kept in flight at once for one document; the overlay sets `2`.             |
 
 ### The settings underneath
 
@@ -109,6 +110,7 @@ Fallen8__Embedding__Nahil__Endpoint=https://api.nahil.dev
 Fallen8__Embedding__Nahil__ApiKey=...
 Fallen8__Embedding__Nahil__Model=bge-m3:latest
 Fallen8__Embedding__MaxBatchSize=32
+Fallen8__Embedding__MaxConcurrentBatches=2  # raise to 4 or 8 only while p95 latency stays acceptable
 
 # The geometry, unchanged from a local deployment - which is what "nothing re-embeds" means.
 Fallen8__Embedding__ModelName=bge-m3        # the identity stamp; untagged, and NOT retagged

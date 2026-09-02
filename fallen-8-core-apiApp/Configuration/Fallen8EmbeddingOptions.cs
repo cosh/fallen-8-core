@@ -91,8 +91,17 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <c>DotProduct</c> or <c>L2</c>.</summary>
         public String IntendedMetric { get; set; } = "Cosine";
 
-        /// <summary>Maximum texts per request batch.</summary>
+        /// <summary>Maximum texts per request batch, sent as one Ollama-protocol <c>/api/embed</c>
+        /// request (the <c>input</c> array) - never one HTTP call per text.</summary>
         public Int32 MaxBatchSize { get; set; } = 64;
+
+        /// <summary>How many of those per-batch requests <see cref="Ingestion.DocumentIngestionService" />
+        /// keeps in flight at once for a single document, to fill the idle time a remote backend
+        /// spends waiting on the network rather than the GPU. Default 1 keeps today's strictly
+        /// sequential behaviour; raise it (2, then 4 or 8) only while p95 latency and the failure
+        /// rate stay acceptable - it does not apply to chat/generation, which is never retried or
+        /// parallelised here because it is not idempotent.</summary>
+        public Int32 MaxConcurrentBatches { get; set; } = 1;
 
         /// <summary>
         ///   Maximum characters per text item on the <c>/embedding</c> surface. 8192 is deliberately
