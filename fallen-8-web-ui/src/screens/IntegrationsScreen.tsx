@@ -1223,22 +1223,31 @@ function ReportPanel({
 
         {diagnostics.total > 0 && (
           <>
+            {/* table-fixed with a bounded code and subject column. A long file name or AUTOSAR
+                reference path has nowhere to wrap, so an auto-laid-out table widens to fit it and
+                pushes the message - the part a reader is here for - out of view behind a horizontal
+                scrollbar. Nothing is truncated: both columns wrap mid-word instead. */}
             <div className="scroll-list" style={scrollRows(SCROLL_ROWS.diagnostics)}>
-              <table className="w-full text-[12px]">
+              <table className="w-full table-fixed text-[12px]">
                 <thead>
                   <tr>
-                    <th className="table-cell text-left">code</th>
-                    <th className="table-cell text-left">subject</th>
+                    <th className="table-cell w-[22%] text-left">code</th>
+                    <th className="table-cell w-[26%] text-left">subject</th>
                     <th className="table-cell text-left">message</th>
                   </tr>
                 </thead>
                 <tbody>
                   {diagnostics.shown.map((diagnostic, index) => (
                     <tr key={`${diagnostic.code}-${index}`}>
-                      <td className="table-cell font-mono" data-testid="report-diagnostic-code">
+                      <td
+                        className="table-cell font-mono wrap-break-word"
+                        data-testid="report-diagnostic-code"
+                      >
                         {diagnostic.code}
                       </td>
-                      <td className="table-cell text-fg-dim">{diagnostic.subject ?? ""}</td>
+                      <td className="table-cell text-fg-dim wrap-break-word">
+                        {diagnostic.subject ?? ""}
+                      </td>
                       <td className="table-cell text-fg-dim">{diagnostic.message}</td>
                     </tr>
                   ))}
