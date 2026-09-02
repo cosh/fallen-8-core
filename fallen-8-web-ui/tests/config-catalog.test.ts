@@ -93,7 +93,7 @@ describe("configuration section taxonomy", () => {
       analytics: 3,
       bulkio: 3,
       ceilings: 2, // Plugins 1 + StoredQueries 1
-      embedding: 24,
+      embedding: 25,
       chat: 16,
       ingestion: 29, // Ingestion 23 + Nlp 6
       integrations: 4, // Enabled, Endpoint, TimeoutSeconds, JobTimeoutSeconds
@@ -212,7 +212,7 @@ describe("groupSettings", () => {
 
     const embedding = groupSettings(shipped).find((entry) => entry.section.id === "embedding")!;
     expect(embedding.groups.map((g) => ({ label: g.label, n: g.settings.length }))).toEqual([
-      { label: "", n: 10 },
+      { label: "", n: 11 },
       { label: "ONNX", n: 5 },
       { label: "LLamaSharp", n: 1 },
       { label: "Ollama", n: 2 },
