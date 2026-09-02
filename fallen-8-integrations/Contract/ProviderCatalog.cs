@@ -85,6 +85,17 @@ namespace NoSQL.GraphDB.Integrations.Contract
                         "asserted, so it cannot be shared.", descriptor.Id));
                 }
 
+                if (descriptor.DocsUrl != null && !IsAbsoluteWebUrl(descriptor.DocsUrl))
+                {
+                    // Studio renders this as a link, so a relative path resolves against the Studio
+                    // origin and lands nowhere, and a javascript: value would run in the operator's
+                    // browser. Both are cheap to catch here and invisible in a table cell.
+                    throw new InvalidOperationException(String.Format(
+                        "Provider '{0}' declares docsUrl '{1}', which is not an absolute http or https " +
+                        "URL. It is rendered as a link, so it has to be one.",
+                        descriptor.Id, descriptor.DocsUrl));
+                }
+
                 foreach (var claimType in descriptor.ClaimTypes ?? Array.Empty<String>())
                 {
                     if (!vocabulary.TryGet(claimType, out _))
@@ -151,6 +162,15 @@ namespace NoSQL.GraphDB.Integrations.Contract
             _byId = byId.ToImmutable();
             Descriptors = descriptors.ToImmutable();
         }
+
+        /// <summary>
+        ///   Whether a declared <see cref="ProviderDescriptor.DocsUrl"/> is a link a browser can follow:
+        ///   absolute, and http or https. Every other scheme is refused rather than filtered, since a
+        ///   provider has no reason to name one.
+        /// </summary>
+        private static Boolean IsAbsoluteWebUrl(String value)
+            => Uri.TryCreate(value, UriKind.Absolute, out var uri)
+               && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
         /// <summary>Every provider's descriptor, which is what <c>GET /integration/providers</c> answers.</summary>
         public ImmutableArray<ProviderDescriptor> Descriptors { get; }

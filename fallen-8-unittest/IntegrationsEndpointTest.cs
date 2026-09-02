@@ -954,6 +954,54 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        /// A description is a SENTENCE and the deep dive is a link. Both halves are asserted because
+        /// they hold each other up: the ARXML provider once published a 1,200-character description
+        /// listing its socket layer, its revision spellings and how several extracts become one source,
+        /// which rendered as a wall of prose in a table cell AND scrolled the whole list out of the
+        /// panel. The page that documents it said all of it already.
+        /// </summary>
+        [TestMethod]
+        public async Task EveryShippedDescriptionIsASentenceWithItsDeepDiveALinkAway()
+        {
+            const Int32 sentences = 500;
+
+            using var factory = new RuntimeFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync(RuntimeProvidersRoute);
+            var descriptors = await ReadJson(response);
+
+            var seen = 0;
+            foreach (var descriptor in descriptors.EnumerateArray())
+            {
+                seen++;
+                var id = Text(descriptor, "id");
+
+                Assert.IsTrue(Text(descriptor, "description").Length <= sentences, String.Format(
+                    "{0} publishes a {1}-character description, over the {2} this list's rows are laid " +
+                    "out for. A description says what it reads and from where; everything past that " +
+                    "belongs on its documentation page, which docsUrl links",
+                    id, Text(descriptor, "description").Length, sentences));
+
+                var docsUrl = Text(descriptor, "docsUrl");
+                Assert.IsFalse(String.IsNullOrWhiteSpace(docsUrl),
+                    id + " publishes no docsUrl. The field is optional in the contract, for a provider " +
+                    "written elsewhere, but a SHIPPED one whose description is a sentence and whose " +
+                    "documentation is unreachable from the screen has simply lost the detail");
+                Assert.IsTrue(
+                    Uri.TryCreate(docsUrl, UriKind.Absolute, out var parsed)
+                    && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps),
+                    id + " publishes docsUrl '" + docsUrl + "', which is not an absolute http(s) URL. " +
+                    "Studio renders it as a link, so a relative value resolves against Studio's own " +
+                    "origin and lands nowhere");
+            }
+
+            Assert.IsTrue(seen >= 4,
+                "the catalog published fewer providers than this deployable ships, so this check passed " +
+                "over the descriptors it was written for");
+        }
+
+        /// <summary>
         /// "Adding a provider requires zero Studio code change" is only true if the descriptor carries
         /// everything a form needs.
         /// </summary>

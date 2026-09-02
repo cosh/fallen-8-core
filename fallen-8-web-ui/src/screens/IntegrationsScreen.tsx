@@ -38,7 +38,12 @@ import type {
   IntegrationSetting,
   SettingKind,
 } from "../api/types";
-import { capabilityOf, useIntegrationLimits, useIntegrationProviders } from "../state/integrations";
+import {
+  capabilityOf,
+  docsHref,
+  useIntegrationLimits,
+  useIntegrationProviders,
+} from "../state/integrations";
 import { useEmbeddingProvider } from "../state/graphShape";
 import { ApiError, wasCancelled } from "../api/client";
 import { ErrorBox } from "../components/ErrorBox";
@@ -48,7 +53,7 @@ import { Truncated } from "../components/Truncated";
 import { formatBytes } from "../lib/format";
 import { checkStaging, describeLimits } from "../lib/fileLimits";
 import { DISPLAY_CAP } from "../lib/truncate";
-import { capList, SCROLL_ROWS, scrollRows } from "../lib/listCaps";
+import { capList, SCROLL_ROW_REM, SCROLL_ROWS, scrollRows } from "../lib/listCaps";
 import { RUN_PHASES } from "../api/types";
 
 /**
@@ -355,7 +360,10 @@ export function IntegrationsScreen() {
             <ErrorBox error={providers.error} onRetry={() => providers.refetch()} />
           </div>
         )}
-        <div className="scroll-list" style={scrollRows(SCROLL_ROWS.integrations)}>
+        <div
+          className="scroll-list"
+          style={scrollRows(SCROLL_ROWS.integrations, SCROLL_ROW_REM.integrations)}
+        >
           <table className="w-full text-[12px]">
             <thead>
               <tr>
@@ -375,7 +383,21 @@ export function IntegrationsScreen() {
               )}
               {listed.shown.map((provider) => (
                 <tr key={provider.id}>
-                  <td className="table-cell font-medium">{provider.displayName}</td>
+                  <td className="table-cell font-medium">
+                    {provider.displayName}
+                    {docsHref(provider) && (
+                      <a
+                        href={docsHref(provider)!}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid={`integration-docs-${provider.id}`}
+                        title={`Read the documentation for ${provider.displayName} (opens in a new tab)`}
+                        className="text-fg-faint hover:text-accent mt-0.5 block text-[11px] font-normal"
+                      >
+                        docs <span aria-hidden>↗</span>
+                      </a>
+                    )}
+                  </td>
                   <td className="table-cell text-fg-dim">{provider.description}</td>
                   <td className="table-cell text-fg-dim">{provider.entityKinds.join(", ")}</td>
                   <td className="table-cell text-right">

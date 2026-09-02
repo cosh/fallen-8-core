@@ -96,6 +96,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.UnifiNetwork
             Description =
                 "Reads a UniFi Network console over its integration API and describes every site, adopted " +
                 "device and connected client it serves, with the topology between them.",
+            DocsUrl = ShippedDocs.IntegrationsPage,
             Settings = new[]
             {
                 // Exactly two settings, and NO SETTING NARROWS THE RUN: no site filter and no

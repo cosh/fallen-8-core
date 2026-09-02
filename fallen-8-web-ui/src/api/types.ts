@@ -1227,6 +1227,13 @@ export interface IntegrationProvider {
   id: string;
   displayName: string;
   description: string;
+  /**
+   * Absolute http(s) URL of the integration's own documentation, when it declares one. It is what
+   * keeps `description` a sentence instead of a reference manual in a table cell. Optional: an
+   * older runtime, or a provider whose author wrote no page, sends none. Render it only through
+   * `docsHref` in state/integrations.ts, which refuses a scheme a browser should not follow.
+   */
+  docsUrl?: string | null;
   settings: IntegrationSetting[];
   entityKinds: string[];
   claimTypes: string[];
