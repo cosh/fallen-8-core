@@ -117,6 +117,15 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// </summary>
         private const Int32 EmbedBatchSize = 16;
 
+        /// <summary>
+        ///   How long the embed phase waits after the target throttled it, before going on at a reduced
+        ///   rate. Sized to outlast the target's rate-limit WINDOW: the shipped one is a fixed 10 s window
+        ///   (<c>Fallen8:Security:RateLimitWindowSeconds</c>), and a wait shorter than the window is
+        ///   answered 429 again. The target names no <c>Retry-After</c>, so this is the runtime's own
+        ///   number rather than an honoured hint.
+        /// </summary>
+        private static readonly TimeSpan ThrottleBackoff = TimeSpan.FromSeconds(12);
+
         /// <summary>The equality operator's wire code, from the engine's own operator enum.</summary>
         private const Int32 EqualsOperator = 0;
 
@@ -124,6 +133,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
         private readonly String _prefix;
         private readonly Boolean _ownsClient;
         private readonly Int32 _embedConcurrency;
+        private readonly Func<TimeSpan, CancellationToken, Task> _wait;
 
         /// <param name="client">The configured client: base address and the api key header this runtime
         /// presents as ITSELF. A caller's credential is never forwarded.</param>
@@ -133,13 +143,35 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// (<c>Fallen8Target:EmbedConcurrency</c>). Defaults to 1, which is the sequential behaviour this
         /// loop has always had, so a caller that does not care - including every test that builds a target
         /// directly - gets exactly today's request sequence.</param>
+        /// <param name="wait">How the embed phase waits out a throttle. Injectable so a test can assert
+        /// the BEHAVIOUR (the rate really drops, the phase really finishes) without spending the real
+        /// backoff; production leaves it null and gets <see cref="Task.Delay(TimeSpan, CancellationToken)" />.</param>
         public Fallen8RestTarget(HttpClient client, String? namespaceName, Boolean ownsClient = true,
-            Int32 embedConcurrency = 1)
+            Int32 embedConcurrency = 1, Func<TimeSpan, CancellationToken, Task>? wait = null)
         {
             _client = client ?? throw new ArgumentNullException(nameof(client));
             _ownsClient = ownsClient;
             _prefix = BuildPrefix(namespaceName);
-            _embedConcurrency = Math.Max(1, embedConcurrency);
+            // Clamped at both ends. The floor is what makes "unset" mean sequential; the ceiling is
+            // because this is an operator-typed number that multiplies both the request rate against a
+            // rate-limited route and the bodies held in memory at once, and nothing downstream bounds it.
+            _embedConcurrency = ClampEmbedConcurrency(embedConcurrency);
+            _wait = wait ?? ((delay, token) => Task.Delay(delay, token));
+        }
+
+        /// <summary>
+        ///   The most chunks this runtime will ever have in flight, whatever an operator configures.
+        ///   Beyond this the numbers stop being about filling network idle time: the request rate runs
+        ///   into the embedding route's rate-limit window, and every in-flight chunk is a body held in
+        ///   memory. A configured value above it is clamped rather than refused, because a run is not the
+        ///   place to argue about a tuning knob.
+        /// </summary>
+        public const Int32 MaxEmbedConcurrency = 16;
+
+        /// <summary>The clamp itself, exposed so the bound is testable without a run.</summary>
+        public static Int32 ClampEmbedConcurrency(Int32 configured)
+        {
+            return Math.Clamp(configured, 1, MaxEmbedConcurrency);
         }
 
         private Int32 _mutations;
@@ -662,10 +694,24 @@ namespace NoSQL.GraphDB.Integrations.Graph
             var stopped = false;
             var next = 0;
 
-            while (next < chunks.Count || running.Count > 0)
+            // A THROTTLE is the one refusal that expires, and this feature is what makes it reachable:
+            // the embedding route allows 30 requests per 10 s window, which a fast remote backend brushes
+            // even sequentially and blows through at concurrency 4. Degrading on it would end the phase
+            // with a diagnostic, complete the run, delete the journal - and those summaries could then
+            // never be embedded again, because the applier only embeds entities whose data CHANGED. So a
+            // 429 drops the rate to sequential for the rest of the phase, waits out the window, and asks
+            // for that chunk again. A second 429 at that reduced rate is the target throttling a
+            // sequential caller, which is the window rather than our burst, and degrades as before.
+            var retry = new Queue<Int32>();
+            var retried = new Boolean[chunks.Count];
+            var effective = _embedConcurrency;
+            var reduced = false;
+            var backoffPending = false;
+
+            while (retry.Count > 0 || next < chunks.Count || running.Count > 0)
             {
-                while (!stopped && degraded == null && failed == null && next < chunks.Count &&
-                       running.Count < _embedConcurrency)
+                while (!stopped && degraded == null && failed == null && !backoffPending &&
+                       (retry.Count > 0 || next < chunks.Count) && running.Count < effective)
                 {
                     // THE SAFE POINT THIS FEATURE EXISTS FOR. This loop is the hours: a large extract
                     // at sixteen per chunk against CPU inference runs overnight, so a stop honoured only after
@@ -682,13 +728,33 @@ namespace NoSQL.GraphDB.Integrations.Graph
                         break;
                     }
 
-                    var index = next++;
+                    // A chunk the target throttled goes out again before any new one, so the plan's
+                    // order is preserved as far as the cursor is concerned.
+                    var index = retry.Count > 0 ? retry.Dequeue() : next++;
                     running.Add(EmbedChunkAsync(embeddingName, summaries, chunks[index], index,
                         cancellationToken));
                 }
 
                 if (running.Count == 0)
                 {
+                    if (backoffPending && !stopped && degraded == null && failed == null)
+                    {
+                        // Everything has drained, so the window can now expire without this runtime
+                        // adding to it. Asked for AFTER the drain rather than instead of it, because a
+                        // wait with chunks still in flight would be a wait during which we kept sending.
+                        backoffPending = false;
+                        try
+                        {
+                            await _wait(ThrottleBackoff, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException ex)
+                        {
+                            failed ??= ex;
+                        }
+
+                        continue;
+                    }
+
                     break;
                 }
 
@@ -700,7 +766,45 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 {
                     written += outcome.Take;
                     landed[outcome.Index] = true;
-                    AckPrefix();
+                    try
+                    {
+                        AckPrefix();
+                    }
+                    catch (Exception ex)
+                    {
+                        // The ONE call in this loop that runs code the target does not own (the progress
+                        // sink, which writes the resume journal). Letting it escape here would abandon the
+                        // chunks still in flight - the very thing every other path in this method drains
+                        // to avoid - so it is captured and raised after the drain like any other failure.
+                        failed ??= ex;
+                    }
+                }
+                else if (outcome.Throttled)
+                {
+                    // Per CHUNK, not per phase. Every sibling in flight when the window closed is refused
+                    // for the same reason, so they all deserve the one retry: keying this off "have we
+                    // reduced yet" degraded the phase on the second sibling of the very burst the
+                    // reduction was answering.
+                    if (retried[outcome.Index])
+                    {
+                        // Refused again, and by now the rate is sequential: that is the target's window
+                        // rather than our burst, which is what the degrade set is actually about.
+                        degraded ??= outcome.Degrade;
+                    }
+                    else
+                    {
+                        retried[outcome.Index] = true;
+                        retry.Enqueue(outcome.Index);
+
+                        // The rate drops ONCE and never grows back: this phase has no way to tell whether
+                        // the window has room again, and probing for it is what caused the refusal.
+                        if (!reduced)
+                        {
+                            reduced = true;
+                            effective = 1;
+                            backoffPending = true;
+                        }
+                    }
                 }
                 else if (outcome.Degrade != null)
                 {
@@ -719,16 +823,29 @@ namespace NoSQL.GraphDB.Integrations.Graph
                 // A real refusal outranks a stop: it says the runtime sent something the route will never
                 // accept, which recurs on the next run and is the operator's to fix, where a cancel is
                 // satisfied by simply having stopped.
-                if (failed is GraphTargetException graphFailure)
+                //
+                // THE one place a failure is given the count, rather than each throw site being trusted to
+                // remember: the chunks that landed are element state, and a connection that died mid extract
+                // used to report zero for them - which is false about vectors a bound index answers searches
+                // over, and sends the operator to a tabula rasa they do not need. Given to EVERY exception
+                // that carries the field, not just the graph one: a content read hitting the client timeout
+                // arrives as a bare TaskCanceledException, and reporting zero for 48 landed summaries
+                // because of the exception's TYPE would be the same false report by another route.
+                switch (failed)
                 {
-                    // THE one place a failure is given the count, rather than each throw site being trusted to
-                    // remember: the chunks that landed are element state, and a connection that died mid extract
-                    // used to report zero for them - which is false about vectors a bound index answers searches
-                    // over, and sends the operator to a tabula rasa they do not need.
-                    graphFailure.SummariesWritten = written;
+                    case GraphTargetException graphFailure:
+                        graphFailure.SummariesWritten = written;
+                        break;
+
+                    case Run.RunStoppedException stopFailure:
+                        stopFailure.SummariesWritten = written;
+                        break;
                 }
 
-                throw failed;
+                // Capture-and-throw, not `throw failed`: rethrowing an exception object that was caught
+                // elsewhere resets its stack to THIS line, which for the broad catch in EmbedChunkAsync
+                // would erase the only record of where the fault actually came from.
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failed).Throw();
             }
 
             if (stopped)
@@ -748,13 +865,15 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// </summary>
         private readonly struct ChunkOutcome
         {
-            public ChunkOutcome(Int32 index, Int32 take, Boolean landed, String? degrade, Exception? failure)
+            public ChunkOutcome(Int32 index, Int32 take, Boolean landed, String? degrade, Exception? failure,
+                Boolean throttled = false)
             {
                 Index = index;
                 Take = take;
                 Landed = landed;
                 Degrade = degrade;
                 Failure = failure;
+                Throttled = throttled;
             }
 
             /// <summary>Its position in chunk order, which is what the resume cursor is walked over.</summary>
@@ -768,6 +887,13 @@ namespace NoSQL.GraphDB.Integrations.Graph
             /// <summary>Why the phase degrades to absent, when it does (the provider or the window).</summary>
             public String? Degrade { get; }
 
+            /// <summary>
+            ///   The refusal was a THROTTLE (429), which is the only one that expires: the caller drops
+            ///   its rate, waits out the window and asks again rather than giving the phase up. When it
+            ///   is set, <see cref="Degrade" /> carries the reason to use if the retry is refused too.
+            /// </summary>
+            public Boolean Throttled { get; }
+
             /// <summary>The refusal to surface as a run failure, when it is one.</summary>
             public Exception? Failure { get; }
         }
@@ -777,14 +903,16 @@ namespace NoSQL.GraphDB.Integrations.Graph
             IReadOnlyList<SummaryWrite> summaries, (Int32 Offset, Int32 Take) chunk, Int32 index,
             CancellationToken cancellationToken)
         {
-            var items = new List<Object>(chunk.Take);
-            for (var i = chunk.Offset; i < chunk.Offset + chunk.Take; i++)
-            {
-                items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
-            }
-
             try
             {
+                // Built INSIDE the try, so "never throws" holds for the body composition too: outside it,
+                // a fault here would escape while sibling chunks were still writing.
+                var items = new List<Object>(chunk.Take);
+                for (var i = chunk.Offset; i < chunk.Offset + chunk.Take; i++)
+                {
+                    items.Add(new { graphElementId = summaries[i].ElementId, text = summaries[i].Text });
+                }
+
                 var response = await SendForResponseAsync(HttpMethod.Post, "embedding/elements",
                     new { name = embeddingName, items }, "the embedding write", cancellationToken)
                     .ConfigureAwait(false);
@@ -817,10 +945,14 @@ namespace NoSQL.GraphDB.Integrations.Graph
                     {
                         var detail = await response.Content.ReadAsStringAsync(cancellationToken)
                             .ConfigureAwait(false);
-                        return new ChunkOutcome(index, chunk.Take, false, String.Format(
-                            CultureInfo.InvariantCulture,
+                        var reason = String.Format(CultureInfo.InvariantCulture,
                             "the target answered {0} to the embedding write ({1})", status,
-                            String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim()), null);
+                            String.IsNullOrWhiteSpace(detail) ? response.ReasonPhrase : detail.Trim());
+
+                        // 429 is marked apart from the other three because it is the only one that
+                        // EXPIRES: the window is seconds long, so the caller slows down and asks again
+                        // instead of ending the phase (see the throttle handling in EmbedSummariesAsync).
+                        return new ChunkOutcome(index, chunk.Take, false, reason, null, throttled: status == 429);
                     }
 
                     var body = await response.Content.ReadAsStringAsync(cancellationToken)

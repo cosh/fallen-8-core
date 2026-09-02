@@ -604,7 +604,7 @@ namespace NoSQL.GraphDB.Tests
                 "two chunks landed before the deadline fired, and this is the exact incident the chunking was " +
                 "built for: many chunks of a real extract landed and the report said zero");
             Assert.IsNotNull(outcome.Degraded, "and the shortfall is named rather than silent");
-            Assert.AreEqual(3, handler.BatchSizes.Count,
+            Assert.AreEqual(3, handler.BatchSizes.Length,
                 "a deadline says the model is slower than this runtime waits, which the next chunk cannot " +
                 "improve on, so the loop stops for the reason 503 stops it");
         }
@@ -722,9 +722,9 @@ namespace NoSQL.GraphDB.Tests
             var beforeRelease = await progress.WaitForAdvances(1).ConfigureAwait(false);
             Assert.AreNotEqual(0, beforeRelease.Length,
                 "the prefix must have moved once (chunk 1 landed), or this test proves nothing");
-            Assert.IsTrue(handler.BatchSizes.Count >= 3,
+            Assert.IsTrue(handler.BatchSizes.Length >= 3,
                 "and later chunks must already have landed, or there is no gap to run past: " +
-                handler.BatchSizes.Count + " answered");
+                handler.BatchSizes.Length + " answered");
             gate.SetResult(true);
             var outcome = await run.ConfigureAwait(false);
 
@@ -796,7 +796,8 @@ namespace NoSQL.GraphDB.Tests
                 () => target.EmbedSummariesAsync("default", Summaries(64), CancellationToken.None,
                     new RecordingProgress(advances)));
 
-            Assert.IsTrue(failure.SummariesWritten > 0,
+            // Deterministic: chunk 1 is refused while chunks 2, 3 and 4 go out with it and all land.
+            Assert.AreEqual(3 * EmbedChunk, failure.SummariesWritten,
                 "the chunks that landed while the first was failing are element state and must be reported");
             Assert.AreEqual(0, advances.Count,
                 "but the CURSOR never moved, because the very first chunk is the gap: " +
@@ -824,31 +825,162 @@ namespace NoSQL.GraphDB.Tests
                 () => target.EmbedSummariesAsync("default", Summaries(160), CancellationToken.None, null,
                     new RunAbort(cancel.Token)));
 
-            Assert.AreEqual(handler.BatchSizes.Count * EmbedChunk, stopped.SummariesWritten,
-                "every chunk the target answered is counted, including the ones that were in flight when " +
-                "the stop arrived: " + stopped.SummariesWritten + " for " + handler.BatchSizes.Count +
-                " answered chunks");
-            Assert.IsTrue(handler.BatchSizes.Count < 10,
-                "and the stop really stopped dispatch rather than letting the whole plan go out");
+            // The number answered is NOT deterministic, and pinning it to four was wrong: two chunks can
+            // complete at once, so the loop may process the one that did NOT trigger the cancel first and
+            // dispatch a replacement before the cancelling one's answer has landed. Five is legitimate.
+            // What IS invariant is the pair below - every answered chunk is counted, and dispatch stopped
+            // long before the plan ran out - so those are what this asserts.
+            var answered = handler.BatchSizes.Length;
+            Assert.AreEqual(answered * EmbedChunk, stopped.SummariesWritten,
+                "every chunk the target answered is counted, including the ones in flight when the stop " +
+                "arrived: " + stopped.SummariesWritten + " for " + answered + " answered");
+            Assert.IsTrue(answered <= 6,
+                "and the stop really stopped dispatch rather than letting the whole plan of 10 go out: " +
+                answered);
+        }
+
+        /// <summary>
+        /// A throttle must not cost the summaries. The embedding route allows 30 requests per 10 s window,
+        /// which concurrency blows through - and a 429 that DEGRADED would end the phase, complete the run,
+        /// delete the journal, and leave those entities unembeddable for ever (the applier only embeds what
+        /// changed, so a re-run embeds nothing). So the rate drops to sequential and the chunk is asked for
+        /// again, which is sound precisely because a window expires where a 403 or a 503 does not.
+        /// </summary>
+        [TestMethod]
+        public async Task AThrottle_DropsTheRateAndFinishesTheJobRatherThanLosingTheSummaries()
+        {
+            // 429 for anything sent while more than one request is in flight: exactly the burst this
+            // feature creates, and it stops as soon as the runtime goes sequential.
+            var waits = new List<TimeSpan>();
+            var handler = new EmbedBatchRecordingHandler(throttleWhileConcurrent: true,
+                delay: TimeSpan.FromMilliseconds(10));
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 4,
+                wait: (delay, _) =>
+                {
+                    lock (waits)
+                    {
+                        waits.Add(delay);
+                    }
+
+                    return Task.CompletedTask;
+                });
+
+            var outcome = await target.EmbedSummariesAsync("default", Summaries(160), CancellationToken.None);
+
+            Assert.AreEqual(160, outcome.Written,
+                "every summary is embedded despite the throttle: giving up here loses them permanently");
+            Assert.IsNull(outcome.Degraded, "and the phase did not degrade, because the window expired");
+            Assert.AreEqual(1, waits.Count, "it waited out the window exactly once, after draining");
+            Assert.IsTrue(waits[0] >= TimeSpan.FromSeconds(10),
+                "and waited longer than the 10 s window, or the retry meets the same refusal: " + waits[0]);
         }
 
         [TestMethod]
-        public async Task ADegradeWithConcurrencyOn_StopsDispatchInsteadOfSendingTheRest()
+        public async Task AThrottleThatPersistsEvenSequentially_StillDegrades()
         {
-            var handler = new EmbedBatchRecordingHandler(failOnCall: 2, status: HttpStatusCode.TooManyRequests,
-                delay: TimeSpan.FromMilliseconds(10));
+            // The old behaviour, kept for the case it was actually right about: a target refusing a
+            // sequential caller is describing its window rather than our burst, and hundreds more
+            // round-trips would prove only that.
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 1, status: HttpStatusCode.TooManyRequests,
+                failEvery: true);
             using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
-            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 4);
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 4,
+                wait: (_, _) => Task.CompletedTask);
 
             var outcome = await target.EmbedSummariesAsync("default", Summaries(320), CancellationToken.None);
 
             StringAssert.Contains(outcome.Degraded ?? String.Empty, "429",
                 "the throttle is reported rather than silently swallowed");
-            Assert.IsTrue(handler.BatchSizes.Count <= 8,
-                "a 429 describes the WINDOW, so the remaining chunks are not tried: a large extract would " +
-                "otherwise spend hundreds of round-trips proving the same thing (" +
-                handler.BatchSizes.Count + " sent of 20)");
-            Assert.IsTrue(outcome.Written > 0, "and what landed before the throttle is still reported");
+            Assert.IsTrue(handler.BatchSizes.Length <= 8,
+                "and the remaining chunks are not tried once even a sequential ask is refused (" +
+                handler.BatchSizes.Length + " sent of 20)");
+        }
+
+        [TestMethod]
+        public void ConfiguredConcurrency_IsClampedAtBothEnds()
+        {
+            // The floor is what makes "unset" sequential; the ceiling is because this number multiplies
+            // both the request rate against a rate-limited route and the bodies held in memory at once.
+            Assert.AreEqual(1, Fallen8RestTarget.ClampEmbedConcurrency(0));
+            Assert.AreEqual(1, Fallen8RestTarget.ClampEmbedConcurrency(-5));
+            Assert.AreEqual(4, Fallen8RestTarget.ClampEmbedConcurrency(4));
+            Assert.AreEqual(Fallen8RestTarget.MaxEmbedConcurrency,
+                Fallen8RestTarget.ClampEmbedConcurrency(1000));
+        }
+
+        [TestMethod]
+        public async Task ARealRefusalOutranksAStop_SoADefectIsNotMaskedByACancel()
+        {
+            // Both happen at once: the first chunk is refused with a 400 while the operator cancels. The
+            // refusal is what recurs on the next run and is the operator's to fix.
+            using var cancel = new CancellationTokenSource();
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 1, status: HttpStatusCode.BadRequest,
+                delay: TimeSpan.FromMilliseconds(20), afterChunk: _ => cancel.Cancel());
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 2);
+
+            var failure = await Assert.ThrowsExceptionAsync<GraphTargetException>(
+                () => target.EmbedSummariesAsync("default", Summaries(160), CancellationToken.None, null,
+                    new RunAbort(cancel.Token)),
+                "a 400 says the runtime sent something the route will never accept; a cancel is satisfied " +
+                "by having stopped, so the refusal is the one the operator needs to see");
+
+            StringAssert.Contains(failure.Message, "400");
+        }
+
+        [TestMethod]
+        public async Task AShutdownWithChunksInFlight_IsInterruptedRatherThanCancelled()
+        {
+            // The distinction the journal depends on: a cancel ends the run, a shutdown means "picked up
+            // later" and keeps the spool entry. Untested for the concurrent path before this.
+            using var shutdown = new CancellationTokenSource();
+            var handler = new EmbedBatchRecordingHandler(delay: TimeSpan.FromMilliseconds(20),
+                afterChunk: answered =>
+                {
+                    if (answered == 1)
+                    {
+                        shutdown.Cancel();
+                    }
+                });
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 4);
+
+            var interrupted = await Assert.ThrowsExceptionAsync<RunInterruptedException>(
+                () => target.EmbedSummariesAsync("default", Summaries(160), CancellationToken.None, null,
+                    new RunAbort(CancellationToken.None, shutdown.Token)));
+
+            Assert.AreEqual(handler.BatchSizes.Length * EmbedChunk, interrupted.SummariesWritten,
+                "and it carries what landed, which is what the resumed run will not have to redo");
+        }
+
+        [TestMethod]
+        public async Task AnUnexpectedFaultCarriesTheCountAndItsOwnOrigin()
+        {
+            // The broad catch: a fault that is neither a graph refusal nor a timeout (here a content read
+            // dying as a bare TaskCanceledException, which is how the client timeout arrives on that path).
+            // Reporting zero embedded for the chunks that landed would send the operator to a tabula rasa
+            // they do not need, and rethrowing the object would erase where the fault came from.
+            // An exception type the REST seam does not classify: it wraps HttpRequestException and
+            // TaskCanceledException into its own graph-failure and timeout kinds, so anything else
+            // arrives raw and is what the broad catch is for. (A content read cannot be used for this:
+            // HttpClient buffers the response inside SendAsync by default, so that fault is a send-time
+            // one and gets wrapped like any other.)
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 3,
+                throwInstead: new InvalidOperationException("the seam does not classify this"),
+                delay: TimeSpan.FromMilliseconds(10));
+            using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: false, embedConcurrency: 2);
+
+            var failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => target.EmbedSummariesAsync("default", Summaries(160), CancellationToken.None),
+                "an unforeseen fault must surface rather than be turned into a degrade");
+
+            Assert.IsNotNull(failure.StackTrace,
+                "and it keeps the stack of where it was actually thrown, which a bare `throw failed` " +
+                "would have reset to the loop's own line");
+            StringAssert.Contains(failure.StackTrace, "SendAsync",
+                "the origin is still the handler that threw: " + failure.StackTrace);
         }
 
         #endregion
@@ -867,7 +999,7 @@ namespace NoSQL.GraphDB.Tests
                 "elements - reporting zero for them would be a false report, and a bound index answers " +
                 "searches over them either way");
             Assert.IsNotNull(outcome.Degraded, "and the absence of the rest is reported rather than silent");
-            Assert.AreEqual(3, handler.BatchSizes.Count,
+            Assert.AreEqual(3, handler.BatchSizes.Length,
                 "503 describes the PROVIDER rather than this batch, so the remaining chunks are not tried: a " +
                 "large extract would otherwise spend hundreds of round-trips proving the same thing");
         }
@@ -894,17 +1026,27 @@ namespace NoSQL.GraphDB.Tests
             // requests against the embedding route's sensitive-endpoint rate limit, so failing the run for
             // the target's own pacing would make chunking a regression for exactly the extracts it exists
             // to support.
-            var handler = new EmbedBatchRecordingHandler(failOnCall: 2, status: HttpStatusCode.TooManyRequests);
+            //
+            // Updated by feature integration-embed-concurrency: the chunk is now asked for ONCE more,
+            // after the rate has dropped and the window has had time to expire. That is not a softening
+            // of this test's point, it is the point taken further - degrading immediately ends the phase,
+            // completes the run and deletes the journal, and those entities can then never be embedded
+            // again, because the applier only embeds what CHANGED. A target still refusing a sequential
+            // caller is the window rather than our burst, and then it degrades exactly as before.
+            var handler = new EmbedBatchRecordingHandler(failOnCall: 2, status: HttpStatusCode.TooManyRequests,
+                failEvery: true);
             using var client = new HttpClient(handler) { BaseAddress = new Uri("http://localhost/") };
-            using var target = new Fallen8RestTarget(client, "default");
+            using var target = new Fallen8RestTarget(client, "default", ownsClient: true, embedConcurrency: 1,
+                wait: (_, _) => Task.CompletedTask);
 
             var outcome = await target.EmbedSummariesAsync("default", Summaries(200), CancellationToken.None);
 
             Assert.AreEqual(16, outcome.Written, "the first chunk landed and is reported");
             Assert.IsNotNull(outcome.Degraded, "and the throttle is named rather than swallowed");
-            Assert.AreEqual(2, handler.BatchSizes.Count,
-                "a throttle describes the WINDOW, not this batch, so hammering the remaining chunks would " +
-                "only deepen it");
+            Assert.AreEqual(3, handler.BatchSizes.Length,
+                "chunk 1 landed, chunk 2 was refused, chunk 2 was asked once more and refused again - and " +
+                "then the phase stops, because hammering the remaining chunks would only deepen a window " +
+                "that is refusing even one request at a time");
         }
 
         [TestMethod]
@@ -1261,7 +1403,7 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(32, stopped.SummariesWritten,
                 "the two chunks that landed put real vectors on real elements, and a count of zero would send " +
                 "the operator to a tabula rasa they do not need");
-            Assert.AreEqual(2, handler.BatchSizes.Count,
+            Assert.AreEqual(2, handler.BatchSizes.Length,
                 "the loop asked for another chunk after the stop, so the stop is not being observed between " +
                 "chunks at all");
         }
@@ -1461,6 +1603,29 @@ namespace NoSQL.GraphDB.Tests
                 Assert.AreEqual(TimeSpan.FromSeconds(1), timeout,
                     "'" + bad.ToString(CultureInfo.InvariantCulture) + "' must be floored, not thrown on");
             }
+        }
+
+        [TestMethod]
+        public void TheFactoryPassesTheConfiguredEmbedConcurrencyToTheTarget()
+        {
+            // Without this, dropping the argument at the one call site would leave the setting inert and
+            // every concurrency test still green, because they construct the target directly.
+            Assert.AreEqual(1, EmbedConcurrencyOf(new Fallen8TargetOptions()),
+                "unset means sequential, which is what every existing deployment gets");
+            Assert.AreEqual(4, EmbedConcurrencyOf(new Fallen8TargetOptions { EmbedConcurrency = 4 }));
+            Assert.AreEqual(Fallen8RestTarget.MaxEmbedConcurrency,
+                EmbedConcurrencyOf(new Fallen8TargetOptions { EmbedConcurrency = 500 }),
+                "and an operator-typed number is clamped on the way through, not honoured");
+        }
+
+        /// <summary>What the factory really put on the target, read the same way as the deadline below.</summary>
+        private static Int32 EmbedConcurrencyOf(Fallen8TargetOptions options)
+        {
+            using var target = new GraphTargetFactory(Options.Create(options)).Create(null);
+            var field = typeof(Fallen8RestTarget).GetField("_embedConcurrency",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(field, "Fallen8RestTarget no longer holds its concurrency in _embedConcurrency");
+            return (Int32)field.GetValue(target);
         }
 
         /// <summary>
@@ -2277,10 +2442,17 @@ namespace NoSQL.GraphDB.Tests
             /// <param name="delayBy">Per-chunk delay, by 1-based arrival ordinal. The seam the out-of-order
             /// test needs: making one chunk slower than its successors is how a LATER chunk lands before an
             /// EARLIER one, which is the only shape that tells a prefix cursor apart from a total.</param>
+            /// <param name="failEvery">Whether <paramref name="failOnCall" /> means "that chunk and every
+            /// one after it" rather than that chunk alone: how a target that keeps refusing is modelled.</param>
+            /// <param name="throttleWhileConcurrent">Answers 429 to anything sent while more than one
+            /// request is open, and 200 otherwise. This is the shipped rate limiter's shape in miniature -
+            /// a burst is refused, a sequential caller is not - so a test can watch the runtime drop its
+            /// rate and finish rather than assert on a fixed number of refusals.</param>
             public EmbedBatchRecordingHandler(Int32 failOnCall = 0,
                 HttpStatusCode status = HttpStatusCode.ServiceUnavailable, Exception throwInstead = null,
                 Action<Int32> afterChunk = null, TimeSpan delay = default, Int32 holdChunk = 0,
-                Task held = null, Func<Int32, TimeSpan> delayBy = null)
+                Task held = null, Func<Int32, TimeSpan> delayBy = null, Boolean failEvery = false,
+                Boolean throttleWhileConcurrent = false)
             {
                 _failOnCall = failOnCall;
                 _status = status;
@@ -2290,7 +2462,12 @@ namespace NoSQL.GraphDB.Tests
                 _holdChunk = holdChunk;
                 _held = held;
                 _delayBy = delayBy;
+                _failEvery = failEvery;
+                _throttleWhileConcurrent = throttleWhileConcurrent;
             }
+
+            private readonly Boolean _failEvery;
+            private readonly Boolean _throttleWhileConcurrent;
 
             private readonly Func<Int32, TimeSpan> _delayBy;
             private readonly TimeSpan _delay;
@@ -2299,31 +2476,66 @@ namespace NoSQL.GraphDB.Tests
             private readonly Object _gate = new Object();
             private Int32 _inFlight;
 
-            public List<Int32> BatchSizes { get; } = new List<Int32>();
+            private readonly List<Int32> _batchSizes = new List<Int32>();
+
+            /// <summary>
+            ///   The chunk sizes answered so far, COPIED under the lock. A bare list would be read while
+            ///   chunks are still arriving on pool threads, and enumerating one mid-Add throws "collection
+            ///   was modified" - turning a real assertion failure into an unreadable one.
+            /// </summary>
+            public Int32[] BatchSizes
+            {
+                get
+                {
+                    lock (_gate)
+                    {
+                        return _batchSizes.ToArray();
+                    }
+                }
+            }
 
             /// <summary>The most requests this handler ever had open at once: the bound, observed.</summary>
-            public Int32 MaxInFlight { get; private set; }
+            public Int32 MaxInFlight
+            {
+                get
+                {
+                    lock (_gate)
+                    {
+                        return _maxInFlight;
+                    }
+                }
+            }
+
+            private Int32 _maxInFlight;
 
             protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request,
                 CancellationToken cancellationToken)
             {
                 var body = await request.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
                 using var parsed = JsonDocument.Parse(body);
-                var items = parsed.RootElement.GetProperty("items").GetArrayLength();
+                var itemArray = parsed.RootElement.GetProperty("items");
+                var items = itemArray.GetArrayLength();
 
-                Int32 ordinal;
+                // Which chunk this IS, read out of the body rather than counted on arrival. Summaries(n)
+                // numbers its elements 0..n-1, so the first element id divided by the chunk size is the
+                // chunk's own index whatever order the requests arrive in. Arrival order happens to match
+                // dispatch order today (the send enters this handler synchronously), but a test that
+                // holds "the second chunk" must not depend on that: if it ever stopped holding, the hold
+                // would silently land on a different chunk.
+                var ordinal = items == 0
+                    ? 0
+                    : itemArray[0].GetProperty("graphElementId").GetInt32() / EmbedChunk + 1;
+
+                Int32 openNow;
                 lock (_gate)
                 {
                     _inFlight++;
-                    if (_inFlight > MaxInFlight)
+                    if (_inFlight > _maxInFlight)
                     {
-                        MaxInFlight = _inFlight;
+                        _maxInFlight = _inFlight;
                     }
 
-                    // The ordinal is taken on ARRIVAL and the size recorded on DEPARTURE, so BatchSizes
-                    // counts answered chunks (what the assertions are about) while the hold still targets
-                    // the chunk the caller meant.
-                    ordinal = _inFlight + BatchSizes.Count;
+                    openNow = _inFlight;
                 }
 
                 try
@@ -2345,7 +2557,17 @@ namespace NoSQL.GraphDB.Tests
                         await Task.Delay(_delay, cancellationToken).ConfigureAwait(false);
                     }
 
-                    if (_failOnCall > 0 && ordinal == _failOnCall)
+                    if (_throttleWhileConcurrent && openNow > 1)
+                    {
+                        // The shipped limiter's shape in miniature: a burst is refused, a sequential
+                        // caller is not, so the runtime's own reaction is what the test observes.
+                        return new HttpResponseMessage(HttpStatusCode.TooManyRequests)
+                        {
+                            Content = new StringContent("rate limit"),
+                        };
+                    }
+
+                    if (_failOnCall > 0 && (ordinal == _failOnCall || (_failEvery && ordinal >= _failOnCall)))
                     {
                         if (_throwInstead != null)
                         {
@@ -2364,8 +2586,8 @@ namespace NoSQL.GraphDB.Tests
                     lock (_gate)
                     {
                         _inFlight--;
-                        BatchSizes.Add(items);
-                        answered = BatchSizes.Count;
+                        _batchSizes.Add(items);
+                        answered = _batchSizes.Count;
                         after = _afterChunk;
                     }
 

@@ -91,12 +91,21 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   per-request timeout that a bigger chunk would run into. Raising the chunk size instead was
         ///   measured and rejected; see the feature spec.</para>
         ///
-        ///   <para>Two costs to know before raising it. The embedding route carries the
-        ///   sensitive-endpoint rate limit, and concurrency is exactly what makes a fixed window easier
-        ///   to trip (a 429 degrades the phase to absent rather than failing the run). And a run PICKED UP
-        ///   after an interruption may re-embed up to this many chunks minus one, because the resume
-        ///   cursor only advances over chunks whose predecessors have all landed - re-embedding is
-        ///   idempotent, so that is bounded rework rather than a correctness question.</para>
+        ///   <para>Clamped to 1..<see cref="Graph.Fallen8RestTarget.MaxEmbedConcurrency" />, because it
+        ///   multiplies both the request rate against a rate-limited route and the number of bodies held in
+        ///   memory at once, and nothing downstream bounds either.</para>
+        ///
+        ///   <para>Three things to know before raising it. The embedding route carries the
+        ///   sensitive-endpoint rate limit (30 requests per 10 s window as shipped), and concurrency is
+        ///   exactly what makes that window easy to trip; a 429 is survivable rather than fatal, because
+        ///   the phase drops back to sequential, waits out the window and asks again. A run PICKED UP after
+        ///   an interruption may re-embed up to this many chunks minus one, because the resume cursor only
+        ///   advances over chunks whose predecessors have all landed - re-embedding is idempotent, so that
+        ///   is bounded rework rather than a correctness question. And against a backend that SERIALIZES
+        ///   inference (a single-slot local model), the Nth in-flight request spends N-1 inference times
+        ///   queued while its own client clock runs, so a high value can convert a slow-but-working phase
+        ///   into one that trips <see cref="TimeoutSeconds" />: this is a knob for a remote backend, where
+        ///   the idle time it fills is network rather than model.</para>
         /// </summary>
         public Int32 EmbedConcurrency { get; set; } = 1;
     }
