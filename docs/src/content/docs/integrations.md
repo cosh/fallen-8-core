@@ -581,199 +581,35 @@ Two things worth knowing before you run it:
 ## Reading a vehicle network
 
 `autosar-arxml` reads **AUTOSAR system extracts**, the XML files the automotive industry uses to
-exchange the communication matrix of a vehicle network, and describes the **CAN, FlexRay and
-Ethernet** buses they carry. They are [uploaded with the job](#files) like the CSV integration's
-file.
+exchange the communication matrix of a vehicle network. It describes the vehicle's CAN, FlexRay and
+Ethernet buses: their channels, the ECUs on them, the frames, PDUs and signals they carry, and the
+send and receive flow between them. The standard itself is described on Wikipedia under
+[AUTOSAR](https://en.wikipedia.org/wiki/AUTOSAR); the extracts are
+[uploaded with the job](#files) like the CSV integration's file.
 
-**Give it the whole set in one run.** A vehicle is handed over as one extract per domain or per bus,
-and those extracts reference each other by AUTOSAR path, so one run over all of them resolves a frame
-in `chassis.arxml` against a signal defined in `body.arxml` exactly as it would inside one file. One
-run per extract cannot do that: each would be a complete snapshot of its own, so the second would
-withdraw everything the first described. The rules that come with a set - order is precedence, the set
-is the source, a later run with fewer files withdraws the difference - are in
-[One setting, several files](#one-setting-several-files).
+Three things decide whether a run does what you meant:
 
-That matters more with several buses than it did with one, because an ECU's declaration in an extract
-is **bus-local**: a gateway sitting on a CAN bus and a FlexRay bus appears in both extracts, each
-carrying only its own bus's connector for it. Run them together and the gateway is one element
-attached to both buses, which is the whole point of importing a vehicle rather than a bus. Run them
-separately and you get two disconnected graphs, one per run, each having deleted the other.
+- **Give it the whole set in one run.** A vehicle is handed over as one extract per domain or per
+  bus, and those extracts reference each other by AUTOSAR path, so only a run over all of them
+  resolves a frame in `chassis.arxml` against a signal defined in `body.arxml`, or attaches a
+  gateway to both of its buses. Run them separately and each is a complete snapshot that withdraws
+  what the others described. The rules that come with a set are in
+  [One setting, several files](#one-setting-several-files).
+- **The `vehicle` setting is required and has no default.** Identity is that name plus the element's
+  own AUTOSAR reference path, matched exactly, and a path is unique only within one system
+  description, so a default would quietly merge one car into another. Use the same name for every
+  job describing one vehicle, and a different one for a different vehicle.
+- **Only CAN, FlexRay and Ethernet clusters are read.** A bus of another kind is skipped and named
+  on the report (`arxmlUnreadCluster`), which matters because the run is still reported complete
+  over what it did read; a set carrying no bus this version reads fails outright rather than
+  reporting an empty network. The software-component level is deliberately not read: this is the
+  network view.
 
-Where two extracts declare the **same bus**, their channels are merged into one network: that is what
-one bus split across extracts needs. It is reported (`arxmlRedeclaredCluster`), because the same
-merge is lossy if the two extracts really describe different buses that happen to share a reference
-path, and nothing in the file distinguishes those two cases.
-
-What lands in the graph is each bus (`network`), its physical channels (`channel`), its ECUs, the
-frames on it, the PDUs inside those frames (including the container and secured layers), the signals
-inside the PDUs, the system signals they implement and the scaling methods that give them a unit. One
-vocabulary covers every bus technology: a CAN frame and a FlexRay frame are both `frame`, so a query
-for "what does this ECU send" never has to enumerate a label per protocol. What differs is a few
-properties, and they are absent rather than empty on the protocol that has no use for them: a FlexRay
-frame carries `slotId`, `baseCycle` and `cycleRepetition`, a CAN frame carries `canId` and
-`canAddressingMode`, an Ethernet channel carries `vlanId` and `vlanName`, and every bus carries
-`protocol`, `baudrate` and the protocol name and version the file states. A query that filters on
-`protocol` is really filtering on which of those exist. The edges are the questions people actually
-ask: `sends` and `deliversTo` point **with** the data flow, so a path from a sending ECU to a
-receiving one never traverses an edge backwards; `contains`, `carries` and `secures` walk down the
-protocol stack from a frame to a single signal; and `partOf` is plain structure, a channel to its bus.
-
-**A channel is a different thing on each protocol**, which is why it is an element rather than a
-count. On CAN it is the single channel a cluster has. On FlexRay it is redundancy: A and B carry one
-schedule, so they are two channels of **one** network rather than two networks. On Ethernet a channel
-is a **VLAN**, so a backbone has as many as the vehicle has broadcast domains, and which one an ECU
-sits on is a question you can ask directly. An ECU is `attachedTo` its bus **and** each channel it is
-really on: the first answers "is this unit on this bus" without knowing the protocol, the second
-answers "which broadcast domain".
-
-**An Ethernet bus has no frame layer at all.** That is the standard's own shape rather than something
-missing: an Ethernet channel carries PDU triggerings directly, and the socket layer does what a frame
-does elsewhere. So a query that reaches signals *through frames* finds nothing on an Ethernet bus,
-and the protocol-neutral route - the PDU - is the one to write. A frame is better understood as how
-CAN and FlexRay **address** a PDU, exactly as a socket connection and a header id is how Ethernet
-addresses one.
-
-### The socket layer
-
-What addresses a PDU on Ethernet lands as three more kinds, all `partOf` their channel:
-
-| kind | what it is | properties | reaches |
-|---|---|---|---|
-| `endpoint` | a network endpoint: an address on the channel | `address`, `ipVersion`, `addressSource`, `networkMask` | |
-| `socket` | a socket address and its application endpoint | `port`, `transport` (`udp` or `tcp`) | `boundTo` its endpoint |
-| `connection` | the pairing of sockets that carries PDUs | `sourceSpelling`, `headerIdCount` | `serverPort` and `clientPort` to its two ends, `carries` to each PDU |
-
-**`sourceSpelling` is there because this layer is normalised.** Its element names differ between
-AUTOSAR revisions **with no overlap**: one revision names a connection bundle under the channel,
-another a static socket connection hanging off the serving socket. Mirroring each faithfully would
-make the graph's *shape* depend on which revision an extract was written against, so the same vehicle
-exported twice would import as two different graphs and every query would need writing twice. They
-are read onto the one `connection` kind instead, and `sourceSpelling` keeps the element name the file
-actually used, so nothing is hidden. Both spellings are read unconditionally - there is nothing to
-detect, since a document can only be using one of them.
-
-### Services, and the switch below them
-
-Two more kinds sit either side of the socket layer.
-
-**`service`** is a SOME/IP service instance, which is the level a modern vehicle's Ethernet traffic is
-actually organised at: signals still exist below it, but what an application asks for is a service.
-Each is `partOf` the socket that offers or consumes it, and carries `role` (`provided` or `consumed`),
-`serviceId` and `instanceId`. One kind for both roles, so "what services does this unit take part in"
-is one query. A provided instance and the consumers that use it stay **separate elements** carrying
-the same `serviceId`: the extract joins them by nothing, so matching them is a query you write rather
-than an inference the reader makes for you.
-
-**`coupling`** is a physical port of the switch fabric, `partOf` the ECU whose Ethernet controller
-declares it, and `connectedTo` the port it is wired to. That is a different question from a socket's
-port number - "which switch port is this unit plugged into" rather than "which port does this service
-listen on" - which is why it is a different kind. A link is **one** edge in the direction the file
-states it; two would make every count over the topology wrong. A connection the extract only half
-states produces no edge and no complaint, while one naming a port nothing declares is reported like
-any other unresolved reference.
-
-**If a channel's socket layer comes up empty, the run says so** (`arxmlSocketLayerUnrecognised`),
-naming the schema the file declared and the element names it actually found under that channel. This
-is the one diagnostic here more likely to be about the *reader* than about your file: a spelling this
-version has not met would otherwise be silent data loss on a bus that imported and looked complete.
-An extract that genuinely carries no socket layer produces it too, which is why it is reported once
-per run rather than once per channel. If those names look like a socket layer, they are worth
-reporting: adding one is a table entry.
-
-### One value, several buses
-
-This is what makes importing a vehicle worth more than importing its buses one at a time. A value
-carried on more than one bus is **one bus-independent `system-signal` with a per-bus `signal`
-each**, joined by `implements` - never a shared signal, because a signal is a wire representation and
-two buses do not share one. So a wheel speed produced on CAN and consumed on Ethernet is one element
-both buses reach, and the walk crosses protocols without knowing which are involved:
-
-```
-ecu -sends-> signal -implements-> system-signal <-implements- signal -deliversTo-> ecu
-```
-
-Nothing configures that. It follows from having both buses in one graph, which is why giving the run
-the whole set (or [scoping](#scope-when-one-source-needs-more-than-one-job) each job of it) is the
-part that matters.
-
-Identity is the **vehicle you name** plus the element's **AUTOSAR reference path**, which the
-standard already makes both its identity and the way every cross-reference in the file addresses
-it. Nothing is matched by name or similarity. Run the next release into the same namespace and what
-that release removed is withdrawn, which leaves the [change feed](/change-feed/) as the release diff
-with nothing extra to set up.
-
-The **Vehicle** setting is required and has no default, because a default would quietly merge one
-car into another. AUTOSAR paths are not unique across vehicles: a short-name is unique among its
-siblings, so a reference path identifies an element within **one** model, and nothing in the standard
-coordinates package names across independently authored models. The standardised packages are common
-to all of them by construction, so two vehicles routinely use the same path for different elements.
-The ARXML form is specified by AUTOSAR's
-[ARXML Serialization Rules](https://www.autosar.org/fileadmin/standards/R20-11/FO/AUTOSAR_TPS_ARXMLSerializationRules.pdf)
-(R20-11). Naming the vehicle is what lets both cars live in one namespace
-under one identity without resolving onto each other. Use the **same** name for every job describing
-one vehicle, so its buses join up into one graph; use a different name for a different vehicle.
-
-Two limits worth knowing up front. This version reads **CAN, FlexRay and Ethernet** clusters. A set
-carrying a bus of another kind - LIN, for instance - still imports what it can, and names what it
-skipped (`arxmlUnreadCluster`): worth reading, because the run is reported COMPLETE over what it did
-read, so a later job that omits those files withdraws whatever only they described. A readable set
-carrying **no** bus this version reads fails the run outright rather than reporting an empty network,
-because an empty complete snapshot would delete the network a previous run described; one extract of
-a set having no cluster is perfectly normal, since the gate is over the union. And the
-software-component level (the data mappings between components) is deliberately not read: this is
-the network view.
-
-### Finding a signal you cannot name
-
-Signal names in a real matrix are unguessable codes, which is exactly what the optional summary
-embedding above is for. The template covers a signal's name, both language descriptions and its
-**unit**, and the unit is the point: an odometer's description says "accumulated distance" and
-never "kilometer", so its unit is the only thing connecting it to somebody searching for one.
-
-With the embed opt-in on the run and an embedding provider configured, create a
-[vector index](/vector-search/) bound to that embedding name. In Studio that is the Indexes
-screen: type an index id, pick `VectorIndex`, and set *bind embedding* to the name the run used.
-The dimension and metric are prefilled from the instance's provider, and accepting them is what
-you want -- an index whose dimension disagrees with the model writing into it is refused on
-every later embed and every search. Over REST:
-
-```bash
-curl -sf -X POST http://localhost:8080/ns/vehicle/index \
-     -H "Content-Type: application/json" \
-     -d '{"uniqueId":"arxml-summary","pluginType":"VectorIndex","pluginOptions":{
-           "dimension":{"propertyId":"dimension","propertyValue":"1024","fullQualifiedTypeName":"System.Int32"},
-           "metric":{"propertyId":"metric","propertyValue":"Cosine","fullQualifiedTypeName":"System.String"},
-           "embeddingName":{"propertyId":"embeddingName","propertyValue":"default","fullQualifiedTypeName":"System.String"}}}'
-```
-
-Take the `dimension` from `GET /status` (the `embedding` block), not from this example. Order
-does not matter: a bound index created after the vectors exist materialises itself from them.
-
-Then ask in words:
-
-```bash
-curl -sf -X POST http://localhost:8080/ns/vehicle/embedding/search \
-     -H "Content-Type: application/json" \
-     -d '{"indexId":"arxml-summary","text":"kilometer","k":10,"label":"signal"}'
-```
-
-Note the `label`. It is not decoration. Only six of the thirteen ARXML entity kinds get a
-description read out of the extract at all -- signals, system signals, PDUs, network endpoints,
-SOME/IP service instances and coupling ports -- so a network, an ECU, a frame or a socket embeds as
-little more than its own name, and those vectors cluster by identifier shape rather than by
-meaning. An unconstrained similarity search therefore ranks that noise against real matches.
-Constrain every similarity query to the kind of thing you are looking for.
-
-Once a signal is on your screen you can also search **from it** instead of describing it: the
-[Studio](/studio/) detail panel and the Browser's Embeddings tab both offer *Find similar*,
-which searches the bound index with that element's own vector and drops the element itself from
-the hits.
-
-The hits are element ids, so they feed straight into the traversal surface: "who receives the
-kilometer signal" is that query followed by one `deliversTo` hop. A multilingual embedding model
-matters here, since the prose in these files is routinely German and English in the same
-element; the compose environment's default model is multilingual, and a single-language one
-degrades the German half.
+`GET /integrations/providers` describes, in the integration's own words, every kind it reads and how
+the buses join up to each other. Signal names in a real matrix are unguessable codes, so the summary
+[embedding](#semantic-search-over-what-landed) above is what makes them searchable by unit or
+description: constrain those queries with a `label`, since only some kinds carry prose worth
+embedding and the rest cluster by identifier shape.
 
 ## Writing the next one
 
