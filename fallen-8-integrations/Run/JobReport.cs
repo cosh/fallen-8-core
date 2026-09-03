@@ -33,7 +33,7 @@ namespace NoSQL.GraphDB.Integrations.Run
     /// <summary>
     ///   THE ONLY ACCOUNT of a job, because the runtime keeps none. A provider's diagnostics ride along on its
     ///   snapshot into the same list, so one report covers both what the source could not tell the run and what
-    ///   the graph could not be told, and diagnostics are never dropped.
+    ///   the graph could not be told.
     /// </summary>
     public sealed class JobReport
     {
@@ -118,7 +118,11 @@ namespace NoSQL.GraphDB.Integrations.Run
         [JsonPropertyName("credentialFingerprint")]
         public String? CredentialFingerprint { get; set; }
 
-        /// <summary>Everything a reader needs to know, from both the provider and the runtime.</summary>
+        /// <summary>
+        ///   Everything a reader needs to know, from both the provider and the runtime, with at most
+        ///   <see cref="DiagnosticBudget.PerCode"/> of any one code: <see cref="DiagnosticBudget"/> owns
+        ///   that bound and where the rest of them go.
+        /// </summary>
         [JsonPropertyName("diagnostics")]
         public IList<DiagnosticDto> Diagnostics { get; set; } = new List<DiagnosticDto>();
 

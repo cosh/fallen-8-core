@@ -203,6 +203,16 @@ namespace NoSQL.GraphDB.Integrations.Contract
         /// </summary>
         public const String SummaryEmbeddingUnavailable = "summaryEmbeddingUnavailable";
 
+        // --- The report itself. -------------------------------------------------------------------
+
+        /// <summary>
+        ///   Diagnostics of one code were left off this report and are in the run's log instead, with the
+        ///   subject naming WHICH code and the message counting them.
+        ///   <see cref="Run.DiagnosticBudget"/> owns how many of a code a report keeps and where the rest
+        ///   go.
+        /// </summary>
+        public const String DiagnosticsElided = "diagnosticsElided";
+
         // --- The shipped blueprints. Provider diagnostics live with the runtime's because a reader of
         // a report should not have to know which side raised one. ----------------------------------
 

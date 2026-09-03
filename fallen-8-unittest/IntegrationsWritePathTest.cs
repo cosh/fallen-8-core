@@ -1264,6 +1264,90 @@ namespace NoSQL.GraphDB.Tests
                 String.Join(", ", harness.ActiveCredentials.Snapshot().Select(value => value.Length + " chars")));
         }
 
+        [TestMethod]
+        public async Task ADiagnosticFloodIsCountedOnTheReport_AndEveryOneOfThemIsInTheLog()
+        {
+            var graph = new InMemoryGraphTarget();
+
+            // Debug, which is what an operator who wants the individual subjects configures. The default
+            // level is the subject of the next test.
+            using var harness = Harness(graph, files: null, level: LogLevel.Debug);
+            harness.Provider.WhileObserving = (context, token) =>
+            {
+                for (var row = 1; row <= DiagnosticBudget.PerCode + 2; row++)
+                {
+                    context.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.RowWithoutMac,
+                        "This row named no device.", "row " + row.ToString(CultureInfo.InvariantCulture)));
+                }
+
+                context.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.WeakOnlyIdentity,
+                    "Nothing can ever resolve to this.", "the lonely one"));
+            };
+
+            var report = await harness.Runner.RunAsync(RunnerJob(Instance), CancellationToken.None);
+
+            var flooded = report.Diagnostics.Where(d => d.Code == DiagnosticCodes.RowWithoutMac).ToList();
+            Assert.AreEqual(DiagnosticBudget.PerCode, flooded.Count,
+                "the report keeps the cap and no more, or the reader is back to scrolling a table nobody " +
+                "reads: " + Describe(report));
+            Assert.AreEqual("row 1", flooded[0].Subject,
+                "and it keeps the FIRST of them in order, because a report whose examples came from an " +
+                "arbitrary place in the run cannot be compared with the next run's");
+            Assert.AreEqual("row " + DiagnosticBudget.PerCode.ToString(CultureInfo.InvariantCulture),
+                flooded[flooded.Count - 1].Subject);
+
+            var elided = report.Diagnostics.Where(d => d.Code == DiagnosticCodes.DiagnosticsElided).ToList();
+            Assert.AreEqual(1, elided.Count,
+                "one entry per code that overflowed, or a flood of two codes reads as one");
+            Assert.AreEqual(DiagnosticCodes.RowWithoutMac, elided[0].Subject,
+                "its subject names WHICH code was cut, which is the only thing that makes the count usable");
+            StringAssert.Contains(elided[0].Message, "2 further diagnostics",
+                "the count is the point: it is what says whether two were left off or fifty thousand");
+            StringAssert.Contains(elided[0].Message, DiagnosticBudget.LogCategory,
+                "and it names the category to raise, or the detail is unreachable in practice");
+
+            Assert.AreEqual(1, report.Diagnostics.Count(d => d.Code == DiagnosticCodes.WeakOnlyIdentity),
+                "a code UNDER the cap is untouched, which is the whole reason the cap is per code: the two " +
+                "diagnostics that meant something are what the flood used to bury");
+
+            Assert.IsTrue(harness.Log.Lines.Any(line =>
+                    line.Contains("Integration diagnostic", StringComparison.Ordinal) &&
+                    line.Contains("row " + (DiagnosticBudget.PerCode + 2).ToString(CultureInfo.InvariantCulture),
+                        StringComparison.Ordinal)),
+                "the one the report left off must be IN the log, or the cap is data loss rather than a " +
+                "summary: " + String.Join(" | ", harness.Log.Lines));
+            Assert.IsTrue(harness.Log.Lines.Any(line =>
+                    line.Contains("were left off the report", StringComparison.Ordinal)),
+                "and one line at information level says the detail exists, or nobody learns there is more " +
+                "to read without opening a report they already decided not to");
+        }
+
+        [TestMethod]
+        public async Task AnUnconfiguredLogGetsNoDiagnosticDetail_AndAReportUnderTheCapKeepsEverything()
+        {
+            var graph = new InMemoryGraphTarget();
+            using var harness = Harness(graph);
+            harness.Provider.WhileObserving = (context, token) =>
+                context.Diagnostics.Add(new DiagnosticDto(DiagnosticCodes.RowWithoutMac,
+                    "This row named no device.", "row 7"));
+
+            var report = await harness.Runner.RunAsync(RunnerJob(Instance), CancellationToken.None);
+
+            Assert.AreEqual(1, report.Diagnostics.Count(d => d.Code == DiagnosticCodes.RowWithoutMac),
+                "a run with one diagnostic reports it, unchanged: " + Describe(report));
+            Assert.IsFalse(report.Diagnostics.Any(d => d.Code == DiagnosticCodes.DiagnosticsElided),
+                "and nothing was elided, so no entry claims anything was");
+            Assert.IsFalse(harness.Log.Lines.Any(line =>
+                    line.Contains("Integration diagnostic", StringComparison.Ordinal)),
+                "the per-diagnostic lines are debug and this sink is at information, which is what an " +
+                "unconfigured container has: they must not appear, or the detail this feature moved into " +
+                "the log becomes a flood in every operator's log instead: " +
+                String.Join(" | ", harness.Log.Lines));
+            Assert.IsFalse(harness.Log.Lines.Any(line =>
+                    line.Contains("were left off the report", StringComparison.Ordinal)),
+                "and the summary line is raised only when something really was left off");
+        }
+
         #endregion
 
         #region stopping a run on purpose (feature integration-run-lifecycle)
@@ -2099,25 +2183,30 @@ namespace NoSQL.GraphDB.Tests
             return new IntegrationJob { ProviderId = Provider, IntegrationInstanceId = instanceId };
         }
 
-        private static RunnerHarness Harness(IGraphTarget target, IJobFilesFactory files = null)
+        private static RunnerHarness Harness(IGraphTarget target, IJobFilesFactory files = null,
+            LogLevel level = LogLevel.Information)
         {
-            return new RunnerHarness(target, files ?? new NoFilesFactory());
+            return new RunnerHarness(target, files ?? new NoFilesFactory(), level);
         }
 
         /// <summary>
         ///   The REAL runner over a graph a test can read, with the one seam a run's outcome cannot be judged
         ///   without: a capturing log sink, because for a cancelled or credential-refused run the log LINE is the
         ///   only account there is.
+        ///
+        ///   <para>The sink's LEVEL is a parameter and defaults to information, which is what an unconfigured
+        ///   container has: a test asserting that debug detail does not flood an ordinary log needs the
+        ///   default, and the one asserting the detail is there when asked for needs to raise it.</para>
         /// </summary>
         private sealed class RunnerHarness : IDisposable
         {
             private readonly ILoggerFactory _loggers;
             private readonly IntegrationsMetrics _metrics;
 
-            public RunnerHarness(IGraphTarget target, IJobFilesFactory files)
+            public RunnerHarness(IGraphTarget target, IJobFilesFactory files, LogLevel level)
             {
                 Log = new CapturingLoggerProvider();
-                _loggers = LoggerFactory.Create(builder => builder.AddProvider(Log));
+                _loggers = LoggerFactory.Create(builder => builder.SetMinimumLevel(level).AddProvider(Log));
                 _metrics = new IntegrationsMetrics();
                 Provider = new ScriptedProvider();
 
