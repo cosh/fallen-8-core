@@ -60,6 +60,7 @@ namespace NoSQL.GraphDB.Integrations.Run
         private readonly RunShutdown _shutdown;
         private readonly ILoggerFactory _loggers;
         private readonly ILogger<JobRunner> _logger;
+        private readonly ILogger _diagnosticLog;
 
         public JobRunner(ProviderCatalog catalog, SnapshotValidator validator, SnapshotApplier applier,
             CredentialResolver credentials, IGraphTargetFactory targets, IProviderHttpFactory http,
@@ -84,6 +85,10 @@ namespace NoSQL.GraphDB.Integrations.Run
             _metrics = metrics ?? throw new ArgumentNullException(nameof(metrics));
             _loggers = loggers ?? throw new ArgumentNullException(nameof(loggers));
             _logger = loggers.CreateLogger<JobRunner>();
+
+            // Its own category, so that asking for the diagnostic detail does not also turn on every other
+            // debug line this runtime has. DiagnosticBudget says what the level buys.
+            _diagnosticLog = loggers.CreateLogger(DiagnosticBudget.LogCategory);
         }
 
         /// <summary>
@@ -496,6 +501,10 @@ namespace NoSQL.GraphDB.Integrations.Run
                     // redactable. One frame later the runtime no longer knows what the credential was.
                     report.CredentialFingerprint = lease.Fingerprint();
                     Scrub(report);
+
+                    // AFTER the scrub, on every ending there is, because this is the one frame the report
+                    // passes through on its way out and the detail becomes log lines here.
+                    DiagnosticBudget.Apply(report.Diagnostics, _diagnosticLog);
 
                     if (cancelled)
                     {

@@ -103,8 +103,11 @@ namespace NoSQL.GraphDB.Integrations.Contract
 
         /// <summary>
         ///   What the source could not tell this run. Adding here is equivalent to putting the diagnostic on
-        ///   the returned snapshot: the runner merges both into the report's one list, and diagnostics are
-        ///   never dropped.
+        ///   the returned snapshot: the runner merges both into the report's one list. A provider may raise
+        ///   one per thing that happened without weighing how many that is: a report keeps at most
+        ///   <see cref="Run.DiagnosticBudget.PerCode"/> of any one code and the run's log keeps every one of
+        ///   them, so a flood buries nothing. Aggregate where the per-item entries say nothing NEW, which
+        ///   is a different judgement and one only the provider can make.
         /// </summary>
         public IList<DiagnosticDto> Diagnostics { get; }
 

@@ -503,7 +503,7 @@ The report is the only account of a job, because the runtime keeps none:
 }
 ```
 
-Four things on it are worth knowing:
+Five things on it are worth knowing:
 
 **`issuedMutations` is false on a re-run over an unchanged source.** Every write is conditional
 on an actual difference, so running a job on a timer costs nothing when nothing changed: no
@@ -521,9 +521,26 @@ nothing is wrong, the counts are what really landed, and the run [did not
 reconcile](#stopping-one). It carries no `errorKind` for exactly that reason, so anything alerting
 on failures should not fire for a run somebody stopped on purpose.
 
-**`diagnostics` are never dropped**, and each has a stable `code` you can grep for and alert on.
-They cover both what the source could not tell the run (a CSV row with no MAC) and what the
-graph could not be told (a claim an index refused).
+**`diagnostics` each have a stable `code`** you can grep for and alert on. They cover both what the
+source could not tell the run (a CSV row with no MAC) and what the graph could not be told (a claim
+an index refused).
+
+**The report keeps at most ten diagnostics of any one code**, as examples, plus one
+`diagnosticsElided` entry counting what it left off and naming the code in its `subject`. The
+**log** has every one of them. A partial AUTOSAR extract raises one unresolved-reference diagnostic
+per dangling reference, and a vehicle-sized job produced tens of thousands: a table nobody scrolls,
+several megabytes of the response, and the two diagnostics that meant something buried in the
+middle of it. Ten of a code is enough to see the pattern, and the count says how big it is.
+
+To read the individual ones, raise that one log category to debug and run the job again:
+
+```bash
+Logging__LogLevel__NoSQL.GraphDB.Integrations.Run.DiagnosticBudget=Debug
+```
+
+It is its own category so that asking for the diagnostics does not turn on every other debug line
+the runtime has. The runtime also logs one line at information level whenever it elided anything,
+so an ordinary log says the detail exists.
 
 ## Deletion, and what licenses it
 

@@ -85,7 +85,7 @@ namespace NoSQL.GraphDB.Integrations.Contract
         /// <summary>
         ///   What the source could not tell the run. These ride along into the job report's own
         ///   diagnostics list, so one report covers both what the source could not say and what the
-        ///   graph could not be told, and diagnostics are never dropped.
+        ///   graph could not be told.
         /// </summary>
         [JsonPropertyName("diagnostics")]
         public IList<DiagnosticDto> Diagnostics { get; set; } = new List<DiagnosticDto>();
@@ -325,9 +325,10 @@ namespace NoSQL.GraphDB.Integrations.Contract
     }
 
     /// <summary>
-    ///   Something a reader needs to know, with a stable code they can act on. Diagnostics are never
-    ///   dropped: a provider's ride along on its snapshot into the job report's list, next to the ones
-    ///   the runtime raised.
+    ///   Something a reader needs to know, with a stable code they can act on. A provider's ride along on
+    ///   its snapshot into the job report's list, next to the ones the runtime raised; a report carries at
+    ///   most <see cref="Run.DiagnosticBudget.PerCode"/> of any one code and the run's log carries every
+    ///   one of them.
     /// </summary>
     public sealed class DiagnosticDto
     {
