@@ -76,3 +76,19 @@ services:
   # an earlier non-Nahil start.
   ollama:
     profiles: ["local-sidecar-not-used-with-nahil"]
+
+  # The integrations runtime's summary-embedding phase, parallelised HERE rather than in the base
+  # compose, for the same reason MaxConcurrentBatches above lives here: the knob fills the time a
+  # REMOTE backend spends on the network, and this overlay is the file that says the backend is
+  # remote. Against the local sidecar the base default of 1 stays right - a single-slot model
+  # answers one request at a time, so the Nth in flight only queues while its own client clock
+  # runs, which turns a slow phase into a timed-out one.
+  #
+  # 4 is a starting point rather than a tuned value, and it is above what the target's own rate
+  # limit sustains (30 requests per 10 s, and a 16-item chunk against a fast remote backend takes
+  # a few hundred ms). That is survivable by design: a 429 drops this phase back to sequential,
+  # waits out the window and re-asks the refused chunks. If 4 should actually HOLD, the number to
+  # raise with it is Fallen8:Security:SensitiveRateLimitPermitPerWindow on the instance.
+  f8-integrations:
+    environment:
+      - Fallen8Target__EmbedConcurrency=${F8_INTEGRATIONS_EMBED_CONCURRENCY:-4}

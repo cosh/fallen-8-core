@@ -580,14 +580,16 @@ Two things worth knowing before you run it:
   the count that was written and a diagnostic naming the shortfall.
 - **Those batches can go out in parallel**, which is the one tuning worth knowing about for a phase
   that runs for hours. `Fallen8Target:EmbedConcurrency` (`F8_INTEGRATIONS_EMBED_CONCURRENCY` in the
-  compose environment) is how many are in flight at once. It defaults to **1**, meaning strictly one
-  after another, and is capped at 16 whatever you configure. It deliberately makes no single request
-  bigger or slower, so it cannot run into the embedding route's per-batch item cap or its timeout.
+  compose environment) is how many are in flight at once, capped at 16 whatever you configure. It
+  deliberately makes no single request bigger or slower, so it cannot run into the embedding route's
+  per-batch item cap or its timeout.
 
-  Raise it against a **remote** embedding backend, where most of each round trip is network and
-  queueing rather than model time. Against a **local** model it does not merely fail to help: a
-  backend that answers one request at a time leaves the second and later requests queued while their
-  own clocks run, so a high setting can turn a slow-but-working phase into one that times out.
+  The default depends on where the model runs, because that is what decides whether parallelism buys
+  anything. With the **local** sidecar it is **1**: a single-slot model answers one request at a
+  time, so the second and later requests only queue while their own clocks run, and a high setting
+  turns a slow-but-working phase into one that times out. With a **remote** backend it is **4**,
+  because there most of each round trip is network and queueing rather than model time. Setting the
+  variable yourself overrides both.
 
   Two more things to know. The embedding route carries a rate limit, and parallel batches are what
   make a fixed window easy to trip; a throttle is not fatal, because the run drops back to one
