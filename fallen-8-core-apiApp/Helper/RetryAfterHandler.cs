@@ -39,6 +39,13 @@ namespace NoSQL.GraphDB.App.Helper
     ///   own answer (<see cref="ShouldRetry" /> / <see cref="Explain" />); the replay, the wait
     ///   schedule and the giving-up are the same everywhere and live here.
     ///
+    ///   <para><b>Not every retryable status is worth retrying,</b> which a status alone cannot
+    ///   say. A provider may reuse one of them for a refusal it already knows is permanent, so
+    ///   <see cref="Refusal" /> gets a bounded look at the body and may fail the call at once
+    ///   instead. Without it the caller's whole budget is spent re-asking a question the first
+    ///   response had already answered, and the honest reason - which only the provider has - is
+    ///   thrown away with the response it came in.</para>
+    ///
     ///   <para><b>It owns no deadline, deliberately.</b> The caller's budget
     ///   (<c>Fallen8:Chat:TimeoutSeconds</c> / <c>Fallen8:Embedding:TimeoutSeconds</c>, applied as a
     ///   linked token) stays the single authoritative one and every wait here runs INSIDE it - which
@@ -98,6 +105,35 @@ namespace NoSQL.GraphDB.App.Helper
         /// that means anything else must reach the caller unchanged and immediately.</summary>
         protected abstract Boolean ShouldRetry(HttpStatusCode status);
 
+        /// <summary>
+        ///   How many bytes of a retryable response's BODY this provider needs in order to tell
+        ///   "ask again" from "asking again will never work". Zero, the default, means the status is
+        ///   the whole answer and no body is ever read.
+        ///   <para>It exists because a status alone cannot always carry that difference:
+        ///   <see cref="ShouldRetry" /> sees only a <see cref="HttpStatusCode" />, and one provider
+        ///   reuses a single retryable status for both a wait and a permanent refusal
+        ///   (<see cref="NahilWarmupRetryHandler" />). Bounded rather than "read the body" because
+        ///   the body belongs to a service on the far side of a credential: a hostile or merely
+        ///   enormous one must not become this process's memory.</para>
+        /// </summary>
+        protected virtual Int32 RefusalProbeBytes => 0;
+
+        /// <summary>
+        ///   The failure to raise INSTEAD of waiting, when <paramref name="bodyPrefix" /> shows the
+        ///   provider has already answered the question a retry would ask; <c>null</c> to wait and
+        ///   retry exactly as before. Only called when <see cref="RefusalProbeBytes" /> is positive.
+        ///   <para>The returned exception reaches the caller as the provider's own failure, so it
+        ///   should carry the provider's own sentence: what it names (a class no worker serves, a
+        ///   model withdrawn from a catalog) is a fact only the provider has.</para>
+        /// </summary>
+        /// <param name="status">The retryable status that arrived.</param>
+        /// <param name="bodyPrefix">Up to <see cref="RefusalProbeBytes" /> bytes of the body, decoded
+        /// as UTF-8; empty when the body was absent or could not be read.</param>
+        protected virtual Exception Refusal(HttpStatusCode status, String bodyPrefix)
+        {
+            return null;
+        }
+
         /// <summary>What <paramref name="status" /> reads as to an operator. Retryable statuses stay
         /// distinguishable everywhere they surface, because they call for different actions.</summary>
         protected abstract String Explain(HttpStatusCode status);
@@ -143,6 +179,21 @@ namespace NoSQL.GraphDB.App.Helper
                 }
 
                 last = response.StatusCode;
+
+                // Read the body ONLY on a response already destined for the bin: this arm either
+                // throws or disposes and retries, so consuming the content here can never hand a
+                // half-read stream to a caller. The check comes before the wait for the whole
+                // point of it - a refusal must not be paid for in the caller's budget first.
+                if (RefusalProbeBytes > 0)
+                {
+                    var prefix = await ReadPrefixAsync(response, RefusalProbeBytes, cancellationToken);
+                    if (Refusal(last, prefix) is { } refusal)
+                    {
+                        response.Dispose();
+                        throw refusal;
+                    }
+                }
+
                 var wait = WaitFor(response.Headers.RetryAfter, attempt);
                 response.Dispose();
 
@@ -196,6 +247,43 @@ namespace NoSQL.GraphDB.App.Helper
             }
 
             return Backoff(attempt);
+        }
+
+        /// <summary>
+        ///   Up to <paramref name="maxBytes" /> bytes of a response body, decoded as UTF-8, for
+        ///   <see cref="Refusal" /> to classify. Never the whole body - see
+        ///   <see cref="RefusalProbeBytes" /> - and never a reason to fail: a body that cannot be
+        ///   read yields the empty string, which classifies as "no refusal" and leaves the retry
+        ///   exactly as it was before anything was read. A truncated multi-byte character at the
+        ///   bound decodes to a replacement character, which is harmless for phrase matching and is
+        ///   why the bound is not aligned to anything.
+        /// </summary>
+        private static async Task<String> ReadPrefixAsync(HttpResponseMessage response, Int32 maxBytes,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                var buffer = new Byte[maxBytes];
+                var read = 0;
+
+                while (read < maxBytes)
+                {
+                    var got = await stream.ReadAsync(buffer.AsMemory(read, maxBytes - read), cancellationToken);
+                    if (got == 0)
+                    {
+                        break;
+                    }
+
+                    read += got;
+                }
+
+                return System.Text.Encoding.UTF8.GetString(buffer, 0, read);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                return String.Empty;
+            }
         }
 
         /// <summary>Exponential backoff with jitter, from <see cref="FirstBackoffSeconds" /> and
