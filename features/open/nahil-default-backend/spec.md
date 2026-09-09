@@ -127,6 +127,17 @@ no attempt to classify any other provider's `503`. This is one provider's one do
 - The Nahil overlay still selects Nahil, unchanged.
 - `Fallen8:Chat:TimeoutSeconds` defaults to 600, so the default backend's warm-up fits inside the
   default budget.
+
+**One coincidence, recorded rather than fixed.** Studio's NL-assist client gives up at exactly
+600 000 ms (`NL_REQUEST_TIMEOUT_MS`), so the server budget and the browser's patience are now the
+same number and which one reports first is a race. This is not new: the Nahil overlay has set 600
+since that feature shipped, so it was already the case for every Nahil deployment, and the flip
+only generalises it to un-overlaid ones. It is left alone deliberately, because the alternatives
+are worse: lowering only the code default would leave the overlay racy and add a second number to
+keep in step, and lowering both is a change to the Nahil deployment profile rather than to a
+default. *Revisit trigger:* an operator reports a chat give-up whose message came from the browser
+and did not explain itself, at which point the fix is to lower **both** to something like 540 so the
+server always speaks first.
 - A `503` whose body carries the no-worker sentence fails the call **immediately**, with the
   provider's sentence in the message, and is not retried.
 - A `503` with a `Retry-After`, a `503` with an unrecognised body, and a `429` are all still waited
@@ -142,7 +153,7 @@ no attempt to classify any other provider's `503`. This is one provider's one do
 | The setting catalog | **No change.** Same key, same tier, same accepted values. The catalog reports the effective value, so it reports the new default without an edit |
 | `Fallen8:Chat` validation and the latched 503 | unchanged mechanism; only which message an unconfigured instance gets |
 | MCP | `f8_overview` reports `chatBackend`, so the value an agent sees changes. One test expectation, no bridge change, no new deferral |
-| F8 Studio | renders `/config`, so the Configuration card shows the new default with no code change. The Connect and Configuration screenshots show a backend name, so they are recaptured |
+| F8 Studio | renders `/config`, so the Configuration card shows the new default with no code change. **No screenshot is recaptured**, and that was checked rather than assumed: the capture app is run with `Fallen8__Chat__*` wired explicitly (`screenshot-connect.spec.ts` guards on the Chat card reading `Ollama`), so like compose it names its own backend and the frames are unchanged. That guard's failure message now says the backend must be named explicitly, because the default no longer supplies a working one |
 | The compose environment | one new explicit line on the base `fallen8` service; overlays unchanged in behaviour |
 | Docs | three pages state the default; each corrected. No new page |
 | Architecture diagrams | **No change.** The set of deployables and channels is the same; only which provider a default resolves to |

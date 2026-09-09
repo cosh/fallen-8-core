@@ -268,9 +268,10 @@ identify a model are deliberately **not** editable in either place: the model na
 and metric are stamped beside every vector you have already stored, so changing one would mislabel
 that data rather than fail.
 
-The embedding provider has the same knob, `Fallen8:Embedding:TimeoutSeconds`, defaulting higher
-because one call embeds a batch of texts; an exceeded batch answers `503`, like any other
-"backend not usable right now". On a CPU-only host both defaults are generous and still may not be
+The embedding provider has the same knob, `Fallen8:Embedding:TimeoutSeconds`, defaulting to 300
+seconds because one call embeds a whole batch of texts; an exceeded batch answers `503`, like any
+other "backend not usable right now". It is the smaller of the two: the chat budget is 600 because
+that capability's default backend may spend it waiting for a cold model to be pulled. On a CPU-only host both defaults are generous and still may not be
 enough: see [NL assist spins on "generating"](/troubleshooting/#nl-assist-spins-on-generating-then-gives-up-504)
 for what CPU inference actually costs.
 

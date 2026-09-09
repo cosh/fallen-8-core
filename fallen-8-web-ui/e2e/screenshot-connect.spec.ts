@@ -102,7 +102,10 @@ test("capture the Connect screen", async ({ page, request }) => {
   ).toContainText("Ollama");
   await expect(
     page.getByTestId("config-chat"),
-    "the Chat card is unconfigured: wire Fallen8__Chat__* on the capture app.",
+    "the Chat card does not read Ollama: wire Fallen8__Chat__* on the capture app, and note that " +
+      "Fallen8__Chat__Backend must be named EXPLICITLY - the shipped default is Nahil (feature " +
+      "nahil-default-backend), so enabling chat without naming a backend gives this card a Nahil " +
+      "it has no credential for rather than the sidecar this frame documents.",
   ).toContainText("Ollama");
 
   // GUARD: the settings themselves are NOT on this shot any more, and asserting a row here would be
