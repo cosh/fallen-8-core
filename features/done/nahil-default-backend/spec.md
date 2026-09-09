@@ -1,8 +1,13 @@
 # Spec: Nahil is the default chat backend, and an unservable model says so
 
-> **Status:** specified 2026-09-09, implementing on branch `feature/nahil-default-backend`
-> (branch-only workflow: no GitHub issue or PR). Operator decision of the same date, taken while
-> revising [agent-host](../agent-host/spec.md): "the instance's shipped default backend should flip
+> **Status:** IMPLEMENTED and merged to `main` on 2026-09-09, from
+> `feature/nahil-default-backend` (branch-only workflow: no GitHub issue or PR). Six commits: the
+> refusal fix, its test guard, the flip, the review fixes, one docs contradiction, and
+> [findings.md](./findings.md). Verified live against the real service end to end, not only at the
+> handler seam: an unservable model answers `503` in about a second carrying the provider's own
+> sentence, where the same request previously spent the full 600 s budget, and a servable one still
+> answers `200` naming Nahil as the backend. Operator decision of the same date, taken while
+> revising [agent-host](../../open/agent-host/spec.md): "the instance's shipped default backend should flip
 > from Ollama to Nahil". This file is the record for that flip; the living documents for provider
 > selection remain [model-providers](../../done/model-providers/spec.md) and
 > [nahil-backend](../../done/nahil-backend/spec.md), both of which this feature amends in place.
@@ -94,7 +99,7 @@ up", and then reports that the model "was not available in time". The first resp
 retrying is futile.
 
 This matters more after the flip, because more deployments resolve to Nahil, and it matters most
-to [agent-host](../agent-host/spec.md): one such step would consume an agent's entire wall-clock
+to [agent-host](../../open/agent-host/spec.md): one such step would consume an agent's entire wall-clock
 cap.
 
 **The fix.** A `503` whose body says no worker serves the model is a **refusal, not a warm-up**:

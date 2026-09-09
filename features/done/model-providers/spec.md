@@ -49,7 +49,7 @@ Two observed problems (Studio screenshots, 2026-08-29, Nahil deployment):
    Configuration screen - not by new config machinery.
 
    > **Amendment (2026-09-09), feature
-   > [nahil-default-backend](../../open/nahil-default-backend/spec.md):** the accepted SETS above are
+   > [nahil-default-backend](../nahil-default-backend/spec.md):** the accepted SETS above are
    > unchanged, and the chat selector's DEFAULT moved from `Ollama` to `Nahil`. Only the default
    > moved: no tier, no rule, no accepted value and no overlay mechanic changed, and the embedding
    > selector still defaults to `Onnx`. The argument is in that spec and in

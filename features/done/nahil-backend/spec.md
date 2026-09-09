@@ -16,7 +16,7 @@ workers, and it becomes a SECOND place to run the same models. The two coexist p
 for a long time and **Ollama stays the default**; a deployment opts into Nahil by configuration
 only.
 
-> **Amendment (2026-09-09), feature [nahil-default-backend](../../open/nahil-default-backend/spec.md):**
+> **Amendment (2026-09-09), feature [nahil-default-backend](../nahil-default-backend/spec.md):**
 > the sentence above is left standing as the record of what was decided in August, and it is no
 > longer true of the code. `Fallen8:Chat:Backend` now defaults to **`Nahil`**. The reason is not
 > preference but the fail-closed argument this feature already made about its own endpoint: the
