@@ -16,6 +16,19 @@ workers, and it becomes a SECOND place to run the same models. The two coexist p
 for a long time and **Ollama stays the default**; a deployment opts into Nahil by configuration
 only.
 
+> **Amendment (2026-09-09), feature [nahil-default-backend](../../open/nahil-default-backend/spec.md):**
+> the sentence above is left standing as the record of what was decided in August, and it is no
+> longer true of the code. `Fallen8:Chat:Backend` now defaults to **`Nahil`**. The reason is not
+> preference but the fail-closed argument this feature already made about its own endpoint: the
+> selector's default is consulted only by a deployment that enables chat and names no backend, and
+> `Ollama` answered that case by dialling `http://localhost:11434` and reporting whatever replied,
+> where `Nahil` refuses up front naming the credential. `Fallen8:Chat:Nahil:Endpoint` and `Model`
+> gained defaults in the same change so that refusal names the ONE value that can never have one.
+> **`Fallen8:Embedding:Backend` was NOT flipped** and stays `Onnx`: it was never an Ollama default,
+> it needs no credential, and its backend is bound to the identity stamp. Decision 1 above is
+> untouched - `Backend=Ollama` behaviour is still bit-identical, and the compose environment names
+> it explicitly.
+
 Nahil is wire-compatible with Ollama (`/api/chat`, `/api/embed`, `/api/tags`, `/api/version`,
 `/api/ps` take unchanged bodies), with these deltas, which are the whole feature:
 

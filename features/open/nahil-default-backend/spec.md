@@ -50,15 +50,29 @@ with a name beats dialling a guess.
 
 ## 3. What the flip touches
 
+**First, what it does NOT reach, because that turned out to be most of the environment.** The base
+`docker-compose.yml` already named both backends explicitly before this feature
+(`Fallen8__Chat__Backend=Ollama`, `Fallen8__Embedding__Backend=Ollama`), and environment variables
+outrank everything, so `docker compose up` and `npm run env:up` are byte-identical before and
+after. CI's compose check passes either way. The flip is therefore observable in exactly three
+places: a hand-rolled deployment (a container run by hand, a systemd unit, a manifest) that enables
+chat and names no backend; the `chat.backend` value `/status` and `/config` publish on a bare
+instance; and the documented posture. That is a narrower blast radius than the change sounds like,
+and it is worth stating plainly rather than discovering later.
+
 | Site | Change |
 |---|---|
-| `Fallen8ChatOptions.Backend` | `= "Ollama"` becomes `= "Nahil"`, and the doc comment states the fail-closed reason rather than "the default" |
-| `docker-compose.yml` (the `fallen8` service) | gains an explicit `Fallen8__Chat__Backend=Ollama`. **Not a contradiction of the flip:** the base environment *ships an Ollama sidecar*, pulls its models and wires its endpoint, so it must say which backend it is rather than inherit a default that no longer matches it. An environment that brings its own model names its own backend. |
-| `docker-compose.nahil.yml` | keeps its explicit `Fallen8__Chat__Backend=Nahil` line: it must override the base file's explicit Ollama, and an overlay that relied on a code default would be a silent dependency |
-| `McpBridgeTest` | asserts the shipped chat default reaches an agent through `f8_overview`; the expected value becomes `Nahil` and its comment says what that now means |
-| Startup posture | already logs the resolved backend and the validation problem; the flip only changes which of the two an unconfigured instance sees. No new log line |
-| Docs | `model-providers.md`, `nahil.md` and `running.mdx` state which backend is the default; each is corrected, and `nahil.md` loses "the local sidecar stays the default" |
-| The two amended specs | `nahil-backend` decision 2 and the corresponding `model-providers` sentence get a dated amendment note in place, with the original left standing, per this repository's rule that a spec is a historical record |
+| `Fallen8ChatOptions.Backend` | `= "Ollama"` becomes `= "Nahil"`, with the doc comment stating the fail-closed reason rather than naming a favourite |
+| `Fallen8ChatOptions.NahilOptions.Endpoint` and `.Model` | **gain defaults** (`https://api.nahil.dev`, `phi4-f8-mini:latest`), which is what makes the flip land on the intended message. Validation reports the FIRST missing value, so without this an unconfigured instance is told about an endpoint that has one canonical value and a model its sibling block already names, instead of the credential. The credential keeps no default, ever: the asymmetry IS the fail-closed story. Both values are already stated twice in the repository (the Nahil overlay's `F8_NAHIL_URL` default and the Ollama block's model), so this adds no new fact |
+| `Fallen8ChatOptions.TimeoutSeconds` | `120` becomes `600`, **entailed rather than incidental.** The transport waits out Nahil's 503-while-pulling *inside* this budget, and the Nahil overlay already raised it to 600 with the comment that 120 "would answer 504 to requests that were about to succeed". Shipping `Backend=Nahil` beside a 120 s budget would ship a default combination this repository already documents as broken. It is a ceiling and not a delay, so a fast backend is unaffected; the two overlays that want 120 (OpenAI, Anthropic) already set it explicitly. It also matches the measured local-CPU reality, where an assist prompt takes minutes |
+| `docker-compose.yml` (the `fallen8` service) | **no new setting**, one new comment: the existing `Fallen8__Chat__Backend=Ollama` line is now load-bearing rather than tidy, because deleting it no longer falls back to Ollama. The comment says so, and says the rule: an environment that brings its own model names its own backend |
+| `docker-compose.nahil.yml` | unchanged. It still names `Nahil` explicitly, which it must, to override the base file |
+| `scripts/env-info.js` | the NL-assist line asserted `http://localhost:11434 (Ollama, ...)` unconditionally. It was already wrong under any provider overlay and would be wrong by default now, and it prints on both `env:up` and `env:status`, so it becomes provider-aware from the same variables `env-up.js` selects the overlay from |
+| `ChatBackendFactoryTest` | three assertions were built on `new Fallen8ChatOptions()` meaning "a usable Ollama". They now pin the new contract: the shipped default is REFUSED naming `Fallen8:Chat:Nahil:ApiKey`, supplying that one value is enough, and the model resolver really reads the Nahil block (proved with a distinct value, since both Ollama-protocol blocks otherwise name the same model and a wrong-block resolver would look correct) |
+| `McpBridgeTest` | asserts the shipped chat default reaches an agent through `f8_overview`; the expected value becomes `Nahil` |
+| Startup posture | already logs the resolved backend and the validation problem, gated on `Enabled`; the flip only changes which of the two an unconfigured instance sees. No new log line |
+| Docs | `nahil.md` loses "the local sidecar stays the default" and gains the narrow reading; `model-providers.md` gains a "the defaults, and the one case they decide" section and has its two overlay timeout rows corrected; the README key-features line is corrected |
+| The two amended specs | `nahil-backend`'s "Ollama stays the default" sentence and the `model-providers` selector decision each get a dated amendment note, with the original left standing, per this repository's rule that a spec is a historical record |
 
 ## 4. Why the refusal fix belongs in the same push
 
@@ -105,10 +119,14 @@ no attempt to classify any other provider's `503`. This is one provider's one do
 ## 5. Acceptance
 
 - A default-constructed `Fallen8ChatOptions` reports backend `Nahil`, and with no Nahil block
-  configured the validation message names `Fallen8:Chat:Nahil:Endpoint`.
+  configured the validation message names `Fallen8:Chat:Nahil:ApiKey` and nothing else. Supplying
+  that one value makes the default usable.
 - With chat disabled, nothing about a bare instance changes: no client, no validation, no warning.
-- `docker compose up` with no overlay still serves NL assist from the local sidecar, unchanged.
+- `docker compose up` with no overlay still serves NL assist from the local sidecar, unchanged,
+  because the base file names its backend.
 - The Nahil overlay still selects Nahil, unchanged.
+- `Fallen8:Chat:TimeoutSeconds` defaults to 600, so the default backend's warm-up fits inside the
+  default budget.
 - A `503` whose body carries the no-worker sentence fails the call **immediately**, with the
   provider's sentence in the message, and is not retried.
 - A `503` with a `Retry-After`, a `503` with an unrecognised body, and a `429` are all still waited

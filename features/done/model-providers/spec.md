@@ -47,6 +47,14 @@ Two observed problems (Studio screenshots, 2026-08-29, Nahil deployment):
    benefit of saving one line of config; revisit if a third model capability appears).
    "Central" is delivered by the deployment selector (FR-8), the existing catalog, and the
    Configuration screen - not by new config machinery.
+
+   > **Amendment (2026-09-09), feature
+   > [nahil-default-backend](../../open/nahil-default-backend/spec.md):** the accepted SETS above are
+   > unchanged, and the chat selector's DEFAULT moved from `Ollama` to `Nahil`. Only the default
+   > moved: no tier, no rule, no accepted value and no overlay mechanic changed, and the embedding
+   > selector still defaults to `Onnx`. The argument is in that spec and in
+   > `Fallen8ChatOptions.Backend`; the short form is that an unconfigured chat gateway should be
+   > refused naming a key rather than aimed at `localhost`.
 2. **Anthropic is chat-only.** Anthropic ships no embeddings endpoint (their docs point at
    third-party embedding providers). `Fallen8:Embedding:Backend=Anthropic` is refused at
    construction with a message naming the key, exactly like an unknown backend name today

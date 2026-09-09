@@ -62,7 +62,16 @@ console.log(`  F8 Studio UI:  http://localhost:${uiPort}  (its own container; ta
 // REST only: the OpenAPI document and the Scalar reference are mapped in Development, and the
 // container runs Production, so do NOT advertise /openapi or /scalar here - they 404.
 console.log(`  F8 REST API:   http://localhost:${f8Port}  (REST only; /openapi + /scalar are Development-only, so run "dotnet run --project fallen-8-core-apiApp" for those)`);
-console.log('  NL assist:     http://localhost:11434  (Ollama, default model "phi4-f8-mini"; opt-in "phi4-f8")');
+// Provider-aware on purpose: this line used to assert Ollama unconditionally, which was already
+// wrong under a provider overlay and is wrong by default now that the shipped chat backend is
+// Nahil. It reads the same variables env-up.js selects the overlay from, so the two cannot disagree.
+const chatProvider = (process.env.F8_MODEL_PROVIDER || '').trim()
+  || ((process.env.F8_NAHIL_API_KEY || process.env.F8_NAHIL_URL || '').trim() ? 'nahil' : 'local');
+console.log(
+  chatProvider === 'local'
+    ? '  NL assist:     http://localhost:11434  (the Ollama sidecar, default model "phi4-f8-mini"; opt-in "phi4-f8")'
+    : `  NL assist:     served by ${chatProvider} (no local sidecar; see docs.fallen-8.com/model-providers/)`
+);
 // The API-side URL and deliberately no localhost URL for the runtime itself: the f8-integrations
 // sidecar publishes no host port (jobs hand it third-party credentials), so the API is the only way in.
 console.log(`  Integrations:  http://localhost:${f8Port}/integrations/providers  (through the API; the sidecar has no host port of its own)`);

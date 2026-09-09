@@ -30,11 +30,12 @@ namespace NoSQL.GraphDB.App.Configuration
     /// <summary>
     ///   The chat (SLM/LLM) provider configuration (feature instance-config), section
     ///   <c>Fallen8:Chat</c>. It is the server-side half of the semantic gateway: the instance
-    ///   proxies chat completions to the model backend (the Ollama sidecar by default) so Studio
-    ///   and other clients can reach a model THROUGH the instance instead of directly. Default
-    ///   OFF: <c>POST /chat</c> answers 403 and no client is constructed, so a bare deployment
-    ///   stays model-free. The instance OWNS the model (<see cref="Ollama" />.<c>Model</c>); the
-    ///   endpoint takes no client-supplied model, mirroring the embedding gateway.
+    ///   proxies chat completions to the model backend (<see cref="Backend" />, Nahil by default)
+    ///   so Studio and other clients can reach a model THROUGH the instance instead of directly.
+    ///   Default OFF: <c>POST /chat</c> answers 403 and no client is constructed, so a bare
+    ///   deployment stays model-free and the backend default is not even consulted. The instance
+    ///   OWNS the model (the selected block's <c>Model</c>); the endpoint takes no client-supplied
+    ///   model, mirroring the embedding gateway.
     /// </summary>
     public sealed class Fallen8ChatOptions
     {
@@ -50,24 +51,47 @@ namespace NoSQL.GraphDB.App.Configuration
             get; set;
         }
 
-        /// <summary>The backend: <c>Ollama</c> (the local sidecar, the default), <c>Nahil</c>
-        /// (nahil.dev), <c>OpenAI</c> or <c>Anthropic</c>. Ollama and Nahil speak one protocol, so
+        /// <summary>The backend: <c>Nahil</c> (nahil.dev, the default), <c>Ollama</c> (a local
+        /// sidecar), <c>OpenAI</c> or <c>Anthropic</c>. Ollama and Nahil speak one protocol, so
         /// Nahil differs from the sidecar only by a credential and a warm-up state; OpenAI and
         /// Anthropic speak their own protocols and each carries its own credential too. Matching is
-        /// ordinal, so the spelling here is the spelling the catalog publishes.</summary>
-        public String Backend { get; set; } = "Ollama";
+        /// ordinal, so the spelling here is the spelling the catalog publishes.
+        /// <para>
+        ///   <b>Nahil is the default because the alternative is a guess.</b> This value is only
+        ///   consulted when a deployment turned chat ON and named no backend, and the two candidates
+        ///   answer that case very differently: the sidecar's endpoint defaults to
+        ///   <c>http://localhost:11434</c>, so an unconfigured instance would dial whatever is
+        ///   listening there and report a connection failure - or, worse, quietly serve from an
+        ///   unrelated Ollama. Nahil cannot be aimed at localhost and has no credential to invent,
+        ///   so the same mistake is refused up front naming
+        ///   <see cref="NahilOptions" />.<c>ApiKey</c>. A deployment that brings its own model names
+        ///   its own backend, which is why the compose environment sets this explicitly.
+        /// </para></summary>
+        public String Backend { get; set; } = "Nahil";
 
         /// <summary>The per-request proxy timeout; exceeded requests answer 504. It is the SINGLE
         /// deadline on a chat call at any value: the Ollama transport is built without one, so this
         /// is never pre-empted by a shorter undocumented bound (it once was - OllamaSharp's default
         /// 100s client timeout fired first and surfaced as an unhandled 500).
         /// <para>
-        ///   The default is generous because a local model on CPU is SLOW: measured on a 16-core
-        ///   laptop, a fine-tuned phi4-mini answers a Studio NL-assist prompt in minutes, not
-        ///   seconds. Raising this does not make such a host usable; it only decides how long a
-        ///   caller waits before the honest 504. See the NL-assist troubleshooting page.
+        ///   A CEILING, not a delay: a backend that answers in five seconds is unaffected by any
+        ///   value here, which is what makes a generous one cheap. And generous it must be, for two
+        ///   independent reasons. A local model on CPU is SLOW - measured on a 16-core laptop, a
+        ///   fine-tuned phi4-mini answers a Studio NL-assist prompt in minutes, not seconds - and
+        ///   the DEFAULT backend now warms up inside this budget: the transport waits out Nahil's
+        ///   503-while-pulling here rather than failing, so a value that expires during a cold pull
+        ///   answers 504 to a request that was about to succeed. That is why this moved from 120s
+        ///   when Nahil became the default; the Nahil compose overlay had already raised it to the
+        ///   same 600 for the same reason.
+        /// </para>
+        /// <para>
+        ///   Do not raise it much above 600: F8 Studio's editor gives up at ten minutes, so a larger
+        ///   server budget only moves the give-up from the server, which explains itself, to the
+        ///   browser, which cannot. Raising it also does not make a slow host usable; it only
+        ///   decides how long a caller waits before the honest 504. See the NL-assist
+        ///   troubleshooting page.
         /// </para></summary>
-        public Int32 TimeoutSeconds { get; set; } = 120;
+        public Int32 TimeoutSeconds { get; set; } = 600;
 
         /// <summary>
         ///   Whether to ask the backend to stream the completion. On by default: the tokens then
@@ -111,20 +135,29 @@ namespace NoSQL.GraphDB.App.Configuration
 
         /// <summary>
         ///   Nahil (nahil.dev): the same Ollama protocol, authenticated, served from someone else's
-        ///   hardware. There is no default endpoint, so selecting this backend without configuring one
-        ///   is refused with the reason rather than silently dialling localhost.
+        ///   hardware, and the default backend.
+        ///   <para>
+        ///     The endpoint and the model carry defaults; the credential deliberately does not, and
+        ///     that asymmetry is the whole fail-closed story. A host root and a model name are facts
+        ///     about a named single-vendor service that this repository already states twice (the
+        ///     compose overlay's <c>F8_NAHIL_URL</c> default and the sibling
+        ///     <see cref="OllamaOptions" /> model), so repeating them here costs nothing and makes
+        ///     the refusal an unconfigured instance gets name the ONE value nobody can supply for
+        ///     it. A credential that appeared from nowhere would be a credential nobody could
+        ///     rotate.
+        ///   </para>
         /// </summary>
         public sealed class NahilOptions
         {
             /// <summary>The Nahil base URL. Must be a host root (scheme, host, optional port);
-            /// HTTPS for anything off the operator's own network.</summary>
-            public String Endpoint
-            {
-                get; set;
-            }
+            /// HTTPS for anything off the operator's own network. Defaulted to Nahil's own host
+            /// root: a public host root cannot be aimed at localhost, so unlike the sidecar's
+            /// endpoint this default cannot silently point at something else's model.</summary>
+            public String Endpoint { get; set; } = "https://api.nahil.dev";
 
             /// <summary>The bearer credential Nahil requires on EVERY route, including its version and
-            /// residency probes. Never logged and never published on the config read surface.</summary>
+            /// residency probes. Never logged and never published on the config read surface.
+            /// <b>No default, ever</b> - it is what an unconfigured instance is told to supply.</summary>
             public String ApiKey
             {
                 get; set;
@@ -132,11 +165,11 @@ namespace NoSQL.GraphDB.App.Configuration
 
             /// <summary>The chat model to invoke, as Nahil's catalog names it (the published
             /// registry name, which may differ from a locally tagged copy of the same weights).
-            /// Reaches the request body verbatim.</summary>
-            public String Model
-            {
-                get; set;
-            }
+            /// Reaches the request body verbatim. Defaulted to the same fine-tune the sidecar block
+            /// names, because it is the same model wherever it runs; a deployment whose catalog
+            /// spells it differently sets this, which is one environment variable and nothing
+            /// more.</summary>
+            public String Model { get; set; } = "phi4-f8-mini:latest";
         }
 
         /// <summary>

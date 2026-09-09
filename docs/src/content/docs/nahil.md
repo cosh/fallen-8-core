@@ -9,8 +9,13 @@ that backend is the Ollama sidecar the [compose environment](/running/) starts o
 machine. It can instead be **Nahil** ([nahil.dev](https://nahil.dev)), which serves the same API
 from remote hardware.
 
-Both are supported, side by side, one per deployment. **The local sidecar stays the default** and
-nothing about an existing setup changes. Nahil is opt-in, per capability, by configuration alone.
+Both are supported, side by side, one per deployment. **Nahil is the default chat backend**, and
+that word is narrower than it sounds: the default is only consulted by a deployment that turns chat
+on and names no backend, which then gets a refusal naming the API key rather than a silent attempt
+at `localhost`. The [compose environment](/running/) names its backend explicitly, so
+`docker compose up` still serves chat from the local sidecar exactly as before, and nothing about
+an existing setup changes. Embeddings are unaffected: their default is the in-process `Onnx`
+backend, which needs no network and no credential.
 
 This page is the Nahil deep dive. Everything that is true of every provider - choosing one, where
 the credential lives, what a switch does and does not move, and which backend served a given call
@@ -154,7 +159,7 @@ and are simply absent from a Nahil deployment.)
 
 ### Budgets worth knowing about
 
-`Fallen8:Chat:TimeoutSeconds` defaults to 120, which the overlay raises to **600**. Nahil routes
+`Fallen8:Chat:TimeoutSeconds` defaults to **600**, which is also what the overlay sets. Nahil routes
 to workers that can be CPU-only, and this budget now also has to cover waiting for a cold model -
 120 s would answer `504` to requests that were about to succeed.
 

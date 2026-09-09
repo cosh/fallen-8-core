@@ -55,7 +55,8 @@ Each feature has a deep-dive doc — follow the link.
   served it.
 - **[Nahil](https://docs.fallen-8.com/nahil/)** - run the embedding and chat models on Nahil
   (nahil.dev) instead of the local sidecar: same vectors, same indices, no weights on the host.
-  Configuration only; the local sidecar stays the default.
+  Configuration only, and the default chat backend, so an instance told nothing is refused with the
+  key to set rather than quietly dialling localhost.
 - **[Semantic layer](https://docs.fallen-8.com/unstructured-ingestion/)**: documents in, graph out:
   PDFs/Office/markdown become Document, Chunk and deduplicated Entity vertices with embedded
   text, enriched with named entities and key terms, found again by fused semantic + exact-token
