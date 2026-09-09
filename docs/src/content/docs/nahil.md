@@ -4,18 +4,25 @@ description: "Run the embedding and chat models on Nahil (nahil.dev) instead of 
 ---
 
 Fallen-8's two model capabilities - [text-in embeddings](/semantic-traversal/) and the
-[NL-assist chat gateway](/nl-assist/) - talk to a backend over the Ollama HTTP API. By default
-that backend is the Ollama sidecar the [compose environment](/running/) starts on the same
-machine. It can instead be **Nahil** ([nahil.dev](https://nahil.dev)), which serves the same API
-from remote hardware.
+[NL-assist chat gateway](/nl-assist/) - talk to a backend over the Ollama HTTP API. In the
+[compose environment](/running/) that backend is the Ollama sidecar started on the same machine.
+It can instead be **Nahil** ([nahil.dev](https://nahil.dev)), which serves the same API from
+remote hardware.
 
-Both are supported, side by side, one per deployment. **Nahil is the default chat backend**, and
-that word is narrower than it sounds: the default is only consulted by a deployment that turns chat
-on and names no backend, which then gets a refusal naming the API key rather than a silent attempt
-at `localhost`. The [compose environment](/running/) names its backend explicitly, so
-`docker compose up` still serves chat from the local sidecar exactly as before, and nothing about
-an existing setup changes. Embeddings are unaffected: their default is the in-process `Onnx`
-backend, which needs no network and no credential.
+Both are supported, side by side, one per deployment. **Nahil is the shipped default for chat**,
+and that is narrower than it sounds, because a default is only consulted by a deployment that
+turns chat on and names no backend. Such a deployment now gets a refusal naming the API key
+instead of a silent attempt at `localhost`. Two consequences worth being exact about:
+
+- **The compose environment is unchanged.** It names its backend explicitly, so
+  `docker compose up` still serves chat from the local sidecar exactly as before.
+- **A hand-rolled deployment that relied on the old default must now name it.** If you enable
+  chat from a systemd unit, a manifest or a launch profile and expect the local sidecar, add
+  `Fallen8__Chat__Backend=Ollama`. The boot log and the `503` both name the key that is missing,
+  so this fails loudly rather than quietly.
+
+Embeddings are not affected either way: their default is the in-process `Onnx` backend, which
+needs no network and no credential.
 
 This page is the Nahil deep dive. Everything that is true of every provider - choosing one, where
 the credential lives, what a switch does and does not move, and which backend served a given call
