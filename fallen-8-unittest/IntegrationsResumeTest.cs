@@ -621,7 +621,8 @@ namespace NoSQL.GraphDB.Tests
             }
 
             Assert.AreEqual(0, SpoolFiles().Length,
-                "and cancelling a resumed run ends it, so its entry goes with it");
+                "and cancelling a resumed run ends it, so its entry goes with it. Left: " +
+                String.Join(", ", SpoolFiles()));
         }
 
         #endregion
