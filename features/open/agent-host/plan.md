@@ -1,98 +1,200 @@
-# Fallen-8 Agent Host — Plan
+# Fallen-8 Agent Host: Plan
 
 Companion to [spec.md](./spec.md). A separate deployable that runs agents (Microsoft Agent
-Framework, MIT) on a local phi model (Ollama) against Fallen-8 via `fallen-8-mcp`.
-Feature branch: `feature/agent-host` (branch-only workflow — no GitHub issue/PR).
+Framework, MIT) against Fallen-8 via `fallen-8-mcp`, asking its Fallen-8 instance for every model
+call so the instance's own provider selector decides where inference runs.
+Feature branch: `feature/agent-host` (branch-only workflow: no GitHub issue or PR).
 
-**Hard dependency:** [mcp-server](../../done/mcp-server/plan.md) phases 0–2 must land first — the
-agents' only graph access is that server's tools. Phase 0 here can run before it (the spike
-needs any MCP server or a stub tool, not F8 specifically).
+> Revised 2026-09-09 together with the spec, three times. The morning revision made Phase 0 a
+> pinned-stack check rather than a "does phi call tools at all" gate, added an extraction phase
+> for the apiApp's model transports, put the apiApp proxy beside the host, and added the caps,
+> allowlists and typed worker results. The afternoon reversal of the model route replaced the
+> extraction phase with **Phase 1a: the chat gateway learns to serve agents**, and the host's model
+> code shrank to one adapter over `POST /chat`. The third revision replaced the `AgentModel` field
+> with **model purposes** and the rename of `Model` to `Models:Assist`; the rename sweep lives in
+> Phase 1a because the environment must keep working at every merge.
 
-Ordering principle: kill the load-bearing risk first (phi tool calling), then a walking
-skeleton with one observable agent, then the review surface (feed + trace + tokens), then
-swarm, then packaging. Every phase lands with its tests; CI never needs a live model.
+**Hard dependencies, all on `main`:** [mcp-server](../../done/mcp-server/plan.md) (the agents'
+only graph access), [model-providers](../../done/model-providers/plan.md),
+[nahil-backend](../../done/nahil-backend/plan.md) and
+[chat-model-catalog](../../done/chat-model-catalog/plan.md) (the chat gateway Phase 1a grows),
+[integrations](../../done/integrations/plan.md) (the proxy client base Phase 1b reuses).
 
-## Phase 0 — Spike: phi tool-calling reality check (GATE)
+Ordering principle: pin the stack and pick the default agent model first, then teach the gateway
+tools and purposes before anything depends on them, then a walking skeleton with one observable
+agent behind the proxy, then the review surface (feed, trace, counters), then caps and metrics,
+then swarm, then packaging. Every phase lands with its tests; CI never needs a live model.
 
-Intent: prove the default model actually invokes tools through the pinned stack, before any
-product code depends on it.
+## Phase 0: pinned-stack check and default agent model (GATE, small)
 
-- [ ] Throwaway console harness (not merged as product code): `Microsoft.Agents.AI` +
-  Ollama `IChatClient` + one trivial local `AIFunction` and one MCP tool.
-- [ ] Matrix: `phi4-mini` (default quant), `phi4-mini:3.8b-fp16`, `phi4:14b` — single and
-  parallel tool calls, multi-turn with tool results fed back.
-- [ ] Record in the feature README: pinned package + Ollama versions, which model reliably
-  round-trips tool calls (upstream refs: dotnet/extensions#7094, ollama/ollama#9437), the
-  chosen default, and the fallback ladder.
-- [ ] **Gate:** a default model that demonstrably calls tools, or the feature stops here and
-  the spec's model requirement is renegotiated.
-- [ ] The working harness graduates into the gated live smoke test in Phase 1.
+Intent: prove the pinned versions round-trip tool calls **through the instance**, streamed and
+non-streamed, on the standard deployment, and pick the default agent model with numbers rather
+than hope. Not merged as product code.
 
-## Phase 1 — Scaffold & single-agent walking skeleton
+- [ ] Throwaway console harness: `Microsoft.Agents.AI` 1.20.0 + `Microsoft.Extensions.AI` 10.9.0 +
+  a prototype of the `POST /chat` adapter (against a locally patched instance carrying the 3.1a
+  fields, or against the provider directly where the instance is not yet patched, stating which)
+  + one trivial local `AIFunction` + one MCP tool from a running `fallen-8-mcp`.
+- [ ] Matrix, each with single call, parallel calls, and a multi-turn with tool results fed back,
+  **streamed and non-streamed**: `phi4-mini:latest` on Nahil (the standard; ten steps for latency
+  and the hallucinated-sibling rate); `phi4-mini:latest` on the local sidecar; one hosted
+  provider.
+- [ ] Record per backend: tool-call success rate, malformed sibling rate, whether streamed tool
+  calls arrive intact (decides the `stream=false`-when-tools fallback of 3.1a), reported usage
+  presence (expect zeros on Nahil tool replies), wall-clock per step with and without the
+  instance hop.
+- [ ] Record in the feature README: the pinned versions, the chosen default agent model, the
+  fallback ladder (`phi4-mini:latest`, a larger tool-capable local model, a hosted provider, each
+  one instance setting), and the upstream references (dotnet/extensions#7094,
+  ollama/ollama#9437).
+- [ ] **Gate:** a default agent model that round-trips tool calls on Nahil and on the sidecar, or
+  the spec's model requirement is renegotiated. The harness graduates into the gated live smoke
+  test in Phase 1b.
 
-Intent: one spawnable, listable, cancellable agent end-to-end, deterministic in CI.
+## Phase 1a: the chat gateway learns to serve agents (apiApp)
 
-- [ ] New `fallen-8-agents` project (net10.0) in `fallen-8-core.sln`; MIT headers; exact
-  package versions (`Microsoft.Agents.AI`, Ollama/OpenAI-compatible `IChatClient` provider,
-  `ModelContextProtocol` client bits) pinned.
-- [ ] `AgentHostOptions` bound + validated; startup posture log (bind, auth, model +
-  endpoint, MCP target, caps, default budget); loopback-by-default bind.
-- [ ] `AgentRegistry` (in-memory, id → handle, state machine per spec §3.2) and
-  `AgentRunner` wrapping `ChatClientAgent` + MCP tools fetched at startup.
-- [ ] `AgentsController`: `POST /agents`, `GET /agents`, `GET /agents/{id}`,
-  `DELETE /agents/{id}` — versioned route, problem+json, OpenAPI annotations.
-- [ ] API-key auth middleware in the apiApp's pattern.
-- [ ] Tests: scripted `IChatClient` fake (replies, tool calls, usage); lifecycle transitions,
-  cancel, list/detail shapes, 404/409 paths. Gated live smoke test (skips without Ollama).
+Intent: tools on the wire and model purposes, with every existing caller unchanged and the
+environment working at every merge.
 
-## Phase 2 — Trace, feed, and conversation
+- [ ] `ChatREST.cs`: `purpose` (`assist` default, `agent`; unknown is a 400 naming the set),
+  `tools[]`, assistant `toolCalls[]`, tool `toolCallId`; response `toolCalls[]`. XML docs;
+  `[ProducesResponseType]` unchanged in status, the schema grows.
+- [ ] `IChatBackend`: tool definitions on `ChatBackendOptions`, tool calls and tool-call id on
+  `ChatTurn`, `ToolCalls` on `ChatBackendResult`. Native mapping in `OllamaChatBackend` (OllamaSharp
+  tools and `Message.ToolCalls`, streamed and non-streamed, with the per-request `stream=false`
+  fallback only if Phase 0 showed it is needed), `OpenAIChatBackend` and `AnthropicChatBackend`.
+- [ ] **Model purposes and the rename.** `Fallen8ChatOptions.<Backend>.Models.{Assist,Agent}`
+  replaces `Model` on the four blocks, no alias (Ollama defaults `phi4-f8-mini:latest` and
+  `phi4-mini:latest`, the others none); `ChatBackendFactory.ResolveModel(options, purpose)`, a 503
+  naming the key when `purpose: agent` meets an empty `Models:Agent`; `Fallen8SettingCatalog`
+  renames four Restart-tier entries and adds four; the startup posture line, the config view and
+  the residency probe report per purpose; `ChatModelCatalog` unchanged in behaviour, its key
+  spelling updated.
+- [ ] **The rename sweep, same phase:** `docker-compose.yml` and the `nahil`, `openai`, `anthropic`
+  overlays map the existing `F8_*_CHAT_MODEL` variables to `Fallen8__Chat__<Backend>__Models__Assist`
+  and set `Models__Agent` (Nahil from `F8_NAHIL_AGENT_MODEL`, default `phi4-mini:latest`; OpenAI
+  and Anthropic from their chat model variable); `.env.example`; Studio's picker key in
+  `ConfigurationSurface.tsx` (the per-purpose picker follows in Phase 5); the docs pages that
+  spell the key (`nahil.md`, `model-providers.md`, `running.mdx`, `nl-assist.md` where it does);
+  every test that spells it.
+- [ ] Tests: `ChatEndpointTest`'s `FakeChatBackend` seam carries tools and tool calls; per-backend
+  mapping tests on the handler-injected transport fakes; `ChatBackendFactoryTest` for purpose
+  resolution, the empty-purpose 503 and the unknown-purpose 400; the setting-catalog equivalence
+  and config-endpoint tests pick up the renamed and added keys; a test that the old `Model` key
+  is refused at startup with a message naming the new one.
+- [ ] OpenAPI snapshot regenerated (additions only). `McpRestCoverageTest`: `/chat` deferral
+  unchanged.
+- [ ] Solution-wide package alignment: `Microsoft.Extensions.AI.Abstractions` 10.9.0, OllamaSharp
+  to match; exact versions.
+- [ ] **Gate:** every existing chat, catalog and configuration test passes with no change beyond
+  spelling the renamed key; a request without the new fields is byte-for-byte the old behaviour;
+  `npm run env:up` against the Nahil overlay serves NL assist exactly as before.
 
-Intent: "review what they are doing all the time" — the observability half of the contract.
+## Phase 1b: scaffold, adapter, proxy and single-agent walking skeleton
 
-- [ ] `AgentTrace`: bounded step buffer (modelCall, toolCall, message, spawn, state change;
-  drop-oldest marker); `GET /agents/{id}/trace`.
-- [ ] `AgentFeedDispatcher` + `GET /agentfeed` (SSE): change-feed frame conventions,
-  keep-alive, declarative `agents`/`kinds` filters (400 on junk), all six event kinds.
-- [ ] `POST /agents/{id}/messages` (202; reply as `agentMessage` feed event on the same
-  thread; 409 when the agent cannot accept input).
-- [ ] Tests: SSE frame format + filter grammar via `WebApplicationFactory`; trace bounding;
-  conversation round-trip on the fake client; tool-call summaries truncated, no payloads.
+Intent: one spawnable, listable, cancellable agent end-to-end through the apiApp proxy,
+deterministic in CI.
 
-## Phase 3 — Tokens, budgets, metrics
+- [ ] New `fallen-8-agents` project (net10.0, `NoSQL.GraphDB.Agents`, explicit `Program` namespace)
+  in `fallen-8-core.sln`, referencing `fallen-8-rest-client`; MIT headers; exact versions
+  (`Microsoft.Agents.AI`, `ModelContextProtocol` matched to `fallen-8-mcp`). No provider SDK.
+- [ ] `Fallen8TargetOptions` (the small copied options class, same spelling as the other two
+  sidecars; `TimeoutSeconds` 630), `AgentsOptions`, `AgentsMcpOptions`, bound and validated.
+- [ ] `Fallen8ChatClient`: `IChatClient` over `POST /chat` with `purpose: agent` on the
+  `fallen-8-rest-client` seam; messages and tools to the wire, `toolCalls` to
+  `FunctionCallContent`, stats to `UsageDetails`, `backend` and `model` onto the response.
+- [ ] Startup posture log (bind and proxy-only posture, instance URL and the bounded
+  `GET /chat/models` probe outcome, MCP target + tiers + tool count, caps, default budget);
+  loopback-by-default bind.
+- [ ] `RoleCatalog` (three roles, embedded prompts refused when empty, per-role tool allowlists
+  applied to the fetched MCP tool list), `AgentRegistry` (in-memory, state machine per spec 3.2,
+  retention) and `AgentRunner` wrapping `ChatClientAgent` + MCP tools fetched at startup.
+- [ ] Host endpoints under `/agent/*`: spawn, list, detail, cancel, status. Problem+json in the
+  house shape.
+- [ ] apiApp: `Fallen8AgentsOptions`, the `Agents` capability arm, `AgentsController` proxying
+  `/agents/*` on the shared sidecar-proxy client base (small routes; the feed follows in Phase 2).
+  OpenAPI snapshot regenerated (additions only); `McpRestCoverageTest` deferral rule with the
+  spec's reason; `NamespaceEndpointTest` entries.
+- [ ] Convention: `fallen-8-agents` in `CodeQualityTest`'s lists and the REST-only rule; the new
+  route-family pin (`/chat`, `/chat/models` and nothing else) against the OpenAPI snapshot.
+- [ ] Tests: scripted `IChatClient` fake (replies, tool calls incl. a malformed sibling, usage
+  incl. zero); `Fallen8ChatClient` against a hosted apiApp with a fake backend; lifecycle
+  transitions, cancel, allowlist filtering, list/detail shapes, 404/409 paths; proxy tests
+  (403/401 gate, the one invented 503, pass-through, no request body in logs). Gated live smoke
+  test (skips without a configured instance).
 
-Intent: honest cost accounting — the other half of the review contract.
+## Phase 2: trace, feed and conversation
 
-- [ ] Usage deltas from `UsageDetails` accumulated per agent; unreported-usage flag step;
-  totals on list/detail and on `agentStateChanged` events.
-- [ ] Budget enforcement after each model call ⇒ `budgetExceeded` state + feed event.
-- [ ] `AgentDiagnostics` meters (spec §3.6) with the observability containment + tag-hygiene
-  rules; Agent Framework's OTel GenAI spans wired to the exporter config.
-- [ ] Tests: counter exactness against scripted usage, budget stop, metrics emitted
-  (MeterListener), no user input in tag values.
+Intent: "review what they are doing all the time", the observability half of the contract.
 
-## Phase 4 — Swarm mode
+- [ ] `AgentTrace`: bounded step buffer (modelCall with backend and model as reported, toolCall with
+  byte-capped captures and `truncated`/total bytes, message, spawn, citationCheck, state change;
+  drop-oldest marker); `GET .../trace`.
+- [ ] `AgentFeedDispatcher` + `GET /agent/feed` (SSE): change-feed frame conventions, keep-alive,
+  declarative `agents`/`kinds` filters (400 on junk), all six event kinds. The apiApp proxy gains
+  its streaming-forward arm and `GET /agents/feed`.
+- [ ] `POST .../messages` (202 with `messageId`; reply as `agentMessage` with `inReplyTo` on the
+  same session; 409 when the agent cannot accept input).
+- [ ] `GroundingCheck`: cited `[t:<id>]` ids counted against the trace; `citations` on detail and on
+  `agentCompleted`.
+- [ ] Tests: SSE frame format and filter grammar through the proxy via `WebApplicationFactory`;
+  trace bounding and byte caps; conversation round-trip on the fake client; citation counts
+  (valid, dangling, none); summaries truncated, no payloads.
 
-Intent: orchestrator/worker composition on the framework's primitives, bounded by config.
+## Phase 3: counters, budgets, metrics
 
-- [ ] `SwarmTools`: `spawn_worker` / `await_workers` as registry-backed `AIFunction`s,
-  attached only to `orchestrator` agents; workers are first-class agents with `ParentId`.
+Intent: honest cost accounting and hard stops, the other half of the review contract.
+
+- [ ] Usage from the instance's stats accumulated per agent; `unreportedUsage` step; steps, tool
+  calls and wall clock counted by the host; all four on list/detail and on `agentStateChanged`.
+- [ ] Budget enforcement after each step at the framework's per-step seam (maximum iterations
+  where the framework has the knob): `budgetExceeded` naming `tokens`, `steps`, `toolCalls` or
+  `time`; feed event.
+- [ ] `AgentsMetrics` (spec 3.6) with the observability containment and tag-hygiene rules; Agent
+  Framework's OTel GenAI spans wired to the exporter configuration; fleet identity declared.
+- [ ] Check the 3.8 defaults against the Phase 0 numbers, including the instance hop, and adjust
+  the spec table if they moved.
+- [ ] Tests: counter exactness against scripted usage, each budget stops with its name, metrics
+  emitted (`MeterListener`), no user input in tag values.
+
+## Phase 4: swarm mode
+
+Intent: orchestrator/worker composition on the framework's primitives, bounded by configuration.
+
+- [ ] `SwarmTools`: `spawn_worker` / `await_workers` as registry-backed `AIFunction`s, attached only
+  to `orchestrator` agents; workers are first-class `worker`-role agents with `parentId`;
+  `await_workers` returns typed results.
 - [ ] Caps enforced in the registry (`MaxConcurrentAgents`, `MaxSwarmDepth`,
-  `MaxWorkersPerOrchestrator`) — breach = tool error + `toolCalled(success=false)` event.
-- [ ] Cascade cancel; worker results delivered to the awaiting orchestrator via Agent
-  Framework handoff/concurrent patterns (no bespoke scheduler).
-- [ ] Tests (fake client, scripted orchestrator): spawn visibility, every cap, depth limit,
-  cascade cancel, await semantics, orchestrator budget independent of workers'.
+  `MaxWorkersPerOrchestrator`): breach = tool error + `toolCalled(success=false)` event.
+- [ ] Cascade cancel; worker results delivered to the awaiting orchestrator via Agent Framework
+  handoff/concurrent patterns (no bespoke scheduler); orchestrator prompt states the one-composer
+  rule.
+- [ ] Tests (fake client, scripted orchestrator): spawn visibility, every cap, depth limit, cascade
+  cancel, await semantics and result shape, orchestrator budget independent of workers',
+  orchestrator allowlist (no graph tool beyond `f8_overview` offered).
 
-## Phase 5 — Packaging, docs, land
+## Phase 5: packaging, docs, land
 
 Intent: ship what exists; leave the repo consistent.
 
-- [ ] `Dockerfile` (sdk → aspnet runtime, house conventions); compose service under
-  `profiles: [agents]` wired to the `mcp` profile service; default compose unchanged.
-- [ ] Feature `README.md` (LIVING doc): quickstart (Ollama pull, compose profiles, spawn
-  curl, subscribe curl), config reference, model fallback ladder from Phase 0, security
-  posture (read-only-tiers recommendation, prompt-injection honesty note).
-- [ ] Once landed: move `features/open/agent-host/` → `features/done/agent-host/`; check
-  whether the skill library wants an "operate the agent host" skill (note there, not here).
+- [ ] `Dockerfile` (sdk to aspnet runtime, house conventions, copies `fallen-8-rest-client`);
+  compose service `f8-agents` on the `agents` profile: unpublished, `expose:` only, `read_only`,
+  `/tmp` tmpfs, no volume, `Fallen8Target__*` and MCP variables reused, **no model setting**;
+  `fallen8` gains the two instance keys; `scripts/ollama-init.sh` pulls the agent model when
+  `F8_AGENTS=true`; `env-up.js`, `env:down`/`logs`/`status`, `.env.example` (`F8_AGENTS`),
+  `release.yml` matrix. Default compose unchanged.
+- [ ] Studio: one catalog picker per purpose beside each other in `ConfigurationSurface.tsx`, the
+  card showing model and residency per purpose; recapture the Configuration screenshots.
+- [ ] Docs page `docs/src/content/docs/agents.md` registered in the *AI agents* sidebar group; the
+  chat-body fields on `nl-assist.md` and `rest-api.mdx`; the purposes paragraph on
+  `model-providers.md`; the quotas sentence on `nahil.md`; a pointer on `mcp-server.md`; README
+  "Key features" line; **both architecture diagrams** updated in the same PR (the host reaches the
+  MCP server and the chat gateway, never a provider); docs build green.
+- [ ] Feature `README.md` (LIVING doc): quickstart (enable, spawn curl, subscribe curl), roles and
+  allowlists, configuration reference incl. the two purposes, the Phase 0 record and fallback
+  ladder, security posture (proxy-only, one REST family, read-only-tiers recommendation,
+  prompt-injection honesty note).
+- [ ] Once landed: move `features/open/agent-host/` to `features/done/agent-host/`; add the
+  "operate the agent host" note to the skill library's spec (there, not here).
 - [ ] Full suite green, build clean (warnings-as-errors), convention tests pass for the new
   project.
