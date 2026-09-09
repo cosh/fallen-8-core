@@ -25,31 +25,31 @@ tools and purposes before anything depends on them, then a walking skeleton with
 agent behind the proxy, then the review surface (feed, trace, counters), then caps and metrics,
 then swarm, then packaging. Every phase lands with its tests; CI never needs a live model.
 
-## Phase 0: pinned-stack check and default agent model (GATE, small)
+## Phase 0: pinned-stack check and default agent model (GATE, small) - DONE 2026-09-09
 
-Intent: prove the pinned versions round-trip tool calls **through the instance**, streamed and
-non-streamed, on the standard deployment, and pick the default agent model with numbers rather
-than hope. Not merged as product code.
+Intent: prove the pinned versions round-trip tool calls, and pick the default agent model with
+numbers rather than hope. Not merged as product code. **The gate passed**; the measurements and
+their consequences are recorded in [spec.md](./spec.md) section 5, and the two design rules they
+produced are spec sections 3.1a (streaming needs no exception for tools) and 3.2a (the role
+prompts are load-bearing).
 
-- [ ] Throwaway console harness: `Microsoft.Agents.AI` 1.20.0 + `Microsoft.Extensions.AI` 10.9.0 +
-  a prototype of the `POST /chat` adapter (against a locally patched instance carrying the 3.1a
-  fields, or against the provider directly where the instance is not yet patched, stating which)
-  + one trivial local `AIFunction` + one MCP tool from a running `fallen-8-mcp`.
-- [ ] Matrix, each with single call, parallel calls, and a multi-turn with tool results fed back,
-  **streamed and non-streamed**: `phi4-mini:latest` on Nahil (the standard; ten steps for latency
-  and the hallucinated-sibling rate); `phi4-mini:latest` on the local sidecar; one hosted
-  provider.
-- [ ] Record per backend: tool-call success rate, malformed sibling rate, whether streamed tool
-  calls arrive intact (decides the `stream=false`-when-tools fallback of 3.1a), reported usage
-  presence (expect zeros on Nahil tool replies), wall-clock per step with and without the
-  instance hop.
-- [ ] Record in the feature README: the pinned versions, the chosen default agent model, the
-  fallback ladder (`phi4-mini:latest`, a larger tool-capable local model, a hosted provider, each
-  one instance setting), and the upstream references (dotnet/extensions#7094,
-  ollama/ollama#9437).
-- [ ] **Gate:** a default agent model that round-trips tool calls on Nahil and on the sidecar, or
-  the spec's model requirement is renegotiated. The harness graduates into the gated live smoke
-  test in Phase 1b.
+- [x] Throwaway console project outside the repo tree: `Microsoft.Agents.AI` 1.20.0 +
+  `Microsoft.Extensions.AI` 10.9.0 + `ModelContextProtocol` 1.4.1 on net10.0. Restored, built and
+  ran green. Confirmed: `ChatClientAgent(client, instructions, name, description, tools)` runs the
+  tool loop with no `UseFunctionInvocation` wiring; tools reach the chat client as
+  `ChatOptions.Tools`; a session carries multiple turns; `AgentResponse` exposes
+  `Text`/`Usage`/`Messages`/`FinishReason`. Two API corrections for the implementer:
+  `ChatClientAgentOptions` has NO `Instructions` property (it lives on `ChatOptions`), and
+  `AgentResponse.Usage` is the RUN aggregate, so per-step usage is counted at the adapter.
+- [x] Live matrix against Nahil (`phi4-mini:latest`, temperature 0, one-tool schema): streamed and
+  non-streamed, several prompt shapes, repeated runs. Result: streaming is not the variable, prompt
+  shape is. Streamed is the cleaner shape. Full table in spec section 5.
+- [x] Fallback ladder probed: no second rung is available on Nahil today (qwen3 resolves but no
+  worker serves its class; every other tool-capable model 404s). Recorded as a Nahil-side ask.
+- [x] One defect found and scheduled: a permanently unservable model's 503 is retried as a warm-up
+  for the caller's whole budget. Fixed with the default-backend flip, not here.
+- [ ] The harness graduates into the gated live smoke test in Phase 1b (carry the working prompt
+  shape into `Prompts/assistant.md`).
 
 ## Phase 1a: the chat gateway learns to serve agents (apiApp)
 

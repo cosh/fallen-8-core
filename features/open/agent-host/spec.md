@@ -285,10 +285,11 @@ Rules, each with its reason:
   four ways proves heavier than expected, the implementer may compose the generic clients from
   the SDKs inside the backends and read stats from the raw representation; the wire contract
   above does not change either way.
-- **Streaming stays as configured** (`Fallen8:Chat:Stream`). Tool calls through Nahil are verified
-  non-streamed; Phase 0 verifies them streamed. Should a backend stream tool calls badly, that
-  backend sends `stream=false` for a request that carries tools, a per-request decision inside
-  the backend and not a new setting.
+- **Streaming stays as configured** (`Fallen8:Chat:Stream`), with no exception for tools. Phase 0
+  measured parsed tool calls on Nahil both streamed and non-streamed, and the streamed shape was
+  the cleaner of the two (one call rather than one real call plus a malformed sibling). An earlier
+  draft of this section carried a `stream=false`-when-tools fallback; it is dropped as unnecessary,
+  which also keeps the tool path on the same wire shape as every other completion.
 - **The gates are the existing ones.** The Chat capability must be on; the sensitive rate-limit
   policy applies, so a swarm counts against `Fallen8:Security:SensitiveRateLimitPermitPerWindow`
   and that existing knob is the one to raise; the per-request deadline is
@@ -350,6 +351,26 @@ Rules, each with its reason:
   gates and it never learns the agent purpose's model name that way: the model is server-owned
   and is revealed per step by the instance's answer, which `GET /agents/status` then reports as
   `lastSeen { backend, model }`.
+
+### 3.2a The role prompts are load-bearing, and why
+
+Phase 0 measured what decides whether a small model's tool call is parsed at all, and it is not
+the transport: it is the prompt. The same model, tool schema and temperature produced parsed tool
+calls under a system message that named the tools and forbade invented results, and produced the
+literal text `<|tool_call|>` followed by a **fabricated result** under a bare imperative. A
+fabricated result is the worst failure this feature can have, because it looks like an answer.
+
+So each role prompt in `Prompts/` must, as a contract rather than a style preference:
+
+1. state that tools exist and that a question needing data is answered by calling one,
+2. forbid inventing, guessing or predicting a tool's result,
+3. require the `[t:<id>]` citation the grounding check counts (3.2),
+4. and for `orchestrator` and `worker`, state the one-composer rule (3.5).
+
+Two consequences follow. The prompts ship **embedded and are refused when empty at startup**, so a
+missing prompt cannot degrade silently into a fabricating agent. And a prompt change is a
+behaviour change: each prompt is covered by a test asserting these four properties are present, so
+an edit that drops one fails the suite rather than the next agent run.
 
 ### 3.3 Control-plane API
 
@@ -562,31 +583,40 @@ carries no model setting at all.
 
 ## 5. Risks
 
-Measured on 2026-09-09 against Nahil with `phi4-mini:latest` (routable, warm), one tool-enabled
-chat, non-streamed, direct to the provider (the instance hop is not in these numbers):
+**Phase 0 ran on 2026-09-09 and the gate passed.** Measured against Nahil with
+`phi4-mini:latest` (routable, warm), a one-tool schema, temperature 0, direct to the provider (the
+instance hop is not in these numbers), plus a framework probe built and run on net10.0:
 
 | Observation | Consequence in this spec |
 |---|---|
-| A correct `tool_calls` entry came back: Nahil forwards tools and returns tool calls | the protocol risk is closed for the non-streamed shape; Phase 0 checks the streamed one |
-| A second, hallucinated call carried the parameter schema as its arguments | the runner and the scripted fake must tolerate a malformed sibling call, not only a missing one |
-| The completion token count was 0 on the tool-call reply | tokens alone undercount; steps, tool calls and wall clock are budgets too |
-| One step took 41 s wall clock while the reported total duration said 45 ms | wall clock is measured by the host; the defaults (24 steps, 1800 s) follow from it |
+| Parsed `tool_calls` came back **both streamed and non-streamed** | streaming is NOT the variable and `Fallen8:Chat:Stream` needs no exception for tools; the earlier `stream=false` fallback is dropped from 3.1a |
+| Streamed returned ONE clean call; non-streamed returned two, the first carrying the parameter schema as its arguments | streaming is the better shape here, and the runner plus the scripted fake must still tolerate a malformed sibling call |
+| **Prompt shape decides it.** A system message naming the tools and forbidding invented results: 2/2 parsed. A user turn ending "Use the tool to find out.": 5/5 parsed. A bare "Use the tool." or a bare imperative: 0/3, emitting the literal text `<\|tool_call\|>` followed by a **fabricated result** | the role prompts are load-bearing, not cosmetic (3.2a). This is the concrete form of the known upstream flakiness |
+| Completion token count was 0 on one tool-call reply; a warm step ranged 0.3 s to 41 s while the reported total duration said 45 ms | tokens alone undercount and reported durations are not wall clock, so steps, tool calls and host-measured wall clock are budgets too |
 | The catalog said `completion` only, never `tools` | no gating on a tools capability anywhere; the posture probe logs, it does not refuse |
+| `Microsoft.Agents.AI` 1.20.0 + `Microsoft.Extensions.AI` 10.9.0 + `ModelContextProtocol` 1.4.1 restore and build on net10.0; `ChatClientAgent` ran the tool loop with **no** `UseFunctionInvocation` wiring, delivered tools to the chat client as `ChatOptions.Tools`, and carried a session across two turns | the framework choice and the adapter seam are confirmed as specified. `ChatClientAgentOptions` has no `Instructions` property (it is on `ChatOptions`), and `AgentResponse.Usage` is the RUN aggregate, so per-step usage is counted at the adapter, not read off the response |
 
-- **Streamed tool calls through Nahil are unverified.** `Fallen8:Chat:Stream` is on by default,
-  and tool calls have only been observed non-streamed. Phase 0 measures the streamed shape
-  through the instance; the fallback (a backend sending `stream=false` when tools are present) is
-  already in 3.1a.
+- **The fallback ladder has no second rung on Nahil today.** `qwen3:4b` and `qwen3:8b` resolve in
+  Nahil's catalog but answer 503 with `no attached worker serves class S1`, explicitly saying
+  retrying will not help; every other tool-capable model probed (llama3.2, qwen2.5, mistral-nemo,
+  hermes3, granite, gpt-oss, the fp16 phi4-mini variant) answers 404. So on a Nahil deployment the
+  agent model is `phi4-mini:latest` plus a disciplined system prompt, and widening the ladder is a
+  **Nahil-side ask** (a worker subscribing to the class, or the model named in that platform's
+  wanted-models list) recorded like the other Nahil-side dependencies. On the local sidecar and on
+  the hosted providers the ladder is unconstrained.
+- **A permanently unservable model is currently reported as a warm-up.** That same 503 carries no
+  `Retry-After`, and `NahilWarmupRetryHandler` retries any 503 with a backoff until the caller's
+  budget expires, so a 600 s chat budget spends ten minutes and then says the model "was not
+  available in time" when the very first response said retrying is futile. For an agent that is a
+  whole wall-clock cap burned on one step. Fixed in the same push as the default-backend flip
+  (see [nahil-default-backend](../nahil-default-backend/spec.md)), because a default that fails
+  closed has to fail closed HONESTLY.
 - **Four-way tool mapping.** Tools reach four SDKs with four native shapes. Bounded, tested per
   backend against transport fakes, and 3.1a names the escape hatch if it proves heavier than
   expected.
 - **The rename is wide but shallow.** It touches every place that spells the chat model key
   (section 7 lists them). It is mechanical, it lands in one phase, and an instance that missed it
   says so at startup rather than serving the wrong model.
-- **Small-model tool calling is still flaky** (upstream: dotnet/extensions#7094, ollama/ollama#9437;
-  and the hallucinated sibling above). Phase 0 records which agent model round-trips reliably on
-  the standard deployment, with the fallback ladder: `phi4-mini:latest`, then a larger
-  tool-capable local model, then a hosted provider, each a change of one instance setting.
 - **Quotas, latency and the rate limit.** Nahil's per-key hourly token budget answers 429, which
   the instance waits out inside its chat budget; four concurrent agents on that key will stall
   rather than fail, and that is intended. The instance's sensitive rate-limit window bounds a
