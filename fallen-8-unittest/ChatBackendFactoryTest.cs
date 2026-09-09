@@ -96,7 +96,20 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsNull(Validate(OpenAI("https://api.openai.com", OpenAIModel, "sk-key")),
                 "a fully configured provider has nothing to warn about at boot");
             Assert.IsNull(Validate(Anthropic("https://api.anthropic.com", AnthropicModel, "k")));
-            Assert.IsNull(Validate(new Fallen8ChatOptions()), "the shipped Ollama default is usable");
+
+            // THE SHIPPED DEFAULT IS REFUSED, ON PURPOSE (feature nahil-default-backend). The
+            // default backend is Nahil, whose endpoint and model are defaulted and whose credential
+            // never is, so an instance that turns chat on and configures nothing is told which one
+            // value it owes - where the previous Ollama default would instead have dialled
+            // http://localhost:11434 and reported whatever happened to answer there.
+            var shipped = Validate(new Fallen8ChatOptions());
+            Assert.IsNotNull(shipped, "an unconfigured chat gateway must be refused, not aimed somewhere");
+            StringAssert.Contains(shipped, "Fallen8:Chat:Nahil:ApiKey",
+                "the refusal names the key to set, and names ONLY that: " + shipped);
+            Assert.IsNull(Validate(new Fallen8ChatOptions
+            {
+                Nahil = new Fallen8ChatOptions.NahilOptions { ApiKey = "k" }
+            }), "and supplying that one value is enough, because the other two are defaulted");
         }
 
         /// <summary>
@@ -123,10 +136,21 @@ namespace NoSQL.GraphDB.Tests
                 Assert.AreEqual("Anthropic", Field<String>(backend, "_providerName"));
             }
 
-            using (var backend = Disposable(new Fallen8ChatOptions()))
+            // The shipped default (Nahil) and an explicit sidecar both land on the same type,
+            // which is the claim: one protocol, one backend. The default needs its credential
+            // supplied because nothing may default that; see the validation test above.
+            using (var backend = Disposable(new Fallen8ChatOptions
+            {
+                Nahil = new Fallen8ChatOptions.NahilOptions { ApiKey = "k" }
+            }))
             {
                 Assert.IsInstanceOfType(backend, typeof(OllamaChatBackend),
                     "Ollama and Nahil share one protocol and therefore one backend type");
+            }
+
+            using (var backend = Disposable(new Fallen8ChatOptions { Backend = "Ollama" }))
+            {
+                Assert.IsInstanceOfType(backend, typeof(OllamaChatBackend));
             }
         }
 
@@ -202,7 +226,17 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(OpenAIModel, ResolveModel(OpenAI("https://api.openai.com", OpenAIModel, "sk-key")));
             Assert.AreEqual(AnthropicModel,
                 ResolveModel(Anthropic("https://api.anthropic.com", AnthropicModel, "k")));
-            Assert.AreEqual("phi4-f8-mini:latest", ResolveModel(new Fallen8ChatOptions()));
+            // Both Ollama-protocol blocks name the same fine-tune, so the shipped default and an
+            // explicit sidecar report the same model from DIFFERENT blocks - which is the thing
+            // worth pinning, since a resolver reading the wrong block would look correct here only
+            // because the two values agree. The Nahil block is therefore given a distinct value.
+            Assert.AreEqual("phi4-f8-mini:latest", ResolveModel(new Fallen8ChatOptions()),
+                "the shipped default reads the Nahil block");
+            Assert.AreEqual("phi4-f8-mini:latest", ResolveModel(new Fallen8ChatOptions { Backend = "Ollama" }));
+            Assert.AreEqual("phi4-f8:latest", ResolveModel(new Fallen8ChatOptions
+            {
+                Nahil = new Fallen8ChatOptions.NahilOptions { Model = "phi4-f8:latest", ApiKey = "k" }
+            }), "and it is really the Nahil block, not its neighbour that happens to match");
             Assert.IsNull(ResolveModel(new Fallen8ChatOptions { Backend = "Nope" }),
                 "a name this app does not have reports no model rather than a plausible one");
         }

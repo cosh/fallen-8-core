@@ -185,6 +185,7 @@ attach configuration. For everything else, local debugging is faster.
     "ASPNETCORE_ENVIRONMENT": "Development",
     "ASPNETCORE_URLS": "http://localhost:5000",
     "Fallen8__Chat__Enabled": "true",
+    "Fallen8__Chat__Backend": "Ollama",
     "Fallen8__Embedding__Enabled": "true",
     "Fallen8__Embedding__Backend": "Ollama",
     "Fallen8__Embedding__ModelName": "bge-m3",
@@ -197,8 +198,11 @@ attach configuration. For everything else, local debugging is faster.
   ```
 
   Those endpoints are the compose sidecars' published host ports, so you can run the API
-  locally against a running `npm run env:up` environment. The chat and embedding Ollama
-  endpoints already default to `http://localhost:11434` and need no entry. The embedding
+  locally against a running `npm run env:up` environment. Both **backends** have to be named:
+  the shipped chat default is `Nahil` and the shipped embedding default is `Onnx`, so a block that
+  enables either capability without naming `Ollama` gets a latched `503` on that capability
+  instead of the sidecar (the boot log says which key is missing). Their **endpoints** need no
+  entry: both already default to `http://localhost:11434`. The embedding
   identity is one unit: the declared `Dimension` is validated against the backend's actual
   output and a mismatch is a hard error, and the default `Onnx` backend wants local model files
   instead of a sidecar. `GET /status` reports the resulting capability state.

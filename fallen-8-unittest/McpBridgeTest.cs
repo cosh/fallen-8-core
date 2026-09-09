@@ -164,7 +164,7 @@ namespace NoSQL.GraphDB.Tests
                 "overview surfaces the available analytics algorithms for agent discovery");
             // Against a LIVE apiApp, so this proves the bridge DTO members actually bind to the
             // wire names (a stubbed body would only prove the tool copies whatever it deserialized).
-            Assert.AreEqual("Ollama", status.GetProperty("chatBackend").GetString(),
+            Assert.AreEqual("Nahil", status.GetProperty("chatBackend").GetString(),
                 "the shipped chat default reaches the agent, so it can tell where a prompt would go");
             Assert.AreEqual("Onnx", status.GetProperty("embeddingBackend").GetString(),
                 "the shipped embedding default reaches the agent the same way");

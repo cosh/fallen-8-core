@@ -62,7 +62,39 @@ console.log(`  F8 Studio UI:  http://localhost:${uiPort}  (its own container; ta
 // REST only: the OpenAPI document and the Scalar reference are mapped in Development, and the
 // container runs Production, so do NOT advertise /openapi or /scalar here - they 404.
 console.log(`  F8 REST API:   http://localhost:${f8Port}  (REST only; /openapi + /scalar are Development-only, so run "dotnet run --project fallen-8-core-apiApp" for those)`);
-console.log('  NL assist:     http://localhost:11434  (Ollama, default model "phi4-f8-mini"; opt-in "phi4-f8")');
+// Provider-aware on purpose: this line used to assert Ollama unconditionally, which was already
+// wrong under a provider overlay and is wrong by default now that the shipped chat backend is
+// Nahil. It resolves the provider from the same two inputs env-up.js does, normalised the same
+// way (trim + lowercase) and read from the process environment THEN the root .env - the latter
+// because these are separate processes: env-up applies .env to its own environment and env-info
+// cannot see that, so reading only process.env would print "local" on exactly the machines whose
+// .env selects Nahil. Every other value on this screen is already read that way.
+const selector = (n) => (process.env[n] || dotEnv[n] || '').trim();
+const chatProvider =
+  selector('F8_MODEL_PROVIDER').toLowerCase() ||
+  (selector('F8_NAHIL_API_KEY') || selector('F8_NAHIL_URL') ? 'nahil' : 'local');
+
+// The three shapes differ in what happens to the SIDECAR, which is the thing an operator is
+// looking at this screen for. Only the Nahil overlay parks it; openai and anthropic move chat
+// alone and keep it serving bge-m3, so its URL still belongs on the screen. An unrecognised value
+// is not resolved to a guess: env-up refuses one outright, but env:status runs this script without
+// env-up, so it has to be able to say it does not know.
+if (chatProvider === 'local') {
+  console.log(
+    '  NL assist:     http://localhost:11434  (the Ollama sidecar, default model "phi4-f8-mini"; opt-in "phi4-f8")'
+  );
+} else if (chatProvider === 'nahil') {
+  console.log('  NL assist:     served by Nahil  (no local sidecar; docs.fallen-8.com/nahil/)');
+} else if (chatProvider === 'openai' || chatProvider === 'anthropic') {
+  console.log(
+    `  NL assist:     served by ${chatProvider}  (chat only; the sidecar still serves embeddings)`
+  );
+  console.log('  Embeddings:    http://localhost:11434  (the Ollama sidecar, bge-m3)');
+} else {
+  console.log(
+    `  NL assist:     F8_MODEL_PROVIDER='${chatProvider}' is not a provider; docs.fallen-8.com/model-providers/`
+  );
+}
 // The API-side URL and deliberately no localhost URL for the runtime itself: the f8-integrations
 // sidecar publishes no host port (jobs hand it third-party credentials), so the API is the only way in.
 console.log(`  Integrations:  http://localhost:${f8Port}/integrations/providers  (through the API; the sidecar has no host port of its own)`);

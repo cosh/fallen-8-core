@@ -337,6 +337,221 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region a refusal that is not a warm-up
+
+        /// <summary>A retryable status carrying a body, which is the only thing that can tell a
+        /// warm-up from a refusal.</summary>
+        private static HttpResponseMessage Retryable(HttpStatusCode status, String retryAfter, String body)
+        {
+            var response = Retryable(status, retryAfter);
+            response.Content = new StringContent(body);
+            return response;
+        }
+
+        private const String NoWorker =
+            "{\"error\":\"model 'qwen3:4b' is in the catalog but no attached worker serves class S1 "
+            + "(2 worker(s) attached). Retrying will not help until a worker subscribes to that class\"}";
+
+        /// <summary>
+        ///   A refusal test needs a budget, and that is not incidental: the whole point of the
+        ///   refusal is that this handler has NO retry cap, so a stub answering the refusal
+        ///   for ever is answering exactly what the live service answers for ever. Without a bound
+        ///   a regressed refusal would not fail these tests, it would HANG them - and a hung test
+        ///   in a suite with no per-test timeout does not go red, it just never finishes. So every
+        ///   refusal case runs under a budget that expires after a few waits, which turns a
+        ///   regression into a <see cref="NahilWarmupTimeoutException" /> the assertion rejects.
+        /// </summary>
+        private static (CancellationTokenSource Budget, Func<TimeSpan, CancellationToken, Task> Delay, List<TimeSpan> Schedule)
+            Bounded(Int32 waitsBeforeGivingUp = 3)
+        {
+            var budget = new CancellationTokenSource();
+            var schedule = new List<TimeSpan>();
+            Func<TimeSpan, CancellationToken, Task> delay = (wait, _) =>
+            {
+                schedule.Add(wait);
+                if (schedule.Count >= waitsBeforeGivingUp)
+                {
+                    budget.Cancel();
+                    return Task.FromCanceled(budget.Token);
+                }
+
+                return Task.CompletedTask;
+            };
+            return (budget, delay, schedule);
+        }
+
+        /// <summary>
+        ///   Nahil reuses <c>503</c> for two opposite answers, and the difference is only in the
+        ///   body: a model being pulled onto a worker (wait) and a model no attached worker serves
+        ///   (never). Measured live on 2026-09-09, the second arrives with NO <c>Retry-After</c>,
+        ///   so before this it fell into the backoff and spent the caller's entire budget - about
+        ///   ten minutes on the shipped Nahil chat profile - to end with "was not available in
+        ///   time", when the very first response had said retrying would not help.
+        ///
+        ///   <para>So: no waits, one call, and the provider's own sentence in the message, because
+        ///   it names the fix and nothing on this side of the request knows it.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task AModelNoWorkerServes_FailsOnTheFirstAnswer_CarryingNahilsOwnReason()
+        {
+            var stub = new StubHandler(_ => Retryable(HttpStatusCode.ServiceUnavailable, null, NoWorker));
+            var bounded = Bounded();
+            using var budget = bounded.Budget;
+            var (handler, _) = Retrying(stub, logger: null, delay: bounded.Delay);
+
+            using var client = new HttpClient(handler);
+            var refused = await Assert.ThrowsExceptionAsync<NahilModelUnservableException>(
+                () => client.GetAsync("https://api.nahil.dev/api/chat", budget.Token));
+
+            Assert.AreEqual(1, stub.Calls, "a refusal must not be re-asked");
+            Assert.AreEqual(0, bounded.Schedule.Count,
+                "a refusal must not be paid for in the caller's budget");
+            StringAssert.Contains(refused.Message, "phi4-f8-mini:latest", "the message names the model asked for");
+            StringAssert.Contains(refused.Message, "no attached worker serves class S1",
+                "the provider's sentence is quoted, because it names what has to change");
+            StringAssert.Contains(refused.Message, "retrying will not help");
+            Assert.IsFalse(refused.Message.Contains("{\"error\""),
+                "the JSON envelope is unwrapped rather than dumped: " + refused.Message);
+        }
+
+        /// <summary>
+        ///   The three ways a <c>503</c> is still a warm-up, which is what keeps this fix narrow.
+        ///   The discriminator is deliberately the BODY and never the missing <c>Retry-After</c>: a
+        ///   provider that omits the header is only declining to say how long, and reading that as
+        ///   permanence would turn every ordinary warm-up into an immediate failure.
+        /// </summary>
+        [TestMethod]
+        public async Task AWarmUpIsStillWaitedOut_WhateverItsBodySaysAndWhetherItHasOne()
+        {
+            foreach (var body in new[] { null, "", "{}", "{\"error\":\"pulling manifest\"}" })
+            {
+                var stub = new StubHandler(call => call == 1
+                    ? (body == null
+                        ? Retryable(HttpStatusCode.ServiceUnavailable, null)
+                        : Retryable(HttpStatusCode.ServiceUnavailable, null, body))
+                    : new HttpResponseMessage(HttpStatusCode.OK));
+                var (handler, schedule) = Retrying(stub);
+
+                using var client = new HttpClient(handler);
+                using var response = await Get(client);
+
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                    "body '" + body + "' is not the documented refusal, so it must be waited out");
+                Assert.AreEqual(2, stub.Calls, "body '" + body + "' must be retried");
+                Assert.AreEqual(1, schedule.Count, "body '" + body + "' must cost exactly one wait");
+            }
+        }
+
+        /// <summary>
+        ///   The refusal is bound to the status as well as to the sentence. A <c>429</c> is a spent
+        ///   quota, which refills, so the same words in that body must still be waited out; a status
+        ///   that was never retryable still reaches the caller untouched and unread.
+        /// </summary>
+        [TestMethod]
+        public async Task TheRefusalIsBoundToTheStatus_SoAQuotaWithTheSameWordsStillWaits()
+        {
+            var quota = new StubHandler(call => call == 1
+                ? Retryable(HttpStatusCode.TooManyRequests, "4", NoWorker)
+                : new HttpResponseMessage(HttpStatusCode.OK));
+            var (handler, schedule) = Retrying(quota);
+
+            using (var client = new HttpClient(handler))
+            {
+                using var response = await Get(client);
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            }
+
+            CollectionAssert.AreEqual(new[] { TimeSpan.FromSeconds(4) }, schedule,
+                "a quota is a wait even when its body borrows the refusal's words");
+
+            var notRetryable = new StubHandler(_ => Retryable(HttpStatusCode.BadRequest, null, NoWorker));
+            var (other, otherSchedule) = Retrying(notRetryable);
+            using var plain = new HttpClient(other);
+            using var passed = await Get(plain);
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, passed.StatusCode,
+                "a status this provider never retries is returned, not reclassified");
+            Assert.AreEqual(1, notRetryable.Calls);
+            Assert.AreEqual(0, otherSchedule.Count);
+            Assert.AreEqual(NoWorker, await passed.Content.ReadAsStringAsync(),
+                "and its body reaches the caller unread: the probe only touches responses bound for the bin");
+        }
+
+        /// <summary>
+        ///   The body is read UP TO a bound, and this states the consequence rather than hiding it:
+        ///   the sentence is found when it falls inside the bound and missed when it does not, in
+        ///   which case the call is waited out exactly as an unrecognised body is. A bound is the
+        ///   price of not letting a service on the far side of a credential decide how much memory
+        ///   this process spends.
+        /// </summary>
+        [TestMethod]
+        public async Task TheBodyIsClassifiedByABoundedPrefix_AndBeyondItTheCallIsMerelyWaitedOut()
+        {
+            // 2 KiB is the probe bound. Inside it the phrase is found even behind a lot of padding.
+            var padding = new String('x', 1_500);
+            var inside = "{\"pad\":\"" + padding + "\",\"error\":\"no attached worker serves class S1\"}";
+            var insideStub = new StubHandler(_ => Retryable(HttpStatusCode.ServiceUnavailable, null, inside));
+            var bounded = Bounded();
+            using (var budget = bounded.Budget)
+            {
+                var (insideHandler, _) = Retrying(insideStub, logger: null, delay: bounded.Delay);
+                using var client = new HttpClient(insideHandler);
+                await Assert.ThrowsExceptionAsync<NahilModelUnservableException>(
+                    () => client.GetAsync("https://api.nahil.dev/api/chat", budget.Token));
+            }
+
+            Assert.AreEqual(0, bounded.Schedule.Count);
+            Assert.AreEqual(1, insideStub.Calls);
+
+            // Pushed past the bound, the same sentence is invisible, and the honest fallback is the
+            // wait this provider would have taken before it read anything at all.
+            var beyond = "{\"pad\":\"" + new String('x', 4_000) + "\",\"error\":\"no attached worker serves class S1\"}";
+            var beyondStub = new StubHandler(call => call == 1
+                ? Retryable(HttpStatusCode.ServiceUnavailable, null, beyond)
+                : new HttpResponseMessage(HttpStatusCode.OK));
+            var (beyondHandler, beyondSchedule) = Retrying(beyondStub);
+            using var beyondClient = new HttpClient(beyondHandler);
+            using var response = await Get(beyondClient);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual(1, beyondSchedule.Count, "an unreadable-in-time sentence degrades to a wait");
+        }
+
+        /// <summary>
+        ///   Reading a body must not break the replay, which is the hazard this whole handler was
+        ///   built around: a request message cannot be sent twice and a content stream read once
+        ///   cannot be replayed. So a warm-up whose body IS read, followed by a refusal, must still
+        ///   have sent the same bytes both times before it fails.
+        /// </summary>
+        [TestMethod]
+        public async Task ReadingAWarmUpsBody_DoesNotCorruptTheReplayedRequest()
+        {
+            var stub = new StubHandler(call => call == 1
+                ? Retryable(HttpStatusCode.ServiceUnavailable, "6", "{\"error\":\"pulling manifest\"}")
+                : Retryable(HttpStatusCode.ServiceUnavailable, null, NoWorker));
+            // Four allowed waits: one is the warm-up this test wants, and the rest exist only so a
+            // regressed refusal ends as a spent budget rather than as a test that never returns.
+            var bounded = Bounded(waitsBeforeGivingUp: 4);
+            using var budget = bounded.Budget;
+            var (handler, _) = Retrying(stub, logger: null, delay: bounded.Delay);
+
+            using var client = new HttpClient(handler);
+            var sent = "{\"model\":\"phi4-f8-mini:latest\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}";
+            await Assert.ThrowsExceptionAsync<NahilModelUnservableException>(
+                () => client.PostAsync("https://api.nahil.dev/api/chat",
+                    new StringContent(sent, System.Text.Encoding.UTF8, "application/json"), budget.Token));
+
+            Assert.AreEqual(2, stub.Calls);
+            CollectionAssert.AreEqual(new[] { TimeSpan.FromSeconds(6) }, bounded.Schedule,
+                "the warm-up was waited out; only the second answer was a refusal");
+            CollectionAssert.AreEqual(new[] { sent, sent }, stub.Bodies,
+                "the replayed request carried the same bytes, so reading the first response's body cost nothing");
+            CollectionAssert.AreEqual(new[] { "application/json; charset=utf-8", "application/json; charset=utf-8" },
+                stub.ContentTypes, "and the same content type");
+        }
+
+        #endregion
+
         #region replay, redaction and giving up
 
         /// <summary>

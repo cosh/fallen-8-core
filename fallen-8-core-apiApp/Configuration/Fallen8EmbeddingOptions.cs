@@ -61,11 +61,16 @@ namespace NoSQL.GraphDB.App.Configuration
         /// writable at runtime.</para></summary>
         public String Backend { get; set; } = "Onnx";
 
-        /// <summary>The per-call budget for one generate (which embeds a BATCH of texts, hence the
-        /// larger default than the chat gateway's single completion). It is the SINGLE deadline on
-        /// the call: the Ollama transport is built without one, so this value cannot be pre-empted
-        /// by a shorter undocumented bound. Exceeded calls answer 503, like any other
-        /// "backend not usable right now" - the embedding contract has no 504.</summary>
+        /// <summary>The per-call budget for one generate, which embeds a BATCH of texts rather than
+        /// producing one completion. It is the SINGLE deadline on the call: the Ollama transport is
+        /// built without one, so this value cannot be pre-empted by a shorter undocumented bound.
+        /// Exceeded calls answer 503, like any other "backend not usable right now" - the embedding
+        /// contract has no 504.
+        /// <para>It used to be described as the larger of the two model budgets, which it no longer
+        /// is: <c>Fallen8:Chat:TimeoutSeconds</c> is 600 because that capability's default backend
+        /// can spend its budget waiting for a cold model to be pulled, where this one cannot - a
+        /// batch either embeds or it does not. The two are sized by what they wait for, so neither
+        /// is derived from the other.</para></summary>
         public Int32 TimeoutSeconds { get; set; } = 300;
 
         /// <summary>The model name of the identity (FR-8); required when enabled.</summary>

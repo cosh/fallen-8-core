@@ -609,7 +609,7 @@ instance hop is not in these numbers), plus a framework probe built and run on n
   budget expires, so a 600 s chat budget spends ten minutes and then says the model "was not
   available in time" when the very first response said retrying is futile. For an agent that is a
   whole wall-clock cap burned on one step. Fixed in the same push as the default-backend flip
-  (see [nahil-default-backend](../nahil-default-backend/spec.md)), because a default that fails
+  (see [nahil-default-backend](../../done/nahil-default-backend/spec.md)), because a default that fails
   closed has to fail closed HONESTLY.
 - **Four-way tool mapping.** Tools reach four SDKs with four native shapes. Bounded, tested per
   backend against transport fakes, and 3.1a names the escape hatch if it proves heavier than

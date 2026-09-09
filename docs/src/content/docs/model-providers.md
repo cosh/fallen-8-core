@@ -34,6 +34,20 @@ while embeddings run anywhere in the column above.
 **exactly**, case included: `openai` is refused with a message listing the accepted values, rather
 than silently becoming a backend nobody chose.
 
+### The defaults, and the one case they decide
+
+Chat defaults to **`Nahil`**; embeddings default to **`Onnx`**, the in-process generator that needs
+no network and no credential. Both capabilities are **off** by default, so neither default is even
+consulted until one is switched on, and the compose environment names both backends explicitly
+which is why `docker compose up` is unaffected.
+
+That leaves exactly one case the chat default decides: a deployment that enables chat and names no
+backend. `Nahil` answers it by refusing up front and naming `Fallen8:Chat:Nahil:ApiKey`, because
+its endpoint and model have sensible defaults and a credential can never have one. The alternative
+would have been to dial `http://localhost:11434` and report whatever answered there, which is a
+guess wearing a connection error's clothes. So the rule is: **an instance that brings its own model
+names its own backend**, and one that names nothing is told what it owes.
+
 ## Turn one on
 
 In the compose environment one variable picks the provider and applies its overlay:
@@ -69,12 +83,12 @@ models (`F8_PULL_ASSIST=0`, ~4.8 GB nothing would ask for); `bge-m3` still pulls
 | `F8_OPENAI_API_KEY` | openai | Required by the overlay; it fails closed without one |
 | `F8_OPENAI_URL` | openai | Defaults to `https://api.openai.com`. A **host root** |
 | `F8_OPENAI_CHAT_MODEL` | openai | Defaults to `gpt-4o-mini` |
-| `F8_OPENAI_CHAT_TIMEOUT` | openai | The chat budget in seconds; the overlay leaves it at `120` |
+| `F8_OPENAI_CHAT_TIMEOUT` | openai | The chat budget in seconds; the overlay sets `120`, below the `600` default, because this provider does not warm up |
 | `F8_ANTHROPIC_API_KEY` | anthropic | Required by the overlay; it fails closed without one |
 | `F8_ANTHROPIC_URL` | anthropic | Defaults to `https://api.anthropic.com`. A **host root** |
 | `F8_ANTHROPIC_CHAT_MODEL` | anthropic | Defaults to `claude-opus-5` |
 | `F8_ANTHROPIC_MAX_TOKENS` | anthropic | Defaults to `4096`; the Messages API requires it per request |
-| `F8_ANTHROPIC_CHAT_TIMEOUT` | anthropic | The chat budget in seconds; the overlay leaves it at `120` |
+| `F8_ANTHROPIC_CHAT_TIMEOUT` | anthropic | The chat budget in seconds; the overlay sets `120`, below the `600` default, for the same reason |
 
 The model names are config strings and nothing more. Fallen-8 keeps no list of either vendor's
 models and follows neither vendor's renames, so a renamed or retired model is one environment
@@ -92,7 +106,7 @@ Fallen8__Chat__Backend=OpenAI                          # or Anthropic, Nahil, Ol
 Fallen8__Chat__OpenAI__Endpoint=https://api.openai.com
 Fallen8__Chat__OpenAI__ApiKey=...
 Fallen8__Chat__OpenAI__Model=gpt-4o-mini
-Fallen8__Chat__TimeoutSeconds=120
+Fallen8__Chat__TimeoutSeconds=120                      # this provider's overlay value; the default is 600
 Fallen8__Chat__Stream=true                             # the default; listed so the profile is complete
 
 Fallen8__Chat__Anthropic__Endpoint=https://api.anthropic.com

@@ -80,6 +80,11 @@ services:
       # (browser -> POST /chat -> sidecar). F8_CHAT=false answers 403 (custom browser-direct
       # backends still work). The model must be one the sidecar pulled (F8_DELEGATE_REPO).
       - Fallen8__Chat__Enabled=${F8_CHAT:-true}
+      # Named EXPLICITLY, and now load-bearing rather than tidy: the code default is Nahil
+      # (feature nahil-default-backend), so this line is what keeps the local environment on the
+      # sidecar it starts two services below. Deleting it does not fall back to Ollama - it makes
+      # every chat call answer 503 naming a Nahil key nobody set. An environment that brings its
+      # own model names its own backend; that is the whole rule, and this file brings one.
       - Fallen8__Chat__Backend=Ollama
       - Fallen8__Chat__Ollama__Endpoint=http://ollama:11434
       - Fallen8__Chat__Ollama__Model=phi4-f8-mini:latest
