@@ -70,6 +70,14 @@ namespace NoSQL.GraphDB.App.Chat
         /// </summary>
         public String Model => ChatBackendFactory.ResolveModel(_options);
 
+        /// <summary>
+        ///   The model the AGENT purpose is configured with (config value), or <c>null</c> when the
+        ///   selected backend names none - which is the shipped state for the two metered providers
+        ///   and is why this is reported rather than assumed. <see cref="Model" /> keeps its meaning
+        ///   (the assist model) so every existing reader of it is unaffected.
+        /// </summary>
+        public String AgentModel => ChatBackendFactory.ResolveModel(_options, ChatPurpose.Agent);
+
         /// <summary>Whether the backend client has been created (a chat call happened). A config
         /// read never flips this: residency is probed via a transient client (OllamaModelProbe).</summary>
         public Boolean IsLoaded => _backend.IsValueCreated;
@@ -92,13 +100,24 @@ namespace NoSQL.GraphDB.App.Chat
         ///   caller-driven cancellation propagates as <see cref="OperationCanceledException" />.
         /// </summary>
         public async Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages,
-            ChatBackendOptions options, CancellationToken cancellationToken)
+            ChatBackendOptions options, CancellationToken cancellationToken,
+            ChatPurpose purpose = ChatPurpose.Assist)
         {
             if (!IsEnabled)
             {
                 // Defensive: the endpoint's policy already answers 403 when off, so this is not
                 // reached in practice.
                 throw new ChatProviderUnavailableException("The chat provider is disabled (Fallen8:Chat:Enabled).");
+            }
+
+            // The purpose's model is resolved HERE, per request, because the factory runs once
+            // behind a Lazy and only ever saw the default purpose: a request for a purpose whose
+            // model nobody set would otherwise reach the backend and ask for a model named by
+            // nobody. Deliberately the NARROW check - see TryResolveModel for why re-validating the
+            // endpoint and credential per request would refuse a backend a caller supplied itself.
+            if (!ChatBackendFactory.TryResolveModel(_options, purpose, out var model, out var unusable))
+            {
+                throw new ChatProviderUnavailableException(unusable);
             }
 
             IChatBackend backend;
@@ -118,7 +137,11 @@ namespace NoSQL.GraphDB.App.Chat
             ChatBackendResult result;
             try
             {
-                result = await backend.ChatAsync(messages, options, timeoutCts.Token);
+                // The SERVER names the model, from the purpose; a caller never does. Passing it on
+                // the options rather than baking it into the backend is what lets one client serve
+                // both purposes - see ChatBackendOptions.Model.
+                result = await backend.ChatAsync(
+                    messages, (options ?? new ChatBackendOptions()).WithModel(model), timeoutCts.Token);
             }
             catch (ChatBackendOutputException ex)
             {

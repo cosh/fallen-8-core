@@ -25,6 +25,7 @@
 
 using System;
 using System.ClientModel;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -60,10 +61,26 @@ namespace NoSQL.GraphDB.App.Chat
     public sealed class OpenAIChatBackend : IChatBackend, IDisposable
     {
         private readonly HttpClient _http;
-        private readonly ChatClient _client;
         private readonly String _providerName;
         private readonly String _model;
         private readonly Boolean _stream;
+
+        /// <summary>
+        ///   One SDK client per model, because this SDK binds the model at CONSTRUCTION where the
+        ///   other two take it per request. The alternative was a whole backend per purpose, which
+        ///   would mean a second transport, a second retry handler and a second connection pool to
+        ///   the same host for the sake of one string.
+        ///   <para>
+        ///     Cheap by construction: every entry shares the one <see cref="HttpClient" /> and the
+        ///     one options object built in the constructor, so a client here is a thin wrapper and
+        ///     not a connection. Bounded in practice by the number of purposes, since the models
+        ///     come from configuration and a caller cannot name one.
+        ///   </para>
+        /// </summary>
+        private readonly ConcurrentDictionary<String, ChatClient> _clients =
+            new ConcurrentDictionary<String, ChatClient>(StringComparer.Ordinal);
+
+        private readonly Func<String, ChatClient> _newClient;
 
         /// <param name="target">The endpoint, model and credential. Already validated by the factory.</param>
         /// <param name="stream">Whether to ask the backend to stream (<c>Fallen8:Chat:Stream</c>).</param>
@@ -80,11 +97,17 @@ namespace NoSQL.GraphDB.App.Chat
                     RemoteModelHttpClient.OpenAIRetryable),
                 handler);
 
-            _client = new ChatClient(target.Model, new ApiKeyCredential(target.ApiKey),
-                RemoteModelHttpClient.OpenAIOptions(target, _http));
+            // Built once and closed over, so every per-model client shares this transport and
+            // these options rather than composing its own (and a second copy of the settings is
+            // how one of them quietly keeps an SDK default - see RemoteModelHttpClient).
+            var credential = new ApiKeyCredential(target.ApiKey);
+            var clientOptions = RemoteModelHttpClient.OpenAIOptions(target, _http);
+            _newClient = model => new ChatClient(model, credential, clientOptions);
+
             _providerName = target.ProviderName;
             _model = target.Model;
             _stream = stream;
+            _clients[_model] = _newClient(_model);
         }
 
         /// <summary>Releases the owned transport. Neither the SDK's client nor its pipeline transport
@@ -98,6 +121,10 @@ namespace NoSQL.GraphDB.App.Chat
         public async Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages,
             ChatBackendOptions options, CancellationToken cancellationToken)
         {
+            // Resolved ONCE so the client, the request and the echoed result all name one model.
+            var model = ChatBackendOptions.ModelOr(options, _model);
+            var client = _clients.GetOrAdd(model, _newClient);
+
             var turns = messages.Select(ToMessage).ToList();
             var request = BuildOptions(options);
 
@@ -112,7 +139,7 @@ namespace NoSQL.GraphDB.App.Chat
             {
                 if (_stream)
                 {
-                    await foreach (var update in _client.CompleteChatStreamingAsync(turns, request, cancellationToken))
+                    await foreach (var update in client.CompleteChatStreamingAsync(turns, request, cancellationToken))
                     {
                         Append(content, update.ContentUpdate);
 
@@ -131,7 +158,7 @@ namespace NoSQL.GraphDB.App.Chat
                 }
                 else
                 {
-                    ChatCompletion completion = await _client.CompleteChatAsync(turns, request, cancellationToken);
+                    ChatCompletion completion = await client.CompleteChatAsync(turns, request, cancellationToken);
                     Append(content, completion.Content);
                     finish = completion.FinishReason;
                     usage = completion.Usage;
@@ -209,7 +236,7 @@ namespace NoSQL.GraphDB.App.Chat
             return new ChatBackendResult
             {
                 Content = content.ToString(),
-                Model = _model,
+                Model = model,
                 // Absent stays absent: this provider omits `usage` on some responses, and a 0 there
                 // would read as "it generated nothing" rather than "it did not say".
                 PromptTokens = usage?.InputTokenCount,

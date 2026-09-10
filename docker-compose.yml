@@ -87,7 +87,12 @@ services:
       # own model names its own backend; that is the whole rule, and this file brings one.
       - Fallen8__Chat__Backend=Ollama
       - Fallen8__Chat__Ollama__Endpoint=http://ollama:11434
-      - Fallen8__Chat__Ollama__Model=phi4-f8-mini:latest
+      # One model per PURPOSE (feature agent-host): the request says which job it is and the
+      # server says which model does that job. Assist is the fine-tune that emits one C#
+      # fragment; agent is a stock tool-calling model, because the fine-tune cannot call tools.
+      # Both are models ollama-init.sh already pulls, so this needs no extra weights.
+      - Fallen8__Chat__Ollama__Models__Assist=phi4-f8-mini:latest
+      - Fallen8__Chat__Ollama__Models__Agent=phi4-mini:latest
       # Documents in, graph out (feature unstructured-ingestion): binary formats convert in
       # the docling sidecar below; txt/md ingest without it. F8_INGESTION=false opts out as
       # one unit: the document endpoints answer 403 AND env:up skips the sidecar (compose

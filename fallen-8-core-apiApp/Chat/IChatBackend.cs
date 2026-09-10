@@ -78,6 +78,49 @@ namespace NoSQL.GraphDB.App.Chat
         ///   without them, so whatever needs them has to send them.
         /// </summary>
         public IReadOnlyList<String> Stop { get; init; }
+
+        /// <summary>
+        ///   The model to invoke, which the SERVER chose - never a caller. It is on the per-call
+        ///   options because one backend now serves several models: the request names a
+        ///   <see cref="ChatPurpose" />, <see cref="ChatBackendFactory" /> turns that into a
+        ///   configured name, and the same client carries whichever came out. Before purposes the
+        ///   model was fixed at construction, which is why a backend still holds one: see
+        ///   <see cref="ChatBackendResult.Model" />.
+        ///   <para>
+        ///     <c>null</c> means the caller named none, and a backend then uses the model it was
+        ///     constructed with - the ASSIST model, because that is the default purpose. That is a
+        ///     coherent answer rather than a silent guess, and <see cref="Fallen8ChatProvider" />
+        ///     always sets it explicitly anyway.
+        ///   </para>
+        /// </summary>
+        public String Model { get; init; }
+
+        /// <summary>
+        ///   This same set of knobs with <see cref="Model" /> replaced, which is how the provider
+        ///   adds the server's choice to a caller's request without mutating what the caller passed
+        ///   in. <b>Every property has to be copied here</b>: a new one that is not is a knob that
+        ///   silently stops reaching the backend, which is why the copy lives on the type rather
+        ///   than at the call site.
+        /// </summary>
+        /// <summary>
+        ///   Which model a call actually uses: the one it names, or the backend's configured one
+        ///   when it names none. One home for the fallback rule so three backends cannot each
+        ///   decide it differently.
+        /// </summary>
+        public static String ModelOr(ChatBackendOptions options, String configured)
+        {
+            return String.IsNullOrWhiteSpace(options?.Model) ? configured : options.Model;
+        }
+
+        public ChatBackendOptions WithModel(String model)
+        {
+            return new ChatBackendOptions
+            {
+                Temperature = Temperature,
+                Stop = Stop,
+                Model = model,
+            };
+        }
     }
 
     /// <summary>

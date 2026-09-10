@@ -18391,7 +18391,14 @@
               "null",
               "string"
             ],
-            "description": "The server-owned model."
+            "description": "The server-owned model for the default purpose (`assist`)."
+          },
+          "agentModel": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The server-owned model for `purpose: agent`; null when the selected backend\r\n    names none, which is the shipped state for OpenAI and Anthropic."
           },
           "loaded": {
             "type": "boolean",
@@ -18466,6 +18473,14 @@
           "options": {
             "description": "Optional generation knobs.",
             "$ref": "#/components/schemas/ChatOptionsSpecification"
+          },
+          "purpose": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "      What the completion is FOR, which is how the server picks the model that serves it:\r\n      `assist` (the default) or `agent`. It names a JOB and never a model, so the\r\n      server still owns every model name and no client can choose one.\r\n      Omit it and nothing changes: the request behaves exactly as it did before purposes\r\nexisted. A value that is neither name is refused with a 400 listing both, rather than\r\nfalling back to assist - answering a tool-calling agent with the model trained\r\nto emit one C# fragment would look like an answer and be useless.",
+            "example": "assist"
           }
         },
         "description": "A chat completion request proxied to the instance's model backend (feature\r\n    instance-config). The model is SERVER-owned (the selected backend's own `Model`\r\n    setting); there is no client model field.",

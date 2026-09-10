@@ -44,7 +44,10 @@ services:
       - Fallen8__Chat__Backend=Nahil
       - Fallen8__Chat__Nahil__Endpoint=${F8_NAHIL_URL:-https://api.nahil.dev}
       - Fallen8__Chat__Nahil__ApiKey=${F8_NAHIL_API_KEY:?set F8_NAHIL_API_KEY}
-      - Fallen8__Chat__Nahil__Model=${F8_NAHIL_CHAT_MODEL:-phi4-f8-mini:latest}
+      - Fallen8__Chat__Nahil__Models__Assist=${F8_NAHIL_CHAT_MODEL:-phi4-f8-mini:latest}
+      # The agent purpose (feature agent-host) wants a tool-calling model, which the assist
+      # fine-tune is not. phi4-mini is in Nahil's catalog and was measured calling tools there.
+      - Fallen8__Chat__Nahil__Models__Agent=${F8_NAHIL_AGENT_MODEL:-phi4-mini:latest}
       # 600s, not the 120s default. Nahil routes to workers that include CPU-only machines, and
       # this budget now also has to cover WAITING for a cold model to be pulled onto one (the
       # transport retries 503-warming inside it). 120s would answer 504 to requests that were

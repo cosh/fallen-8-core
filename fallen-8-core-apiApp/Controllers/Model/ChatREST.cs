@@ -52,6 +52,24 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         {
             get; set;
         }
+
+        /// <summary>
+        ///   What the completion is FOR, which is how the server picks the model that serves it:
+        ///   <c>assist</c> (the default) or <c>agent</c>. It names a JOB and never a model, so the
+        ///   server still owns every model name and no client can choose one.
+        ///   <para>
+        ///     Omit it and nothing changes: the request behaves exactly as it did before purposes
+        ///     existed. A value that is neither name is refused with a 400 listing both, rather than
+        ///     falling back to <c>assist</c> - answering a tool-calling agent with the model trained
+        ///     to emit one C# fragment would look like an answer and be useless.
+        ///   </para>
+        /// </summary>
+        /// <example>assist</example>
+        [JsonPropertyName("purpose")]
+        public String Purpose
+        {
+            get; set;
+        }
     }
 
     /// <summary>One chat turn.</summary>

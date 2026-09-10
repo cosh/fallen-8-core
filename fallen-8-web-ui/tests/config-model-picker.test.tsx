@@ -73,10 +73,10 @@ import { settingTestId } from "../src/lib/configCatalog";
 import { SettingRow, type SettingSuggestion } from "../src/components/SettingRow";
 import { openConfig, selectSection } from "./configSurface";
 
-const OLLAMA_KEY = "Fallen8:Chat:Ollama:Model";
-const NAHIL_KEY = "Fallen8:Chat:Nahil:Model";
-const OPENAI_KEY = "Fallen8:Chat:OpenAI:Model";
-const ANTHROPIC_KEY = "Fallen8:Chat:Anthropic:Model";
+const OLLAMA_KEY = "Fallen8:Chat:Ollama:Models:Assist";
+const NAHIL_KEY = "Fallen8:Chat:Nahil:Models:Assist";
+const OPENAI_KEY = "Fallen8:Chat:OpenAI:Models:Assist";
+const ANTHROPIC_KEY = "Fallen8:Chat:Anthropic:Models:Assist";
 const EMBEDDING_KEY = "Fallen8:Embedding:Ollama:Model";
 const CHAT_ENABLED_KEY = "Fallen8:Chat:Enabled";
 const CEILING_KEY = "Fallen8:Plugins:MaxCount";

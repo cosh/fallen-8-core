@@ -112,7 +112,8 @@ Fallen8__Chat__Enabled=true
 Fallen8__Chat__Backend=Nahil
 Fallen8__Chat__Nahil__Endpoint=https://api.nahil.dev
 Fallen8__Chat__Nahil__ApiKey=...
-Fallen8__Chat__Nahil__Model=phi4-f8-mini:latest
+Fallen8__Chat__Nahil__Models__Assist=phi4-f8-mini:latest
+Fallen8__Chat__Nahil__Models__Agent=phi4-mini:latest
 Fallen8__Chat__TimeoutSeconds=600
 Fallen8__Chat__Stream=true                  # the default; listed so the profile is complete
 

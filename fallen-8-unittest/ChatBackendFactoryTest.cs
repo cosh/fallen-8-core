@@ -77,7 +77,12 @@ namespace NoSQL.GraphDB.Tests
                 new Fallen8ChatOptions
                 {
                     Backend = "Nahil",
-                    Nahil = new Fallen8ChatOptions.NahilOptions { Endpoint = null, Model = "m", ApiKey = "k" }
+                    Nahil = new Fallen8ChatOptions.NahilOptions
+                    {
+                        Endpoint = null,
+                        Models = new Fallen8ChatOptions.ModelPurposes { Assist = "m" },
+                        ApiKey = "k"
+                    }
                 }
             };
 
@@ -235,8 +240,38 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("phi4-f8-mini:latest", ResolveModel(new Fallen8ChatOptions { Backend = "Ollama" }));
             Assert.AreEqual("phi4-f8:latest", ResolveModel(new Fallen8ChatOptions
             {
-                Nahil = new Fallen8ChatOptions.NahilOptions { Model = "phi4-f8:latest", ApiKey = "k" }
+                Nahil = new Fallen8ChatOptions.NahilOptions
+                {
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = "phi4-f8:latest" },
+                    ApiKey = "k"
+                }
             }), "and it is really the Nahil block, not its neighbour that happens to match");
+
+            // And a purpose really selects: the same block serves a DIFFERENT model for the agent
+            // purpose, which is the whole point of purposes and would pass with a resolver that
+            // ignored the argument if both names matched.
+            var twoPurposes = new Fallen8ChatOptions
+            {
+                Nahil = new Fallen8ChatOptions.NahilOptions
+                {
+                    ApiKey = "k",
+                    Models = new Fallen8ChatOptions.ModelPurposes
+                    {
+                        Assist = "phi4-f8-mini:latest",
+                        Agent = "phi4-mini:latest",
+                    }
+                }
+            };
+            Assert.AreEqual("phi4-f8-mini:latest", ResolveModel(twoPurposes, ChatPurpose.Assist));
+            Assert.AreEqual("phi4-mini:latest", ResolveModel(twoPurposes, ChatPurpose.Agent));
+
+            // The shipped defaults give both purposes a model on both Ollama-protocol backends, and
+            // give the two metered providers neither, so a purpose nobody configured is reported as
+            // missing rather than guessed.
+            Assert.AreEqual("phi4-mini:latest", ResolveModel(new Fallen8ChatOptions(), ChatPurpose.Agent));
+            Assert.AreEqual("phi4-mini:latest",
+                ResolveModel(new Fallen8ChatOptions { Backend = "Ollama" }, ChatPurpose.Agent));
+            Assert.IsNull(ResolveModel(OpenAI("https://api.openai.com", null, "sk-key"), ChatPurpose.Agent));
             Assert.IsNull(ResolveModel(new Fallen8ChatOptions { Backend = "Nope" }),
                 "a name this app does not have reports no model rather than a plausible one");
         }
@@ -255,19 +290,25 @@ namespace NoSQL.GraphDB.Tests
             return method;
         }
 
-        private static String Validate(Fallen8ChatOptions options)
+        // Both take a purpose now, defaulted the way the production signatures default it, so a
+        // call that names none still exercises the assist path a request without a purpose takes.
+        private static String Validate(Fallen8ChatOptions options,
+            ChatPurpose purpose = ChatPurpose.Assist)
         {
-            return (String)Method("Validate").Invoke(null, new Object[] { options });
+            return (String)Method("Validate").Invoke(null, new Object[] { options, purpose });
         }
 
-        private static String ResolveModel(Fallen8ChatOptions options)
+        private static String ResolveModel(Fallen8ChatOptions options,
+            ChatPurpose purpose = ChatPurpose.Assist)
         {
-            return (String)Method("ResolveModel").Invoke(null, new Object[] { options });
+            return (String)Method("ResolveModel").Invoke(null, new Object[] { options, purpose });
         }
 
-        private static RemoteModelTarget ResolveRemoteTarget(Fallen8ChatOptions options)
+        private static RemoteModelTarget ResolveRemoteTarget(Fallen8ChatOptions options,
+            ChatPurpose purpose = ChatPurpose.Assist)
         {
-            return (RemoteModelTarget)Method("ResolveRemoteTarget").Invoke(null, new Object[] { options });
+            return (RemoteModelTarget)Method("ResolveRemoteTarget")
+                .Invoke(null, new Object[] { options, purpose });
         }
 
         /// <summary>The built backend as the resource it is: every implementation owns an
@@ -305,7 +346,7 @@ namespace NoSQL.GraphDB.Tests
                 OpenAI = new Fallen8ChatOptions.OpenAIOptions
                 {
                     Endpoint = endpoint,
-                    Model = model,
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = model },
                     ApiKey = apiKey
                 }
             };
@@ -319,7 +360,7 @@ namespace NoSQL.GraphDB.Tests
                 Anthropic = new Fallen8ChatOptions.AnthropicOptions
                 {
                     Endpoint = endpoint,
-                    Model = model,
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = model },
                     ApiKey = apiKey
                 }
             };

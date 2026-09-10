@@ -105,13 +105,15 @@ Fallen8__Chat__Enabled=true
 Fallen8__Chat__Backend=OpenAI                          # or Anthropic, Nahil, Ollama
 Fallen8__Chat__OpenAI__Endpoint=https://api.openai.com
 Fallen8__Chat__OpenAI__ApiKey=...
-Fallen8__Chat__OpenAI__Model=gpt-4o-mini
+Fallen8__Chat__OpenAI__Models__Assist=gpt-4o-mini
+Fallen8__Chat__OpenAI__Models__Agent=gpt-4o-mini      # the agent purpose; see /agents/
 Fallen8__Chat__TimeoutSeconds=120                      # this provider's overlay value; the default is 600
 Fallen8__Chat__Stream=true                             # the default; listed so the profile is complete
 
 Fallen8__Chat__Anthropic__Endpoint=https://api.anthropic.com
 Fallen8__Chat__Anthropic__ApiKey=...
-Fallen8__Chat__Anthropic__Model=claude-opus-5
+Fallen8__Chat__Anthropic__Models__Assist=claude-opus-5
+Fallen8__Chat__Anthropic__Models__Agent=claude-opus-5
 Fallen8__Chat__Anthropic__MaxTokens=4096
 
 Fallen8__Embedding__OpenAI__Endpoint=https://api.openai.com

@@ -202,7 +202,7 @@ function SurfaceBody({
   // chat is on, this instance accepts writes, and the row is one this operator could actually change
   // and can see. Merely opening this surface fetches nothing.
   const modelKey =
-    chat?.enabled === true && chat.backend ? `Fallen8:Chat:${chat.backend}:Model` : null;
+    chat?.enabled === true && chat.backend ? `Fallen8:Chat:${chat.backend}:Models:Assist` : null;
   // The row as the pane on screen actually RENDERS it, filter chip included, and not just as the
   // descriptor the instance published: with "not writable" selected the Chat pane shows only rows a
   // rule excludes, and a credentialed read whose answer nothing on screen could consume is precisely

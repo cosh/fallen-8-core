@@ -50,9 +50,11 @@ namespace NoSQL.GraphDB.App.Helper
     /// </remarks>
     public sealed class OllamaConnection
     {
-        private OllamaConnection(String sectionKey, String endpoint, String model, String apiKey, Boolean isNahil)
+        private OllamaConnection(String sectionKey, String endpoint, String model, String apiKey,
+            Boolean isNahil, String modelKey)
         {
             SectionKey = sectionKey;
+            ModelKey = modelKey ?? sectionKey + ":Model";
             Endpoint = endpoint;
             Model = model;
             ApiKey = apiKey;
@@ -79,6 +81,20 @@ namespace NoSQL.GraphDB.App.Helper
             get;
         }
 
+        /// <summary>
+        ///   The full configuration key <see cref="Model" /> came from, which a refusal names.
+        ///   Separate from <see cref="SectionKey" /> because one block's model no longer lives at a
+        ///   predictable leaf: the chat gateway keeps one model per PURPOSE
+        ///   (<c>...:Models:Assist</c>, <c>...:Models:Agent</c>) while its endpoint and credential
+        ///   stay on the block, and an operator told only the block cannot see which of the two
+        ///   models is missing. Defaults to <c>{SectionKey}:Model</c>, which is what the embedding
+        ///   provider still uses and is why no message of its changed.
+        /// </summary>
+        public String ModelKey
+        {
+            get;
+        }
+
         /// <summary>The bearer credential Nahil requires on every route; <c>null</c> for the
         /// local sidecar, which authenticates nothing. NEVER logged - see
         /// <see cref="OllamaHttpClientFactory" />.</summary>
@@ -94,16 +110,18 @@ namespace NoSQL.GraphDB.App.Helper
         }
 
         /// <summary>The local Ollama sidecar: no credential, no warm-up state.</summary>
-        public static OllamaConnection Sidecar(String sectionKey, String endpoint, String model)
+        public static OllamaConnection Sidecar(String sectionKey, String endpoint, String model,
+            String modelKey = null)
         {
-            return new OllamaConnection(sectionKey, endpoint, model, null, isNahil: false);
+            return new OllamaConnection(sectionKey, endpoint, model, null, isNahil: false, modelKey);
         }
 
         /// <summary>Nahil: bearer-authenticated, and it may answer 503 while it
         /// pulls the model onto a worker.</summary>
-        public static OllamaConnection Nahil(String sectionKey, String endpoint, String model, String apiKey)
+        public static OllamaConnection Nahil(String sectionKey, String endpoint, String model, String apiKey,
+            String modelKey = null)
         {
-            return new OllamaConnection(sectionKey, endpoint, model, apiKey, isNahil: true);
+            return new OllamaConnection(sectionKey, endpoint, model, apiKey, isNahil: true, modelKey);
         }
 
         /// <summary>
@@ -124,7 +142,7 @@ namespace NoSQL.GraphDB.App.Helper
 
             if (String.IsNullOrWhiteSpace(Model))
             {
-                problem = SectionKey + ":Model is required.";
+                problem = ModelKey + " is required.";
                 return false;
             }
 

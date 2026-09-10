@@ -229,18 +229,18 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void AnEmptyEnvironmentDeclaration_StillOutranksAStoredOverride()
         {
-            const String Variable = "Fallen8__Chat__Ollama__Model";
+            const String Variable = "Fallen8__Chat__Ollama__Models__Assist";
             try
             {
-                WriteOverrides(("Fallen8:Chat:Ollama:Model", "stored-model"));
+                WriteOverrides(("Fallen8:Chat:Ollama:Models:Assist", "stored-model"));
 
                 var (root, source) = Build(environment: new Dictionary<String, String>
                 {
                     [Variable] = String.Empty
                 });
 
-                Assert.AreEqual(String.Empty, root["Fallen8:Chat:Ollama:Model"]);
-                CollectionAssert.Contains(source.State.Shadowed.ToList(), "Fallen8:Chat:Ollama:Model");
+                Assert.AreEqual(String.Empty, root["Fallen8:Chat:Ollama:Models:Assist"]);
+                CollectionAssert.Contains(source.State.Shadowed.ToList(), "Fallen8:Chat:Ollama:Models:Assist");
             }
             finally
             {

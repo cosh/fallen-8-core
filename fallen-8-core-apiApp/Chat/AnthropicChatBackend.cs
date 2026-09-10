@@ -123,7 +123,9 @@ namespace NoSQL.GraphDB.App.Chat
         public async Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages,
             ChatBackendOptions options, CancellationToken cancellationToken)
         {
-            var parameters = BuildParameters(messages, options);
+            // Resolved ONCE so the request and the echoed result cannot name different models.
+            var model = ChatBackendOptions.ModelOr(options, _model);
+            var parameters = BuildParameters(messages, options, model);
 
             var content = new StringBuilder();
             Int64? promptTokens = null;
@@ -247,7 +249,7 @@ namespace NoSQL.GraphDB.App.Chat
             return new ChatBackendResult
             {
                 Content = content.ToString(),
-                Model = _model,
+                Model = model,
                 // Absent stays absent: a stream that ended before its usage frame reports no counts,
                 // and a 0 there would read as "it generated nothing" rather than "it did not say".
                 PromptTokens = promptTokens,
@@ -264,7 +266,8 @@ namespace NoSQL.GraphDB.App.Chat
         ///   caller did not ask for. System turns are hoisted out of the message list because this API
         ///   takes them as their own top-level field rather than as a turn.
         /// </summary>
-        private MessageCreateParams BuildParameters(IReadOnlyList<ChatTurn> messages, ChatBackendOptions options)
+        private MessageCreateParams BuildParameters(IReadOnlyList<ChatTurn> messages, ChatBackendOptions options,
+            String model)
         {
             var system = String.Join("\n\n", messages
                 .Where(IsSystem)
@@ -284,14 +287,14 @@ namespace NoSQL.GraphDB.App.Chat
             return system.Length == 0
                 ? new MessageCreateParams
                 {
-                    Model = _model,
+                    Model = model,
                     MaxTokens = _maxTokens,
                     Messages = turns,
                     StopSequences = stop
                 }
                 : new MessageCreateParams
                 {
-                    Model = _model,
+                    Model = model,
                     MaxTokens = _maxTokens,
                     Messages = turns,
                     StopSequences = stop,

@@ -90,9 +90,14 @@ namespace NoSQL.GraphDB.App.Chat
         public async Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages,
             ChatBackendOptions options, CancellationToken cancellationToken)
         {
+            // The purpose's model when the provider named one, the constructed (assist) model
+            // otherwise - see ChatBackendOptions.Model. Resolved ONCE so the request and the result
+            // cannot name different models.
+            var model = ChatBackendOptions.ModelOr(options, _model);
+
             var request = new ChatRequest
             {
-                Model = _model,
+                Model = model,
                 Stream = _stream,
                 Messages = messages.Select(m => new Message(ParseRole(m.Role), m.Content)).ToList(),
                 Options = RequestOptionsFor(options)
@@ -162,7 +167,7 @@ namespace NoSQL.GraphDB.App.Chat
             return new ChatBackendResult
             {
                 Content = content.ToString(),
-                Model = _model,
+                Model = model,
                 PromptTokens = done.PromptEvalCount,
                 CompletionTokens = done.EvalCount,
                 DurationMs = done.TotalDuration / 1_000_000.0,

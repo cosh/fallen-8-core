@@ -128,6 +128,13 @@ namespace NoSQL.GraphDB.App.Controllers
                 return ProblemResults.BadRequest("A non-empty messages list is required.");
             }
 
+            if (!ChatPurposes.TryParse(definition.Purpose, out var purpose))
+            {
+                return ProblemResults.BadRequest(String.Format(
+                    "'{0}' is not a chat purpose. Expected one of: {1}.",
+                    definition.Purpose, String.Join(", ", ChatPurposes.Accepted)));
+            }
+
             var turns = new List<ChatTurn>(definition.Messages.Count);
             foreach (var message in definition.Messages)
             {
@@ -153,7 +160,7 @@ namespace NoSQL.GraphDB.App.Controllers
             ChatBackendResult result;
             try
             {
-                result = await _provider.ChatAsync(turns, options, cancellationToken);
+                result = await _provider.ChatAsync(turns, options, cancellationToken, purpose);
             }
             catch (Exception ex) when (ex is ChatProviderUnavailableException
                 || ex is ChatProviderTimeoutException || ex is ChatProviderOutputException)

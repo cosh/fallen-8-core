@@ -44,9 +44,11 @@ namespace NoSQL.GraphDB.App.Helper
     /// </remarks>
     public sealed class RemoteModelTarget
     {
-        private RemoteModelTarget(String sectionKey, String endpoint, String model, String apiKey, String providerName)
+        private RemoteModelTarget(String sectionKey, String endpoint, String model, String apiKey,
+            String providerName, String modelKey)
         {
             SectionKey = sectionKey;
+            ModelKey = modelKey ?? sectionKey + ":Model";
             Endpoint = endpoint;
             Model = model;
             ApiKey = apiKey;
@@ -62,6 +64,18 @@ namespace NoSQL.GraphDB.App.Helper
 
         /// <summary>The base URL, host root only - see <see cref="EndpointRule" />.</summary>
         public String Endpoint
+        {
+            get;
+        }
+
+        /// <summary>
+        ///   The full configuration key <see cref="Model" /> came from, which a refusal names.
+        ///   Separate from <see cref="SectionKey" /> for the reason stated on
+        ///   <see cref="OllamaConnection.ModelKey" />: the chat gateway keeps one model per purpose
+        ///   while the endpoint and credential stay on the block. Defaults to
+        ///   <c>{SectionKey}:Model</c>.
+        /// </summary>
+        public String ModelKey
         {
             get;
         }
@@ -89,15 +103,17 @@ namespace NoSQL.GraphDB.App.Helper
 
         /// <summary>OpenAI, or an OpenAI-compatible gateway: <c>Authorization: Bearer</c> on every
         /// route.</summary>
-        public static RemoteModelTarget OpenAI(String sectionKey, String endpoint, String model, String apiKey)
+        public static RemoteModelTarget OpenAI(String sectionKey, String endpoint, String model, String apiKey,
+            String modelKey = null)
         {
-            return new RemoteModelTarget(sectionKey, endpoint, model, apiKey, "OpenAI");
+            return new RemoteModelTarget(sectionKey, endpoint, model, apiKey, "OpenAI", modelKey);
         }
 
         /// <summary>Anthropic: <c>x-api-key</c> plus <c>anthropic-version</c> on every route.</summary>
-        public static RemoteModelTarget Anthropic(String sectionKey, String endpoint, String model, String apiKey)
+        public static RemoteModelTarget Anthropic(String sectionKey, String endpoint, String model, String apiKey,
+            String modelKey = null)
         {
-            return new RemoteModelTarget(sectionKey, endpoint, model, apiKey, "Anthropic");
+            return new RemoteModelTarget(sectionKey, endpoint, model, apiKey, "Anthropic", modelKey);
         }
 
         /// <summary>
@@ -121,7 +137,7 @@ namespace NoSQL.GraphDB.App.Helper
 
             if (String.IsNullOrWhiteSpace(Model))
             {
-                problem = SectionKey + ":Model is required.";
+                problem = ModelKey + " is required.";
                 return false;
             }
 
