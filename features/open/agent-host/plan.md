@@ -56,13 +56,49 @@ prompts are load-bearing).
 Intent: tools on the wire and model purposes, with every existing caller unchanged and the
 environment working at every merge.
 
-- [ ] `ChatREST.cs`: `purpose` (`assist` default, `agent`; unknown is a 400 naming the set),
-  `tools[]`, assistant `toolCalls[]`, tool `toolCallId`; response `toolCalls[]`. XML docs;
-  `[ProducesResponseType]` unchanged in status, the schema grows.
-- [ ] `IChatBackend`: tool definitions on `ChatBackendOptions`, tool calls and tool-call id on
-  `ChatTurn`, `ToolCalls` on `ChatBackendResult`. Native mapping in `OllamaChatBackend` (OllamaSharp
-  tools and `Message.ToolCalls`, streamed and non-streamed, with the per-request `stream=false`
-  fallback only if Phase 0 showed it is needed), `OpenAIChatBackend` and `AnthropicChatBackend`.
+> **Split in two, deliberately, and the first half is DONE** (2026-09-10, branch
+> `feature/agent-host`). Purposes plus the rename is a coherent unit that lands green on its own,
+> and mixing it with three SDKs' tool mapping would have made both unreviewable. The second half is
+> still open; the items below say which half each belongs to.
+>
+> **What the first half turned up that this plan did not predict:**
+>
+> - **The model had to move from construction time to per request.** One backend now serves two
+>   models, so baking one in at construction is no longer possible. Ollama and Anthropic already
+>   took the model per request; the OpenAI SDK binds it at construction, so that backend keeps one
+>   thin client per model over the one shared transport.
+> - **The model's configuration key had to become its own value.** `OllamaConnection` and
+>   `RemoteModelTarget` derived three leaf names (endpoint, model, credential) from one section key,
+>   so a purpose-qualified section produced nonsense such as `...:Models:Assist:Endpoint`. The model
+>   key is now separate and defaults to today's spelling, which is why no embedding message changed.
+> - **The per-request check has to be NARROW.** Re-validating the whole target on every call refused
+>   any backend a caller supplied itself, which broke the injected-fake seam every chat test uses.
+>   It resolves the purpose's model and nothing else.
+> - Reported state gained `agentModel` beside `model`, and `model` keeps its meaning (the assist
+>   model), so no existing reader of it changed.
+
+- [x] **(first half)** `ChatREST.cs`: `purpose` (`assist` default, `agent`; unknown is a 400
+  naming the set). XML docs; statuses unchanged, the schema grew.
+- [ ] **(second half)** `ChatREST.cs`: `tools[]` on the request, assistant `toolCalls[]`, tool
+  `toolCallId`, response `toolCalls[]`. Two knock-ons found while reading, both of which have to
+  admit "no content but a tool call": `Content` is `[Required]` on a message and the controller
+  refuses an empty one, yet an assistant turn that only calls a tool has no content; and
+  `Fallen8ChatProvider` turns empty content into a 502, which a tool-call reply would trip.
+- [ ] **(second half)** `IChatBackend`: tool definitions on `ChatBackendOptions`, tool calls and
+  tool-call id on `ChatTurn`, `ToolCalls` on `ChatBackendResult`. The three SDK surfaces were read
+  and confirmed, so the mapping is known rather than guessed:
+  - Ollama (OllamaSharp 5.4.27): `ChatRequest.Tools` of `Tool { Type, Function }` with
+    `Function { Name, Description, Parameters }`; a reply carries `Message.ToolCalls` of
+    `Message.ToolCall { Id, Function { Name, Arguments } }`, and a tool turn uses `Message.ToolName`.
+  - OpenAI (2.13.0): `ChatTool.CreateFunctionTool(name, description, BinaryData, strict?)` into
+    `ChatCompletionOptions.Tools`; a reply carries `ChatToolCall { FunctionName, FunctionArguments }`;
+    history uses `AssistantChatMessage(IEnumerable<ChatToolCall>)` and `ToolChatMessage`.
+  - Anthropic (12.44.0): `MessageCreateParams.Tools` of `ToolUnion` over
+    `Tool { Name, Description, InputSchema }`; a reply carries `ToolUseBlock` and history a
+    `ToolResultBlockParam`. **The most involved of the three** (a union plus content blocks), and
+    the one to weigh the spec's escape hatch against: composing the generic
+    `Microsoft.Extensions.AI` client inside the backend and reading stats off the raw
+    representation. Phase 0 confirmed that no `stream=false` fallback is needed on any of them.
 - [ ] **Model purposes and the rename.** `Fallen8ChatOptions.<Backend>.Models.{Assist,Agent}`
   replaces `Model` on the four blocks, no alias (Ollama defaults `phi4-f8-mini:latest` and
   `phi4-mini:latest`, the others none); `ChatBackendFactory.ResolveModel(options, purpose)`, a 503
@@ -77,18 +113,31 @@ environment working at every merge.
   `ConfigurationSurface.tsx` (the per-purpose picker follows in Phase 5); the docs pages that
   spell the key (`nahil.md`, `model-providers.md`, `running.mdx`, `nl-assist.md` where it does);
   every test that spells it.
-- [ ] Tests: `ChatEndpointTest`'s `FakeChatBackend` seam carries tools and tool calls; per-backend
-  mapping tests on the handler-injected transport fakes; `ChatBackendFactoryTest` for purpose
-  resolution, the empty-purpose 503 and the unknown-purpose 400; the setting-catalog equivalence
-  and config-endpoint tests pick up the renamed and added keys; a test that the old `Model` key
-  is refused at startup with a message naming the new one.
-- [ ] OpenAPI snapshot regenerated (additions only). `McpRestCoverageTest`: `/chat` deferral
+- [x] **(first half)** Tests for purposes, in `ChatEndpointTest.Purposes.cs`, its own file over the
+  sibling's harness: a purpose selects the model and omitting it equals `assist`; an unknown purpose
+  is a 400 listing both; a purpose with no model is a 503 naming its key while the other purpose
+  still answers; both models are reported. Mutation-checked, since making the provider ignore the
+  purpose fails two of them. `ChatBackendFactoryTest` gained purpose resolution against a block
+  whose two models DIFFER, so a resolver that ignored its argument cannot pass.
+- [ ] **(second half)** Tests: the fake seam carries tools and tool calls; per-backend mapping
+  against the handler-injected transport fakes; the no-content-but-a-tool-call path end to end.
+- [x] **(first half)** OpenAPI snapshot regenerated: `purpose` and `agentModel` added, one
+  description reworded, nothing else removed. `McpRestCoverageTest`: the `/chat` deferral is
   unchanged.
+- [ ] **(second half)** Regenerate again for the tool shapes.
 - [ ] Solution-wide package alignment: `Microsoft.Extensions.AI.Abstractions` 10.9.0, OllamaSharp
-  to match; exact versions.
-- [ ] **Gate:** every existing chat, catalog and configuration test passes with no change beyond
-  spelling the renamed key; a request without the new fields is byte-for-byte the old behaviour;
-  `npm run env:up` against the Nahil overlay serves NL assist exactly as before.
+  to match; exact versions. **Neither half of 1a needs it**, so it moves to Phase 1b, which is the
+  first code to reference `Microsoft.Agents.AI`. Phase 0 confirmed 10.9.0 restores and builds on
+  net10.0. One gotcha for whoever does it: OllamaSharp 5.4.27's source generator raises CS9057 in a
+  fresh project on SDK 10.0.201, which under warnings-as-errors fails a NEW project that references
+  it. The apiApp does not hit this.
+- [x] **(first-half gate, met)** Full suite green at 2527 passed, up by the four new tests; build
+  clean; docs site links valid; all four compose profiles parse and resolve their purpose keys; the
+  30 Studio picker tests pass with the renamed key. Every existing chat, catalog and configuration
+  test passes with no change beyond spelling.
+- [ ] **(second-half gate)** A request carrying tools round-trips a tool call on the default
+  backend, and a backend that cannot map tools REFUSES a request carrying them rather than ignoring
+  them silently.
 
 ## Phase 1b: scaffold, adapter, proxy and single-agent walking skeleton
 
