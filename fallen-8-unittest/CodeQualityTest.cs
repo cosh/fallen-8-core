@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // CodeQualityTest.cs
 //
@@ -41,8 +41,8 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class CodeQualityTest
     {
-        private static readonly string[] _allProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client", "fallen-8-unittest" };
-        private static readonly string[] _productProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client" };
+        private static readonly string[] _allProjects = { "fallen-8-agents", "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client", "fallen-8-unittest" };
+        private static readonly string[] _productProjects = { "fallen-8-agents", "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client" };
 
         private static IEnumerable<string> SourceFiles(params string[] projects)
         {
@@ -300,16 +300,17 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void TheRestOnlyDeployables_ReferenceNeitherTheEngineNorTheApiApp()
         {
-            // fallen-8-mcp and fallen-8-integrations reach a graph over the public REST contract ONLY: one
-            // is handed somebody's network-admin credential, both must version independently against a
-            // boundary a project reference would widen to the whole engine surface. That rule is what makes
+            // fallen-8-mcp, fallen-8-integrations and fallen-8-agents reach a graph over the public REST
+            // contract ONLY: one is handed somebody's network-admin credential, one runs a model that
+            // decides for itself what to call, and all must version independently against a boundary a
+            // project reference would widen to the whole engine surface. That rule is what makes
             // fallen-8-rest-client (the seam they share) legal, so the seam is held to it as well - a
-            // reference added THERE would reach both consumers transitively and nothing else would notice.
+            // reference added THERE would reach every consumer transitively and nothing else would notice.
             var root = TestRepo.Root();
             var forbidden = new[] { "fallen-8-core.csproj", "fallen-8-core-apiApp.csproj" };
             var violations = new List<string>();
 
-            foreach (var project in new[] { "fallen-8-mcp", "fallen-8-integrations", "fallen-8-rest-client" })
+            foreach (var project in new[] { "fallen-8-mcp", "fallen-8-integrations", "fallen-8-agents", "fallen-8-rest-client" })
             {
                 var csproj = Path.Combine(root, project, project + ".csproj");
                 foreach (var line in File.ReadLines(csproj))
@@ -331,6 +332,102 @@ namespace NoSQL.GraphDB.Tests
 
             AssertNoViolations(violations,
                 "the REST-only deployables and the seam they share reference neither fallen-8-core nor fallen-8-core-apiApp");
+        }
+
+        /// <summary>
+        ///   The two ways a REST path is written in this repository, each anchored at both ends: a
+        ///   complete string literal, and the leading segment of an interpolated one up to its first
+        ///   brace. See the remarks at the use site for why both anchors matter.
+        /// </summary>
+        private static readonly string[] RoutePatterns =
+        {
+            "\"(?<value>[a-zA-Z0-9_./-]+)\"",
+            "\\$@?\"(?<value>[a-zA-Z0-9_./-]+)\\{",
+        };
+
+        [TestMethod]
+        public void TheAgentHost_CallsTheChatGatewayAndNoOtherRestRoute()
+        {
+            // Feature agent-host, spec section 3.7. fallen-8-agents' REST surface is narrower than
+            // its two sibling sidecars': the chat gateway, and nothing else. Everything about the
+            // GRAPH arrives as an MCP tool, so the MCP server's read/write/admin tiers are the
+            // whole of what an agent can reach - enforced server-side, where an agent cannot argue
+            // with it. A graph call made directly from the host would route around those tiers
+            // silently, which is why this is a test rather than a note.
+            //
+            // Pinned against the OpenAPI snapshot rather than a hand-written list, so a route
+            // family added to the instance is covered the moment the snapshot is regenerated. The
+            // check is on the FIRST path segment, which is what identifies a family: a literal
+            // whose first segment is a known family and which is not the chat gateway is a
+            // violation, and a literal that resembles no family at all is not this rule's business.
+            var root = TestRepo.Root();
+            var snapshot = File.ReadAllText(
+                Path.Combine(root, "features", "done", "web-ui", "openapi-v0.1.json"));
+
+            var families = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match path in Regex.Matches(snapshot, "\"/(?<path>[a-zA-Z0-9_./{}-]*)\"\\s*:"))
+            {
+                var segments = path.Groups["path"].Value.Split('/');
+                if (segments.Length > 0 && segments[0].Length > 0 && !segments[0].StartsWith("{", StringComparison.Ordinal))
+                {
+                    families.Add(segments[0]);
+                }
+            }
+
+            // Sanity: a regex that matched nothing would make this rule pass vacuously, which is
+            // the one way a convention test can be worse than no test.
+            Assert.IsTrue(families.Contains("chat"),
+                "the OpenAPI snapshot should list the chat gateway; got " + families.Count + " families");
+
+            var allowed = new HashSet<string>(StringComparer.Ordinal) { "chat", "chat/models" };
+            var violations = new List<string>();
+
+            foreach (var file in SourceFiles("fallen-8-agents"))
+            {
+                var relative = Path.GetRelativePath(root, file);
+                var lineNumber = 0;
+                foreach (var line in File.ReadLines(file))
+                {
+                    lineNumber++;
+                    var code = line.TrimStart();
+                    if (code.StartsWith("//", StringComparison.Ordinal) || code.StartsWith("///", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    // TWO shapes, because a graph call is written in whichever one fits, and both
+                    // have to be anchored at BOTH ends. A path that is a whole literal is
+                    // "graph/vertex"; one with a route value in it is $"graphelement/{id}", where the
+                    // brace is the anchor. fallen-8-mcp writes every one of its graph calls the
+                    // second way, so a pin that saw only the first would miss the shape a graph call
+                    // actually arrives in.
+                    //
+                    // Anchoring at both ends is what keeps this a pin rather than a word search: an
+                    // opening quote alone matches the second fragment of any concatenated sentence,
+                    // which flagged the word "delegates" in a refusal message and the prefix
+                    // "status:" in a posture value. Neither is a route.
+                    foreach (var pattern in RoutePatterns)
+                    {
+                        foreach (Match literal in Regex.Matches(line, pattern))
+                        {
+                            var value = literal.Groups["value"].Value.Trim('/');
+                            if (value.Length == 0 || allowed.Contains(value))
+                            {
+                                continue;
+                            }
+
+                            if (families.Contains(value.Split('/')[0]))
+                            {
+                                violations.Add(relative + ":" + lineNumber + ": " + value);
+                            }
+                        }
+                    }
+                }
+            }
+
+            AssertNoViolations(violations,
+                "fallen-8-agents calls only the chat gateway (/chat, /chat/models); every graph "
+                + "capability arrives as an MCP tool, whose server-side tiers are the bound");
         }
     }
 }

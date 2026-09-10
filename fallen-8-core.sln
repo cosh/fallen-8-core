@@ -22,6 +22,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fallen-8-bench", "fallen-8-
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fallen-8-rest-client", "fallen-8-rest-client\fallen-8-rest-client.csproj", "{F19D856B-35EE-495E-8B5F-F758FD5B4642}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "fallen-8-agents", "fallen-8-agents\fallen-8-agents.csproj", "{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -116,6 +118,18 @@ Global
 		{F19D856B-35EE-495E-8B5F-F758FD5B4642}.Release|x64.Build.0 = Release|Any CPU
 		{F19D856B-35EE-495E-8B5F-F758FD5B4642}.Release|x86.ActiveCfg = Release|Any CPU
 		{F19D856B-35EE-495E-8B5F-F758FD5B4642}.Release|x86.Build.0 = Release|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Debug|x64.Build.0 = Debug|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Debug|x86.Build.0 = Debug|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Release|x64.ActiveCfg = Release|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Release|x64.Build.0 = Release|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Release|x86.ActiveCfg = Release|Any CPU
+		{D3B53AEE-1ADE-43AF-BB20-D31B3E51A36C}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

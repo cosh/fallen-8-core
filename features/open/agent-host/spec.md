@@ -367,13 +367,38 @@ So each role prompt in `Prompts/` must, as a contract rather than a style prefer
 
 1. state that tools exist and that a question needing data is answered by calling one,
 2. forbid inventing, guessing or predicting a tool's result,
-3. require the `[t:<id>]` citation the grounding check counts (3.2),
+3. require the `[t:<name>]` citation the grounding check counts (3.2; see the amendment below
+   for why it is the tool's NAME and not a tool-call id),
 4. and for `orchestrator` and `worker`, state the one-composer rule (3.5).
 
 Two consequences follow. The prompts ship **embedded and are refused when empty at startup**, so a
 missing prompt cannot degrade silently into a fabricating agent. And a prompt change is a
 behaviour change: each prompt is covered by a test asserting these four properties are present, so
 an edit that drops one fails the suite rather than the next agent run.
+
+> **Amendment (2026-09-10, Phase 1b): against the shipped agent model this section's premise is
+> reversed, and the prompts ship anyway.**
+>
+> Phase 1b measured the same question again, this time through the whole shipped path and with the
+> role prompts as written. On `phi4-mini:latest`, the only tool-capable model the configured
+> platform serves, **any** instruction text stops the model emitting a real tool call: with a bare
+> user turn it calls the tool 4/4, and with a system prompt - the shipped one, a terse one, a
+> persona-only one, or one that never mentions tools - it writes the call as prose or invents a
+> figure, 4/4 in every arm. Moving the instructions into the user turn does not help, streaming does
+> not help, and sending the same bodies straight to the platform with Fallen-8 out of the picture
+> behaves identically, which is what rules out our own gateway.
+>
+> So the four properties above remain the right contract for a model that can follow one, and the
+> prompts ship unchanged (decision 2026-09-10). What this section may no longer claim is that they
+> make tool calling work: on the default deployment they are what stops it. That is a model
+> limitation with a named revisit trigger rather than something to code around, and the full table,
+> the fabrication samples and the nine other model names that do not resolve are in
+> [findings.md](./findings.md) section 1.
+>
+> One correction of detail, from the same measurement: property 3 asked for a `[t:<id>]` citation
+> using the tool-call id. **No backend shows a tool-call id to a model** - it travels on the
+> protocol, not in the result the model reads - so asking for one asked the model to invent one, in
+> the prompt whose job is to stop invention. The marker is now `[t:<name>]`, the tool's own name.
 
 ### 3.3 Control-plane API
 

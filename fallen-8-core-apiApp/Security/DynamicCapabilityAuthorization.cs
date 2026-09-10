@@ -63,7 +63,14 @@ namespace NoSQL.GraphDB.App.Security
             /// route answers 403 and no sidecar is contacted. This 403 is the whole opt-out
             /// (<c>F8_INTEGRATIONS=false</c>), and it is what a client gates the feature on, so it
             /// lives here rather than as a flag check in the controller.</summary>
-            Integrations
+            Integrations,
+
+            /// <summary>The agent-host proxy (feature agent-host,
+            /// <c>Fallen8:Agents:Enabled</c>) - default off: every <c>/agents</c> route answers 403
+            /// and no sidecar is contacted. Off by default for a sharper reason than its siblings:
+            /// an agent decides for itself which tools to call, so turning this on is a decision an
+            /// operator makes rather than one a deployment inherits.</summary>
+            Agents
         }
 
         public DynamicCapabilityRequirement(Capability which)
@@ -87,6 +94,7 @@ namespace NoSQL.GraphDB.App.Security
         private readonly Fallen8ChatOptions _chat;
         private readonly Fallen8IngestionOptions _ingestion;
         private readonly Fallen8IntegrationsOptions _integrations;
+        private readonly Fallen8AgentsOptions _agents;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private readonly Fallen8Namespaces _namespaces;
 
@@ -95,6 +103,7 @@ namespace NoSQL.GraphDB.App.Security
             IOptions<Fallen8ChatOptions> chat,
             IOptions<Fallen8IngestionOptions> ingestion,
             IOptions<Fallen8IntegrationsOptions> integrations,
+            IOptions<Fallen8AgentsOptions> agents,
             IHttpContextAccessor httpContextAccessor,
             Fallen8Namespaces namespaces)
         {
@@ -103,6 +112,7 @@ namespace NoSQL.GraphDB.App.Security
             _chat = chat.Value;
             _ingestion = ingestion.Value;
             _integrations = integrations.Value;
+            _agents = agents.Value;
             _httpContextAccessor = httpContextAccessor;
             _namespaces = namespaces;
         }
@@ -131,6 +141,9 @@ namespace NoSQL.GraphDB.App.Security
                     break;
                 case DynamicCapabilityRequirement.Capability.Integrations:
                     enabled = _integrations.Enabled;
+                    break;
+                case DynamicCapabilityRequirement.Capability.Agents:
+                    enabled = _agents.Enabled;
                     break;
                 // Explicit so a capability added later cannot silently inherit the plugin gate.
                 default:

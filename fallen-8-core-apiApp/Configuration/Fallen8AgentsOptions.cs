@@ -1,0 +1,75 @@
+// MIT License
+//
+// Fallen8AgentsOptions.cs
+//
+// Copyright (c) 2011-2026 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+
+namespace NoSQL.GraphDB.App.Configuration
+{
+    /// <summary>
+    ///   The agent-host proxy configuration (feature agent-host), section <c>Fallen8:Agents</c>.
+    ///   Default OFF: every <c>/agents</c> route answers 403 and no sidecar is contacted.
+    ///
+    ///   <para>The agent host is a separate deployable (<c>fallen-8-agents</c>) whose container port
+    ///   is deliberately not published, because an agent can be talked into calling a tool. The
+    ///   apiApp is therefore the only way in: it proxies the host's routes, being already the
+    ///   authenticated front door, which is why the host needs no second auth story.</para>
+    ///
+    ///   <para><b>Nothing about a MODEL appears here or on the host.</b> Agents ask this instance's
+    ///   own chat gateway with <c>purpose: agent</c>, so the provider, the credential and the model
+    ///   are <c>Fallen8:Chat</c>'s, in one place. The one dependency worth knowing is therefore
+    ///   real: the Chat capability has to be on and its backend needs a
+    ///   <c>Models:Agent</c>, or agents fail on their first model call with the gateway's own
+    ///   message saying which key to set.</para>
+    /// </summary>
+    public sealed class Fallen8AgentsOptions
+    {
+        public const String SectionName = "Fallen8:Agents";
+
+        /// <summary>The authorization policy gating the agents surface
+        /// (<see cref="Security.DynamicCapabilityRequirement.Capability.Agents" />).</summary>
+        public const String AgentsPolicy = "Fallen8.Agents";
+
+        /// <summary>The capability flag. Default off.</summary>
+        public Boolean Enabled
+        {
+            get; set;
+        }
+
+        /// <summary>The fallen-8-agents endpoint (empty: not configured - the proxy answers 503
+        /// rather than timing out, so a bare <c>dotnet run</c> with no sidecar says so).</summary>
+        public String Endpoint { get; set; } = String.Empty;
+
+        /// <summary>
+        ///   Per-proxied-request timeout for the small control-plane routes.
+        ///
+        ///   <para>Small on purpose, and it does not need to cover inference: nothing on the agent
+        ///   host's control plane blocks on a model. A spawn answers 202 with an id and the run
+        ///   happens on the host's own time, so 30 seconds is a generous budget for a listing. The
+        ///   event feed is a STREAM and takes no budget at all, which is why it is not this
+        ///   number.</para>
+        /// </summary>
+        public Int32 TimeoutSeconds { get; set; } = 30;
+    }
+}

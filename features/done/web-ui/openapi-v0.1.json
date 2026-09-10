@@ -11,6 +11,385 @@
     }
   ],
   "paths": {
+    "/agents": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Spawns one agent on a task (feature agent-host)",
+        "description": "Answers 202 with the agent's id and initial state; the run happens on the host's own\r\n    time and is read back from the listing. Nothing on this control plane blocks on inference,\r\n    because one model call against a remote provider was measured at up to 41 seconds.\r\n    There is deliberately no model field. The agent asks this instance's chat gateway\r\n    with purpose: agent, so the model is Fallen8:Chat:&lt;Backend&gt;:Models:Agent and\r\n    a caller cannot choose it. role selects a prompt and a tool allowlist;\r\n    systemPromptAppendix is APPENDED to that prompt and can never replace it, because the\r\n    role prompt is what makes an agent call a tool instead of fabricating a result.\r\n    The request and response bodies are the HOST's own contract and are deliberately untyped\r\n    here, so there is exactly one definition of them: see https://docs.fallen-8.com/agents/.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the proxied call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted; the body carries the agent's id and state",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The host refused the request, its own message saying why (no task, an unknown role)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "The host is already running as many agents as it may (Agents:Limits:MaxConcurrentAgents)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Lists every agent this host knows about (feature agent-host)",
+        "description": "Newest first, live and retained together: id, name, role, state, task, parentId, the\r\n    token counters, steps, toolCalls, durationMs, budget and the timestamps.\r\n    An empty list never means \"nothing ever ran\": the host keeps nothing durable, a restart\r\n    ends and forgets everything, and a finished agent is retained for a bounded time. Every entry\r\n    carries the hostInstanceId that produced it so two listings can be told apart.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agents, as the host describes them",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/agents/status": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Reports the agent host's posture (feature agent-host)",
+        "description": "The first thing to read when an agent fails: whether the host can reach this instance's\r\n    chat gateway, what backend and model last served a step, whether the MCP server answered and\r\n    how many tools it advertises, what each role actually ended up with, the caps a run is held to,\r\n    and how many agents are active and retained.\r\n    The model is reported as LAST SEEN rather than as configuration, and that is not a\r\n    limitation: the host holds no model configuration at all, so before a step has run there is no\r\n    name to report. Which model served a step is the instance's answer, per step.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The host's posture, as it reports it",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Reads one agent (feature agent-host)",
+        "description": "The same fields the listing carries, plus the ids of the workers this agent spawned.\r\n    A 404 does not distinguish \"never existed\" from \"finished and evicted\", and the host's own\r\n    message says so: retention is bounded, so an agent worth reviewing is worth reading soon.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The agent id a spawn returned",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agent, as the host describes it",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No such agent on this host",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Cancels one agent and its live workers (feature agent-host)",
+        "description": "Answers 202, and the honesty is deliberate: cancellation is cooperative. The token is\r\n    observed between steps and passed into the model call and tool call in flight, so a tool call\r\n    already sent to the graph is not undone and nothing is rolled back. Cancelling an orchestrator\r\n    cascades to its live workers, and the body says how many agents were signalled.\r\n    Cancelling an agent that has already finished is not an error: it asked for a state the\r\n    agent already has.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The agent id a spawn returned",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted; the body carries the agent's final state and how many were signalled",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No such agent on this host",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/analytics/algorithms": {
       "get": {
         "tags": [
@@ -24213,6 +24592,9 @@
   "tags": [
     {
       "name": "Admin"
+    },
+    {
+      "name": "Agents"
     },
     {
       "name": "Analytics"

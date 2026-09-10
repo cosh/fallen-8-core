@@ -48,8 +48,11 @@ prompts are load-bearing).
   worker serves its class; every other tool-capable model 404s). Recorded as a Nahil-side ask.
 - [x] One defect found and scheduled: a permanently unservable model's 503 is retried as a warm-up
   for the caller's whole budget. Fixed with the default-backend flip, not here.
-- [ ] The harness graduates into the gated live smoke test in Phase 1b (carry the working prompt
-  shape into `Prompts/assistant.md`).
+- [x] The harness graduated into `AgentLiveSmokeTest` (gated, `[Ignore]`d, needs
+  `F8_TEST_AGENT_BASEURL`). The parenthesis - carry the working prompt shape into the role prompt -
+  turned out to be impossible as written: Phase 1b measured that on this model there IS no
+  instruction text that keeps tool calling working. See [findings.md](./findings.md) section 1 and
+  the amendment to spec 3.2a.
 
 ## Phase 1a: the chat gateway learns to serve agents (apiApp)
 
@@ -113,14 +116,17 @@ environment working at every merge.
     three. It affects no other request.
   - **The seam's own types shadow two SDK types.** `ChatTool` and `ChatToolCall` live in the same
     namespace as the OpenAI backend, so that file aliases the SDK's identically-named types.
-- [ ] **Model purposes and the rename.** `Fallen8ChatOptions.<Backend>.Models.{Assist,Agent}`
+- [x] **Model purposes and the rename.** `Fallen8ChatOptions.<Backend>.Models.{Assist,Agent}`
   replaces `Model` on the four blocks, no alias (Ollama defaults `phi4-f8-mini:latest` and
   `phi4-mini:latest`, the others none); `ChatBackendFactory.ResolveModel(options, purpose)`, a 503
   naming the key when `purpose: agent` meets an empty `Models:Agent`; `Fallen8SettingCatalog`
   renames four Restart-tier entries and adds four; the startup posture line, the config view and
   the residency probe report per purpose; `ChatModelCatalog` unchanged in behaviour, its key
   spelling updated.
-- [ ] **The rename sweep, same phase:** `docker-compose.yml` and the `nahil`, `openai`, `anthropic`
+- [x] **The rename sweep, same phase** (one gap closed in Phase 1b: `.env.example` documented
+  neither `F8_*_AGENT_MODEL` variable, though all three overlays already read them, and the block
+  added for them first claimed a fallback to the chat model that no overlay implements):
+  `docker-compose.yml` and the `nahil`, `openai`, `anthropic`
   overlays map the existing `F8_*_CHAT_MODEL` variables to `Fallen8__Chat__<Backend>__Models__Assist`
   and set `Models__Agent` (Nahil from `F8_NAHIL_AGENT_MODEL`, default `phi4-mini:latest`; OpenAI
   and Anthropic from their chat model variable); `.env.example`; Studio's picker key in
@@ -146,7 +152,7 @@ environment working at every merge.
   unchanged.
 - [x] **(second half)** Regenerated: two new schemas and four new properties. The only removals
   are the `content` requirement, which is now conditional by design, and two rewordings.
-- [ ] Solution-wide package alignment: `Microsoft.Extensions.AI.Abstractions` 10.9.0, OllamaSharp
+- [x] Solution-wide package alignment (done in Phase 1b): `Microsoft.Extensions.AI.Abstractions` 10.9.0, OllamaSharp
   to match; exact versions. **Neither half of 1a needs it**, so it moves to Phase 1b, which is the
   first code to reference `Microsoft.Agents.AI`. Phase 0 confirmed 10.9.0 restores and builds on
   net10.0. One gotcha for whoever does it: OllamaSharp 5.4.27's source generator raises CS9057 in a
@@ -178,33 +184,110 @@ environment working at every merge.
 Intent: one spawnable, listable, cancellable agent end-to-end through the apiApp proxy,
 deterministic in CI.
 
-- [ ] New `fallen-8-agents` project (net10.0, `NoSQL.GraphDB.Agents`, explicit `Program` namespace)
+> **DONE** (2026-09-10, branch `feature/agent-host`). Full suite green at 2616 passed, build clean
+> under warnings-as-errors, and verified against a live instance and a real model.
+>
+> **The gate passed on the code and failed on the model**, which is the one thing this phase could
+> not have discovered any other way. The host, the adapter, the caps, the registry and the proxy all
+> work; the only tool-capable model the configured platform serves cannot be given instructions
+> without it stopping emitting tool calls. That is recorded in
+> [findings.md](./findings.md) section 1, with the measurement table, and spec 3.2a is amended
+> because its premise no longer holds for the default deployment. Decision (2026-09-10): the prompts
+> ship as written, the gap is recorded, and a tool-capable model is a platform ask.
+>
+> **What live verification found that the suite did not**, both fixed and now pinned:
+>
+> - **The role prompt never reached the model.** The framework carries an agent's system prompt on
+>   `ChatOptions.Instructions`, not in the message list, and the adapter mapped only the messages.
+>   Requests left with nine prompt tokens. The test meant to cover it asserted on the property the
+>   framework had set, so it passed the whole time; the replacement asserts what the gateway
+>   received.
+> - **A hung gateway was reported as an agent somebody cancelled**, because the adapter's own
+>   deadline and a caller's cancel are the same exception type. Fixed by adopting the shared
+>   `fallen-8-rest-client` seam, which exists for exactly that split - and which this project
+>   referenced but did not use until now.
+>
+> **What an adversarial review found** (69 candidates across seven dimensions, each verified by a
+> skeptic instructed to refute it). The ones that survived and are fixed: a run whose setup threw
+> wedged an agent in `pending` forever with its concurrency slot held and nothing logged; a run that
+> stopped without answering was recorded as `completed`; the documented tool allowlist key could not
+> bind, so a configured allowlist silently did nothing; a caller could name its own token budget
+> without limit; `worker` and `orchestrator` were spawnable despite having no one to report to and no
+> delegation tools; six false claims in comments, log lines and `.env.example`; and four test gaps,
+> including `MaxToolCallsPerRun` having no test at all and two tests that depended on how long
+> Windows takes to refuse a loopback connection. All of it is in
+> [findings.md](./findings.md) sections 2 to 7.
+
+- [x] New `fallen-8-agents` project (net10.0, `NoSQL.GraphDB.Agents`, explicit `Program` namespace)
   in `fallen-8-core.sln`, referencing `fallen-8-rest-client`; MIT headers; exact versions
-  (`Microsoft.Agents.AI`, `ModelContextProtocol` matched to `fallen-8-mcp`). No provider SDK.
-- [ ] `Fallen8TargetOptions` (the small copied options class, same spelling as the other two
-  sidecars; `TimeoutSeconds` 630), `AgentsOptions`, `AgentsMcpOptions`, bound and validated.
-- [ ] `Fallen8ChatClient`: `IChatClient` over `POST /chat` with `purpose: agent` on the
+  (`Microsoft.Agents.AI` 1.20.0, `ModelContextProtocol` 1.4.1 matched to `fallen-8-mcp`). No
+  provider SDK. The seam reference is load-bearing rather than nominal: it owns the
+  timed-out-versus-unreachable split, which here decides whether an agent reports itself failed or
+  cancelled.
+- [x] `Fallen8TargetOptions` (the small copied options class, same spelling as the other two
+  sidecars; `TimeoutSeconds` 630), `AgentsOptions` with nested `McpOptions`, `LimitsOptions` and
+  `RoleOptions`, bound and clamped at the point of use rather than validated at startup. Two things
+  the plan did not predict: `Agents:Roles:<role>:Tools` needs a nested class, because a
+  `Dictionary<String, List<String>>` binds `...:<role>:0` and made every configured allowlist a
+  silent no-op; and an over-large `MaxRunSeconds` cannot be armed on a timer at all, so it is
+  clamped with a warning instead of throwing inside a run.
+- [x] `Fallen8ChatClient`: `IChatClient` over `POST /chat` with `purpose: agent` on the
   `fallen-8-rest-client` seam; messages and tools to the wire, `toolCalls` to
-  `FunctionCallContent`, stats to `UsageDetails`, `backend` and `model` onto the response.
-- [ ] Startup posture log (bind and proxy-only posture, instance URL and the bounded
-  `GET /chat/models` probe outcome, MCP target + tiers + tool count, caps, default budget);
-  loopback-by-default bind.
-- [ ] `RoleCatalog` (three roles, embedded prompts refused when empty, per-role tool allowlists
+  `FunctionCallContent`, stats to `UsageDetails`, `backend` and `model` onto the response and onto
+  an immutable `LastSeen` pair. Three things the plan did not predict: **instructions are not a
+  message** and dropping them was the phase's worst bug; usage has to be decided on the token
+  FIELDS, because the gateway sends a `stats` object on every answer and nulls what a backend did
+  not fill; and the provenance pair needs one volatile reference rather than two properties, since
+  several agents share the client and a mismatched pair describes a deployment that does not
+  exist.
+- [x] Startup posture log (bind and proxy-only posture, instance URL and the bounded
+  `GET /chat/models` probe outcome, MCP target + tool count, caps, default budget); loopback-by-default
+  bind. Said AFTER both probes rather than at registration, so the line reports what is true rather
+  than what was configured. `ProbeChatAsync` is public so its 401 and 403 arms - the two an operator
+  can actually fix - are testable; all five outcomes are pinned.
+- [x] `RoleCatalog` (three roles, embedded prompts refused when empty, per-role tool allowlists
   applied to the fetched MCP tool list), `AgentRegistry` (in-memory, state machine per spec 3.2,
-  retention) and `AgentRunner` wrapping `ChatClientAgent` + MCP tools fetched at startup.
-- [ ] Host endpoints under `/agent/*`: spawn, list, detail, cancel, status. Problem+json in the
-  house shape.
-- [ ] apiApp: `Fallen8AgentsOptions`, the `Agents` capability arm, `AgentsController` proxying
+  retention, the concurrency cap and the cancellation tokens) and `AgentRunner` wrapping
+  `ChatClientAgent` + MCP tools fetched at startup. The runner's pipeline order is load-bearing and
+  says so: the shared adapter at the bottom, the per-agent meter above it, the framework's
+  tool-invoking client on top, so the meter sees every call the loop makes rather than one per user
+  message. `IAgentToolSource` was extracted so a runner test drives a real tool loop with a local
+  function; `UseProvidedChatClientAsIs` is set because the pipeline is already complete and two tool
+  loops over one request would each invoke every call.
+- [x] Host endpoints under `/agent/*`: spawn, list, detail, cancel, status, plus `/health`.
+  Problem+json in the house shape. The concurrency cap answers **429** rather than 503, because the
+  host is healthy and 503 is what the proxy's own invented status means. `worker` and `orchestrator`
+  are refused to a caller with the reason, since neither can do what its prompt says in this phase.
+  One agent is reported through `TrySummarize`, which builds the summary under the registry's lock:
+  `Finish` writes six fields in sequence, so a summary taken outside it can show an ending that is
+  half recorded.
+- [x] apiApp: `Fallen8AgentsOptions`, the `Agents` capability arm, `AgentsController` proxying
   `/agents/*` on the shared sidecar-proxy client base (small routes; the feed follows in Phase 2).
-  OpenAPI snapshot regenerated (additions only); `McpRestCoverageTest` deferral rule with the
-  spec's reason; `NamespaceEndpointTest` entries.
-- [ ] Convention: `fallen-8-agents` in `CodeQualityTest`'s lists and the REST-only rule; the new
-  route-family pin (`/chat`, `/chat/models` and nothing else) against the OpenAPI snapshot.
-- [ ] Tests: scripted `IChatClient` fake (replies, tool calls incl. a malformed sibling, usage
-  incl. zero); `Fallen8ChatClient` against a hosted apiApp with a fake backend; lifecycle
-  transitions, cancel, allowlist filtering, list/detail shapes, 404/409 paths; proxy tests
-  (403/401 gate, the one invented 503, pass-through, no request body in logs). Gated live smoke
-  test (skips without a configured instance).
+  OpenAPI snapshot regenerated, additions only (three paths, five operations);
+  `McpRestCoverageTest` deferral recorded with its reason - a loop, not frugality: bridging the
+  spawn route would hand an agent a tool that spawns agents holding that same tool;
+  `NamespaceEndpointTest` exempts the prefix. Three settings catalogued, which the suite's own
+  reflection gate required. The documented statuses now name BOTH halves of the capability gate: 403
+  on a keyed instance and **401** on a keyless one, which this repository's docs widely get wrong.
+- [x] Convention: `fallen-8-agents` in `CodeQualityTest`'s lists and the REST-only rule; the new
+  route-family pin (`/chat`, `/chat/models` and nothing else) against the OpenAPI snapshot, so a
+  route family added to the instance is covered the moment the snapshot is regenerated.
+  Mutation-checked twice, and the second time changed it: the first version saw only complete string
+  literals, which is not how a graph call is written. It now also matches the leading segment of an
+  interpolated path, anchored at both ends - an opening quote alone matched the second fragment of
+  any concatenated sentence and flagged the word "delegates" in a refusal message.
+- [x] Tests, 76 of them across four files. Scripted `IChatClient` fake (replies, tool calls
+  including several in one response, usage including zero and absent, a wait, a throw);
+  `AgentChatAdapterTest` drives the adapter through a hosted apiApp and a fake backend and asserts
+  what the backend RECEIVED, which is the only shape that catches a wire mistake; lifecycle,
+  all four budgets, cascade cancel, retention and eviction against a hand-moved clock, allowlist
+  filtering and the configuration binder; proxy tests (403 keyed and 401 keyless, the one invented
+  503, pass-through of four statuses, the shipped client's unreachable and caller-cancellation arms,
+  and no request body in logs, now running the shipped client with a sink-is-wired guard);
+  `AgentPostureTest` runs the MCP toolset against the **real `fallen-8-mcp` server hosted in
+  process**, whose success path nothing reached before. Two tests that depended on connection-refusal
+  latency now use a socket that accepts and never answers, so they behave the same on Linux. Gated
+  live smoke test in place.
 
 ## Phase 2: trace, feed and conversation
 

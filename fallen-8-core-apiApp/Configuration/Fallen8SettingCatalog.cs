@@ -472,6 +472,20 @@ namespace NoSQL.GraphDB.App.Configuration
 
             #endregion
 
+            #region Fallen8:Agents
+
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Agents:Enabled", Fallen8SettingKind.Bool, "R5",
+                "The agent host is a capability the operator opted out of, and lifting it opens a "
+                + "proxy that spawns agents which decide for themselves which tools to call."));
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Agents:Endpoint", Fallen8SettingKind.String, "R4",
+                "It is the base address of an authenticated pass-through proxy that forwards status, "
+                + "body and content type unchanged, so writable it becomes an arbitrary-URL proxy "
+                + "onto the operator's own network."));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Agents:TimeoutSeconds",
+                Fallen8SettingKind.Int, minimum: 1, maximum: MaxSeconds));
+
+            #endregion
+
             #region Fallen8:Integrations
 
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Integrations:Enabled", Fallen8SettingKind.Bool, "R5",

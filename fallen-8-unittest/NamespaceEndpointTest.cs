@@ -427,10 +427,14 @@ namespace NoSQL.GraphDB.Tests
 
                 // The whole /integrations prefix is instance-wide (feature integrations): one runtime
                 // serves the whole instance and a job names the namespace it writes into, so twinning
-                // would offer a second way to say the same thing and let the two disagree.
+                // would offer a second way to say the same thing and let the two disagree. The whole
+                // /agents prefix is instance-wide for the same reason (feature agent-host): one host
+                // serves the instance, and an agent reaches a namespace through an MCP tool that
+                // names it.
                 var isFallen8Level = fallen8Level.Contains(path)
                     || path.StartsWith("/savegames", StringComparison.Ordinal)
-                    || path.StartsWith("/integrations", StringComparison.Ordinal);
+                    || path.StartsWith("/integrations", StringComparison.Ordinal)
+                    || path.StartsWith("/agents", StringComparison.Ordinal);
                 var hasTwin = paths.Contains("/ns/{ns}" + path);
                 if (isFallen8Level)
                 {

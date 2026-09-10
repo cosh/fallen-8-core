@@ -166,6 +166,21 @@ namespace NoSQL.GraphDB.Tests
             // Contains, not StartsWith: the predicate matches "METHOD /path".
             new(op => op.Contains("/integrations"),
                 "the integration runtime proxy is deferred: four routes are declarations, a job run is a complete-snapshot write no unverifiable identity may trigger, and the run-observation, cancel and file-ceiling routes are withheld with it because an agent that cannot start a run has little use for watching one, nothing to check ceilings against, and no business stopping somebody else's"),
+            // EVERY /agents route is deferred rather than bridged (feature agent-host, spec section 3.7),
+            // and this one is not a frugality judgement like the others: it is a LOOP that the propagation
+            // rule would create. An agent reaches the graph through this MCP server, so bridging the agent
+            // host's control plane would hand an agent a tool that spawns agents which hold the same tool -
+            // unbounded recursion whose only bound is a token budget, arrived at by accident rather than
+            // by design. Delegation is a capability the feature plans to provide, and to provide where
+            // the bound is real: an orchestrator's own spawn tool, capped in the host's registry. That
+            // arrives with the swarm phase; today the only cap that exists is MaxConcurrentAgents, and
+            // the control plane refuses to spawn an orchestrator at all for exactly that reason.
+            // The observation routes travel with the spawn route for the reason the integrations ones do:
+            // an agent that cannot spawn has only somebody else's runs to watch and no business cancelling
+            // them. Revisit only if a bound outside the host's registry exists, which today it does not.
+            // Contains, not StartsWith: the predicate matches "METHOD /path".
+            new(op => op.Contains("/agents"),
+                "the agent-host proxy is deferred, and not for frugality: an agent reaches the graph through this MCP server, so bridging the spawn route would give an agent a tool that spawns agents holding that same tool, bounded only by MaxConcurrentAgents and a token budget. Delegation with a real bound is what the swarm phase adds, as an orchestrator's own spawn tool capped in the host's registry; the listing, detail, status and cancel routes travel with the spawn route because an agent that cannot spawn has only somebody else's runs to watch"),
         };
 
         [TestMethod]

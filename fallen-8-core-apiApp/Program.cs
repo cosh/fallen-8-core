@@ -535,6 +535,19 @@ namespace NoSQL.GraphDB.App
                     }
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Integrations));
                 });
+
+                // The agents gate (feature agent-host): same shape - off by default, orthogonal to
+                // auth, 403 when off. Off for a sharper reason than its siblings: an agent decides
+                // for itself which tools to call, so this is a decision an operator makes rather
+                // than one a deployment inherits.
+                o.AddPolicy(Fallen8AgentsOptions.AgentsPolicy, p =>
+                {
+                    if (keyConfigured)
+                    {
+                        p.RequireAuthenticatedUser();
+                    }
+                    p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Agents));
+                });
             });
 
             // Embedding provider (feature embedding-provider). The backend generator resolves
@@ -601,6 +614,17 @@ namespace NoSQL.GraphDB.App
                 new NoSQL.GraphDB.App.Integrations.IntegrationsClient(
                     sp.GetRequiredService<IOptions<Fallen8IntegrationsOptions>>(),
                     sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Integrations.IntegrationsClient>>()));
+
+            // The agent-host proxy (feature agent-host): the client is inert until an /agents route
+            // is called - with the flag off (the default) those routes answer 403 and nothing is
+            // contacted, and with no endpoint configured they answer 503 rather than timing out.
+            // Tests replace IAgentsClient.
+            builder.Services.Configure<Fallen8AgentsOptions>(
+                builder.Configuration.GetSection(Fallen8AgentsOptions.SectionName));
+            builder.Services.AddSingleton<NoSQL.GraphDB.App.Agents.IAgentsClient>(sp =>
+                new NoSQL.GraphDB.App.Agents.AgentsClient(
+                    sp.GetRequiredService<IOptions<Fallen8AgentsOptions>>(),
+                    sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Agents.AgentsClient>>()));
 
             // CORS: one named policy, default deny. Only the configured origins are allowed; never a
             // wildcard-with-credentials.
