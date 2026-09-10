@@ -56,10 +56,9 @@ prompts are load-bearing).
 Intent: tools on the wire and model purposes, with every existing caller unchanged and the
 environment working at every merge.
 
-> **Split in two, deliberately, and the first half is DONE** (2026-09-10, branch
-> `feature/agent-host`). Purposes plus the rename is a coherent unit that lands green on its own,
-> and mixing it with three SDKs' tool mapping would have made both unreviewable. The second half is
-> still open; the items below say which half each belongs to.
+> **DONE** (2026-09-10, branch `feature/agent-host`, two commits). Split in two deliberately:
+> purposes plus the rename first, tool calling second. Each landed green on its own, and mixing
+> them would have made both unreviewable.
 >
 > **What the first half turned up that this plan did not predict:**
 >
@@ -79,14 +78,15 @@ environment working at every merge.
 
 - [x] **(first half)** `ChatREST.cs`: `purpose` (`assist` default, `agent`; unknown is a 400
   naming the set). XML docs; statuses unchanged, the schema grew.
-- [ ] **(second half)** `ChatREST.cs`: `tools[]` on the request, assistant `toolCalls[]`, tool
-  `toolCallId`, response `toolCalls[]`. Two knock-ons found while reading, both of which have to
-  admit "no content but a tool call": `Content` is `[Required]` on a message and the controller
-  refuses an empty one, yet an assistant turn that only calls a tool has no content; and
-  `Fallen8ChatProvider` turns empty content into a 502, which a tool-call reply would trip.
-- [ ] **(second half)** `IChatBackend`: tool definitions on `ChatBackendOptions`, tool calls and
-  tool-call id on `ChatTurn`, `ToolCalls` on `ChatBackendResult`. The three SDK surfaces were read
-  and confirmed, so the mapping is known rather than guessed:
+- [x] **(second half)** `ChatREST.cs`: `tools[]` on the request, assistant `toolCalls[]`, tool
+  `toolCallId`, response `toolCalls[]` (absent rather than null when there are none). Both predicted
+  knock-ons were real and are handled: `[Required]` came off `Content` and the controller now
+  refuses an empty turn only when it carries no calls either, and the provider's empty-content 502
+  became empty-AND-no-calls.
+- [x] **(second half)** `IChatBackend`: tool definitions on `ChatBackendOptions`, tool calls and
+  tool-call id on `ChatTurn`, `ToolCalls` on `ChatBackendResult`, plus `ChatTool`/`ChatToolCall` as
+  the lowest common shape. All three backends map it, and every SDK type was read off the assembly
+  first rather than guessed:
   - Ollama (OllamaSharp 5.4.27): `ChatRequest.Tools` of `Tool { Type, Function }` with
     `Function { Name, Description, Parameters }`; a reply carries `Message.ToolCalls` of
     `Message.ToolCall { Id, Function { Name, Arguments } }`, and a tool turn uses `Message.ToolName`.
@@ -95,10 +95,24 @@ environment working at every merge.
     history uses `AssistantChatMessage(IEnumerable<ChatToolCall>)` and `ToolChatMessage`.
   - Anthropic (12.44.0): `MessageCreateParams.Tools` of `ToolUnion` over
     `Tool { Name, Description, InputSchema }`; a reply carries `ToolUseBlock` and history a
-    `ToolResultBlockParam`. **The most involved of the three** (a union plus content blocks), and
-    the one to weigh the spec's escape hatch against: composing the generic
-    `Microsoft.Extensions.AI` client inside the backend and reading stats off the raw
-    representation. Phase 0 confirmed that no `stream=false` fallback is needed on any of them.
+    `ToolResultBlockParam`. Feared to be the awkward one and was not: `ToolUnion` has an implicit
+    conversion from `Tool`, and the blocks expose plain dictionaries. **The spec's escape hatch was
+    not needed** and no backend refuses tools.
+
+  Three things the mapping turned up:
+
+  - **Each backend carries the caller's JSON Schema VERBATIM**, not through the SDK's own schema
+    type. All three ship one that models a subset of JSON Schema, so mapping through it would
+    silently drop what it does not describe (a `required` array, in the test's case). Ollama's tools
+    field takes plain objects, and Anthropic's `InputSchema` takes a raw-data dictionary, so both
+    carry the schema as written.
+  - **Phase 0's "no `stream=false` fallback needed" was true of the WIRE and false of the client
+    libraries.** OllamaSharp documents its tools field as requiring a non-streamed request, and the
+    OpenAI SDK delivers streamed calls as fragments to reassemble. So a request carrying tools is
+    not streamed on any backend, stated once on `ChatBackendOptions.Tools` and pointed at from the
+    three. It affects no other request.
+  - **The seam's own types shadow two SDK types.** `ChatTool` and `ChatToolCall` live in the same
+    namespace as the OpenAI backend, so that file aliases the SDK's identically-named types.
 - [ ] **Model purposes and the rename.** `Fallen8ChatOptions.<Backend>.Models.{Assist,Agent}`
   replaces `Model` on the four blocks, no alias (Ollama defaults `phi4-f8-mini:latest` and
   `phi4-mini:latest`, the others none); `ChatBackendFactory.ResolveModel(options, purpose)`, a 503
@@ -119,12 +133,19 @@ environment working at every merge.
   still answers; both models are reported. Mutation-checked, since making the provider ignore the
   purpose fails two of them. `ChatBackendFactoryTest` gained purpose resolution against a block
   whose two models DIFFER, so a resolver that ignored its argument cannot pass.
-- [ ] **(second half)** Tests: the fake seam carries tools and tool calls; per-backend mapping
-  against the handler-injected transport fakes; the no-content-but-a-tool-call path end to end.
+- [x] **(second half)** Tests: `ChatToolMappingTest` pins each provider's spelling against an
+  injected transport (schema intact on the wire, a call read back, a replayed call and its result,
+  no streaming when tools are present, the empty-object schema for a tool taking no arguments);
+  `ChatEndpointTest.Tools.cs` pins the contract a client sees (the round trip, the replay with no
+  content on the assistant turn, five malformed requests refused at the edge, empty-and-no-calls
+  still a 502, and no tools meaning nothing tool-shaped on the call). Mutation-checked: dropping
+  the tools in the Ollama backend fails three, and dropping the tool-call id in the controller
+  fails one.
 - [x] **(first half)** OpenAPI snapshot regenerated: `purpose` and `agentModel` added, one
   description reworded, nothing else removed. `McpRestCoverageTest`: the `/chat` deferral is
   unchanged.
-- [ ] **(second half)** Regenerate again for the tool shapes.
+- [x] **(second half)** Regenerated: two new schemas and four new properties. The only removals
+  are the `content` requirement, which is now conditional by design, and two rewordings.
 - [ ] Solution-wide package alignment: `Microsoft.Extensions.AI.Abstractions` 10.9.0, OllamaSharp
   to match; exact versions. **Neither half of 1a needs it**, so it moves to Phase 1b, which is the
   first code to reference `Microsoft.Agents.AI`. Phase 0 confirmed 10.9.0 restores and builds on
@@ -135,9 +156,22 @@ environment working at every merge.
   clean; docs site links valid; all four compose profiles parse and resolve their purpose keys; the
   30 Studio picker tests pass with the renamed key. Every existing chat, catalog and configuration
   test passes with no change beyond spelling.
-- [ ] **(second-half gate)** A request carrying tools round-trips a tool call on the default
-  backend, and a backend that cannot map tools REFUSES a request carrying them rather than ignoring
-  them silently.
+- [x] **(second-half gate, met and then some)** Full suite green at 2540 passed, build clean, docs
+  site links valid, both compose profiles parse, Studio's 30 picker tests pass. No backend refuses
+  tools, because all three map them.
+
+  **Verified against the LIVE service, which is what found the one real bug.** Offering a tool with
+  `purpose: agent` returned a parsed call in 5 s on the agent model; handing the result back
+  produced "The Fallen-8 namespace 'default' contains 8 vertices." The bug in between: this
+  protocol types `content` as a string and answers **422** to a null, killing the whole request -
+  and an assistant turn that only called a tool has no text, so null was exactly what reached it.
+  No stub could catch that, because a stub accepts whatever it is handed. It is now pinned by
+  asserting the JSON TYPE of that field rather than its value.
+
+  One measured thing to carry into Phase 1b: the live model returned arguments shaped
+  `{"parameters":{...},"type":"count_vertices"}` instead of the schema's own shape. That is the
+  known small-model flakiness, passed through faithfully because nothing here validates arguments
+  against the schema. The runner has to tolerate it, which spec section 3.2a already requires.
 
 ## Phase 1b: scaffold, adapter, proxy and single-agent walking skeleton
 

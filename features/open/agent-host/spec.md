@@ -285,11 +285,14 @@ Rules, each with its reason:
   four ways proves heavier than expected, the implementer may compose the generic clients from
   the SDKs inside the backends and read stats from the raw representation; the wire contract
   above does not change either way.
-- **Streaming stays as configured** (`Fallen8:Chat:Stream`), with no exception for tools. Phase 0
-  measured parsed tool calls on Nahil both streamed and non-streamed, and the streamed shape was
-  the cleaner of the two (one call rather than one real call plus a malformed sibling). An earlier
-  draft of this section carried a `stream=false`-when-tools fallback; it is dropped as unnecessary,
-  which also keeps the tool path on the same wire shape as every other completion.
+- **A request carrying tools is not streamed** (`Fallen8:Chat:Stream` is otherwise untouched), and
+  this sentence has been wrong twice, so it is worth being exact. Phase 0 measured parsed tool
+  calls on Nahil both streamed and non-streamed, which is a fact about the WIRE, and this section
+  concluded from it that no fallback was needed. Implementing it showed the constraint lives one
+  layer up, in the client libraries: OllamaSharp documents its tools field as requiring a
+  non-streamed request, and the OpenAI SDK delivers streamed calls as fragments to reassemble. So
+  the fallback is back, as a rule stated once on `ChatBackendOptions.Tools` and obeyed by all three
+  backends. No request without tools is affected.
 - **The gates are the existing ones.** The Chat capability must be on; the sensitive rate-limit
   policy applies, so a swarm counts against `Fallen8:Security:SensitiveRateLimitPermitPerWindow`
   and that existing knob is the one to raise; the per-request deadline is
