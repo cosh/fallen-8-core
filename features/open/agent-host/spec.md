@@ -414,7 +414,7 @@ the integrations proxy's posture, and its client base). The proxy invents exactl
 | `GET /api/v0.1/agents` | All agents: id, name, role, state, task, parentId, tokens {input, output, total}, steps, toolCalls, durationMs, budget, createdAt, lastActivityAt |
 | `GET /api/v0.1/agents/{id}` | One agent, incl. children ids, citations and the last N trace steps |
 | `GET /api/v0.1/agents/{id}/trace` | The full retained trace |
-| `POST /api/v0.1/agents/{id}/messages` | User to agent message; 202 with a `messageId`; 409 unless the agent can accept one (running/waitingForUser) |
+| `POST /api/v0.1/agents/{id}/messages` | User to agent message; 202 with a `messageId`; 409 unless the agent can accept one (running/waitingForUser). **Deferred, 2026-09-10; see the note under 3.4** |
 | `DELETE /api/v0.1/agents/{id}` | Cancel; cascades to live descendants |
 | `GET /api/v0.1/agents/status` | Host posture: chat gateway reachability, `lastSeen { backend, model }`, MCP target, tiers seen and tool count, caps, active and retained counts |
 | `GET /api/v0.1/agents/feed` | SSE stream (3.4), streamed through the proxy |
@@ -445,6 +445,40 @@ citation counts. The proxy forwards the stream with response-headers-read semant
 per event; this streaming forward is the one new arm on the shared proxy client base. No catch-up
 buffer in v1 (`GET .../trace` is the catch-up mechanism); *revisit trigger:* a UI that must survive
 reconnects without re-fetching traces.
+
+### 3.4a The conversation route is deferred, and what it would actually have added
+
+**Decided 2026-09-10 (Phase 2).** `POST .../messages` is not implemented, and the reason is that
+almost nothing about it is this host's business.
+
+Microsoft Agent Framework owns how an agent interacts. `AgentSession` holds the history and another
+turn is `RunAsync(message, session)` on the same session; Phase 0 confirmed a session carries
+multiple turns. So multi-turn is a capability this host already has, not one it has to design.
+
+What the route would add is not the conversation. It is three pieces of host bookkeeping the
+framework has no opinion on, and each is a decision rather than an implementation:
+
+1. **Does a parked agent keep its concurrency slot?** It is alive and can take another message, so
+   it does; and `MaxConcurrentAgents` defaults to 4, so four parked agents block the host. That is
+   the same shape as the wedge Phase 1b fixed, arriving by design instead of by accident.
+2. **What wall clock applies between turns?** `MaxRunSeconds` is per RUN and its deadline currently
+   spans one turn. Spanning the agent instead is a different meaning for the same key.
+3. **What makes a parked agent `completed`?** Nothing does. An agent that can always take another
+   message never reaches an ending on its own, so retention never starts and `agentCompleted` never
+   fires. An idle cap would answer it, and an idle cap is exactly the kind of bespoke lifecycle this
+   host should not be inventing on the framework's behalf.
+
+None of the three has a caller yet: no UI, no CLI and no test needs a second turn. Answering them
+without one would be guessing, and each guess is visible in configuration forever. So the route
+waits for the phase that has a real consumer, which is the Studio work in Phase 5; the framework
+side of it needs no further proof.
+
+What ships instead is the observability the same phase was for: the trace, the event feed and the
+grounding check. An agent answers its task and completes, which frees its slot at once and fires
+`agentCompleted` with its citation counts, and that is a whole interaction.
+
+*Revisit trigger:* a client that needs a second turn. At that point the three questions above are
+what to decide, in that order.
 
 ### 3.5 Swarm mode
 
@@ -592,7 +626,9 @@ carries no model setting at all.
 - **Purposes are the only model selector.** `Models:Assist` serves NL assist under its new name,
   `Models:Agent` serves agents, no other key names a model, and the old `Model` key is refused
   with a message naming the new one.
-- **Conversation.** A `waitingForUser` agent accepts `POST .../messages`, the POST returns a
+- **Conversation.** *(Deferred 2026-09-10, see 3.4a: the framework already supports a second turn;
+  what is undecided is slot, clock and ending, and no client needs it yet.)* A `waitingForUser`
+  agent accepts `POST .../messages`, the POST returns a
   `messageId`, and the reply arrives as an `agentMessage` feed event with `inReplyTo` on the same
   conversation.
 - **Counters are real.** Token counters equal the sum of instance-reported usage exactly, with an

@@ -342,6 +342,238 @@ namespace NoSQL.GraphDB.Tests
                 (await Read(response)).GetProperty("chat").GetProperty("reachability").GetString());
         }
 
+        [TestMethod]
+        public async Task TheTraceRouteCarriesTheStepsARunProducedAndSaysWhetherItIsWhole()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            String id;
+            using (var spawned = await client.PostAsync("/agent", Json("{\"task\":\"count\"}")))
+            {
+                id = (await Read(spawned)).GetProperty("id").GetString();
+            }
+
+            using var response = await client.GetAsync("/agent/" + id + "/trace");
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, await Text(response));
+            var body = await Read(response);
+
+            Assert.AreEqual(id, body.GetProperty("agentId").GetString());
+            Assert.IsFalse(String.IsNullOrWhiteSpace(body.GetProperty("hostInstanceId").GetString()),
+                "nothing here survives a restart, so a trace has to name the run that produced it");
+            Assert.AreEqual(0, body.GetProperty("dropped").GetInt64(),
+                "a short run reported dropped steps, so a reader cannot trust the number");
+            Assert.IsTrue(body.GetProperty("recorded").GetInt64() > 0);
+
+            // The spawn is the first step of every trace, so it is there whatever the model did.
+            var steps = body.GetProperty("steps").EnumerateArray().ToList();
+            Assert.IsTrue(steps.Any(s => s.GetProperty("kind").GetString() == "spawn"),
+                "the spawn is not in the trace: " + await Text(response));
+            Assert.AreEqual(1, steps[0].GetProperty("seq").GetInt64());
+        }
+
+        [TestMethod]
+        public async Task AnUnknownAgentsTraceIsThe404WithTheSameMessageTheDetailRouteGives()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agent/a1-999/trace");
+
+            Assert.AreEqual(HttpStatusCode.NotFound, response.StatusCode);
+            StringAssert.Contains(await Text(response), "RetainFinishedMinutes");
+        }
+
+        [TestMethod]
+        public async Task TheDetailRouteCarriesATailOfTheTraceAndHowMuchThereIs()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            String id;
+            using (var spawned = await client.PostAsync("/agent", Json("{\"task\":\"count\"}")))
+            {
+                id = (await Read(spawned)).GetProperty("id").GetString();
+            }
+
+            using var response = await client.GetAsync("/agent/" + id);
+            var body = await Read(response);
+
+            Assert.IsTrue(body.GetProperty("trace").GetArrayLength() > 0);
+            Assert.IsTrue(body.GetProperty("traceRecorded").GetInt64() > 0,
+                "without a total a reader cannot tell a tail from a whole run");
+        }
+
+        [TestMethod]
+        public async Task TheFeedStreamsFramesInTheSameShapeAsTheChangeFeed()
+        {
+            // The frame contract, asserted on the bytes: a client that can read this instance's
+            // change feed has to be able to read this one, which is the whole reason it copies the
+            // dialect rather than inventing one.
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            using var stream = await client.GetAsync("/agent/feed",
+                HttpCompletionOption.ResponseHeadersRead);
+
+            Assert.AreEqual(HttpStatusCode.OK, stream.StatusCode);
+            Assert.AreEqual("text/event-stream", stream.Content.Headers.ContentType.MediaType);
+
+            using var reader = new System.IO.StreamReader(await stream.Content.ReadAsStreamAsync());
+
+            // Spawned AFTER subscribing, because there is no catch-up: that is the contract, and a
+            // test that spawned first would be asserting a replay this host does not do.
+            using (var spawned = await client.PostAsync("/agent", Json("{\"task\":\"count\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.Accepted, spawned.StatusCode);
+            }
+
+            var frame = await ReadFrame(reader);
+
+            StringAssert.Contains(frame, "event: agentSpawned");
+            StringAssert.Contains(frame, "id: ");
+            StringAssert.Contains(frame, "data: {");
+
+            var data = JsonSerializer.Deserialize<JsonElement>(
+                frame.Split("data: ", 2)[1].Trim());
+            Assert.AreEqual("agentSpawned", data.GetProperty("kind").GetString());
+            Assert.IsFalse(String.IsNullOrWhiteSpace(data.GetProperty("agentId").GetString()));
+            Assert.AreEqual(1L, data.GetProperty("seq").GetInt64());
+
+            // The counters are on EVERY event, which is what lets a subscriber render live cost
+            // without polling. Their absence would make the feed a notification and not a monitor.
+            var tokens = data.GetProperty("tokens");
+            Assert.AreEqual(0L, tokens.GetProperty("total").GetInt64());
+            Assert.IsTrue(tokens.TryGetProperty("steps", out _));
+            Assert.IsTrue(tokens.TryGetProperty("toolCalls", out _));
+        }
+
+        [TestMethod]
+        public async Task TheFeedRefusesAnUnknownKindRatherThanStreamingSilence()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agent/feed?kinds=agentExploded");
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+            var detail = await Text(response);
+            StringAssert.Contains(detail, "agentExploded");
+            StringAssert.Contains(detail, "agentSpawned",
+                "a refusal has to name the accepted set, or a caller is left guessing");
+        }
+
+        [TestMethod]
+        public async Task AKindFilterDeliversOnlyThatKind()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            using var stream = await client.GetAsync("/agent/feed?kinds=agentFailed",
+                HttpCompletionOption.ResponseHeadersRead);
+            using var reader = new System.IO.StreamReader(await stream.Content.ReadAsStreamAsync());
+
+            String id;
+            using (var spawned = await client.PostAsync("/agent", Json("{\"task\":\"count\"}")))
+            {
+                id = (await Read(spawned)).GetProperty("id").GetString();
+            }
+
+            // The spawn and the state change are filtered out; the agent then fails, because its
+            // chat target is a closed port, and THAT is the event this subscriber asked for.
+            var frame = await ReadFrame(reader);
+
+            StringAssert.Contains(frame, "event: agentFailed");
+            StringAssert.Contains(frame, id);
+        }
+
+        [TestMethod]
+        public async Task AnIdleFeedSendsKeepAlivesRatherThanGoingSilent()
+        {
+            // An idle feed that sent nothing is indistinguishable from a dead connection, and a
+            // proxy in between would close it. So idle is never silent.
+            using var factory = new AgentHostFactory(keepAliveSeconds: 1);
+            using var client = factory.CreateClient();
+
+            using var stream = await client.GetAsync("/agent/feed",
+                HttpCompletionOption.ResponseHeadersRead);
+            using var reader = new System.IO.StreamReader(await stream.Content.ReadAsStreamAsync());
+
+            var line = await reader.ReadLineAsync();
+            StringAssert.StartsWith(line, ":", "an idle feed sent something that was not a comment: " + line);
+        }
+
+        [TestMethod]
+        public async Task TheFeedRefusesASubscriberPastItsBoundWithTheLimitNamed()
+        {
+            using var factory = new AgentHostFactory(maxSubscribers: 1);
+            using var client = factory.CreateClient();
+
+            using var first = await client.GetAsync("/agent/feed",
+                HttpCompletionOption.ResponseHeadersRead);
+            Assert.AreEqual(HttpStatusCode.OK, first.StatusCode);
+
+            using var second = await client.GetAsync("/agent/feed");
+
+            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, second.StatusCode);
+            StringAssert.Contains(await Text(second), "MaxSubscribers");
+        }
+
+        [TestMethod]
+        public async Task TheStatusRouteReportsTheFeedsOwnPosture()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agent/status");
+            var feed = (await Read(response)).GetProperty("feed");
+
+            Assert.AreEqual(0, feed.GetProperty("subscribers").GetInt32());
+            Assert.AreEqual(15, feed.GetProperty("keepAliveSeconds").GetInt32());
+            Assert.IsTrue(feed.TryGetProperty("published", out _));
+        }
+
+        /// <summary>
+        ///   Reads one SSE frame, skipping keep-alive comments. Bounded by the reader's own timeout
+        ///   rather than looping forever: a test that hung waiting for an event that never came
+        ///   would be worse than one that failed.
+        /// </summary>
+        private static async Task<String> ReadFrame(System.IO.StreamReader reader)
+        {
+            var frame = new StringBuilder();
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+
+            while (DateTimeOffset.UtcNow < deadline)
+            {
+                var line = await reader.ReadLineAsync();
+                if (line == null)
+                {
+                    break;
+                }
+
+                if (line.StartsWith(':'))
+                {
+                    continue; // keep-alive
+                }
+
+                if (line.Length == 0)
+                {
+                    if (frame.Length > 0)
+                    {
+                        return frame.ToString();
+                    }
+
+                    continue;
+                }
+
+                frame.Append(line).Append('\n');
+            }
+
+            Assert.Fail("no SSE frame arrived within 30 seconds; got: " + frame);
+            return String.Empty;
+        }
+
         #endregion
 
         #region the apiApp's proxy over it
@@ -479,6 +711,128 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task TheProxyForwardsTheFeedAsAStreamRatherThanBufferingIt()
+        {
+            // The one new arm on the shared proxy client base, and the property that matters is not
+            // that the bytes arrive but that they arrive AS THEY COME. A buffered forward would pass
+            // every assertion about content and still make a live feed useless.
+            var recorder = new RecordingAgentsClient(200, String.Empty, "text/event-stream");
+            recorder.StreamChunks.Add("id: 1\nevent: agentSpawned\ndata: {\"seq\":1}\n\n");
+            recorder.StreamChunks.Add("id: 2\nevent: toolCalled\ndata: {\"seq\":2}\n\n");
+
+            using var factory = new AgentProxyFactory(enabled: "true", client: recorder);
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agents/feed",
+                HttpCompletionOption.ResponseHeadersRead);
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual("text/event-stream", response.Content.Headers.ContentType.MediaType,
+                "the host's own content type has to survive the hop, or a browser will not treat it "
+                + "as a stream");
+
+            var body = await response.Content.ReadAsStringAsync();
+            StringAssert.Contains(body, "event: agentSpawned");
+            StringAssert.Contains(body, "event: toolCalled");
+
+            Assert.AreEqual(1, recorder.Calls.Count);
+            Assert.AreEqual("STREAM agent/feed", recorder.Calls[0],
+                "the feed must be forwarded through the streaming arm, not the buffered one");
+        }
+
+        [TestMethod]
+        public async Task TheProxyForwardsTheFeedFiltersItDeclaredAndNothingElse()
+        {
+            // Rebuilt from this action's own bound parameters rather than forwarded verbatim, so a
+            // caller cannot append a query the proxy never declared.
+            var recorder = new RecordingAgentsClient(200, String.Empty, "text/event-stream");
+            using var factory = new AgentProxyFactory(enabled: "true", client: recorder);
+            using var client = factory.CreateClient();
+
+            using (await client.GetAsync("/agents/feed?kinds=toolCalled&agents=a1-1&smuggled=x",
+                HttpCompletionOption.ResponseHeadersRead))
+            {
+            }
+
+            Assert.AreEqual(1, recorder.Calls.Count);
+            var forwarded = recorder.Calls[0];
+            StringAssert.Contains(forwarded, "kinds=toolCalled");
+            StringAssert.Contains(forwarded, "agents=a1-1");
+            Assert.IsFalse(forwarded.Contains("smuggled", StringComparison.Ordinal),
+                "the proxy forwarded a query parameter it does not declare: " + forwarded);
+        }
+
+        [TestMethod]
+        public async Task AFeedRefusalReachesTheCallerAsARefusalRatherThanAnEmptyStream()
+        {
+            // The reason onHeaders runs before the body flows: a 400 naming a bad filter must not
+            // arrive as a 200 with an error somewhere in the stream, which is what a forward that
+            // assumed success would produce.
+            var recorder = new RecordingAgentsClient(400,
+                "{\"detail\":\"Unknown feed event kind 'agentExploded'.\"}", "application/problem+json");
+
+            using var factory = new AgentProxyFactory(enabled: "true", client: recorder);
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agents/feed?kinds=agentExploded");
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
+            Assert.AreEqual("application/problem+json", response.Content.Headers.ContentType.MediaType);
+            StringAssert.Contains(await Text(response), "agentExploded");
+        }
+
+        [TestMethod]
+        public async Task AnUnreachableHostIsA503OnTheFeedTooRatherThanAnEmptyStream()
+        {
+            using var factory = new AgentProxyFactory(enabled: "true", endpoint: String.Empty);
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agents/feed");
+
+            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+            StringAssert.Contains(await Text(response), "Fallen8:Agents:Endpoint");
+        }
+
+        [TestMethod]
+        public async Task TheTraceIsForwardedThroughTheBufferedArmBecauseItIsNotAStream()
+        {
+            var recorder = new RecordingAgentsClient(200, "{\"agentId\":\"a1-1\",\"steps\":[]}");
+            using var factory = new AgentProxyFactory(enabled: "true", client: recorder);
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agents/a1-1/trace");
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            Assert.AreEqual("GET agent/a1-1/trace", recorder.Calls[0]);
+        }
+
+        [TestMethod]
+        public async Task TheFeedAndTraceRoutesAreGatedLikeEveryOtherAgentsRoute()
+        {
+            // A stream that ignored the capability gate would be the one way into a host an operator
+            // switched off, so both new routes are checked rather than assumed.
+            using (var factory = new AgentProxyFactory(enabled: "false", withApiKey: true))
+            using (var client = factory.CreateAuthenticatedClient())
+            {
+                foreach (var route in new[] { "/agents/feed", "/agents/a1-1/trace" })
+                {
+                    using var response = await client.GetAsync(route);
+                    Assert.AreEqual(HttpStatusCode.Forbidden, response.StatusCode, route);
+                }
+            }
+
+            using (var factory = new AgentProxyFactory(enabled: "false"))
+            using (var client = factory.CreateClient())
+            {
+                foreach (var route in new[] { "/agents/feed", "/agents/a1-1/trace" })
+                {
+                    using var response = await client.GetAsync(route);
+                    Assert.AreEqual(HttpStatusCode.Unauthorized, response.StatusCode, route);
+                }
+            }
+        }
+
+        [TestMethod]
         public async Task TheSpawnBodyIsNeverLogged()
         {
             // A task sentence is the caller's own text and may name anything. The integrations proxy
@@ -610,13 +964,18 @@ namespace NoSQL.GraphDB.Tests
             private readonly Int32 _maxConcurrent;
             private readonly String _baseUrl;
             private readonly Int32 _maxTokenBudget;
+            private readonly Int32 _keepAliveSeconds;
+            private readonly Int32 _maxSubscribers;
 
             public AgentHostFactory(Int32 maxConcurrent = 4, String baseUrl = "http://127.0.0.1:1/",
-                Int32 maxTokenBudget = 400_000)
+                Int32 maxTokenBudget = 400_000, Int32 keepAliveSeconds = 15,
+                Int32 maxSubscribers = 16)
             {
                 _maxConcurrent = maxConcurrent;
                 _baseUrl = baseUrl;
                 _maxTokenBudget = maxTokenBudget;
+                _keepAliveSeconds = keepAliveSeconds;
+                _maxSubscribers = maxSubscribers;
             }
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -627,6 +986,10 @@ namespace NoSQL.GraphDB.Tests
                     _maxConcurrent.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 builder.UseSetting("Agents:Limits:MaxTokenBudget",
                     _maxTokenBudget.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                builder.UseSetting("Agents:Feed:KeepAliveSeconds",
+                    _keepAliveSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                builder.UseSetting("Agents:Feed:MaxSubscribers",
+                    _maxSubscribers.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 builder.UseSetting("Fallen8Target:BaseUrl", _baseUrl);
             }
         }
@@ -788,6 +1151,10 @@ namespace NoSQL.GraphDB.Tests
 
             public List<String> Calls { get; } = new List<String>();
 
+            /// <summary>Written to the caller a chunk at a time when the streaming arm is used, so a
+            /// test can assert that frames arrive rather than that a body was buffered.</summary>
+            public List<String> StreamChunks { get; } = new List<String>();
+
             public Boolean Configured => true;
 
             public Task<SidecarResponse> ForwardAsync(HttpMethod method, String path, String jsonBody,
@@ -795,6 +1162,27 @@ namespace NoSQL.GraphDB.Tests
             {
                 Calls.Add(method.Method + " " + path);
                 return Task.FromResult(new SidecarResponse(_status, _body, _contentType));
+            }
+
+            public async Task StreamAsync(String path, Func<Int32, String, Task> onHeaders,
+                System.IO.Stream destination, CancellationToken cancellationToken)
+            {
+                Calls.Add("STREAM " + path);
+                await onHeaders(_status, _contentType);
+
+                // The body first, then any chunks, which is what the shipped client does: it copies
+                // the response through whatever the status was, so a refusal's body reaches the
+                // caller rather than being swallowed by a forward that assumed success.
+                var written = String.IsNullOrEmpty(_body)
+                    ? StreamChunks
+                    : new List<String>(StreamChunks) { _body };
+
+                foreach (var chunk in written)
+                {
+                    var bytes = Encoding.UTF8.GetBytes(chunk);
+                    await destination.WriteAsync(bytes, cancellationToken);
+                    await destination.FlushAsync(cancellationToken);
+                }
             }
 
             public Task<Boolean> IsReachableAsync(CancellationToken cancellationToken)

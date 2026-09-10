@@ -77,13 +77,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
         private readonly IChatClient _inner;
         private readonly AgentRecord _agent;
         private readonly AgentsOptions.LimitsOptions _limits;
+        private readonly AgentJournal _journal;
 
         internal AgentBudgetChatClient(IChatClient inner, AgentRecord agent,
-            AgentsOptions.LimitsOptions limits)
+            AgentsOptions.LimitsOptions limits, AgentJournal journal)
         {
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
             _agent = agent ?? throw new ArgumentNullException(nameof(agent));
             _limits = limits ?? throw new ArgumentNullException(nameof(limits));
+            _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         }
 
         public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages,
@@ -91,10 +93,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
         {
             Admit();
 
+            // Timed HERE, because a backend's own reported duration does not cover a remote
+            // provider's routing and verification: one measured step reported 45 ms for a call that
+            // took 41 seconds, and a trace carrying that number would mislead every reader of it.
+            var started = System.Diagnostics.Stopwatch.StartNew();
             var response = await _inner.GetResponseAsync(messages, options, cancellationToken)
                 .ConfigureAwait(false);
+            started.Stop();
 
-            Count(response);
+            Count(response, started.ElapsedMilliseconds);
             return response;
         }
 
@@ -110,6 +117,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
         {
             Admit();
 
+            var started = System.Diagnostics.Stopwatch.StartNew();
             var updates = new List<ChatResponseUpdate>();
             await foreach (var update in _inner.GetStreamingResponseAsync(messages, options, cancellationToken)
                 .ConfigureAwait(false))
@@ -118,9 +126,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 yield return update;
             }
 
+            started.Stop();
+
             // After the sequence, because usage arrives on the last update on every provider that
             // reports it at all.
-            Count(updates.ToChatResponse());
+            Count(updates.ToChatResponse(), started.ElapsedMilliseconds);
         }
 
         public Object? GetService(Type serviceType, Object? serviceKey = null)
@@ -146,6 +156,22 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   refusal because it sits under the framework's loop, which has no vocabulary for "stop,
         ///   but not because of an error"; the runner turns it back into the ending it is.
         /// </summary>
+        /// <summary>
+        ///   A provenance value the adapter stamped on the response. Read from the response rather
+        ///   than from the adapter's own aggregate because several agents share one adapter, so the
+        ///   aggregate belongs to whichever call finished last.
+        /// </summary>
+        private static String? Provenance(ChatResponse response, String property)
+        {
+            if (response.AdditionalProperties != null
+                && response.AdditionalProperties.TryGetValue(property, out var value))
+            {
+                return value as String;
+            }
+
+            return null;
+        }
+
         private void Admit()
         {
             if (_limits.MaxStepsPerRun > 0 && Interlocked.Read(ref _agent.Steps) >= _limits.MaxStepsPerRun)
@@ -180,13 +206,22 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   stops a run for a reason that never happened. One measured provider reply carried a
         ///   completion count of zero for a real tool call, which is why the flag exists at all.
         /// </summary>
-        private void Count(ChatResponse response)
+        private void Count(ChatResponse response, Int64 durationMs)
         {
             var usage = response.Usage;
             var reported = usage != null
                 && (usage.InputTokenCount.HasValue || usage.OutputTokenCount.HasValue);
 
             _agent.CountStep(usage?.InputTokenCount ?? 0, usage?.OutputTokenCount ?? 0, reported);
+
+            // Recorded as a trace step and NOT as a feed event: a subscriber watching a swarm does
+            // not want one notification per model call, and the trace is where a reviewer looks at
+            // the steps. Provenance comes off the response, so it is per step - a deployment that
+            // switches backend mid-day shows it here rather than only in an aggregate.
+            _journal.ModelCall(_agent,
+                Provenance(response, Model.Fallen8ChatClient.BackendProperty),
+                Provenance(response, Model.Fallen8ChatClient.ModelProperty) ?? response.ModelId,
+                durationMs, usage?.InputTokenCount ?? 0, usage?.OutputTokenCount ?? 0, reported);
 
             // Counted where they are REQUESTED rather than where they are invoked, so a tool the
             // framework refuses to run still costs the model call that asked for it. The cap is on

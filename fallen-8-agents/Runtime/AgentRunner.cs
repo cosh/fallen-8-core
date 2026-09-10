@@ -65,17 +65,20 @@ namespace NoSQL.GraphDB.Agents.Runtime
         private readonly RoleCatalog _roles;
         private readonly IAgentToolSource _toolset;
         private readonly IChatClient _chat;
+        private readonly AgentJournal _journal;
         private readonly IOptions<AgentsOptions> _options;
         private readonly ILoggerFactory _loggers;
         private readonly ILogger<AgentRunner> _logger;
 
         public AgentRunner(AgentRegistry registry, RoleCatalog roles, IAgentToolSource toolset,
-            IChatClient chat, IOptions<AgentsOptions> options, ILoggerFactory loggers)
+            IChatClient chat, AgentJournal journal, IOptions<AgentsOptions> options,
+            ILoggerFactory loggers)
         {
             _registry = registry ?? throw new ArgumentNullException(nameof(registry));
             _roles = roles ?? throw new ArgumentNullException(nameof(roles));
             _toolset = toolset ?? throw new ArgumentNullException(nameof(toolset));
             _chat = chat ?? throw new ArgumentNullException(nameof(chat));
+            _journal = journal ?? throw new ArgumentNullException(nameof(journal));
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _loggers = loggers ?? throw new ArgumentNullException(nameof(loggers));
             _logger = loggers.CreateLogger<AgentRunner>();
@@ -193,7 +196,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 var tools = role.Filter(_toolset.Tools);
                 var instructions = Instructions(role, systemPromptAppendix);
 
-                var pipeline = new ChatClientBuilder(new AgentBudgetChatClient(_chat, agent, limits))
+                var pipeline = new ChatClientBuilder(
+                        new AgentBudgetChatClient(_chat, agent, limits, _journal))
                     .UseFunctionInvocation(_loggers, invoking =>
                     {
                         // The framework's own iteration cap, handed the host's step cap so the two
@@ -216,10 +220,17 @@ namespace NoSQL.GraphDB.Agents.Runtime
                         invoking.TerminateOnUnknownCalls = true;
 
                         // The error text reaches the model, which is the only reader that can act
-                        // on it: a schema complaint is what lets it correct the call. Nothing else
-                        // reads it in this phase, since the trace arrives with the phase that adds
-                        // one.
+                        // on it: a schema complaint is what lets it correct the call. It also
+                        // reaches the trace, on the failed tool-call step, so a reviewer sees the
+                        // same complaint the model was given.
                         invoking.IncludeDetailedErrors = true;
+
+                        // The tool-invocation seam, which is the ONLY place a tool call is
+                        // observable: the meter below sees a model asking for one, and the framework
+                        // does the invoking, so what actually went in and came back is visible
+                        // nowhere else. Replacing the invoker means performing the call here, which
+                        // is what the seam is for.
+                        invoking.FunctionInvoker = (context, token) => Invoke(agent, context, token);
                     })
                     .Build();
 
@@ -269,15 +280,24 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     return;
                 }
 
-                _registry.Finish(agent.Id, AgentState.Completed, resultText: response.Text);
+                // Counted against what this run actually called, which is why it happens here and
+                // not in the registry: this is the one place that has both the final text and the
+                // trace. A count, never a judgement - see GroundingCheck for what the numbers do
+                // and do not mean.
+                var citations = GroundingCheck.Count(response.Text, agent.Trace.ToolsCalled());
+
+                _registry.Finish(agent.Id, AgentState.Completed, resultText: response.Text,
+                    citations: citations);
 
                 _logger.LogInformation(
                     "Agent {AgentId} ({Role}) completed in {DurationMs} ms over {Steps} steps and "
-                    + "{ToolCalls} tool calls, {Tokens} tokens.",
+                    + "{ToolCalls} tool calls, {Tokens} tokens, citations {Valid} valid and "
+                    + "{Dangling} dangling.",
                     agent.Id, role.Name,
                     (Int64)(DateTimeOffset.UtcNow - agent.CreatedUtc).TotalMilliseconds,
                     Interlocked.Read(ref agent.Steps), Interlocked.Read(ref agent.ToolCalls),
-                    Interlocked.Read(ref agent.InputTokens) + Interlocked.Read(ref agent.OutputTokens));
+                    Interlocked.Read(ref agent.InputTokens) + Interlocked.Read(ref agent.OutputTokens),
+                    citations.Valid, citations.Dangling);
             }
             catch (AgentBudgetExceededException budget)
             {
@@ -319,6 +339,88 @@ namespace NoSQL.GraphDB.Agents.Runtime
             finally
             {
                 linked?.Dispose();
+            }
+        }
+
+        /// <summary>
+        ///   Performs one tool call and records what it did.
+        ///
+        ///   <para>
+        ///     <b>This is the only place a tool call is observable.</b> The meter one layer down sees
+        ///     a model ASK for a tool; the framework's loop does the invoking. So the arguments as
+        ///     they arrived, the result as it came back, how long it took and whether it worked are
+        ///     visible here and nowhere else, which is why the invoker is replaced rather than
+        ///     wrapped.
+        ///   </para>
+        ///   <para>
+        ///     <b>A failure is recorded and then RETHROWN.</b> The framework turns it into a tool
+        ///     result the model reads, and that is what lets a model correct a malformed call, which
+        ///     the measured behaviour of the shipped agent model needs. Swallowing it here would
+        ///     leave the loop believing the call succeeded and returned nothing.
+        ///   </para>
+        /// </summary>
+        private async ValueTask<Object?> Invoke(AgentRecord agent, FunctionInvocationContext context,
+            CancellationToken cancellationToken)
+        {
+            var started = System.Diagnostics.Stopwatch.StartNew();
+            var call = context.CallContent;
+            var tool = context.Function?.Name ?? call?.Name ?? "(unnamed)";
+
+            // Serialized from the arguments the MODEL produced, not from the schema: the measured
+            // failure mode on a small model is arguments that echo the schema instead of filling
+            // it, and a reviewer needs to see exactly that.
+            var arguments = Describe(call?.Arguments);
+
+            try
+            {
+                var result = await context.Function!.InvokeAsync(context.Arguments, cancellationToken)
+                    .ConfigureAwait(false);
+
+                started.Stop();
+                _journal.ToolCall(agent, call?.CallId, tool, arguments, Describe(result),
+                    success: true, error: null, durationMs: started.ElapsedMilliseconds);
+                return result;
+            }
+            catch (Exception failure) when (failure is not OperationCanceledException)
+            {
+                started.Stop();
+                _journal.ToolCall(agent, call?.CallId, tool, arguments, result: null,
+                    success: false, error: failure.Message, durationMs: started.ElapsedMilliseconds);
+                throw;
+            }
+        }
+
+        /// <summary>
+        ///   A tool's arguments or result as text for the trace. JSON when it is structured, because
+        ///   that is what it was; <c>ToString</c> otherwise. Never throws: a capture that failed to
+        ///   serialize must not be able to fail the tool call it was describing.
+        /// </summary>
+        private static String? Describe(Object? value)
+        {
+            switch (value)
+            {
+                case null:
+                    return null;
+                case String text:
+                    return text;
+            }
+
+            try
+            {
+                return System.Text.Json.JsonSerializer.Serialize(value, NoSQL.GraphDB.Rest.RestSeam.JsonOptions);
+            }
+            catch (Exception)
+            {
+                // Deliberately broad: this is a capture for a human to read, and there is no failure
+                // here worth turning into the agent's failure.
+                try
+                {
+                    return value.ToString();
+                }
+                catch (Exception)
+                {
+                    return "(a value that could not be described)";
+                }
             }
         }
 

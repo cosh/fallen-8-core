@@ -293,19 +293,68 @@ deterministic in CI.
 
 Intent: "review what they are doing all the time", the observability half of the contract.
 
-- [ ] `AgentTrace`: bounded step buffer (modelCall with backend and model as reported, toolCall with
+> **DONE** (2026-09-10, branch `feature/agent-host`), except the conversation route, which is
+> DEFERRED with a recorded reason rather than built. Full suite green at 2658 passed, build clean,
+> OpenAPI snapshot regenerated with additions only.
+>
+> **The conversation route was the phase's real decision and the answer was "not ours to make
+> yet".** Microsoft Agent Framework owns how an agent interacts: a session holds the history and
+> another turn is one more `RunAsync` on it, which Phase 0 already proved. What
+> `POST .../messages` would add is three pieces of host bookkeeping the framework has no opinion on
+> - whether a parked agent holds a concurrency slot, what wall clock applies between turns, and what
+> makes an agent that can always take another message ever reach an ending. No client needs a second
+> turn today, so answering those would be guessing, and each guess would live in configuration
+> forever. Recorded as spec section 3.4a with the revisit trigger.
+>
+> **One correction carried in from Phase 1b:** the grounding check counts `[t:<name>]`, the tool's
+> own name, not `[t:<id>]`. No backend shows a tool-call id to a model, so the original marker asked
+> the model to invent one.
+>
+> **Two things the trace design turned up that the plan did not predict.** A capture has to be cut
+> on a UTF-8 CHARACTER boundary, not a byte index, or a truncated result is invalid UTF-8 and a
+> reviewer gets a replacement character instead of the text; and the drop marker has to REPLACE what
+> it reports on, because a marker appended past a full buffer grows it by one on every overflow,
+> which is a slow leak in the one structure that exists to be bounded. Both are pinned.
+
+- [x] `AgentTrace`: bounded step buffer (modelCall with backend and model as reported, toolCall with
   byte-capped captures and `truncated`/total bytes, message, spawn, citationCheck, state change;
-  drop-oldest marker); `GET .../trace`.
-- [ ] `AgentFeedDispatcher` + `GET /agent/feed` (SSE): change-feed frame conventions, keep-alive,
-  declarative `agents`/`kinds` filters (400 on junk), all six event kinds. The apiApp proxy gains
-  its streaming-forward arm and `GET /agents/feed`.
-- [ ] `POST .../messages` (202 with `messageId`; reply as `agentMessage` with `inReplyTo` on the
-  same session; 409 when the agent cannot accept input).
-- [ ] `GroundingCheck`: cited `[t:<id>]` ids counted against the trace; `citations` on detail and on
-  `agentCompleted`.
-- [ ] Tests: SSE frame format and filter grammar through the proxy via `WebApplicationFactory`;
-  trace bounding and byte caps; conversation round-trip on the fake client; citation counts
-  (valid, dangling, none); summaries truncated, no payloads.
+  drop-oldest marker); `GET .../trace`. Lives ON the agent record, so it is evicted exactly when the
+  agent is and there is no second lifetime to get wrong. The detail route carries a 20-step tail
+  plus the total, so a reader can tell a tail from a whole run. Provenance is per step, read off
+  each response rather than from the adapter's aggregate, which belongs to whichever call finished
+  last.
+- [x] `AgentFeedDispatcher` + `GET /agent/feed` (SSE): the change feed's own frame conventions, so a
+  client that reads one reads the other; keep-alive comments while idle; declarative `agents`/`kinds`
+  filters, 400 on junk with the accepted set named. An `agents` filter also admits the workers that
+  agent spawned, so subscribing to an orchestrator shows its swarm rather than its own two events.
+  The apiApp proxy gained its streaming-forward arm, which needed `HttpClient.Timeout` disarmed and
+  a per-call budget on the small arm instead: one number cannot serve a 30-second listing and a feed
+  that stays open for hours. Publishing never waits on a subscriber - a slow reader would otherwise
+  apply back-pressure to a model call - so a subscriber past `MaxQueuedEvents` is DROPPED rather
+  than silently thinned, and reconnects to the trace to catch up.
+- [ ] **DEFERRED, 2026-09-10.** `POST .../messages` (202 with `messageId`; reply as `agentMessage`
+  with `inReplyTo` on the same session; 409 when the agent cannot accept input). The framework
+  already does the interacting; the three undecided questions are the host's slot, clock and ending
+  policy, and no client needs a second turn yet. Reason and revisit trigger in spec section 3.4a.
+  The `agentMessage` event kind and the `message` trace step ship anyway, because the swarm phase
+  uses them for worker traffic.
+- [x] `GroundingCheck`: cited `[t:<name>]` tool names counted against the trace; `citations` on
+  detail and on `agentCompleted`. Names, not ids, for the reason Phase 1b measured. Occurrences
+  rather than distinct names, so an answer that cited its first figure and asserted the other nine
+  does not read as fully grounded. Lenient about the `#2` occurrence suffix and whitespace, because
+  a small model reproduces a format approximately and a real citation counted as absent is the worse
+  error; strict about the name, which is the part being checked.
+- [x] Tests, 42 of them. `AgentTraceTest` pins the bound (oldest dropped, marker carries the running
+  total, sequence numbers do not restart so a gap is the evidence, a marker cannot itself grow the
+  buffer), the byte caps (original size reported, cut on a character boundary, a surrogate pair kept
+  whole or dropped whole, null stays null), the citation counts (valid, dangling, none, occurrences,
+  the tolerated suffix, seven non-citations) and the filter grammar (unknown kind refused with the
+  set named, comma-separated or repeated, empty means everything, a parent id admits its workers).
+  `AgentEndpointTest` pins the SSE contract against the REAL host: the frame shape, `event:` per
+  kind, the counters on every event, no catch-up (the spawn happens after the subscribe), the kind
+  filter, keep-alives on an idle stream, the subscriber bound, and both proxy arms including that
+  the feed goes through the STREAMING one and a refusal reaches the caller as a refusal rather than
+  an empty stream. The conversation round-trip is not here, for the reason above.
 
 ## Phase 3: counters, budgets, metrics
 

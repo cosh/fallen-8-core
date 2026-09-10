@@ -169,6 +169,100 @@
         }
       }
     },
+    "/agents/feed": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Streams what every agent is doing, as Server-Sent Events (feature agent-host)",
+        "description": "The same frame conventions as this instance's change feed, so a client that reads one reads\r\n    the other: `id:`, `event:` and `data:` per event, with keep-alive comments while idle.\r\n    Every event carries the four counters, so a subscriber renders live cost without polling.\r\n    There is NO catch-up. A subscriber that connects late, or that is dropped for falling behind\r\n    the host's queue bound, has missed what it missed, and GET /agents/{id}/trace is how it finds\r\n    out what. Last-Event-ID is deliberately not honoured, because pretending to resume from a\r\n    position the host cannot replay would be worse than plainly not resuming.\r\n    A tool call's arguments and result travel as capped SUMMARIES, never full payloads. The trace\r\n    holds more, and past its own caps the graph is where the data is.",
+        "parameters": [
+          {
+            "name": "agents",
+            "in": "query",
+            "description": "Only these agent ids, comma-separated or repeated. An id also matches the workers it spawned, so subscribing to an orchestrator shows its swarm. Omitted means every agent",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "kinds",
+            "in": "query",
+            "description": "Only these event kinds: agentSpawned, agentStateChanged, agentMessage, toolCalled, agentCompleted, agentFailed. An unknown kind is a 400 naming the set, never a silently empty stream",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The SSE stream (text/event-stream); it stays open until the client disconnects",
+            "content": {
+              "text/event-stream": { }
+            }
+          },
+          "400": {
+            "description": "An unknown filter value, the host's own message naming the accepted set",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, it did not answer, or it has as many subscribers as it may",
+            "content": {
+              "text/event-stream": { }
+            }
+          }
+        }
+      }
+    },
     "/agents/status": {
       "get": {
         "tags": [
@@ -344,6 +438,87 @@
         "responses": {
           "202": {
             "description": "Accepted; the body carries the agent's final state and how many were signalled",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No such agent on this host",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}/trace": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Reads one agent's whole retained trace (feature agent-host)",
+        "description": "Every step the host still holds: each model call with the backend and model that served it\r\n    and the duration the HOST measured, each tool call with capped captures of what went in and came\r\n    back, the state changes, and the citation check. This is the catch-up mechanism for the event feed.\r\n    The trace is BOUNDED (Agents:Trace:MaxSteps) and drops the oldest steps, so\r\n    dropped being non-zero means this is not the whole run. It is never silent about that: a\r\n    dropped marker step sits where the missing steps were, and the sequence numbers do not\r\n    restart, so a gap is itself evidence.\r\n    Provenance is per STEP rather than per host, which is the point: a deployment that switches\r\n    backend mid-day shows it here.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The agent id a spawn returned",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The trace, as the host holds it",
             "content": {
               "application/json": { }
             }

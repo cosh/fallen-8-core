@@ -1,0 +1,501 @@
+// MIT License
+//
+// AgentTrace.cs
+//
+// Copyright (c) 2011-2026 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using System.Text.Json.Serialization;
+using System.Threading;
+
+namespace NoSQL.GraphDB.Agents.Runtime
+{
+    /// <summary>What a trace step records. Serialized as the camel-case names the API documents.</summary>
+    public enum TraceStepKind
+    {
+        /// <summary>The agent moved to a new state.</summary>
+        StateChanged = 0,
+
+        /// <summary>One model call, with the backend and model the instance reported for it.</summary>
+        ModelCall = 1,
+
+        /// <summary>One tool invocation, with capped captures of what went in and came back.</summary>
+        ToolCall = 2,
+
+        /// <summary>A message to or from the agent.</summary>
+        Message = 3,
+
+        /// <summary>This agent spawned another.</summary>
+        Spawn = 4,
+
+        /// <summary>The mechanical count of citations in the final text against the calls that
+        /// actually happened.</summary>
+        CitationCheck = 5,
+
+        /// <summary>Steps were dropped to stay inside the bound. Carries how many, so a reader can
+        /// tell a short trace from a truncated one.</summary>
+        Dropped = 6,
+    }
+
+    /// <summary>
+    ///   One step in an agent's trace.
+    ///
+    ///   <para>
+    ///     <b>One flat shape rather than a type per kind</b>, with absent fields omitted from the
+    ///     JSON. A reader gets the fields that apply to the kind in front of them and nothing else,
+    ///     and there is one definition of a step to keep in step with the API rather than seven. The
+    ///     cost is stated rather than hidden: which fields are meaningful depends on
+    ///     <see cref="Kind" />, and the doc comment on each says which kind it belongs to.
+    ///   </para>
+    /// </summary>
+    public sealed class TraceStep
+    {
+        /// <summary>Position in this agent's trace. Monotonic, and it does NOT restart when steps
+        /// are dropped, so a gap in the numbers is itself the evidence of a drop.</summary>
+        [JsonPropertyName("seq")]
+        public Int64 Seq
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("at")]
+        public DateTimeOffset At
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("kind")]
+        public String Kind { get; set; } = String.Empty;
+
+        /// <summary>How long the step took, as the HOST measured it. Not the backend's own reported
+        /// duration, which does not cover a remote provider's routing: one measured step reported
+        /// 45 ms for a call that took 41 seconds.</summary>
+        [JsonPropertyName("durationMs")]
+        public Int64? DurationMs
+        {
+            get; set;
+        }
+
+        // ---- modelCall
+
+        /// <summary>The backend that served this step, as the instance reported it. Per STEP, not
+        /// per host: a deployment that switches backend mid-day shows it here.</summary>
+        [JsonPropertyName("backend")]
+        public String? Backend
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("model")]
+        public String? Model
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("inputTokens")]
+        public Int64? InputTokens
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("outputTokens")]
+        public Int64? OutputTokens
+        {
+            get; set;
+        }
+
+        /// <summary>Present and true when the backend reported NO usage for this step, so the zeros
+        /// above are an absence rather than a measurement.</summary>
+        [JsonPropertyName("unreportedUsage")]
+        public Boolean? UnreportedUsage
+        {
+            get; set;
+        }
+
+        // ---- toolCall
+
+        [JsonPropertyName("toolCallId")]
+        public String? ToolCallId
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("tool")]
+        public String? Tool
+        {
+            get; set;
+        }
+
+        /// <summary>The arguments as the model produced them, capped at
+        /// <c>Agents:Trace:ArgsBytes</c>.</summary>
+        [JsonPropertyName("arguments")]
+        public String? Arguments
+        {
+            get; set;
+        }
+
+        /// <summary>The result, capped at <c>Agents:Trace:ResultBytes</c>.</summary>
+        [JsonPropertyName("result")]
+        public String? Result
+        {
+            get; set;
+        }
+
+        /// <summary>True when either capture was cut. Paired with the byte counts below, so a reader
+        /// knows both that it was cut and how much there was.</summary>
+        [JsonPropertyName("truncated")]
+        public Boolean? Truncated
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("argumentsBytes")]
+        public Int64? ArgumentsBytes
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("resultBytes")]
+        public Int64? ResultBytes
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("success")]
+        public Boolean? Success
+        {
+            get; set;
+        }
+
+        /// <summary>Why the invocation failed. Present only when <see cref="Success" /> is false, and
+        /// it is the framework's own message, which is what the model was told too.</summary>
+        [JsonPropertyName("error")]
+        public String? Error
+        {
+            get; set;
+        }
+
+        // ---- message
+
+        /// <summary><c>toAgent</c> or <c>fromAgent</c>.</summary>
+        [JsonPropertyName("direction")]
+        public String? Direction
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("messageId")]
+        public String? MessageId
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("inReplyTo")]
+        public String? InReplyTo
+        {
+            get; set;
+        }
+
+        /// <summary>The message text. Capped at <c>Agents:Trace:ResultBytes</c> like a tool result,
+        /// because it is the same kind of thing: something a reviewer reads rather than a payload
+        /// this host stores.</summary>
+        [JsonPropertyName("text")]
+        public String? Text
+        {
+            get; set;
+        }
+
+        // ---- stateChanged
+
+        [JsonPropertyName("state")]
+        public String? State
+        {
+            get; set;
+        }
+
+        /// <summary>Which budget ended the run. Present only on the state change into
+        /// <c>budgetExceeded</c>.</summary>
+        [JsonPropertyName("budget")]
+        public String? Budget
+        {
+            get; set;
+        }
+
+        // ---- spawn
+
+        [JsonPropertyName("childId")]
+        public String? ChildId
+        {
+            get; set;
+        }
+
+        // ---- citationCheck
+
+        /// <summary>Cited tool names that a call in this trace actually used.</summary>
+        [JsonPropertyName("validCitations")]
+        public Int32? ValidCitations
+        {
+            get; set;
+        }
+
+        /// <summary>Cited tool names with no matching call. Not proof of a lie, and the doc says so:
+        /// a dangling citation means the answer points at work this trace has no record of, which is
+        /// exactly what a reviewer should look at.</summary>
+        [JsonPropertyName("danglingCitations")]
+        public Int32? DanglingCitations
+        {
+            get; set;
+        }
+
+        // ---- dropped
+
+        [JsonPropertyName("droppedSteps")]
+        public Int64? DroppedSteps
+        {
+            get; set;
+        }
+
+        /// <summary>The host instance that produced this step. On the FIRST step of every trace, so
+        /// a reader comparing two traces can tell whether the same process produced them; nothing
+        /// here survives a restart.</summary>
+        [JsonPropertyName("hostInstanceId")]
+        public String? HostInstanceId
+        {
+            get; set;
+        }
+    }
+
+    /// <summary>
+    ///   One agent's trace: a bounded, in-order record of what it did.
+    ///
+    ///   <para>
+    ///     <b>Bounded by dropping the OLDEST, and never silently.</b> Past
+    ///     <c>Agents:Trace:MaxSteps</c> the front of the buffer goes and a marker step records how
+    ///     many, because review needs recency rather than an archive, and a trace that quietly lost
+    ///     its middle would let a reviewer believe they had the whole run. The sequence numbers do
+    ///     not restart, so a gap is itself evidence.
+    ///   </para>
+    ///   <para>
+    ///     Lives ON the agent record, so it is evicted exactly when the agent is and there is no
+    ///     second lifetime to get wrong.
+    ///   </para>
+    /// </summary>
+    public sealed class AgentTrace
+    {
+        private readonly Object _gate = new Object();
+        private readonly Queue<TraceStep> _steps = new Queue<TraceStep>();
+        private readonly Int32 _maxSteps;
+        private Int64 _sequence;
+        private Int64 _dropped;
+
+        public AgentTrace(Int32 maxSteps)
+        {
+            _maxSteps = maxSteps;
+        }
+
+        /// <summary>How many steps have EVER been recorded, including dropped ones. The
+        /// denominator for "am I looking at the whole run".</summary>
+        public Int64 Recorded => Volatile.Read(ref _sequence);
+
+        /// <summary>How many steps were dropped to stay inside the bound.</summary>
+        public Int64 Dropped => Volatile.Read(ref _dropped);
+
+        /// <summary>
+        ///   Appends a step, stamping its sequence and dropping the oldest if that is what the bound
+        ///   requires. Returns the step as recorded, so a caller that also publishes it to the feed
+        ///   publishes the same values rather than recomputing them.
+        /// </summary>
+        public TraceStep Record(TraceStep step, DateTimeOffset at)
+        {
+            if (step == null)
+            {
+                throw new ArgumentNullException(nameof(step));
+            }
+
+            lock (_gate)
+            {
+                step.Seq = ++_sequence;
+                step.At = at;
+                _steps.Enqueue(step);
+
+                if (_maxSteps > 0 && _steps.Count > _maxSteps)
+                {
+                    var went = 0L;
+                    while (_steps.Count > _maxSteps)
+                    {
+                        _steps.Dequeue();
+                        went++;
+                    }
+
+                    _dropped += went;
+
+                    // The marker replaces what it reports on, so it cannot itself push the buffer
+                    // over the bound: one dequeue makes room for it. It carries the RUNNING total
+                    // rather than this round's count, so the newest marker is the whole answer.
+                    if (_steps.Count > 0)
+                    {
+                        _steps.Dequeue();
+                        _dropped++;
+                    }
+
+                    _steps.Enqueue(new TraceStep
+                    {
+                        Seq = ++_sequence,
+                        At = at,
+                        Kind = TraceStepKinds.Wire(TraceStepKind.Dropped),
+                        DroppedSteps = _dropped,
+                    });
+                }
+
+                return step;
+            }
+        }
+
+        /// <summary>The steps this trace still holds, oldest first.</summary>
+        public IReadOnlyList<TraceStep> Steps()
+        {
+            lock (_gate)
+            {
+                return new List<TraceStep>(_steps);
+            }
+        }
+
+        /// <summary>The last <paramref name="count" /> steps, for the detail route, which shows a
+        /// tail rather than the whole trace.</summary>
+        public IReadOnlyList<TraceStep> Tail(Int32 count)
+        {
+            lock (_gate)
+            {
+                var all = new List<TraceStep>(_steps);
+                if (count <= 0 || all.Count <= count)
+                {
+                    return all;
+                }
+
+                return all.GetRange(all.Count - count, count);
+            }
+        }
+
+        /// <summary>
+        ///   Every tool NAME this trace records a call for, which is what the grounding check counts
+        ///   a citation against. Names rather than tool-call ids, because no backend shows a
+        ///   tool-call id to the model, so an id is not something it could cite.
+        /// </summary>
+        public IReadOnlyCollection<String> ToolsCalled()
+        {
+            lock (_gate)
+            {
+                var names = new HashSet<String>(StringComparer.OrdinalIgnoreCase);
+                foreach (var step in _steps)
+                {
+                    if (step.Tool != null)
+                    {
+                        names.Add(step.Tool);
+                    }
+                }
+
+                return names;
+            }
+        }
+    }
+
+    /// <summary>The wire spellings for a step kind, and the byte-capping every capture goes
+    /// through. Both live here because both are part of what a trace step IS.</summary>
+    public static class TraceStepKinds
+    {
+        public static String Wire(TraceStepKind kind)
+        {
+            return kind switch
+            {
+                TraceStepKind.StateChanged => "stateChanged",
+                TraceStepKind.ModelCall => "modelCall",
+                TraceStepKind.ToolCall => "toolCall",
+                TraceStepKind.Message => "message",
+                TraceStepKind.Spawn => "spawn",
+                TraceStepKind.CitationCheck => "citationCheck",
+                TraceStepKind.Dropped => "dropped",
+                _ => "unknown",
+            };
+        }
+
+        /// <summary>
+        ///   Caps a capture at <paramref name="maxBytes" /> and reports how big it really was.
+        ///
+        ///   <para>
+        ///     Cut on a UTF-8 CHARACTER boundary, not a byte index: a capture cut mid-sequence is
+        ///     invalid UTF-8, and a reviewer would get a replacement character or a serializer
+        ///     failure instead of the text. The byte count reported is of the ORIGINAL, which is the
+        ///     number that tells a reader how much they are not seeing.
+        ///   </para>
+        /// </summary>
+        public static String? Cap(String? text, Int32 maxBytes, out Int64 totalBytes, out Boolean truncated)
+        {
+            truncated = false;
+            totalBytes = 0;
+
+            if (text == null)
+            {
+                return null;
+            }
+
+            totalBytes = Encoding.UTF8.GetByteCount(text);
+            if (maxBytes <= 0 || totalBytes <= maxBytes)
+            {
+                return text;
+            }
+
+            // Walk characters until the next one would not fit, which keeps surrogate pairs whole
+            // because a pair is counted as the four bytes it encodes to.
+            var kept = new StringBuilder();
+            var used = 0;
+            var index = 0;
+            while (index < text.Length)
+            {
+                var runeLength = Char.IsHighSurrogate(text[index]) && index + 1 < text.Length
+                    && Char.IsLowSurrogate(text[index + 1]) ? 2 : 1;
+                var bytes = Encoding.UTF8.GetByteCount(text.AsSpan(index, runeLength));
+                if (used + bytes > maxBytes)
+                {
+                    break;
+                }
+
+                kept.Append(text, index, runeLength);
+                used += bytes;
+                index += runeLength;
+            }
+
+            truncated = true;
+            return kept.ToString();
+        }
+
+        /// <summary>The suffix a truncated capture carries, so a reader sees the cut rather than
+        /// inferring it from a flag they might not have looked at.</summary>
+        public static String Marker(Int64 totalBytes)
+        {
+            return String.Format(CultureInfo.InvariantCulture, "... [truncated, {0} bytes total]",
+                totalBytes);
+        }
+    }
+}

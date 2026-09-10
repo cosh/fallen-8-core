@@ -29,6 +29,7 @@ using System.Linq;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.Agents.Configuration;
@@ -66,8 +67,10 @@ namespace NoSQL.GraphDB.Agents.Hosting
             // literal segment either way. An agent id cannot be "status": ids are minted here.
             app.MapGet("/agent/status", (AgentRegistry registry, IAgentToolSource toolset,
                 ChatGatewayPosture posture, Fallen8ChatClient chat, RoleCatalog roles,
+                AgentFeedDispatcher feed,
                 IOptions<AgentsOptions> options, IOptions<Fallen8TargetOptions> target) =>
-                Results.Ok(Status(registry, toolset, posture, chat, roles, options.Value, target.Value)));
+                Results.Ok(Status(registry, toolset, posture, chat, roles, feed, options.Value,
+                    target.Value)));
 
             app.MapPost("/agent", (SpawnRequest? request, AgentRegistry registry, RoleCatalog roles,
                 AgentRunner runner, IOptions<AgentsOptions> options) =>
@@ -118,10 +121,35 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
             app.MapGet("/agent", (AgentRegistry registry) => Results.Ok(registry.All()));
 
+            // BEFORE /agent/{id}, and here the ordering is not merely conventional: "feed" would
+            // otherwise be a candidate agent id, and the router prefers the literal segment only
+            // because this route exists to be preferred.
+            app.MapGet("/agent/feed", (HttpContext context, AgentFeedDispatcher feed,
+                    IOptions<AgentsOptions> options,
+                    [FromQuery] String?[]? agents, [FromQuery] String?[]? kinds) =>
+                AgentFeedStream.WriteAsync(context, feed, options.Value, agents, kinds));
+
             app.MapGet("/agent/{id}", (String id, AgentRegistry registry) =>
                 registry.TrySummarize(id, out var summary)
                     ? Results.Ok(Detail(summary, registry))
                     : Problem(StatusCodes.Status404NotFound, NotFound(id)));
+
+            app.MapGet("/agent/{id}/trace", (String id, AgentRegistry registry) =>
+            {
+                if (!registry.TryGet(id, out var agent))
+                {
+                    return Problem(StatusCodes.Status404NotFound, NotFound(id));
+                }
+
+                return Results.Ok(new AgentTraceView
+                {
+                    AgentId = agent.Id,
+                    HostInstanceId = agent.HostInstanceId,
+                    Recorded = agent.Trace.Recorded,
+                    Dropped = agent.Trace.Dropped,
+                    Steps = agent.Trace.Steps(),
+                });
+            });
 
             app.MapDelete("/agent/{id}", (String id, AgentRegistry registry) =>
             {
@@ -151,9 +179,14 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 + "(Agents:Limits:RetainFinishedMinutes).", id);
         }
 
+        /// <summary>How many trace steps the detail route shows. A TAIL rather than the whole
+        /// trace, because detail is a summary view and the trace route is the whole one; the number
+        /// is a constant rather than configuration so a client knows what it will get.</summary>
+        private const Int32 DetailTraceSteps = 20;
+
         private static AgentDetail Detail(AgentSummary agent, AgentRegistry registry)
         {
-            return new AgentDetail
+            var detail = new AgentDetail
             {
                 Agent = agent,
                 Children = registry.All()
@@ -161,11 +194,34 @@ namespace NoSQL.GraphDB.Agents.Hosting
                     .Select(a => a.Id)
                     .ToList(),
             };
+
+            if (registry.TryGet(agent.Id, out var record))
+            {
+                detail.Trace = record.Trace.Tail(DetailTraceSteps);
+                detail.TraceRecorded = record.Trace.Recorded;
+
+                // The citation counts come off the trace's own citationCheck step rather than being
+                // recomputed, so the detail route and the feed event cannot disagree about a run
+                // that has already ended.
+                foreach (var step in detail.Trace)
+                {
+                    if (step.ValidCitations != null || step.DanglingCitations != null)
+                    {
+                        detail.Citations = new CitationCounts
+                        {
+                            Valid = step.ValidCitations ?? 0,
+                            Dangling = step.DanglingCitations ?? 0,
+                        };
+                    }
+                }
+            }
+
+            return detail;
         }
 
         private static HostStatus Status(AgentRegistry registry, IAgentToolSource toolset,
             ChatGatewayPosture posture, Fallen8ChatClient chat, RoleCatalog roles,
-            AgentsOptions options, Fallen8TargetOptions target)
+            AgentFeedDispatcher feed, AgentsOptions options, Fallen8TargetOptions target)
         {
             var seen = chat.LastSeen;
 
@@ -219,6 +275,13 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 },
                 ActiveAgents = registry.ActiveCount,
                 RetainedAgents = registry.RetainedCount,
+                Feed = new FeedStatus
+                {
+                    Subscribers = feed.SubscriberCount,
+                    Published = feed.Published,
+                    KeepAliveSeconds = options.Feed.KeepAliveSeconds,
+                    MaxSubscribers = options.Feed.MaxSubscribers,
+                },
             };
         }
 
@@ -288,7 +351,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
         }
     }
 
-    /// <summary>One agent, with the ids of the workers it spawned.</summary>
+    /// <summary>One agent, with the ids of the workers it spawned and the tail of its trace.</summary>
     public sealed class AgentDetail
     {
         [JsonPropertyName("agent")]
@@ -299,6 +362,84 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
         [JsonPropertyName("children")]
         public IReadOnlyList<String> Children { get; set; } = Array.Empty<String>();
+
+        /// <summary>The last steps of this agent's trace. A tail; <c>GET /agent/{id}/trace</c> is
+        /// the whole of what is retained.</summary>
+        [JsonPropertyName("trace")]
+        public IReadOnlyList<TraceStep> Trace { get; set; } = Array.Empty<TraceStep>();
+
+        /// <summary>How many steps this agent has recorded in total, including any dropped to stay
+        /// inside the trace bound. The denominator for "am I seeing the whole run".</summary>
+        [JsonPropertyName("traceRecorded")]
+        public Int64 TraceRecorded
+        {
+            get; set;
+        }
+
+        /// <summary>Absent until the run ended with a citation check. Absent is NOT zero: it means
+        /// no check was made, where zero means an answer cited nothing.</summary>
+        [JsonPropertyName("citations")]
+        public CitationCounts? Citations
+        {
+            get; set;
+        }
+    }
+
+    /// <summary>One agent's whole retained trace.</summary>
+    public sealed class AgentTraceView
+    {
+        [JsonPropertyName("agentId")]
+        public String AgentId { get; set; } = String.Empty;
+
+        /// <summary>Which run of the host produced these steps. Nothing here survives a restart.</summary>
+        [JsonPropertyName("hostInstanceId")]
+        public String HostInstanceId { get; set; } = String.Empty;
+
+        /// <summary>Steps ever recorded, including dropped ones.</summary>
+        [JsonPropertyName("recorded")]
+        public Int64 Recorded
+        {
+            get; set;
+        }
+
+        /// <summary>Steps dropped to stay inside <c>Agents:Trace:MaxSteps</c>. Non-zero means this
+        /// is not the whole run, and a <c>dropped</c> marker step says the same thing in place.</summary>
+        [JsonPropertyName("dropped")]
+        public Int64 Dropped
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("steps")]
+        public IReadOnlyList<TraceStep> Steps { get; set; } = Array.Empty<TraceStep>();
+    }
+
+    /// <summary>The feed's own posture, on the status route.</summary>
+    public sealed class FeedStatus
+    {
+        [JsonPropertyName("subscribers")]
+        public Int32 Subscribers
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("published")]
+        public Int64 Published
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("keepAliveSeconds")]
+        public Int32 KeepAliveSeconds
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("maxSubscribers")]
+        public Int32 MaxSubscribers
+        {
+            get; set;
+        }
     }
 
     /// <summary>What a cancel did. <c>signalled</c> counts the agent and its live descendants.</summary>
@@ -352,6 +493,12 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
         [JsonPropertyName("retainedAgents")]
         public Int32 RetainedAgents
+        {
+            get; set;
+        }
+
+        [JsonPropertyName("feed")]
+        public FeedStatus? Feed
         {
             get; set;
         }

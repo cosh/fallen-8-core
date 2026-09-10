@@ -57,15 +57,17 @@ namespace NoSQL.GraphDB.Agents.Runtime
         private readonly Dictionary<String, AgentRecord> _agents = new Dictionary<String, AgentRecord>(StringComparer.Ordinal);
         private readonly IOptions<AgentsOptions> _options;
         private readonly ILogger<AgentRegistry> _logger;
+        private readonly AgentJournal _journal;
         private readonly TimeProvider _clock;
         private Int64 _sequence;
         private Boolean _disposed;
 
         public AgentRegistry(IOptions<AgentsOptions> options, ILogger<AgentRegistry> logger,
-            TimeProvider? clock = null)
+            AgentJournal journal, TimeProvider? clock = null)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _journal = journal ?? throw new ArgumentNullException(nameof(journal));
             _clock = clock ?? TimeProvider.System;
 
             // Stamped once and carried by every agent this process runs. It is the answer to "is
@@ -158,10 +160,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     budget = limits.MaxTokenBudget;
                 }
 
-                agent = new AgentRecord(id, spawn.Role, spawn.Task)
+                agent = new AgentRecord(id, spawn.Role, spawn.Task, _journal.MaxSteps)
                 {
                     Name = String.IsNullOrWhiteSpace(spawn.Name) ? id : spawn.Name.Trim(),
                     ParentId = spawn.ParentId,
+                    Parent = spawn.ParentId == null ? null : _agents[spawn.ParentId],
                     TokenBudget = budget,
                     CreatedUtc = now,
                     LastActivityUtc = now,
@@ -169,8 +172,13 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 };
 
                 _agents[id] = agent;
-                return true;
             }
+
+            // Outside the lock: publishing an event releases a reader's continuations, and running
+            // those under this lock would put a subscriber's work on the admitting request's thread
+            // while every other registry operation waited behind it.
+            _journal.Spawned(agent);
+            return true;
         }
 
         /// <summary>The agent, live or retained.</summary>
@@ -261,6 +269,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     "An ending is recorded with Finish, which releases the agent's slot.", nameof(state));
             }
 
+            AgentRecord? moved;
             lock (_gate)
             {
                 if (!_agents.TryGetValue(id, out var agent) || AgentStates.IsTerminal(agent.State))
@@ -268,19 +277,36 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     return false;
                 }
 
+                if (agent.State == state)
+                {
+                    // Not a transition. Journaling it would put a step and an event in front of a
+                    // reviewer for something that did not happen.
+                    return true;
+                }
+
                 agent.State = state;
                 agent.LastActivityUtc = _clock.GetUtcNow();
-                return true;
+                moved = agent;
             }
+
+            _journal.StateChanged(moved);
+            return true;
         }
 
         /// <summary>
         ///   Records how an agent ended and releases its slot. The FIRST ending wins: a cancel that
         ///   arrives while a completion is being recorded finds an agent that already said how it
         ///   ended, and leaves it alone. False means exactly that, and it is not an error.
+        ///   <para>
+        ///     <c>citations</c> is the mechanical citation count, and only the runner can supply
+        ///     one: it is the only caller that has both the final text and the trace. A cancel
+        ///     passes none, and none is NOT zero - an ending with no citation check carries no
+        ///     citation counts at all, rather than reporting that an answer cited nothing.
+        ///   </para>
         /// </summary>
         public Boolean Finish(String id, AgentState ending, String? resultText = null,
-            String? failure = null, BudgetKind budget = BudgetKind.None)
+            String? failure = null, BudgetKind budget = BudgetKind.None,
+            CitationCounts? citations = null)
         {
             if (!AgentStates.IsTerminal(ending))
             {
@@ -305,6 +331,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 agent.LastActivityUtc = now;
                 finished = agent;
             }
+
+            // Journaled BEFORE the token is cancelled. The cancellation releases the runner's own
+            // finally, which is a competing writer to this agent's trace, so recording the ending
+            // first is what keeps it the last step of the run rather than a step in the middle.
+            _journal.Finished(finished, citations);
 
             // Outside the lock: cancelling the token runs continuations, and one of those is the
             // runner's own finally, which calls back in here.
@@ -532,12 +563,32 @@ namespace NoSQL.GraphDB.Agents.Runtime
     {
         private readonly CancellationTokenSource _cancellation = new CancellationTokenSource();
 
-        internal AgentRecord(String id, String role, String task)
+        internal AgentRecord(String id, String role, String task, Int32 maxTraceSteps)
         {
             Id = id;
             Role = role;
             Task = task;
             Name = id;
+            Trace = new AgentTrace(maxTraceSteps);
+        }
+
+        /// <summary>
+        ///   What this agent did, bounded. Lives here rather than in a store of its own so it is
+        ///   evicted exactly when the agent is: a trace whose agent has been forgotten is a leak
+        ///   nobody would notice, since this process keeps nothing durable.
+        /// </summary>
+        public AgentTrace Trace
+        {
+            get;
+        }
+
+        /// <summary>The agent that spawned this one, for the spawn step that belongs on ITS trace.
+        /// Null for anything a caller spawned. Holds a reference rather than looking the id up
+        /// again, because the parent may be evicted while this agent is still running and a spawn
+        /// step is worth keeping either way.</summary>
+        public AgentRecord? Parent
+        {
+            get; internal set;
         }
 
         public String Id

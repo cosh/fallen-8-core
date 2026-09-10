@@ -61,6 +61,26 @@ namespace NoSQL.GraphDB.App.Agents
         Task<SidecarResponse> ForwardAsync(HttpMethod method, String path, String jsonBody,
             CancellationToken cancellationToken);
 
+        /// <summary>
+        ///   Forwards a request whose answer is a STREAM, and copies it through to
+        ///   <paramref name="destination" /> as it arrives.
+        ///
+        ///   <para>
+        ///     Its own method rather than a flag on the one above, because everything about it
+        ///     differs: response-headers-read semantics so the answer is not buffered, no per-call
+        ///     deadline because a feed is open for as long as the client wants it, and a flush per
+        ///     event so a subscriber is not served in bursts. Sharing one method would mean the
+        ///     small routes inherited the missing deadline, which is the more dangerous direction.
+        ///   </para>
+        ///   <para>
+        ///     Returns the host's status and content type through <paramref name="onHeaders" /> BEFORE
+        ///     the body flows, because a refusal has to reach the caller as a refusal: a 400 naming
+        ///     a bad filter must not arrive as a 200 with an error in the stream.
+        ///   </para>
+        /// </summary>
+        Task StreamAsync(String path, Func<Int32, String, Task> onHeaders,
+            System.IO.Stream destination, CancellationToken cancellationToken);
+
         Task<Boolean> IsReachableAsync(CancellationToken cancellationToken);
     }
 
@@ -89,7 +109,20 @@ namespace NoSQL.GraphDB.App.Agents
                    TimeSpan.FromSeconds(Math.Max(1, Resolve(options).TimeoutSeconds)),
                    logger, "Agents", handler)
         {
+            _small = TimeSpan.FromSeconds(Math.Max(1, Resolve(options).TimeoutSeconds));
+
+            // HttpClient.Timeout is ONE number for the whole client and the two arms need
+            // different ones: a listing should not take 30 seconds, and a feed is open for as long
+            // as its subscriber wants it. So it is disarmed here and the small arm applies its own
+            // per call. Null when no endpoint is configured, which is the default: the base builds
+            // no client then and every call fails at the Configured check before reaching one.
+            if (Configured)
+            {
+                Http.Timeout = Timeout.InfiniteTimeSpan;
+            }
         }
+
+        private readonly TimeSpan _small;
 
         private static Fallen8AgentsOptions Resolve(IOptions<Fallen8AgentsOptions> options)
             => options.Value ?? new Fallen8AgentsOptions();
@@ -109,29 +142,90 @@ namespace NoSQL.GraphDB.App.Agents
                     "No agent-host endpoint is configured (Fallen8:Agents:Endpoint).");
             }
 
+            using (var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                budget.CancelAfter(_small);
+                try
+                {
+                    using (var request = new HttpRequestMessage(method, path))
+                    {
+                        if (jsonBody != null)
+                        {
+                            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                        }
+
+                        using (var response = await Http.SendAsync(request, budget.Token))
+                        {
+                            // Read as TEXT, never deserialized: the body belongs to the host's
+                            // contract and this hop must not be able to change what it says.
+                            var body = await response.Content.ReadAsStringAsync(budget.Token);
+                            return new SidecarResponse((Int32)response.StatusCode, body,
+                                response.Content.Headers.ContentType?.ToString());
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    // The CALLER went away. Their own cancellation is not a sidecar failure and must
+                    // not be reported as one.
+                    throw;
+                }
+                catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException)
+                {
+                    throw new AgentsUnavailableException(
+                        String.Format("The agent host did not answer ({0}).", ex.Message), ex);
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task StreamAsync(String path, Func<Int32, String, Task> onHeaders,
+            System.IO.Stream destination, CancellationToken cancellationToken)
+        {
+            if (!Configured)
+            {
+                throw new AgentsUnavailableException(
+                    "No agent-host endpoint is configured (Fallen8:Agents:Endpoint).");
+            }
+
             try
             {
-                using (var request = new HttpRequestMessage(method, path))
+                using (var request = new HttpRequestMessage(HttpMethod.Get, path))
                 {
-                    if (jsonBody != null)
+                    // ResponseHeadersRead, which is the whole point: the default buffers the entire
+                    // response before returning, and an event feed never ends, so the default would
+                    // hold this call open forever and deliver nothing.
+                    using (var response = await Http.SendAsync(request,
+                        HttpCompletionOption.ResponseHeadersRead, cancellationToken))
                     {
-                        request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
-                    }
-
-                    using (var response = await Http.SendAsync(request, cancellationToken))
-                    {
-                        // Read as TEXT, never deserialized: the body belongs to the host's contract
-                        // and this hop must not be able to change what it says.
-                        var body = await response.Content.ReadAsStringAsync(cancellationToken);
-                        return new SidecarResponse((Int32)response.StatusCode, body,
+                        await onHeaders((Int32)response.StatusCode,
                             response.Content.Headers.ContentType?.ToString());
+
+                        using (var body = await response.Content.ReadAsStreamAsync(cancellationToken))
+                        {
+                            // A small buffer and a flush per read, so an event reaches the browser
+                            // when the host wrote it. A large buffer would reintroduce exactly the
+                            // burstiness DisableBuffering exists to remove.
+                            var chunk = new Byte[4096];
+                            while (true)
+                            {
+                                var read = await body.ReadAsync(chunk, cancellationToken);
+                                if (read <= 0)
+                                {
+                                    break;
+                                }
+
+                                await destination.WriteAsync(chunk.AsMemory(0, read), cancellationToken);
+                                await destination.FlushAsync(cancellationToken);
+                            }
+                        }
                     }
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                // The CALLER went away. Their own cancellation is not a sidecar failure and must not
-                // be reported as one.
+                // The CALLER closed the stream. That is how a feed subscription normally ends, and
+                // it is not a sidecar failure.
                 throw;
             }
             catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException)

@@ -114,9 +114,12 @@ namespace NoSQL.GraphDB.Tests
             var wrapped = Options.Create(options);
             var chat = new Fallen8ChatClient(http, TimeSpan.FromSeconds(600));
             var roles = RoleCatalog.Load(options);
+            using var feed = new AgentFeedDispatcher(wrapped,
+                TestLoggerFactory.Create().CreateLogger<AgentFeedDispatcher>());
+            var journal = new AgentJournal(feed, wrapped);
             using var registry = new AgentRegistry(wrapped,
-                TestLoggerFactory.Create().CreateLogger<AgentRegistry>());
-            var runner = new AgentRunner(registry, roles, new SingleTool(tool), chat, wrapped,
+                TestLoggerFactory.Create().CreateLogger<AgentRegistry>(), journal);
+            var runner = new AgentRunner(registry, roles, new SingleTool(tool), chat, journal, wrapped,
                 TestLoggerFactory.Create());
 
             Assert.IsTrue(registry.TryAdmit(
@@ -149,6 +152,16 @@ namespace NoSQL.GraphDB.Tests
             // zero for a real tool call, so the flag is the honest reading and the counters are a
             // floor.
             Assert.IsTrue(Interlocked.Read(ref agent.InputTokens) >= 0);
+
+            // The trace is what a reviewer reads afterwards, so a live run has to have produced one
+            // with the shape of what happened: a model call naming what served it, and the tool call
+            // in between.
+            var steps = agent.Trace.Steps();
+            Assert.IsTrue(steps.Any(s => s.Kind == "modelCall" && s.Backend != null && s.Model != null),
+                "no model call in the trace named the backend and model that served it");
+            Assert.IsTrue(steps.Any(s => s.Kind == "toolCall" && s.Tool == "count_vertices"
+                    && s.Success == true),
+                "the tool call this run made is not in its trace as a success");
         }
 
         private static String Env(String name)

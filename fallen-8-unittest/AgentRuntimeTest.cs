@@ -719,10 +719,28 @@ namespace NoSQL.GraphDB.Tests
 
                 Client = new ScriptedChatClient(script);
                 _roles = RoleCatalog.Load(resolved);
+
+                // The real feed and the real journal, not fakes: the trace and the events are part
+                // of what a run DOES, so a harness that stubbed them would leave every assertion
+                // about them meaningless.
+                Feed = new AgentFeedDispatcher(wrapped,
+                    TestLoggerFactory.Create().CreateLogger<AgentFeedDispatcher>());
+                Journal = new AgentJournal(Feed, wrapped, clock);
+
                 Registry = new AgentRegistry(wrapped,
-                    TestLoggerFactory.Create().CreateLogger<AgentRegistry>(), clock);
-                Runner = new AgentRunner(Registry, _roles, new FixedToolSource(tools), Client, wrapped,
-                    TestLoggerFactory.Create());
+                    TestLoggerFactory.Create().CreateLogger<AgentRegistry>(), Journal, clock);
+                Runner = new AgentRunner(Registry, _roles, new FixedToolSource(tools), Client, Journal,
+                    wrapped, TestLoggerFactory.Create());
+            }
+
+            public AgentFeedDispatcher Feed
+            {
+                get;
+            }
+
+            public AgentJournal Journal
+            {
+                get;
             }
 
             public AgentRegistry Registry
@@ -749,6 +767,7 @@ namespace NoSQL.GraphDB.Tests
             public void Dispose()
             {
                 Registry.Dispose();
+                Feed.Dispose();
                 Client.Dispose();
             }
         }

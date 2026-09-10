@@ -165,6 +165,106 @@ namespace NoSQL.GraphDB.App.Controllers
         }
 
         /// <summary>
+        /// Streams what every agent is doing, as Server-Sent Events (feature agent-host)
+        /// </summary>
+        /// <param name="agents">Only these agent ids, comma-separated or repeated. An id also matches the workers it spawned, so subscribing to an orchestrator shows its swarm. Omitted means every agent</param>
+        /// <param name="kinds">Only these event kinds: agentSpawned, agentStateChanged, agentMessage, toolCalled, agentCompleted, agentFailed. An unknown kind is a 400 naming the set, never a silently empty stream</param>
+        /// <param name="cancellationToken">Ends the stream when the subscriber disconnects, which is how a feed normally ends</param>
+        /// <remarks>The same frame conventions as this instance's change feed, so a client that reads one reads
+        /// the other: <c>id:</c>, <c>event:</c> and <c>data:</c> per event, with keep-alive comments while idle.
+        /// Every event carries the four counters, so a subscriber renders live cost without polling.
+        /// <para>There is NO catch-up. A subscriber that connects late, or that is dropped for falling behind
+        /// the host's queue bound, has missed what it missed, and <c>GET /agents/{id}/trace</c> is how it finds
+        /// out what. <c>Last-Event-ID</c> is deliberately not honoured, because pretending to resume from a
+        /// position the host cannot replay would be worse than plainly not resuming.</para>
+        /// <para>A tool call's arguments and result travel as capped SUMMARIES, never full payloads. The trace
+        /// holds more, and past its own caps the graph is where the data is.</para></remarks>
+        /// <response code="200">The SSE stream (text/event-stream); it stays open until the client disconnects</response>
+        /// <response code="400">An unknown filter value, the host's own message naming the accepted set</response>
+        /// <response code="401">No valid credential was supplied, or agents are off on an instance with no API key</response>
+        /// <response code="403">Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance</response>
+        /// <response code="503">No host is configured, it did not answer, or it has as many subscribers as it may</response>
+        [HttpGet("/agents/feed")]
+        [Produces("text/event-stream")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public async Task<IActionResult> Feed([FromQuery] String[] agents, [FromQuery] String[] kinds,
+            CancellationToken cancellationToken)
+        {
+            var query = Query(("agents", agents), ("kinds", kinds));
+
+            try
+            {
+                await _client.StreamAsync("agent/feed" + query, async (status, contentType) =>
+                {
+                    Response.StatusCode = status;
+                    Response.ContentType = String.IsNullOrEmpty(contentType)
+                        ? "text/event-stream"
+                        : contentType;
+
+                    // Buffering off on THIS hop too. Disabling it on the host alone is not enough:
+                    // a buffer here would re-batch events the host flushed one at a time, and the
+                    // feed would arrive in bursts for a reason no one could see.
+                    HttpContext.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpResponseBodyFeature>()
+                        ?.DisableBuffering();
+                    await Response.Body.FlushAsync(cancellationToken);
+                }, Response.Body, cancellationToken);
+            }
+            catch (AgentsUnavailableException ex)
+            {
+                // Only reachable BEFORE the host answered. Once the stream is open the status is
+                // already sent, so a later failure can only end the stream, which is what a
+                // subscriber's reconnect is for.
+                if (!Response.HasStarted)
+                {
+                    return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
+                        "Agent host unavailable", ex.Message);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // The subscriber disconnected. That is how a feed normally ends.
+            }
+
+            return new EmptyResult();
+        }
+
+        /// <summary>
+        /// Reads one agent's whole retained trace (feature agent-host)
+        /// </summary>
+        /// <param name="id">The agent id a spawn returned</param>
+        /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
+        /// <remarks>Every step the host still holds: each model call with the backend and model that served it
+        /// and the duration the HOST measured, each tool call with capped captures of what went in and came
+        /// back, the state changes, and the citation check. This is the catch-up mechanism for the event feed.
+        /// <para>The trace is BOUNDED (<c>Agents:Trace:MaxSteps</c>) and drops the oldest steps, so
+        /// <c>dropped</c> being non-zero means this is not the whole run. It is never silent about that: a
+        /// <c>dropped</c> marker step sits where the missing steps were, and the sequence numbers do not
+        /// restart, so a gap is itself evidence.</para>
+        /// <para>Provenance is per STEP rather than per host, which is the point: a deployment that switches
+        /// backend mid-day shows it here.</para></remarks>
+        /// <response code="200">The trace, as the host holds it</response>
+        /// <response code="401">No valid credential was supplied, or agents are off on an instance with no API key</response>
+        /// <response code="403">Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance</response>
+        /// <response code="404">No such agent on this host</response>
+        /// <response code="503">No host is configured, or it did not answer</response>
+        [HttpGet("/agents/{id}/trace")]
+        [Produces("application/json")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+        [ProducesResponseType(StatusCodes.Status403Forbidden)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+        public Task<IActionResult> Trace(String id, CancellationToken cancellationToken)
+        {
+            return Forward(HttpMethod.Get,
+                "agent/" + Uri.EscapeDataString(id ?? String.Empty) + "/trace", null, cancellationToken);
+        }
+
+        /// <summary>
         /// Reads one agent (feature agent-host)
         /// </summary>
         /// <param name="id">The agent id a spawn returned</param>
@@ -250,6 +350,33 @@ namespace NoSQL.GraphDB.App.Controllers
                     ? "application/json"
                     : response.ContentType
             };
+        }
+
+        /// <summary>
+        ///   The caller's repeated query values, re-encoded for the host. Rebuilt rather than
+        ///   forwarded verbatim: this action's own bound parameters are the only values that reach
+        ///   the host, so a caller cannot append anything the proxy did not declare.
+        /// </summary>
+        private static String Query(params (String Name, String[] Values)[] parameters)
+        {
+            var parts = new System.Collections.Generic.List<String>();
+            foreach (var (name, values) in parameters)
+            {
+                if (values == null)
+                {
+                    continue;
+                }
+
+                foreach (var value in values)
+                {
+                    if (!String.IsNullOrEmpty(value))
+                    {
+                        parts.Add(name + "=" + Uri.EscapeDataString(value));
+                    }
+                }
+            }
+
+            return parts.Count == 0 ? String.Empty : "?" + String.Join("&", parts);
         }
     }
 }

@@ -105,6 +105,12 @@ namespace NoSQL.GraphDB.Agents.Hosting
             services.AddSingleton<Microsoft.Extensions.AI.IChatClient>(provider =>
                 provider.GetRequiredService<Fallen8ChatClient>());
 
+            // The feed is a singleton because it IS the host's broadcast; the journal wraps it so
+            // there is one call site per fact rather than a caller remembering to write both the
+            // trace and the event.
+            services.AddSingleton<AgentFeedDispatcher>();
+            services.AddSingleton<AgentJournal>();
+
             services.AddSingleton<McpToolset>();
             services.AddSingleton<IAgentToolSource>(provider => provider.GetRequiredService<McpToolset>());
             services.AddSingleton<ChatGatewayPosture>();

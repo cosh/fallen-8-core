@@ -64,6 +64,12 @@ namespace NoSQL.GraphDB.Agents.Configuration
         /// <summary>The caps every run is held to.</summary>
         public LimitsOptions Limits { get; set; } = new LimitsOptions();
 
+        /// <summary>What a run records about itself.</summary>
+        public TraceOptions Trace { get; set; } = new TraceOptions();
+
+        /// <summary>How the event feed is delivered.</summary>
+        public FeedOptions Feed { get; set; } = new FeedOptions();
+
         /// <summary>
         ///   Per-role configuration, keyed by role name (<c>assistant</c>, <c>orchestrator</c>,
         ///   <c>worker</c>), so a leaf is <c>Agents:Roles:&lt;role&gt;:Tools</c>.
@@ -78,6 +84,65 @@ namespace NoSQL.GraphDB.Agents.Configuration
         /// </summary>
         public Dictionary<String, RoleOptions> Roles { get; set; } =
             new Dictionary<String, RoleOptions>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        ///   What a run records about itself, and what it refuses to record.
+        ///
+        ///   <para>
+        ///     <b>Every number here is a ceiling rather than a target, and the reason is the same
+        ///     one in all three cases: a trace is for REVIEW, and review needs recency and shape,
+        ///     not an archive.</b> An agent that ran for an hour against a graph can produce results
+        ///     measured in megabytes, and holding all of it in a process that keeps nothing durable
+        ///     would trade the thing the trace is for against the thing it costs.
+        ///   </para>
+        /// </summary>
+        public sealed class TraceOptions
+        {
+            /// <summary>Steps one agent's trace holds. Past this the OLDEST are dropped and a marker
+            /// step records how many went, so a reader can tell a short run from a truncated one.
+            /// A non-positive value switches the bound off.</summary>
+            public Int32 MaxSteps { get; set; } = 1000;
+
+            /// <summary>Bytes of a tool call's ARGUMENTS kept. Small, because arguments are a model's
+            /// output and a model can be talked into putting anything in them.</summary>
+            public Int32 ArgsBytes { get; set; } = 2048;
+
+            /// <summary>
+            ///   Bytes of a tool call's RESULT kept. Larger than the arguments, because this is what a
+            ///   reviewer checks an answer against, and it is the graph's data rather than the model's.
+            ///   <para>
+            ///     Still a small fraction of what a graph read can return, which is the honest
+            ///     position: the trace records that a call happened, with what, and what came back
+            ///     in outline. A caller who needs the whole result asks the graph again.
+            ///   </para>
+            /// </summary>
+            public Int32 ResultBytes { get; set; } = 8192;
+        }
+
+        /// <summary>How the event feed is delivered.</summary>
+        public sealed class FeedOptions
+        {
+            /// <summary>How often an idle stream sends a keep-alive comment. It bounds
+            /// dead-connection detection and defeats a proxy's idle timeout, which is why an idle
+            /// feed is never silent.</summary>
+            public Int32 KeepAliveSeconds { get; set; } = 15;
+
+            /// <summary>
+            ///   Concurrent feed subscribers. Bounded because each one holds a queue, and an
+            ///   unbounded number of them is an unbounded amount of memory in a process that a
+            ///   caller can open connections to.
+            /// </summary>
+            public Int32 MaxSubscribers { get; set; } = 16;
+
+            /// <summary>
+            ///   Events one subscriber may fall behind by. Past this the subscriber is DROPPED
+            ///   rather than the events being discarded silently, because a feed that quietly
+            ///   skipped events would let a reader believe they saw everything. A dropped
+            ///   subscriber reconnects and reads the trace to catch up, which is the documented
+            ///   catch-up mechanism.
+            /// </summary>
+            public Int32 MaxQueuedEvents { get; set; } = 512;
+        }
 
         /// <summary>What one role may do.</summary>
         public sealed class RoleOptions
