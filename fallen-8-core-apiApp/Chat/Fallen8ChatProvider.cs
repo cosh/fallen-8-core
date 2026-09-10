@@ -182,7 +182,12 @@ namespace NoSQL.GraphDB.App.Chat
                     String.Format("The chat backend '{0}' failed to generate: {1}", _options.Backend, ex.Message), ex);
             }
 
-            if (result == null || String.IsNullOrEmpty(result.Content))
+            // Empty content is a VALID answer when the model asked for a tool instead of
+            // replying, which is the ordinary shape of a tool-calling turn. Only an answer that is
+            // empty AND asks for nothing is unusable - and that distinction is the whole reason
+            // this is not simply a content check.
+            if (result == null
+                || (String.IsNullOrEmpty(result.Content) && (result.ToolCalls == null || result.ToolCalls.Count == 0)))
             {
                 throw new ChatProviderOutputException("The chat backend returned an empty response.");
             }

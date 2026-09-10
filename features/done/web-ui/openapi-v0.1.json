@@ -18255,9 +18255,6 @@
         "description": "Top-N names by count plus the distinct total. Sampling honestly UNDERCOUNTS\r\n    distinct values: when sampled=true, distinctTotal is distinct-within-the-sample - the\r\n    DTO documents that rather than pretending to estimate."
       },
       "ChatMessageSpecification": {
-        "required": [
-          "content"
-        ],
         "type": "object",
         "properties": {
           "role": {
@@ -18273,8 +18270,26 @@
               "null",
               "string"
             ],
-            "description": "The message content.",
+            "description": "The message content. Required on every role EXCEPT an `assistant` turn that\r\ncarries `toolCalls`: a model that decided to call a tool said nothing else, and\r\nthat turn still has to be replayed or the next turn answers a call nobody can see.",
             "example": "Draft a vertex filter for label person"
+          },
+          "toolCalls": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChatToolCallREST"
+            },
+            "description": "On an `assistant` turn, the calls that turn made, replayed so the model sees its\r\nown decision. Ignored on any other role."
+          },
+          "toolCallId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "On a `tool` turn, which call this result answers, taken from the\r\n`toolCalls` the assistant produced. Required on that role: all three providers\r\ndemand it, and a result nobody can match is a result the model cannot use.",
+            "example": "call_1"
           }
         },
         "description": "One chat turn."
@@ -18429,7 +18444,17 @@
               "null",
               "string"
             ],
-            "description": "The assistant message content."
+            "description": "The assistant message content. EMPTY when the model answered with tool calls\r\n    instead of text, which is the ordinary shape of a tool-calling turn."
+          },
+          "toolCalls": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChatToolCallREST"
+            },
+            "description": "The calls the model wants made, in the order it asked. ABSENT rather than null when it\r\njust answered, so a caller that never offered tools sees the response it always saw.\r\nRun them, then send the results back as `tool` messages carrying the matching\r\n`toolCallId` - the server ran nothing and remembers nothing."
           },
           "model": {
             "type": [
@@ -18481,6 +18506,16 @@
             ],
             "description": "      What the completion is FOR, which is how the server picks the model that serves it:\r\n      `assist` (the default) or `agent`. It names a JOB and never a model, so the\r\n      server still owns every model name and no client can choose one.\r\n      Omit it and nothing changes: the request behaves exactly as it did before purposes\r\nexisted. A value that is neither name is refused with a 400 listing both, rather than\r\nfalling back to assist - answering a tool-calling agent with the model trained\r\nto emit one C# fragment would look like an answer and be useless.",
             "example": "assist"
+          },
+          "tools": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChatToolSpecification"
+            },
+            "description": "      The tools the model may call on this request. Omit them and the request is a plain\r\n      completion, which is what every caller before agents sent.\r\n      Offering a tool does not run it. The model answers with toolCalls, the CALLER\r\nruns them and sends the results back as tool messages carrying\r\ntoolCallId; the server holds no conversation state and executes nothing.\r\nWhether the configured model can call tools at all is the model's property, not\r\nthis field's - the assist fine-tune cannot, which is what the agent purpose\r\nexists for."
           }
         },
         "description": "A chat completion request proxied to the instance's model backend (feature\r\n    instance-config). The model is SERVER-owned (the selected backend's own `Model`\r\n    setting); there is no client model field.",
@@ -18538,6 +18573,76 @@
           }
         },
         "description": "Generation stats forwarded from the backend."
+      },
+      "ChatToolCallREST": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The id this call is matched by. Send it back as `toolCallId` on the\r\n    `tool` message carrying the result.",
+            "example": "call_1"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The tool the model chose.",
+            "example": "count_vertices"
+          },
+          "arguments": {
+            "description": "The arguments the model produced, as it produced them.",
+            "examples": [
+              {
+                "namespace": "default"
+              }
+            ],
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "description": "One call to a tool, in either direction: what the model wants run, and on a later\r\n    turn what it already asked for."
+      },
+      "ChatToolSpecification": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The tool's name, which the model repeats back in a call.",
+            "example": "count_vertices"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "What the tool does and when to use it. This is the whole of what the model\r\n    knows about it, so a vague sentence is a tool that gets called wrongly.",
+            "example": "Count the vertices in one namespace."
+          },
+          "parameters": {
+            "description": "A JSON Schema object describing the arguments. Passed to the provider as given:\r\nnothing here validates it, and nothing validates the arguments a model produces\r\nagainst it either, because the caller runs the tool and is the only party that knows\r\nwhat its arguments mean.",
+            "examples": [
+              {
+                "type": "object",
+                "properties": {
+                  "namespace": {
+                    "type": "string"
+                  }
+                }
+              }
+            ],
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "description": "One tool offered to the model: a name, a sentence saying when to use it, and a\r\n    JSON Schema for its arguments."
       },
       "ChunkHitREST": {
         "type": "object",
