@@ -46,6 +46,31 @@ namespace NoSQL.GraphDB.Agents.Hosting
         /// <summary>The named transport that reaches the Fallen-8 chat gateway.</summary>
         public const String ChatClientName = "fallen8-chat";
 
+        /// <summary>
+        ///   How this host serializes its OWN contract: the trace steps, the feed events and the
+        ///   control-plane bodies.
+        ///
+        ///   <para>
+        ///     Absent fields are OMITTED, and that is load-bearing rather than tidiness. A trace step
+        ///     and a feed event are deliberately one flat shape each with a <c>kind</c> that says
+        ///     which fields apply, so writing the inapplicable ones as null makes a reader work out
+        ///     which nulls mean "not this kind" and which mean "this kind, no value". Measured before
+        ///     the change, roughly two thirds of every feed frame was nulls, on a stream whose whole
+        ///     point is to be cheap to watch.
+        ///   </para>
+        ///   <para>
+        ///     Its own instance and NOT <c>RestSeam.JsonOptions</c>: that one is the shared wire
+        ///     format three deployables speak against the instance's REST contract, it is sealed on
+        ///     first use, and retuning it here would change their wire format too.
+        ///   </para>
+        /// </summary>
+        public static readonly System.Text.Json.JsonSerializerOptions Json =
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)
+            {
+                DefaultIgnoreCondition =
+                    System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+            };
+
         /// <summary>Registers everything the host needs.</summary>
         public static IServiceCollection AddFallen8Agents(IServiceCollection services,
             IConfiguration configuration)
@@ -59,6 +84,15 @@ namespace NoSQL.GraphDB.Agents.Hosting
             {
                 throw new ArgumentNullException(nameof(configuration));
             }
+
+            // The control-plane routes serialize with the host's own options, so the trace and the
+            // feed agree about omitting absent fields rather than one route doing it and the other
+            // not.
+            services.ConfigureHttpJsonOptions(json =>
+            {
+                json.SerializerOptions.DefaultIgnoreCondition =
+                    System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull;
+            });
 
             services.Configure<AgentsOptions>(configuration.GetSection(AgentsOptions.SectionName));
             services.Configure<Fallen8TargetOptions>(

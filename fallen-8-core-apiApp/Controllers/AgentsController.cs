@@ -31,6 +31,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Agents;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Helper;
@@ -73,10 +74,13 @@ namespace NoSQL.GraphDB.App.Controllers
     public class AgentsController : ControllerBase
     {
         private readonly IAgentsClient _client;
+        private readonly ILogger<AgentsController> _logger;
 
-        public AgentsController(IAgentsClient client)
+        public AgentsController(IAgentsClient client,
+            ILogger<AgentsController> logger)
         {
             _client = client;
+            _logger = logger;
         }
 
         /// <summary>
@@ -205,6 +209,11 @@ namespace NoSQL.GraphDB.App.Controllers
                         ? "text/event-stream"
                         : contentType;
 
+                    // The host sets this and it has to survive the hop, or an intermediary between
+                    // the browser and this instance may cache a stream. The change feed sets the
+                    // same header, and a client is entitled to find the two alike.
+                    Response.Headers.CacheControl = "no-cache";
+
                     // Buffering off on THIS hop too. Disabling it on the host alone is not enough:
                     // a buffer here would re-batch events the host flushed one at a time, and the
                     // feed would arrive in bursts for a reason no one could see.
@@ -215,14 +224,19 @@ namespace NoSQL.GraphDB.App.Controllers
             }
             catch (AgentsUnavailableException ex)
             {
-                // Only reachable BEFORE the host answered. Once the stream is open the status is
-                // already sent, so a later failure can only end the stream, which is what a
-                // subscriber's reconnect is for.
+                // Reported as a 503 only while the response has not started. Once the stream is
+                // open the status is already sent, so a host that dies mid-stream can only END the
+                // stream, and a subscriber's reconnect is what handles that. Logged either way, so
+                // a dead sidecar is not silent just because it died late.
                 if (!Response.HasStarted)
                 {
                     return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
                         "Agent host unavailable", ex.Message);
                 }
+
+                _logger.LogWarning(ex,
+                    "The agent host stopped answering while a feed stream was open; the subscriber's "
+                    + "stream ends and it should reconnect.");
             }
             catch (OperationCanceledException)
             {

@@ -125,9 +125,10 @@ namespace NoSQL.GraphDB.Agents.Hosting
             // otherwise be a candidate agent id, and the router prefers the literal segment only
             // because this route exists to be preferred.
             app.MapGet("/agent/feed", (HttpContext context, AgentFeedDispatcher feed,
-                    IOptions<AgentsOptions> options,
+                    AgentRegistry registry, IOptions<AgentsOptions> options,
                     [FromQuery] String?[]? agents, [FromQuery] String?[]? kinds) =>
-                AgentFeedStream.WriteAsync(context, feed, options.Value, agents, kinds));
+                AgentFeedStream.WriteAsync(context, feed, options.Value, registry.HostInstanceId,
+                    agents, kinds));
 
             app.MapGet("/agent/{id}", (String id, AgentRegistry registry) =>
                 registry.TrySummarize(id, out var summary)
@@ -141,13 +142,17 @@ namespace NoSQL.GraphDB.Agents.Hosting
                     return Problem(StatusCodes.Status404NotFound, NotFound(id));
                 }
 
+                // One snapshot under one lock. Reading the rows and the two totals separately let
+                // a single response contradict itself: a step list that did not match the numbers
+                // printed beside it, on the route whose job is to be the trustworthy record.
+                var view = agent.Trace.View();
                 return Results.Ok(new AgentTraceView
                 {
                     AgentId = agent.Id,
                     HostInstanceId = agent.HostInstanceId,
-                    Recorded = agent.Trace.Recorded,
-                    Dropped = agent.Trace.Dropped,
-                    Steps = agent.Trace.Steps(),
+                    Recorded = view.Recorded,
+                    Dropped = view.Dropped,
+                    Steps = view.Steps,
                 });
             });
 

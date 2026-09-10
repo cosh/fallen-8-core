@@ -33,7 +33,6 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using NoSQL.GraphDB.Agents.Configuration;
 using NoSQL.GraphDB.Agents.Runtime;
-using NoSQL.GraphDB.Rest;
 
 namespace NoSQL.GraphDB.Agents.Hosting
 {
@@ -61,7 +60,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
         private static readonly Byte[] KeepAlive = Encoding.UTF8.GetBytes(": keep-alive\n\n");
 
         public static async Task WriteAsync(HttpContext context, AgentFeedDispatcher feed,
-            AgentsOptions options, String?[]? agents, String?[]? kinds)
+            AgentsOptions options, String hostInstanceId, String?[]? agents, String?[]? kinds)
         {
             if (context == null)
             {
@@ -97,7 +96,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
             {
                 try
                 {
-                    await Stream(context, subscription, options, context.RequestAborted)
+                    await Stream(context, subscription, options, hostInstanceId, context.RequestAborted)
                         .ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
@@ -108,7 +107,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
         }
 
         private static async Task Stream(HttpContext context, AgentFeedSubscription subscription,
-            AgentsOptions options, CancellationToken cancellation)
+            AgentsOptions options, String hostInstanceId, CancellationToken cancellation)
         {
             var response = context.Response;
             response.StatusCode = StatusCodes.Status200OK;
@@ -164,8 +163,14 @@ namespace NoSQL.GraphDB.Agents.Hosting
                     break;
                 }
 
-                var payload = JsonSerializer.Serialize(next, RestSeam.JsonOptions);
-                var frame = "id: " + next.Seq.ToString(CultureInfo.InvariantCulture)
+                // The host instance, then the sequence, which is what makes the id useful and what
+                // the change feed does with its epoch: a reconnecting client that sees a different
+                // prefix knows the host restarted and its own last id means nothing here, rather
+                // than reading a lower sequence as a gap. It was a bare sequence while this doc
+                // claimed otherwise.
+                var payload = JsonSerializer.Serialize(next, AgentsHost.Json);
+                var frame = "id: " + hostInstanceId + ":"
+                    + next.Seq.ToString(CultureInfo.InvariantCulture)
                     + "\nevent: " + next.Kind
                     + "\ndata: " + payload + "\n\n";
 
@@ -206,7 +211,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 title,
                 status,
                 detail,
-            }, RestSeam.JsonOptions);
+            }, AgentsHost.Json);
 
             await context.Response.WriteAsync(body, context.RequestAborted).ConfigureAwait(false);
         }

@@ -447,14 +447,21 @@ namespace NoSQL.GraphDB.Agents.Runtime
     ///   <para>
     ///     <b>Publishing never blocks and never waits for a subscriber.</b> A run is what produces
     ///     events, and a slow reader must not be able to slow an agent down, still less hold a model
-    ///     call open. So each subscriber owns a bounded queue and a subscriber that fills it is
-    ///     DROPPED rather than served stale events or allowed to apply back-pressure.
+    ///     call open. So each subscriber owns a bounded queue written only with a non-blocking
+    ///     <c>TryWrite</c>, and a subscriber that fills it is DROPPED rather than served stale
+    ///     events or allowed to apply back-pressure.
     ///   </para>
     ///   <para>
     ///     <b>Dropped rather than silently thinned</b>, which is the same honesty rule the trace's
     ///     bound follows: a feed that quietly skipped events would let a reader believe they had
     ///     seen everything. A dropped subscriber's stream ends, it reconnects, and the trace is the
-    ///     documented way to find out what it missed.
+    ///     documented way to find out what it missed. Getting this right turns on one measured
+    ///     detail of the channel, stated on the queue itself: only <c>FullMode.Wait</c> makes
+    ///     <c>TryWrite</c> report a full queue, and the three drop modes return success and discard.
+    ///   </para>
+    ///   <para>
+    ///     <b>Delivery order is the sequence order</b>, because both happen under one lock. There is
+    ///     no catch-up buffer, so a subscriber cannot tell an event delivered late from one lost.
     ///   </para>
     /// </summary>
     public sealed class AgentFeedDispatcher : IDisposable
@@ -534,33 +541,44 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 throw new ArgumentNullException(nameof(candidate));
             }
 
-            List<AgentFeedSubscription> targets;
+            var behind = 0;
             lock (_gate)
             {
                 candidate.Seq = ++_sequence;
                 candidate.Ts = at;
-                targets = new List<AgentFeedSubscription>(_subscribers);
+
+                // Stamped AND delivered under the one lock, so the order a subscriber receives is
+                // the order of the sequence numbers. Stamping inside and writing outside let two
+                // publishing agents interleave, so a subscriber could see seq 7 before seq 6 - and
+                // with no catch-up buffer, out-of-order is indistinguishable from loss.
+                //
+                // Safe to hold here because nothing in the loop waits: TryWrite is non-blocking, and
+                // AllowSynchronousContinuations is false, so a reader's continuation is scheduled
+                // rather than run on this thread.
+                foreach (var target in _subscribers)
+                {
+                    if (!target.Filter.Admits(candidate))
+                    {
+                        continue;
+                    }
+
+                    if (!target.TryWrite(candidate))
+                    {
+                        behind++;
+                        target.Complete();
+                    }
+                }
             }
 
-            // Outside the lock: a write to a bounded channel completes without waiting, but the
-            // continuations it releases are a reader's, and running those under this lock would put
-            // a reader's work on the publishing agent's thread.
-            foreach (var target in targets)
+            if (behind > 0)
             {
-                if (!target.Filter.Admits(candidate))
-                {
-                    continue;
-                }
-
-                if (!target.TryWrite(candidate))
-                {
-                    _logger.LogWarning(
-                        "A feed subscriber fell more than {MaxQueued} events behind and was dropped "
-                        + "(Agents:Feed:MaxQueuedEvents). It should reconnect; GET /agent/{{id}}/trace "
-                        + "is how it finds out what it missed.",
-                        Math.Max(1, _options.Value.Feed.MaxQueuedEvents));
-                    target.Complete();
-                }
+                // Logged outside the lock: a log provider is somebody else's code and may do
+                // anything, including block.
+                _logger.LogWarning(
+                    "{Behind} feed subscriber(s) fell more than {MaxQueued} events behind and were "
+                    + "dropped (Agents:Feed:MaxQueuedEvents). Each should reconnect; "
+                    + "GET /agent/{{id}}/trace is how it finds out what it missed.",
+                    behind, Math.Max(1, _options.Value.Feed.MaxQueuedEvents));
             }
 
             return candidate;
@@ -608,14 +626,26 @@ namespace NoSQL.GraphDB.Agents.Runtime
             Filter = filter;
             _owner = owner;
 
-            // FullMode.DropWrite so a write NEVER waits: the alternative is back-pressure onto the
-            // agent that produced the event. A refused write is what tells the dispatcher to drop
-            // this subscriber rather than let it silently miss events.
+            // FullMode.Wait, and the choice is not what the name suggests: nothing here ever waits,
+            // because the only writer is TryWrite, which never blocks whatever the mode is. What the
+            // mode decides is what TryWrite RETURNS when the channel is full, and that is the whole
+            // mechanism.
+            //
+            // Measured against the runtime: with DropWrite, DropOldest or DropNewest, TryWrite
+            // returns TRUE on a full channel and discards an event silently. Only Wait returns
+            // false. So this was DropWrite and the dispatcher's "drop the subscriber" branch was
+            // dead code, which made a lagging subscriber silently thinned - the one failure this
+            // design exists to prevent, arriving through the option meant to prevent it.
+            //
+            // AllowSynchronousContinuations stays FALSE (its default, stated because the dispatcher
+            // relies on it): a reader's continuation must not run inside TryWrite, or it would run
+            // on the publishing agent's thread while the dispatcher holds its lock.
             _events = Channel.CreateBounded<AgentEvent>(new BoundedChannelOptions(capacity)
             {
-                FullMode = BoundedChannelFullMode.DropWrite,
+                FullMode = BoundedChannelFullMode.Wait,
                 SingleReader = true,
                 SingleWriter = false,
+                AllowSynchronousContinuations = false,
             });
         }
 

@@ -301,10 +301,13 @@ namespace NoSQL.GraphDB.Tests
             var chat = body.GetProperty("chat");
             Assert.IsFalse(String.IsNullOrWhiteSpace(chat.GetProperty("reachability").GetString()));
 
-            // Absent before a step, because this host holds no model configuration and does not
-            // invent one. Which model served a step is the instance's answer, per step.
-            Assert.AreEqual(JsonValueKind.Null, chat.GetProperty("lastSeenModel").ValueKind);
-            Assert.AreEqual(JsonValueKind.Null, chat.GetProperty("lastSeenBackend").ValueKind);
+            // ABSENT before a step, not null: this host holds no model configuration and does not
+            // invent one, and the host's serializer omits what has no value rather than writing a
+            // null a reader has to interpret. Which model served a step is the instance's answer,
+            // per step.
+            Assert.IsFalse(chat.TryGetProperty("lastSeenModel", out _),
+                "a model this host has never seen was reported as a null rather than omitted");
+            Assert.IsFalse(chat.TryGetProperty("lastSeenBackend", out _));
 
             var roles = body.GetProperty("roles").EnumerateArray().Select(r => r.GetProperty("name").GetString()).ToList();
             CollectionAssert.AreEquivalent(new[] { "assistant", "orchestrator", "worker" }, roles);

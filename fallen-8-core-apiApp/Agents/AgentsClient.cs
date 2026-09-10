@@ -78,6 +78,12 @@ namespace NoSQL.GraphDB.App.Agents
         ///     a bad filter must not arrive as a 200 with an error in the stream.
         ///   </para>
         /// </summary>
+        /// <param name="path">The host route, relative, with no leading slash.</param>
+        /// <param name="onHeaders">Called once with the host's status and content type, BEFORE any
+        /// body flows.</param>
+        /// <param name="destination">Where the body is copied, flushed per read.</param>
+        /// <param name="cancellationToken">The caller's own; its cancellation propagates as
+        /// itself.</param>
         Task StreamAsync(String path, Func<Int32, String, Task> onHeaders,
             System.IO.Stream destination, CancellationToken cancellationToken);
 
@@ -195,8 +201,21 @@ namespace NoSQL.GraphDB.App.Agents
                     // ResponseHeadersRead, which is the whole point: the default buffers the entire
                     // response before returning, and an event feed never ends, so the default would
                     // hold this call open forever and deliver nothing.
-                    using (var response = await Http.SendAsync(request,
-                        HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                    //
+                    // The HEADERS phase gets the small arm's budget and the BODY gets none, which is
+                    // the only split that works: a stream legitimately stays open for hours, but a
+                    // host that accepted the connection and never answered at all is unreachable,
+                    // and without a deadline here that held the caller's request open forever with
+                    // no 503 ever reported.
+                    HttpResponseMessage response;
+                    using (var headers = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+                    {
+                        headers.CancelAfter(_small);
+                        response = await Http.SendAsync(request,
+                            HttpCompletionOption.ResponseHeadersRead, headers.Token);
+                    }
+
+                    using (response)
                     {
                         await onHeaders((Int32)response.StatusCode,
                             response.Content.Headers.ContentType?.ToString());
@@ -228,8 +247,14 @@ namespace NoSQL.GraphDB.App.Agents
                 // it is not a sidecar failure.
                 throw;
             }
-            catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException || ex is OperationCanceledException
+                || ex is System.IO.IOException)
             {
+                // IOException is named explicitly because it is what a host DYING MID-STREAM throws
+                // out of the body copy, and it is the likeliest failure of a connection that stays
+                // open for hours. Unnamed, it escaped this method as itself and reached the
+                // controller after the response had already started, where there is no status left
+                // to send.
                 throw new AgentsUnavailableException(
                     String.Format("The agent host did not answer ({0}).", ex.Message), ex);
             }

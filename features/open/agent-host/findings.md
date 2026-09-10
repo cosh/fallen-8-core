@@ -148,7 +148,62 @@ see this class of bug.
 - **`.env.example` claimed the agent model falls back to the chat model.** Each overlay falls back
   to its own fixed literal, so changing the chat model leaves the agent model where it was.
 
-## 7. An environment trap worth remembering
+## 7. Phase 2's review gate: two bounded things that were not bounded (fixed)
+
+The sceptic review of Phase 2 found two defects of the same kind, and both had shipped with a green
+suite because the tests pinned a count rather than a composition. Both were reproduced against the
+real runtime before being believed.
+
+**The event feed never dropped a lagging subscriber, it silently thinned one.** The queue was
+created with `BoundedChannelFullMode.DropWrite`, on the assumption that `TryWrite` reports a full
+channel. Measured: with `DropWrite`, `DropOldest` and `DropNewest`, `TryWrite` returns **true** on a
+full channel and discards the event; only `FullMode.Wait` returns false. So the dispatcher's
+"drop the subscriber" branch was dead code, and a subscriber that fell behind silently missed events
+while its stream stayed open. That is precisely the failure the design's own doc says it prevents, and
+it arrived through the option chosen to prevent it. `FullMode.Wait` is now used, and the comment on
+the queue records the measurement, because the name reads like the wrong choice.
+
+*Nothing here waits, before or after.* The only writer is `TryWrite`, which never blocks whatever the
+mode is; the mode decides only what it RETURNS when full.
+
+**The trace's drop marker accumulated instead of being one row.** Each overflow round appended a
+fresh marker to the buffer and left the previous round's in place, so at steady state the buffer
+alternated real steps and markers. Measured: a bound of 1000 after 3000 steps held 500 real steps and
+500 markers, each reporting a different total; a bound of 1 dequeued the step just recorded, so
+`Record` returned a step that was not in the trace and `ToolsCalled()` was always empty, which would
+have made the grounding check dangle every citation on that host. The marker is now a single row held
+outside the buffer and updated in place, which is the shape the doc had always claimed.
+
+Two corollaries came with it. `Recorded` and `Dropped` counted markers, so the numbers a reader saw
+were of the class's own bookkeeping rather than of an agent's work; markers now take no sequence
+number and are not counted. And `ToolsCalled()` read the surviving buffer, so a citation to a real
+early call dangled on any run long enough to overflow; tool names are now remembered outside the
+bound, where the set is bounded by the number of distinct tools the MCP server advertises.
+
+**Seven more, all fixed:** feed events were delivered outside the dispatcher's lock, so two
+publishing agents could interleave and a subscriber could see seq 7 before seq 6, which with no
+catch-up buffer is indistinguishable from loss; the SSE `id:` was a bare sequence while two comments
+claimed it carried the host instance, so a reconnect to a restarted host read as a gap; feed frames
+were serialized with the shared web-defaults options, so "absent fields omitted" was false and about
+two thirds of every frame was nulls; the proxy's streaming arm had no deadline on the HEADERS phase,
+so a host that accepted a connection and never answered held the caller's request open forever with
+no 503; a host dying mid-stream threw `IOException`, which neither catch named, so it escaped the
+controller after the response had started; the truncation marker was appended past the byte cap, so
+`ArgsBytes` was the cost of a capture before its marker rather than the cost; and the trace route read
+its rows and its two totals in three separate synchronizations, so one response could contradict
+itself.
+
+**One defect in the fix, found by mutation-checking it.** The new drop test read the stream until it
+ended, which under the old drop mode never happens, so it WEDGED the suite instead of failing it. A
+hung suite is worse than an untested one, because the failure cannot be identified. Every feed read in
+the tests is now bounded and fails with what it had seen.
+
+**The review was incomplete and that is worth knowing.** Four of seven dimensions (journal coupling,
+tests, house rules, false claims) and six of the verifiers never ran: the session hit its usage limit
+partway through. So the eleven findings acted on came from three completed dimensions, and the
+remaining four are unrun rather than clean.
+
+## 8. An environment trap worth remembering
 
 `Copy-Item` preserves the source file's `LastWriteTime`. Restoring a mutated file from a backup copy
 therefore leaves the restored source **older** than the object file built from the mutation, so

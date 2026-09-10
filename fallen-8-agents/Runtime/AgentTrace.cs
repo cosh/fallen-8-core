@@ -292,10 +292,23 @@ namespace NoSQL.GraphDB.Agents.Runtime
     ///
     ///   <para>
     ///     <b>Bounded by dropping the OLDEST, and never silently.</b> Past
-    ///     <c>Agents:Trace:MaxSteps</c> the front of the buffer goes and a marker step records how
-    ///     many, because review needs recency rather than an archive, and a trace that quietly lost
-    ///     its middle would let a reviewer believe they had the whole run. The sequence numbers do
-    ///     not restart, so a gap is itself evidence.
+    ///     <c>Agents:Trace:MaxSteps</c> the front of the buffer goes, because review needs recency
+    ///     rather than an archive, and ONE marker row at the front carries the running total of what
+    ///     went, because a trace that quietly lost its middle would let a reviewer believe they had
+    ///     the whole run.
+    ///   </para>
+    ///   <para>
+    ///     <b>The marker is a single row held outside the buffer, not a step appended to it.</b>
+    ///     That is a correction rather than a preference: appending one per overflow round left the
+    ///     previous round's marker in place, so at steady state the buffer alternated real steps and
+    ///     markers and held only half the steps it was configured for. Measured, a bound of 1000
+    ///     after 3000 steps held 500 real steps and 500 markers, each reporting a different total.
+    ///     One row, updated in place, is the shape the doc always claimed.
+    ///   </para>
+    ///   <para>
+    ///     <b>A marker is not a step.</b> It takes no sequence number and is not counted as
+    ///     recorded or dropped, so <see cref="Recorded" /> and <see cref="Dropped" /> are counts of
+    ///     an agent's real work rather than of this class's own bookkeeping.
     ///   </para>
     ///   <para>
     ///     Lives ON the agent record, so it is evicted exactly when the agent is and there is no
@@ -307,8 +320,23 @@ namespace NoSQL.GraphDB.Agents.Runtime
         private readonly Object _gate = new Object();
         private readonly Queue<TraceStep> _steps = new Queue<TraceStep>();
         private readonly Int32 _maxSteps;
+
+        /// <summary>
+        ///   Every tool name a call was recorded for, kept SEPARATELY from the buffer and not
+        ///   bounded with it.
+        ///   <para>
+        ///     The grounding check counts a citation against what the run actually called, and the
+        ///     buffer forgets its oldest steps, so counting against the buffer would make a citation
+        ///     to a real early call dangle for a reason that is not the model's fault. Bounded in
+        ///     practice by the number of DISTINCT tools the MCP server advertises, which is a small
+        ///     consolidated set.
+        ///   </para>
+        /// </summary>
+        private readonly HashSet<String> _toolsCalled = new HashSet<String>(StringComparer.OrdinalIgnoreCase);
+
         private Int64 _sequence;
         private Int64 _dropped;
+        private TraceStep? _marker;
 
         public AgentTrace(Int32 maxSteps)
         {
@@ -316,10 +344,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>How many steps have EVER been recorded, including dropped ones. The
-        /// denominator for "am I looking at the whole run".</summary>
+        /// denominator for "am I looking at the whole run". Counts real steps only.</summary>
         public Int64 Recorded => Volatile.Read(ref _sequence);
 
-        /// <summary>How many steps were dropped to stay inside the bound.</summary>
+        /// <summary>How many real steps were dropped to stay inside the bound.</summary>
         public Int64 Dropped => Volatile.Read(ref _dropped);
 
         /// <summary>
@@ -340,45 +368,66 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 step.At = at;
                 _steps.Enqueue(step);
 
-                if (_maxSteps > 0 && _steps.Count > _maxSteps)
+                if (step.Tool != null)
                 {
-                    var went = 0L;
-                    while (_steps.Count > _maxSteps)
-                    {
-                        _steps.Dequeue();
-                        went++;
-                    }
+                    // Remembered outside the bound, so a citation to a call the buffer has since
+                    // forgotten still counts as grounded.
+                    _toolsCalled.Add(step.Tool);
+                }
 
-                    _dropped += went;
-
-                    // The marker replaces what it reports on, so it cannot itself push the buffer
-                    // over the bound: one dequeue makes room for it. It carries the RUNNING total
-                    // rather than this round's count, so the newest marker is the whole answer.
-                    if (_steps.Count > 0)
+                // The marker occupies one of the configured rows once anything has been dropped, so
+                // the whole view stays inside MaxSteps rather than the buffer alone doing so.
+                var room = _marker == null ? _maxSteps : _maxSteps - 1;
+                if (_maxSteps > 0 && _steps.Count > room)
+                {
+                    while (_steps.Count > Math.Max(1, room))
                     {
                         _steps.Dequeue();
                         _dropped++;
                     }
 
-                    _steps.Enqueue(new TraceStep
+                    // ONE marker, updated in place. Appending a new one per round left the previous
+                    // round's in the buffer, which halved the real steps a trace held; see the
+                    // class doc for the measurement.
+                    _marker ??= new TraceStep
                     {
-                        Seq = ++_sequence,
-                        At = at,
                         Kind = TraceStepKinds.Wire(TraceStepKind.Dropped),
-                        DroppedSteps = _dropped,
-                    });
+                    };
+                    _marker.At = at;
+                    _marker.DroppedSteps = _dropped;
+
+                    // The sequence of the last step it reports on, so the marker and the step after
+                    // it read as consecutive: "this many went, and the record resumes here".
+                    _marker.Seq = _steps.Count > 0 ? _steps.Peek().Seq - 1 : _sequence;
                 }
 
                 return step;
             }
         }
 
-        /// <summary>The steps this trace still holds, oldest first.</summary>
+        /// <summary>
+        ///   The steps this trace still holds, oldest first, with the drop marker at the front when
+        ///   anything has been dropped. One snapshot under one lock, so the rows a reader sees and
+        ///   the totals it sees alongside them describe the same moment.
+        /// </summary>
         public IReadOnlyList<TraceStep> Steps()
         {
             lock (_gate)
             {
-                return new List<TraceStep>(_steps);
+                return Snapshot();
+            }
+        }
+
+        /// <summary>
+        ///   Everything the trace route reports, taken together under one lock. Reading the rows and
+        ///   the two totals separately let one response contradict itself: a step count that did not
+        ///   match the totals printed beside it.
+        /// </summary>
+        public (IReadOnlyList<TraceStep> Steps, Int64 Recorded, Int64 Dropped) View()
+        {
+            lock (_gate)
+            {
+                return (Snapshot(), _sequence, _dropped);
             }
         }
 
@@ -388,35 +437,52 @@ namespace NoSQL.GraphDB.Agents.Runtime
         {
             lock (_gate)
             {
-                var all = new List<TraceStep>(_steps);
+                var all = Snapshot();
                 if (count <= 0 || all.Count <= count)
                 {
                     return all;
                 }
 
-                return all.GetRange(all.Count - count, count);
+                return ((List<TraceStep>)all).GetRange(all.Count - count, count);
             }
         }
 
+        /// <summary>The marker, if any, then the buffer. Callers hold the lock.</summary>
+        private IReadOnlyList<TraceStep> Snapshot()
+        {
+            var rows = new List<TraceStep>(_steps.Count + 1);
+            if (_marker != null)
+            {
+                // Copied, because the live marker is mutated in place on every later drop and a
+                // caller must not see a snapshot change under it.
+                rows.Add(new TraceStep
+                {
+                    Seq = _marker.Seq,
+                    At = _marker.At,
+                    Kind = _marker.Kind,
+                    DroppedSteps = _marker.DroppedSteps,
+                });
+            }
+
+            rows.AddRange(_steps);
+            return rows;
+        }
+
         /// <summary>
-        ///   Every tool NAME this trace records a call for, which is what the grounding check counts
-        ///   a citation against. Names rather than tool-call ids, because no backend shows a
-        ///   tool-call id to the model, so an id is not something it could cite.
+        ///   Every tool NAME this trace has recorded a call for, INCLUDING calls the buffer has
+        ///   since dropped. Names rather than tool-call ids, because no backend shows a tool-call id
+        ///   to the model, so an id is not something it could cite.
+        ///   <para>
+        ///     Surviving the bound is the point: the grounding check counts a citation against what
+        ///     the run actually called, and counting against the surviving buffer instead would make
+        ///     a citation to a real early call dangle on a long run.
+        ///   </para>
         /// </summary>
         public IReadOnlyCollection<String> ToolsCalled()
         {
             lock (_gate)
             {
-                var names = new HashSet<String>(StringComparer.OrdinalIgnoreCase);
-                foreach (var step in _steps)
-                {
-                    if (step.Tool != null)
-                    {
-                        names.Add(step.Tool);
-                    }
-                }
-
-                return names;
+                return new HashSet<String>(_toolsCalled, StringComparer.OrdinalIgnoreCase);
             }
         }
     }
@@ -496,6 +562,42 @@ namespace NoSQL.GraphDB.Agents.Runtime
         {
             return String.Format(CultureInfo.InvariantCulture, "... [truncated, {0} bytes total]",
                 totalBytes);
+        }
+
+        /// <summary>
+        ///   Caps a capture and appends its truncation marker, keeping the WHOLE result inside
+        ///   <paramref name="maxBytes" />.
+        ///
+        ///   <para>
+        ///     The reason this exists rather than callers doing both: capping and then appending put
+        ///     the stored capture over the configured cap, so <c>Agents:Trace:ArgsBytes</c> was not
+        ///     the cost of a capture, it was the cost before the marker. Room for the marker is
+        ///     reserved first, which is the only way the setting means what it says.
+        ///   </para>
+        /// </summary>
+        public static String? CapWithMarker(String? text, Int32 maxBytes, out Int64 totalBytes,
+            out Boolean truncated)
+        {
+            var capped = Cap(text, maxBytes, out totalBytes, out truncated);
+            if (!truncated)
+            {
+                return capped;
+            }
+
+            // Re-capped against the room the marker leaves. The marker's own length depends on the
+            // total, which is known only after the first pass, so this is two passes rather than
+            // one guess.
+            var marker = Marker(totalBytes);
+            var room = maxBytes - Encoding.UTF8.GetByteCount(marker);
+            if (room <= 0)
+            {
+                // A cap too small to hold even the marker. The marker is the more useful half: it
+                // says there was something and how much, where a few bytes of a payload says
+                // neither.
+                return marker;
+            }
+
+            return Cap(text, room, out _, out _) + marker;
         }
     }
 }

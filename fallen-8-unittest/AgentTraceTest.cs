@@ -27,7 +27,12 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.Agents.Configuration;
 using NoSQL.GraphDB.Agents.Runtime;
 
 namespace NoSQL.GraphDB.Tests
@@ -125,6 +130,192 @@ namespace NoSQL.GraphDB.Tests
             }
 
             Assert.AreEqual(3, trace.Steps().Count);
+        }
+
+        [TestMethod]
+        public void ThereIsExactlyONEDropMarkerHoweverManyTimesTheBoundIsHit()
+        {
+            // The test the first bound tests should have been. They pinned only the buffer's Count,
+            // so a marker appended per overflow round passed them while the buffer converged to
+            // alternating real steps and markers: measured, a bound of 1000 after 3000 steps held
+            // 500 real steps and 500 markers.
+            var trace = new AgentTrace(10);
+            for (var i = 0; i < 500; i++)
+            {
+                trace.Record(Step("modelCall"), At);
+            }
+
+            var steps = trace.Steps();
+            var markers = steps.Where(s => s.Kind == "dropped").ToList();
+
+            Assert.AreEqual(1, markers.Count, "one marker, not one per overflow round");
+            Assert.AreSame(steps[0], markers[0], "the marker belongs at the FRONT, where the loss was");
+            Assert.AreEqual(10, steps.Count, "the whole view stays inside the bound");
+            Assert.AreEqual(9, steps.Count(s => s.Kind != "dropped"),
+                "the marker takes one row, so nine real steps survive a bound of ten");
+            Assert.AreEqual(trace.Dropped, markers[0].DroppedSteps,
+                "the marker carries the running total");
+        }
+
+        [TestMethod]
+        public void RecordedAndDroppedCountAnAgentsWorkAndNotTheClassesOwnBookkeeping()
+        {
+            var trace = new AgentTrace(5);
+            for (var i = 0; i < 100; i++)
+            {
+                trace.Record(Step("modelCall"), At);
+            }
+
+            Assert.AreEqual(100L, trace.Recorded,
+                "a marker took a sequence number, so the count of steps ever recorded was inflated");
+
+            // 100 recorded, 4 real steps still held, so 96 went. Markers are not steps and must not
+            // appear in either number.
+            Assert.AreEqual(96L, trace.Dropped);
+            Assert.AreEqual(4, trace.Steps().Count(s => s.Kind != "dropped"));
+            Assert.AreEqual(trace.Recorded - trace.Dropped,
+                trace.Steps().Count(s => s.Kind != "dropped"),
+                "recorded minus dropped has to equal what is held, or the numbers are not counting "
+                + "the same thing");
+        }
+
+        [TestMethod]
+        public void AMarkersSequenceMakesItReadAsConsecutiveWithTheStepAfterIt()
+        {
+            var trace = new AgentTrace(4);
+            for (var i = 0; i < 20; i++)
+            {
+                trace.Record(Step("modelCall"), At);
+            }
+
+            var steps = trace.Steps();
+            Assert.AreEqual("dropped", steps[0].Kind);
+            Assert.AreEqual(steps[0].Seq + 1, steps[1].Seq,
+                "the marker and the step after it should read as consecutive: this many went, and "
+                + "the record resumes here");
+        }
+
+        [TestMethod]
+        public void ABoundOfOneStillHoldsTheStepJustRecorded()
+        {
+            // The degenerate bound, which the old shape got wrong in the worst way: the step just
+            // recorded was dequeued to make room for a marker, so Record returned a step that was
+            // not in the trace and ToolsCalled() was always empty, which would have made
+            // GroundingCheck dangle every citation on that host.
+            var trace = new AgentTrace(1);
+
+            var call = Step("toolCall");
+            call.Tool = "count_vertices";
+            var recorded = trace.Record(call, At);
+
+            trace.Record(Step("modelCall"), At);
+
+            Assert.IsTrue(trace.ToolsCalled().Contains("count_vertices"),
+                "a tool call vanished from the grounding set at a bound of one");
+            Assert.AreEqual("count_vertices", recorded.Tool);
+        }
+
+        [TestMethod]
+        public void AToolNameSurvivesTheStepBeingDroppedFromTheBuffer()
+        {
+            // The grounding check counts against what the run CALLED, not against what the buffer
+            // still holds. Counting against the buffer made a citation to a real early call dangle
+            // on any run long enough to overflow, which is a false accusation of fabrication.
+            var trace = new AgentTrace(3);
+
+            var call = Step("toolCall");
+            call.Tool = "count_vertices";
+            trace.Record(call, At);
+
+            for (var i = 0; i < 50; i++)
+            {
+                trace.Record(Step("modelCall"), At);
+            }
+
+            Assert.IsFalse(trace.Steps().Any(s => s.Tool == "count_vertices"),
+                "this test needs the tool-call step to have been dropped");
+            Assert.IsTrue(trace.ToolsCalled().Contains("count_vertices"),
+                "the tool name did not survive its step being dropped");
+            Assert.AreEqual(1, GroundingCheck.Count("8 [t:count_vertices]", trace.ToolsCalled()).Valid);
+        }
+
+        [TestMethod]
+        public void ASnapshotDoesNotChangeUnderTheCallerWhenMoreStepsAreDropped()
+        {
+            // The marker is one object mutated in place, so a snapshot has to copy it. Otherwise a
+            // response already being serialized would change its own numbers mid-flight.
+            var trace = new AgentTrace(3);
+            for (var i = 0; i < 10; i++)
+            {
+                trace.Record(Step("modelCall"), At);
+            }
+
+            var before = trace.Steps();
+            var reported = before[0].DroppedSteps;
+
+            for (var i = 0; i < 10; i++)
+            {
+                trace.Record(Step("modelCall"), At);
+            }
+
+            Assert.AreEqual(reported, before[0].DroppedSteps,
+                "the earlier snapshot's marker changed when more steps were dropped");
+            Assert.AreNotEqual(reported, trace.Steps()[0].DroppedSteps,
+                "and a fresh snapshot should show the new total");
+        }
+
+        [TestMethod]
+        public void TheViewReportsRowsAndTotalsFromOneSnapshot()
+        {
+            var trace = new AgentTrace(5);
+            for (var i = 0; i < 30; i++)
+            {
+                trace.Record(Step("modelCall"), At);
+            }
+
+            var view = trace.View();
+
+            Assert.AreEqual(30L, view.Recorded);
+            Assert.AreEqual(view.Steps.Count(s => s.Kind == "dropped") == 1 ? 26L : 0L, view.Dropped);
+            Assert.AreEqual(view.Recorded - view.Dropped, view.Steps.Count(s => s.Kind != "dropped"));
+        }
+
+        [TestMethod]
+        public void ACappedCaptureIncludingItsMarkerStaysInsideTheConfiguredCap()
+        {
+            // ArgsBytes is what a stored capture costs. Capping and THEN appending the marker put it
+            // over, so the setting was the cost before the marker rather than the cost.
+            var capped = TraceStepKinds.CapWithMarker(new String('x', 5000), 200,
+                out var total, out var truncated);
+
+            Assert.IsTrue(truncated);
+            Assert.AreEqual(5000L, total);
+            Assert.IsTrue(Encoding.UTF8.GetByteCount(capped) <= 200,
+                "the capture plus its marker is " + Encoding.UTF8.GetByteCount(capped)
+                + " bytes against a cap of 200");
+            StringAssert.Contains(capped, "5000");
+        }
+
+        [TestMethod]
+        public void ACapTooSmallForTheMarkerKeepsTheMarkerRatherThanAFragment()
+        {
+            // The marker says there was something and how much; a few bytes of payload says
+            // neither, so it is the half worth keeping.
+            var capped = TraceStepKinds.CapWithMarker(new String('x', 5000), 4, out _, out var truncated);
+
+            Assert.IsTrue(truncated);
+            StringAssert.Contains(capped, "5000");
+            Assert.IsFalse(capped.StartsWith("xxxx", StringComparison.Ordinal));
+        }
+
+        [TestMethod]
+        public void AnUncutCaptureGetsNoMarker()
+        {
+            var capped = TraceStepKinds.CapWithMarker("hello", 200, out var total, out var truncated);
+
+            Assert.AreEqual("hello", capped);
+            Assert.AreEqual(5L, total);
+            Assert.IsFalse(truncated);
         }
 
         [TestMethod]
@@ -427,6 +618,237 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(AgentEventKinds.TryParse(new[] { "an-agent-that-does-not-exist-yet" }, null,
                 out var filter, out _));
             Assert.AreEqual(1, filter.Agents.Count);
+        }
+
+        #endregion
+
+        #region the dispatcher's own bounds
+
+        [TestMethod]
+        public async Task ASubscriberPastTheQueueBoundIsDroppedRatherThanSilentlyThinned()
+        {
+            // THE test whose absence let a real defect ship green. The queue was created with
+            // FullMode.DropWrite, and TryWrite returns TRUE on a full DropWrite channel and discards
+            // the event: only FullMode.Wait reports a full queue. So the dispatcher's "drop the
+            // subscriber" branch was dead code and a lagging subscriber was silently thinned, which
+            // is the one failure this design exists to prevent.
+            using var feed = Dispatcher(maxQueued: 3);
+
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var subscription, out _));
+            using (subscription)
+            {
+                // Published without reading, so the queue fills and then overflows.
+                for (var i = 0; i < 10; i++)
+                {
+                    feed.Publish(Event("agentStateChanged", "a1"), At);
+                }
+
+                // What survived is a PREFIX, and then the stream ENDS. It does not continue with
+                // later events, which is what "dropped rather than thinned" means.
+                // BOUNDED, and the bound is the point rather than caution: a dropped subscriber's
+                // stream ends, so a read that never returns IS the regression. Left unbounded this
+                // test wedged the suite under the old drop mode instead of failing it, which is the
+                // one outcome worse than not testing at all.
+                using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var seen = new List<Int64>();
+                try
+                {
+                    while (true)
+                    {
+                        var next = await subscription.ReadAsync(budget.Token);
+                        if (next == null)
+                        {
+                            break;
+                        }
+
+                        seen.Add(next.Seq);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    Assert.Fail("the stream never ended: the subscriber was thinned rather than "
+                        + "dropped, having seen " + seen.Count + " event(s)");
+                }
+
+                Assert.AreEqual(3, seen.Count, "the queue bound was not applied");
+                CollectionAssert.AreEqual(new[] { 1L, 2L, 3L }, seen.ToArray(),
+                    "a thinned subscriber would have seen later events too");
+            }
+
+            Assert.AreEqual(0, feed.SubscriberCount,
+                "the dropped subscriber was left in the table");
+        }
+
+        [TestMethod]
+        public async Task ASubscriberThatKeepsUpIsNeverDropped()
+        {
+            // The control arm: the bound must not fire on a reader that is reading, or the feed
+            // would be useless for its actual purpose.
+            using var feed = Dispatcher(maxQueued: 2);
+
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var subscription, out _));
+            using (subscription)
+            {
+                using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                for (var i = 0; i < 20; i++)
+                {
+                    feed.Publish(Event("agentStateChanged", "a1"), At);
+                    var next = await subscription.ReadAsync(budget.Token);
+                    Assert.IsNotNull(next, "a subscriber that read every event was dropped");
+                }
+
+                Assert.AreEqual(1, feed.SubscriberCount);
+            }
+        }
+
+        [TestMethod]
+        public async Task DeliveryOrderIsSequenceOrderUnderConcurrentPublishers()
+        {
+            // Stamping the sequence under the lock and writing outside it let two publishing agents
+            // interleave, so a subscriber could receive seq 7 before seq 6. With no catch-up buffer,
+            // out of order is indistinguishable from loss.
+            using var feed = Dispatcher(maxQueued: 4096);
+
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var subscription, out _));
+            using (subscription)
+            {
+                const Int32 Publishers = 8;
+                const Int32 Each = 60;
+
+                await Task.WhenAll(Enumerable.Range(0, Publishers).Select(p => Task.Run(() =>
+                {
+                    for (var i = 0; i < Each; i++)
+                    {
+                        feed.Publish(Event("agentStateChanged", "a" + p), At);
+                    }
+                })));
+
+                using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                var seen = new List<Int64>();
+                for (var i = 0; i < Publishers * Each; i++)
+                {
+                    AgentEvent next = null;
+                    try
+                    {
+                        next = await subscription.ReadAsync(budget.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        Assert.Fail("the feed stopped delivering after " + seen.Count + " of "
+                            + (Publishers * Each) + " events");
+                    }
+
+                    Assert.IsNotNull(next, "an event was lost: " + seen.Count + " of "
+                        + (Publishers * Each));
+                    seen.Add(next.Seq);
+                }
+
+                var sorted = seen.OrderBy(s => s).ToList();
+                CollectionAssert.AreEqual(sorted, seen,
+                    "events arrived out of sequence order, which a subscriber cannot tell from loss");
+                Assert.AreEqual(Publishers * Each, seen.Distinct().Count(),
+                    "a sequence number was reused");
+            }
+        }
+
+        [TestMethod]
+        public void TheSubscriberBoundIsEnforcedAndTheRefusalNamesTheLimit()
+        {
+            using var feed = Dispatcher(maxSubscribers: 2);
+
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var first, out _));
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var second, out _));
+            Assert.IsFalse(feed.TrySubscribe(AgentFeedFilter.All, out _, out var problem));
+            StringAssert.Contains(problem, "MaxSubscribers");
+
+            // A slot is released by disposing, so a browser that closed a tab does not cost a
+            // subscriber slot for the life of the process.
+            first.Dispose();
+            Assert.AreEqual(1, feed.SubscriberCount);
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var third, out _));
+
+            second.Dispose();
+            third.Dispose();
+            Assert.AreEqual(0, feed.SubscriberCount);
+        }
+
+        [TestMethod]
+        public async Task DisposingTheDispatcherEndsEveryOpenStream()
+        {
+            // A host shutting down has to end its streams, or a subscriber waits on a feed that will
+            // never produce another event.
+            var feed = Dispatcher();
+
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var subscription, out _));
+            using (subscription)
+            {
+                feed.Dispose();
+
+                using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                Assert.IsNull(await subscription.ReadAsync(budget.Token),
+                    "the stream did not end when the host stopped");
+                Assert.AreEqual(0, feed.SubscriberCount);
+            }
+
+            // Idempotent, and a publish after disposal is a no-op rather than a throw: the shutdown
+            // path is exactly when a last event may still be in flight.
+            feed.Dispose();
+            feed.Publish(Event("agentFailed", "a1"), At);
+        }
+
+        [TestMethod]
+        public async Task AFilterIsAppliedAtPublishSoAnUninterestedSubscriberQueuesNothing()
+        {
+            // The filter has to keep events OUT of the queue, not be applied on the way out: a
+            // subscriber watching one agent must not be dropped because a different agent was busy.
+            using var feed = Dispatcher(maxQueued: 2);
+
+            Assert.IsTrue(AgentEventKinds.TryParse(new[] { "mine" }, null, out var filter, out _));
+            Assert.IsTrue(feed.TrySubscribe(filter, out var subscription, out _));
+            using (subscription)
+            {
+                for (var i = 0; i < 50; i++)
+                {
+                    feed.Publish(Event("agentStateChanged", "someone-else"), At);
+                }
+
+                feed.Publish(Event("agentStateChanged", "mine"), At);
+
+                using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var next = await subscription.ReadAsync(budget.Token);
+                Assert.IsNotNull(next, "the subscriber was dropped by traffic it had filtered out");
+                Assert.AreEqual("mine", next.AgentId);
+            }
+        }
+
+        [TestMethod]
+        public void PublishedCountsEveryEventStampedRegardlessOfSubscribers()
+        {
+            using var feed = Dispatcher();
+
+            Assert.AreEqual(0L, feed.Published);
+            var one = feed.Publish(Event("agentSpawned", "a1"), At);
+            var two = feed.Publish(Event("agentSpawned", "a2"), At);
+
+            Assert.AreEqual(1L, one.Seq);
+            Assert.AreEqual(2L, two.Seq);
+            Assert.AreEqual(2L, feed.Published,
+                "the count has to hold with no subscriber, or the status route reads zero on a busy host");
+        }
+
+        private static AgentFeedDispatcher Dispatcher(Int32 maxQueued = 512, Int32 maxSubscribers = 16)
+        {
+            var options = new AgentsOptions();
+            options.Feed.MaxQueuedEvents = maxQueued;
+            options.Feed.MaxSubscribers = maxSubscribers;
+
+            return new AgentFeedDispatcher(Options.Create(options),
+                TestLoggerFactory.Create().CreateLogger<AgentFeedDispatcher>());
+        }
+
+        private static AgentEvent Event(String kind, String agentId)
+        {
+            return new AgentEvent { Kind = kind, AgentId = agentId };
         }
 
         #endregion

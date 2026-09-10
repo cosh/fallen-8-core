@@ -47,6 +47,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
     ///     step and the event carries the SAME capped string, so the two can never disagree about
     ///     what was seen and there is one place that knows what the caps are.
     ///   </para>
+    ///   <para>
+    ///     A capped capture carries its own "truncated, N bytes total" suffix, and the suffix is
+    ///     inside the configured cap rather than added past it: <c>ArgsBytes</c> is what a stored
+    ///     capture costs, not what it costs before the marker.
+    ///   </para>
     /// </summary>
     public sealed class AgentJournal
     {
@@ -148,11 +153,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
             // The result travels on the event, capped like any other capture: a subscriber watching
             // a swarm should not have to fetch a detail route to see what an agent concluded, and a
             // model can produce an arbitrarily long answer.
-            ended.ResultText = TraceStepKinds.Cap(agent.ResultText, caps.ResultBytes, out var bytes,
-                out var truncated);
+            ended.ResultText = TraceStepKinds.CapWithMarker(agent.ResultText, caps.ResultBytes,
+                out _, out var truncated);
             if (truncated)
             {
-                ended.ResultText += TraceStepKinds.Marker(bytes);
                 ended.Truncated = true;
             }
 
@@ -189,19 +193,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
             var at = _clock.GetUtcNow();
             var caps = _options.Value.Trace;
 
-            var cappedArgs = TraceStepKinds.Cap(arguments, caps.ArgsBytes, out var argBytes, out var argCut);
-            var cappedResult = TraceStepKinds.Cap(result, caps.ResultBytes, out var resultBytes, out var resultCut);
+            var cappedArgs = TraceStepKinds.CapWithMarker(arguments, caps.ArgsBytes,
+                out var argBytes, out var argCut);
+            var cappedResult = TraceStepKinds.CapWithMarker(result, caps.ResultBytes,
+                out var resultBytes, out var resultCut);
             var truncated = argCut || resultCut;
-
-            if (argCut)
-            {
-                cappedArgs += TraceStepKinds.Marker(argBytes);
-            }
-
-            if (resultCut)
-            {
-                cappedResult += TraceStepKinds.Marker(resultBytes);
-            }
 
             agent.Trace.Record(new TraceStep
             {
@@ -239,11 +235,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
             var at = _clock.GetUtcNow();
             var caps = _options.Value.Trace;
 
-            var capped = TraceStepKinds.Cap(text, caps.ResultBytes, out var bytes, out var cut);
-            if (cut)
-            {
-                capped += TraceStepKinds.Marker(bytes);
-            }
+            var capped = TraceStepKinds.CapWithMarker(text, caps.ResultBytes, out var bytes, out var cut);
 
             agent.Trace.Record(new TraceStep
             {
