@@ -198,10 +198,32 @@ ended, which under the old drop mode never happens, so it WEDGED the suite inste
 hung suite is worse than an untested one, because the failure cannot be identified. Every feed read in
 the tests is now bounded and fails with what it had seen.
 
-**The review was incomplete and that is worth knowing.** Four of seven dimensions (journal coupling,
-tests, house rules, false claims) and six of the verifiers never ran: the session hit its usage limit
-partway through. So the eleven findings acted on came from three completed dimensions, and the
-remaining four are unrun rather than clean.
+**The shipped proxy client was executed by no test at all**, which is how three of the findings
+above could exist in it. Every proxy test substituted a fake for `IAgentsClient`, which is right for
+testing the controller and useless for testing the client, so the per-call budget, the unreachable
+arm, the caller-cancellation arm, the streaming arm's headers deadline and its mid-stream failure all
+ran nowhere. `AgentsProxyClientTest` now drives the real `AgentsClient` through its own
+`HttpMessageHandler` seam, and the three fixes are mutation-checked: reverting each fails exactly the
+test that names it, in bounded time.
+
+Two of those tests had to be bounded by the test's own token, for the reason the drop test did:
+without the deadline they pin, the stall they set up waits forever, and a wedged suite hides the
+defect it exists to report. When the bound fires the exception type is wrong, so the failure is
+legible.
+
+**THE REVIEW GATE IS STILL INCOMPLETE.** Two attempts, both cut short by a session usage limit:
+
+| attempt | dimensions run | verifiers run | outcome |
+|---|---|---|---|
+| first, over Phase 2 | 3 of 7 (feed concurrency, trace correctness, SSE contract) | 12 of 18 | 11 findings, all fixed |
+| second, over the whole branch | 0 of 6 | none | nothing ran |
+
+So these dimensions have **never** been reviewed on any commit of this branch: journal coupling,
+tests, house rules, false claims, an adversarial pass over the fix commit itself, and cross-phase
+coherence. They are UNRUN, not clean, and an empty result from the second attempt means the agents
+died rather than that they found nothing. The gate has to be finished before this branch merges, and
+the most valuable of the six is false claims: the two completed gates found ten between them, which
+is this repository's highest-yield defect class.
 
 ## 8. An environment trap worth remembering
 
