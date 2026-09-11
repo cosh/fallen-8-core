@@ -210,7 +210,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
         // ---- agentCompleted and agentFailed
 
-        [JsonPropertyName("result_text")]
+        [JsonPropertyName("resultText")]
         public String? ResultText
         {
             get; set;
@@ -351,6 +351,29 @@ namespace NoSQL.GraphDB.Agents.Runtime
         /// <summary>Every kind's name, for the message a refusal carries.</summary>
         public static IReadOnlyCollection<String> Names => (IReadOnlyCollection<String>)ByName.Keys;
 
+        /// <summary>
+        ///   The kinds this host can actually EMIT today, which is not all of them.
+        ///
+        ///   <para>
+        ///     <c>agentMessage</c> is accepted by the filter and emitted by nothing: the only thing
+        ///     that would publish one is a message to or from an agent, and both the conversation
+        ///     route and the swarm are later phases. The kind and its journal method ship now because
+        ///     the swarm phase writes worker traffic through them, but a subscriber filtering on it
+        ///     today would wait forever for an event that cannot arrive, which is exactly what this
+        ///     feed's parser-not-compiler stance exists to prevent elsewhere.
+        ///   </para>
+        ///   <para>
+        ///     So it is REPORTED rather than refused. Refusing it would mean a client's filter
+        ///     breaking when the swarm lands, and silently accepting it would mean a client waiting
+        ///     on nothing; naming it on the status route and in the route's own documentation is the
+        ///     only option that is true both now and later.
+        ///   </para>
+        /// </summary>
+        public static IReadOnlyCollection<String> Emitted { get; } = new[]
+        {
+            "agentSpawned", "agentStateChanged", "toolCalled", "agentCompleted", "agentFailed",
+        };
+
         public static String Wire(AgentEventKind kind)
         {
             return kind switch
@@ -392,8 +415,9 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 if (!ByName.TryGetValue(raw, out var kind))
                 {
                     problem = String.Format(
-                        "Unknown feed event kind '{0}'. Accepted kinds are {1}.", raw,
-                        String.Join(", ", ByName.Keys));
+                        "Unknown feed event kind '{0}'. Accepted kinds are {1}; of those, {2} are "
+                        + "emitted today (GET /agent/status reports both lists).", raw,
+                        String.Join(", ", ByName.Keys), String.Join(", ", Emitted));
                     return false;
                 }
 

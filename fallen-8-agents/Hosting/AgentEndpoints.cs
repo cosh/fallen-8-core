@@ -63,8 +63,12 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
             app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
-            // BEFORE the parameterised route in reading order, though the router prefers the
-            // literal segment either way. An agent id cannot be "status": ids are minted here.
+            // Mapped before /agent/{id} for a READER's benefit only. The router does not care:
+            // a literal segment outranks a parameter in ASP.NET's route precedence whatever the
+            // registration order, so "status" and "feed" are never candidate agent ids. Belt and
+            // braces anyway, because ids are minted by this host and neither word is a legal one.
+            //
+            // One home for that: the /agent/feed mapping below does not repeat it.
             app.MapGet("/agent/status", (AgentRegistry registry, IAgentToolSource toolset,
                 ChatGatewayPosture posture, Fallen8ChatClient chat, RoleCatalog roles,
                 AgentFeedDispatcher feed,
@@ -121,9 +125,6 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
             app.MapGet("/agent", (AgentRegistry registry) => Results.Ok(registry.All()));
 
-            // BEFORE /agent/{id}, and here the ordering is not merely conventional: "feed" would
-            // otherwise be a candidate agent id, and the router prefers the literal segment only
-            // because this route exists to be preferred.
             app.MapGet("/agent/feed", (HttpContext context, AgentFeedDispatcher feed,
                     AgentRegistry registry, IOptions<AgentsOptions> options,
                     [FromQuery] String?[]? agents, [FromQuery] String?[]? kinds) =>
@@ -286,6 +287,8 @@ namespace NoSQL.GraphDB.Agents.Hosting
                     Published = feed.Published,
                     KeepAliveSeconds = options.Feed.KeepAliveSeconds,
                     MaxSubscribers = options.Feed.MaxSubscribers,
+                    AcceptedKinds = AgentEventKinds.Names.ToList(),
+                    EmittedKinds = AgentEventKinds.Emitted.ToList(),
                 },
             };
         }
@@ -445,6 +448,22 @@ namespace NoSQL.GraphDB.Agents.Hosting
         {
             get; set;
         }
+
+        /// <summary>Every kind the <c>kinds</c> filter accepts.</summary>
+        [JsonPropertyName("acceptedKinds")]
+        public IReadOnlyList<String> AcceptedKinds { get; set; } = Array.Empty<String>();
+
+        /// <summary>
+        ///   The kinds this host can actually emit, which is a SUBSET of the accepted ones.
+        ///   <para>
+        ///     Reported because the difference is otherwise invisible and costly: a subscriber
+        ///     filtering on an accepted-but-never-emitted kind waits forever for an event that
+        ///     cannot arrive. Today <c>agentMessage</c> is the difference, because the only things
+        ///     that would publish one are a conversation and a swarm, and both are later phases.
+        ///   </para>
+        /// </summary>
+        [JsonPropertyName("emittedKinds")]
+        public IReadOnlyList<String> EmittedKinds { get; set; } = Array.Empty<String>();
     }
 
     /// <summary>What a cancel did. <c>signalled</c> counts the agent and its live descendants.</summary>

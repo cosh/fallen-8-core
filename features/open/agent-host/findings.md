@@ -211,24 +211,69 @@ without the deadline they pin, the stall they set up waits forever, and a wedged
 defect it exists to report. When the bound fires the exception type is wrong, so the failure is
 legible.
 
-**THE REVIEW GATE IS STILL INCOMPLETE.** Two attempts, both cut short by a session usage limit:
+## 8. The rest of the gate, run by hand
 
-| attempt | dimensions run | verifiers run | outcome |
-|---|---|---|---|
-| first, over Phase 2 | 3 of 7 (feed concurrency, trace correctness, SSE contract) | 12 of 18 | 11 findings, all fixed |
-| second, over the whole branch | 0 of 6 | none | nothing ran |
+Two delegated attempts at the remaining dimensions were cut short by a session usage limit (three of
+seven dimensions completed on the first, none on the second). So the six outstanding dimensions were
+worked through directly instead. That is a weaker instrument than an adversarial panel and the
+record should say so: it is one reader rather than six with a sceptic attacking each finding. What
+it found, all fixed:
 
-So these dimensions have **never** been reviewed on any commit of this branch: journal coupling,
-tests, house rules, false claims, an adversarial pass over the fix commit itself, and cross-phase
-coherence. They are UNRUN, not clean, and an empty result from the second attempt means the agents
-died rather than that they found nothing. The gate has to be finished before this branch merges, and
-the most valuable of the six is false claims: the two completed gates found ten between them, which
-is this repository's highest-yield defect class.
+- **`agentMessage` was subscribable and emitted by nothing.** `AgentJournal.Message` exists because
+  the swarm phase writes worker traffic through it, but nothing calls it today, so a subscriber
+  filtering on that kind would wait forever for an event that cannot arrive. That is precisely the
+  failure the feed's parser-not-compiler stance prevents everywhere else. Refusing the kind would
+  break a client's filter the day the swarm lands, so the difference is REPORTED instead:
+  `AgentEventKinds.Emitted` beside `.Names`, both on `GET /agent/status` as `emittedKinds` and
+  `acceptedKinds`, named in the filter's refusal message and in the route's own parameter doc.
+  Pinned by a test that fails if the two lists stop agreeing with the code.
+- **`result_text` was the one non-camelCase property on the wire**, on a type where every other
+  property is camelCase. Now `resultText`.
+- **Two comments in one file contradicted each other about route precedence.** One said the router
+  prefers a literal segment either way, the other implied the registration order is what does it. A
+  literal outranks a parameter in ASP.NET's precedence whatever the order, so there is one true
+  reason and it now lives in one place.
+- **`AgentRegistry.Finish` claimed journaling before the cancel keeps the ending the LAST step.** It
+  does not, quite: a model call already in flight records its own step when it returns, which lands
+  after the ending. Preventing that would mean holding the registry lock across an inference call.
+  The comment now says a trace can carry one step past its ending.
+- **`waitingForUser` is declared, treated as live, and reached by nothing.** The only thing that
+  would park an agent there is a conversation, which is deferred. Recorded on the enum, so nobody
+  reads the state machine and expects to see it.
 
-## 8. An environment trap worth remembering
+Checked and found clean, recorded so the next reviewer need not redo it: package versions align
+across all four deployables (`ModelContextProtocol` 1.4.1, `Microsoft.Extensions.AI` and
+`.Abstractions` 10.9.0, `Microsoft.Agents.AI` 1.20.0); zero em or en dashes in any line this branch
+adds; no forbidden project names anywhere; the OpenAPI snapshot is additions-only across the branch
+apart from Phase 1a's six documented removals; and the spec 3.3 control-plane table matches the
+routes that exist, row for row, with the one deferred row marked as deferred.
+
+One observation rather than a finding: the apiApp's setting-catalog governance filters on sections
+prefixed `Fallen8:`, and the agent host's own sections are `Agents` and `Fallen8Target`. So
+`Agents:Trace:*`, `Agents:Feed:*` and `Agents:Limits:*` are covered by NO reflection gate. That is
+how `fallen-8-mcp` and `fallen-8-integrations` already work, so it is consistent rather than wrong,
+but it means a typo in one of the host's own option names is caught by nothing.
+
+**What is still unrun.** No adversarial verification pass ran over any of section 8's findings, and
+no independent reader has reviewed the fix commit `53abda96` or the cross-phase coherence questions
+in depth. Worth one more delegated gate before this branch merges, and false claims is the highest
+yield of them: the gates so far have found fifteen.
+
+## 9. Environment traps worth remembering
 
 `Copy-Item` preserves the source file's `LastWriteTime`. Restoring a mutated file from a backup copy
 therefore leaves the restored source **older** than the object file built from the mutation, so
 MSBuild skips the recompile and the mutated binary stays in place. This produced three misleading
 probe runs that looked like a fix not working. Touch the file after restoring, and verify against a
 control arm before believing a negative result.
+
+A mutation script that replaces the FIRST occurrence of a pattern is not reversible when the
+mutation creates a second occurrence. Reverting the `IOException` catch produced two identical catch
+clauses, and the restore then repaired the wrong one: the buffered arm gained a clause it never had
+and the streaming arm stayed broken. The suite caught it, but only because that arm had just gained
+a test. Mutate on anchors that stay unique in both directions, and diff against `HEAD` after
+restoring rather than trusting the script.
+
+A test that pins a DEADLINE hangs when the deadline is removed, so the mutation check wedges instead
+of failing. Three tests here needed their own bound for that reason. A hung suite is worse than an
+untested one, because the failure cannot be identified; the repo's flake rule says the same thing.

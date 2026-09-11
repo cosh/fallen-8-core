@@ -332,9 +332,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 finished = agent;
             }
 
-            // Journaled BEFORE the token is cancelled. The cancellation releases the runner's own
-            // finally, which is a competing writer to this agent's trace, so recording the ending
-            // first is what keeps it the last step of the run rather than a step in the middle.
+            // Journaled BEFORE the token is cancelled, so the ending is recorded before the
+            // cancellation releases anything waiting on it. In the ordinary case that makes it the
+            // last step of the run.
+            //
+            // It is NOT a guarantee, and the honest version is worth stating: a model call already
+            // in flight when a cancel arrives records its own step when it returns, which lands
+            // after the ending. Preventing that would mean holding this lock across an inference
+            // call. So a trace can carry one step past its ending, and a reader comparing the last
+            // step's kind against the state should expect it.
             _journal.Finished(finished, citations);
 
             // Outside the lock: cancelling the token runs continuations, and one of those is the

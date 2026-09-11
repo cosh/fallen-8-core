@@ -191,7 +191,7 @@
           {
             "name": "kinds",
             "in": "query",
-            "description": "Only these event kinds: agentSpawned, agentStateChanged, agentMessage, toolCalled, agentCompleted, agentFailed. An unknown kind is a 400 naming the set, never a silently empty stream",
+            "description": "Only these event kinds: agentSpawned, agentStateChanged, agentMessage, toolCalled, agentCompleted, agentFailed. An unknown kind is a 400 naming the set, never a silently empty stream. NOTE that agentMessage is accepted but not yet EMITTED by any code path, because the only things that publish one are a conversation and a swarm and both are later phases; GET /agents/status reports acceptedKinds and emittedKinds so a client need not guess",
             "schema": {
               "type": "array",
               "items": {

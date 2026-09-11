@@ -584,6 +584,40 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void TheEmittedKindsAreASubsetOfTheAcceptedOnesAndTheDifferenceIsNamed()
+        {
+            // A kind the filter accepts and nothing emits leaves a subscriber waiting forever for
+            // an event that cannot arrive, which is the failure this feed's parser-not-compiler
+            // stance prevents everywhere else. The difference is reported rather than refused,
+            // because refusing would break a client's filter the day the swarm lands.
+            var accepted = AgentEventKinds.Names;
+            var emitted = AgentEventKinds.Emitted;
+
+            foreach (var kind in emitted)
+            {
+                Assert.IsTrue(accepted.Contains(kind, StringComparer.OrdinalIgnoreCase),
+                    "an emitted kind the filter would refuse: " + kind);
+            }
+
+            Assert.AreEqual(6, accepted.Count);
+            Assert.AreEqual(5, emitted.Count);
+            Assert.IsFalse(emitted.Contains("agentMessage", StringComparer.OrdinalIgnoreCase),
+                "agentMessage is emitted by nothing until a conversation or a swarm exists; if that "
+                + "changed, add it to Emitted so the status route stops understating what a "
+                + "subscriber can receive");
+        }
+
+        [TestMethod]
+        public void ARefusalNamesBothWhatIsAcceptedAndWhatIsActuallyEmitted()
+        {
+            Assert.IsFalse(AgentEventKinds.TryParse(null, new[] { "agentExploded" }, out _, out var problem));
+
+            StringAssert.Contains(problem, "agentMessage", "the accepted set has to be complete");
+            StringAssert.Contains(problem, "emitted today",
+                "a caller told only the accepted set can pick one that never arrives");
+        }
+
+        [TestMethod]
         public void AKindFilterAdmitsOnlyThatKind()
         {
             Assert.IsTrue(AgentEventKinds.TryParse(null, new[] { "toolCalled" }, out var filter, out _));
