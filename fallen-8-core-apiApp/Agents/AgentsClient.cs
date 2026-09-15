@@ -67,10 +67,19 @@ namespace NoSQL.GraphDB.App.Agents
         ///
         ///   <para>
         ///     Its own method rather than a flag on the one above, because everything about it
-        ///     differs: response-headers-read semantics so the answer is not buffered, no per-call
-        ///     deadline because a feed is open for as long as the client wants it, and a flush per
-        ///     event so a subscriber is not served in bursts. Sharing one method would mean the
-        ///     small routes inherited the missing deadline, which is the more dangerous direction.
+        ///     differs: response-headers-read semantics so the answer is not buffered, a deadline on
+        ///     the HEADERS phase only, and a flush per event so a subscriber is not served in
+        ///     bursts. Sharing one method would mean the small routes inherited the body's absent
+        ///     deadline, which is the more dangerous direction.
+        ///   </para>
+        ///   <para>
+        ///     <b>The deadline split, because the implementation is <c>inheritdoc</c> and this is
+        ///     the only contract a caller reads.</b> It said there is no per-call deadline at all,
+        ///     "because a feed is open for as long as the client wants it". The body has none, which
+        ///     is that sentence's true half. The headers phase gets the small arm's budget, because
+        ///     a host that accepts the connection and then never answers is unreachable, and with no
+        ///     deadline there that held the caller's request open forever and reported no 503. So a
+        ///     caller CAN see an unavailable failure from this method, and should expect one.
         ///   </para>
         ///   <para>
         ///     Returns the host's status and content type through <paramref name="onHeaders" /> BEFORE
@@ -91,17 +100,26 @@ namespace NoSQL.GraphDB.App.Agents
     }
 
     /// <summary>
-    ///   The HTTP client for fallen-8-agents: ONE forwarding method plus the base's cached
-    ///   <c>GET /health</c> probe. There is no method per route and no typed body anywhere, because
-    ///   the proxy decides nothing from a body - it hands the host's own contract through in both
-    ///   directions, exactly as the integrations proxy does and for the same reason: re-declaring
-    ///   spawn requests, listings and the posture here would be a second definition to keep in step
-    ///   for no gain.
+    ///   The HTTP client for fallen-8-agents: TWO forwarding methods, one buffered and one
+    ///   streamed, plus the base's cached <c>GET /health</c> probe. There is no method per route and
+    ///   no typed body anywhere, because the proxy decides nothing from a body - it hands the host's
+    ///   own contract through in both directions, exactly as the integrations proxy does and for the
+    ///   same reason: re-declaring spawn requests, listings and the posture here would be a second
+    ///   definition to keep in step for no gain.
     ///
-    ///   <para><b>The bodies here are small and stay small</b>, which is why this client has no
-    ///   streamed arm at all where the integrations one does: a spawn carries a task sentence and a
-    ///   listing carries counters. The event feed IS a stream, and it gets its own arm in the phase
-    ///   that adds it rather than a shared one that would have to buffer.</para>
+    ///   <para><b>Two arms, because one of the routes is a stream and the rest are not.</b> Every
+    ///   body but the feed's is small and stays small: a spawn carries a task sentence, a listing
+    ///   carries counters, so <see cref="ForwardAsync" /> buffers and applies the whole per-call
+    ///   budget. The feed never ends, so <see cref="StreamAsync" /> reads headers-first, copies
+    ///   through, flushes per event, and holds the budget on the headers phase alone.</para>
+    ///   <para>
+    ///     This said the client had "ONE forwarding method" and "no streamed arm at all", and
+    ///     described the feed's arm in the future tense, in the file that had contained it since
+    ///     the phase before. A maintainer adding a second streaming route would have read that as a
+    ///     deliberate absence and either built a parallel client or routed a stream through
+    ///     <see cref="ForwardAsync" />, whose buffering read would hold an endless body until the
+    ///     per-call budget killed it.
+    ///   </para>
     /// </summary>
     public sealed class AgentsClient : SidecarHttpClient, IAgentsClient
     {

@@ -42,8 +42,13 @@ namespace NoSQL.GraphDB.Agents.Runtime
     ///   <para>
     ///     <b>What the numbers do and do not mean.</b> A high <c>valid</c> count is not a correct
     ///     answer: an agent can cite a real call and still misread it. A <c>dangling</c> count is
-    ///     not proof of a lie either, because a trace is bounded and a citation to a call that was
-    ///     dropped from the front of the buffer dangles for a reason that is not the model's fault.
+    ///     not proof of a lie either: the model may have named a tool it holds but did not call on
+    ///     this run, or one that does not exist, and a count cannot tell either apart from a
+    ///     fabrication. It is no longer excused by the trace BOUND, though, and this paragraph used
+    ///     to say it was: the tool-name set is kept OUTSIDE the bound precisely so a citation to a
+    ///     real early call cannot dangle once its step has been dropped. So on a long run a dangling
+    ///     count means the answer points at work this trace has no record of, which is worth a
+    ///     reviewer's attention rather than a bookkeeping artefact to discount.
     ///     What the pair IS good for is the shape a fabricating run has: every figure asserted, no
     ///     citations at all, and a trace with no tool calls in it. That was measured on the shipped
     ///     agent model, so this is aimed at something real.

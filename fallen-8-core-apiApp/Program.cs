@@ -536,10 +536,16 @@ namespace NoSQL.GraphDB.App
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Integrations));
                 });
 
-                // The agents gate (feature agent-host): same shape - off by default, orthogonal to
-                // auth, 403 when off. Off for a sharper reason than its siblings: an agent decides
-                // for itself which tools to call, so this is a decision an operator makes rather
-                // than one a deployment inherits.
+                // The agents gate (feature agent-host): same shape, off by default. Off for a
+                // sharper reason than its siblings: an agent decides for itself which tools to
+                // call, so this is a decision an operator makes rather than one a deployment
+                // inherits.
+                //
+                // NOT orthogonal to auth, and not a plain 403: which status "off" produces depends
+                // on whether a key is configured, because that is what decides whether the
+                // middleware challenges or forbids. AgentsController is the one home for that, and
+                // this comment used to assert the 403 alone, in the branch whose plan says the
+                // repo's docs widely get exactly this wrong.
                 o.AddPolicy(Fallen8AgentsOptions.AgentsPolicy, p =>
                 {
                     if (keyConfigured)
@@ -617,8 +623,9 @@ namespace NoSQL.GraphDB.App
                     sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Integrations.IntegrationsClient>>()));
 
             // The agent-host proxy (feature agent-host): the client is inert until an /agents route
-            // is called - with the flag off (the default) those routes answer 403 and nothing is
-            // contacted, and with no endpoint configured they answer 503 rather than timing out.
+            // is called - with the flag off (the default) those routes refuse before anything is
+            // contacted (403 or 401, see AgentsController), and with no endpoint configured they
+            // answer 503 rather than timing out.
             // Tests replace IAgentsClient.
             builder.Services.Configure<Fallen8AgentsOptions>(
                 builder.Configuration.GetSection(Fallen8AgentsOptions.SectionName));

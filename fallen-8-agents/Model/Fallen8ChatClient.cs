@@ -57,9 +57,10 @@ namespace NoSQL.GraphDB.Agents.Model
     ///   </para>
     ///   <para>
     ///     It reports no streaming. <see cref="GetStreamingResponseAsync" /> delegates to the
-    ///     buffered call and yields one update, because <c>POST /chat</c> answers with a whole
-    ///     completion; a framework that asks to stream therefore gets a correct answer in one piece
-    ///     rather than an exception. Nothing above this needs deltas: the agent feed streams STEPS.
+    ///     buffered call and renders the whole completion as updates, because <c>POST /chat</c>
+    ///     answers with a whole completion; a framework that asks to stream therefore gets a
+    ///     correct answer rather than an exception. Nothing above this needs deltas: the agent feed
+    ///     streams STEPS.
     ///   </para>
     /// </summary>
     public sealed class Fallen8ChatClient : IChatClient
@@ -222,10 +223,18 @@ namespace NoSQL.GraphDB.Agents.Model
         }
 
         /// <summary>
-        ///   The buffered call, delivered as a single update. <c>POST /chat</c> has no streamed
-        ///   shape (an SSE variant is a recorded non-goal of the instance's chat feature), so
-        ///   pretending to stream would either lie or throw; one update is the honest rendering and
+        ///   The buffered call, rendered as updates. <c>POST /chat</c> has no streamed shape (an SSE
+        ///   variant is a recorded non-goal of the instance's chat feature), so pretending to stream
+        ///   would either lie or throw; handing the completion through is the honest rendering and
         ///   keeps any framework path that prefers streaming working.
+        ///   <para>
+        ///     <b>It is not ONE update</b>, which this said and two other sites repeated.
+        ///     Measured: <c>ToChatResponseUpdates</c> emits one update per message plus a TRAILING
+        ///     update carrying the response-level metadata, so the sequence is at least two, and
+        ///     the reported usage rides on that trailing one. A consumer reading the first update
+        ///     as the whole answer therefore loses the usage, which is what the meter above this
+        ///     prices a step from.
+        ///   </para>
         /// </summary>
         public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> messages, ChatOptions? options = null,

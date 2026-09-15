@@ -99,7 +99,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
             get; set;
         }
 
-        // ---- agentStateChanged, and carried on every ending too
+        // ---- on EVERY kind, not only the transitions: a subscriber rendering a list should not
+        // have to join against the listing to label a row, nor poll to price one. This header used
+        // to read "agentStateChanged, and carried on every ending too", and these headers ARE the
+        // contract a reader uses to know which fields apply to which kind, so it said a toolCalled
+        // frame carries no counters when every frame does.
 
         [JsonPropertyName("state")]
         public String? State
@@ -114,9 +118,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
-        ///   The four counters, on every state change and every ending. Present so a subscriber can
-        ///   render live cost WITHOUT polling, which is the whole reason they are here rather than
-        ///   only on the listing.
+        ///   The counters, on every event of every kind. Present so a subscriber can render live
+        ///   cost WITHOUT polling, which is the whole reason they are here rather than only on the
+        ///   listing, and that reason applies to a tool call as much as to a transition. There are
+        ///   five of them plus a flag, not "the four" this said: the flag is what separates a
+        ///   backend reporting zero from one reporting nothing.
         /// </summary>
         [JsonPropertyName("tokens")]
         public EventCounters? Tokens
@@ -416,7 +422,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 {
                     problem = String.Format(
                         "Unknown feed event kind '{0}'. Accepted kinds are {1}; of those, {2} are "
-                        + "emitted today (GET /agent/status reports both lists).", raw,
+                        + "emitted today (the status route reports both lists).", raw,
                         String.Join(", ", ByName.Keys), String.Join(", ", Emitted));
                     return false;
                 }

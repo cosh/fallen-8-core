@@ -378,7 +378,8 @@ namespace NoSQL.GraphDB.Tests
         public async Task TheStreamedCallYieldsTheBufferedAnswerRatherThanThrowing()
         {
             // POST /chat has no streamed shape, and a framework path that prefers streaming must
-            // still get a correct answer. One update is the honest rendering of one completion.
+            // still get a correct answer. Handing the whole completion through is the honest
+            // rendering; how many updates that takes is asserted below rather than assumed.
             using var factory = Factory((turns, opts) => new ChatBackendResult
             {
                 Content = "eight",
@@ -386,13 +387,65 @@ namespace NoSQL.GraphDB.Tests
             });
 
             var text = new System.Text.StringBuilder();
+            var updates = new List<ChatResponseUpdate>();
             await foreach (var update in Client(factory).GetStreamingResponseAsync(
                 new[] { new ChatMessage(ChatRole.User, "hi") }))
             {
+                updates.Add(update);
                 text.Append(update.Text);
             }
 
             Assert.AreEqual("eight", text.ToString());
+
+            // TWO, not the one that three comments claimed and this test never counted. Measured:
+            // ToChatResponseUpdates emits one update per message plus a TRAILING update carrying
+            // the response-level metadata, which has no contents of its own when there is no usage
+            // to put in it. So the sequence is never length one, and a reader of those comments
+            // would have taken updates[0] for the whole answer.
+            Assert.AreEqual(2, updates.Count);
+            Assert.AreEqual(0, updates[^1].Contents.Count,
+                "with no usage reported the trailing metadata update carries nothing");
+        }
+
+        [TestMethod]
+        public async Task AReportedUsageArrivesAsItsOwnUpdateSoTheSequenceIsNotAlwaysOne()
+        {
+            // Where the trailing update EARNS its place: the reported usage rides on it, so the
+            // meter's streamed arm has to aggregate rather than read the first update. Three sites
+            // said the adapter answers in one update and the meter cited that to call its
+            // aggregation a sequence of length one "in practice"; it is two either way, and this is
+            // the case where the second one matters.
+            using var factory = Factory((turns, opts) => new ChatBackendResult
+            {
+                Content = "eight",
+                Model = opts.Model,
+                PromptTokens = 11,
+                CompletionTokens = 3,
+            });
+
+            var text = new System.Text.StringBuilder();
+            var updates = new List<ChatResponseUpdate>();
+            await foreach (var update in Client(factory).GetStreamingResponseAsync(
+                new[] { new ChatMessage(ChatRole.User, "hi") }))
+            {
+                updates.Add(update);
+                text.Append(update.Text);
+            }
+
+            Assert.AreEqual("eight", text.ToString(),
+                "the answer is unchanged however many updates carry it");
+            Assert.AreEqual(2, updates.Count,
+                "a reported usage is its own update, so the sequence is " + updates.Count
+                + " rather than the one three comments claimed");
+
+            var usage = updates
+                .SelectMany(u => u.Contents)
+                .OfType<UsageContent>()
+                .SingleOrDefault();
+            Assert.IsNotNull(usage, "the usage has to survive the streamed rendering, or the meter "
+                + "counts a step it cannot price");
+            Assert.AreEqual(11L, usage.Details.InputTokenCount);
+            Assert.AreEqual(3L, usage.Details.OutputTokenCount);
         }
 
         [TestMethod]

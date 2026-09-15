@@ -360,17 +360,27 @@ Intent: "review what they are doing all the time", the observability half of the
 
 Intent: honest cost accounting and hard stops, the other half of the review contract.
 
-- [ ] Usage from the instance's stats accumulated per agent; `unreportedUsage` step; steps, tool
+> **Two of these landed early, in Phases 1b and 2, and were left unticked.** A reader took two
+> unticked boxes for unimplemented work and would have built the counters and the budget meter a
+> second time, discovering the duplication when both counted the same step. Only the metrics box is
+> genuinely outstanding, which is what makes this phase still open.
+
+- [x] Usage from the instance's stats accumulated per agent; `unreportedUsage` step; steps, tool
   calls and wall clock counted by the host; all four on list/detail and on `agentStateChanged`.
-- [ ] Budget enforcement after each step at the framework's per-step seam (maximum iterations
+  *(Phase 1b: `AgentBudgetChatClient` meters each call, `EventCounters` carries them on every
+  event, `TraceStep.UnreportedUsage` distinguishes an absence from a measurement.)*
+- [x] Budget enforcement after each step at the framework's per-step seam (maximum iterations
   where the framework has the knob): `budgetExceeded` naming `tokens`, `steps`, `toolCalls` or
-  `time`; feed event.
+  `time`; feed event. *(Phase 1b: all four kinds enforced and named, each with a test that fails
+  when its own enforcement is removed; the time budget is the runner's linked deadline rather than
+  the meter's, which the meter's doc states.)*
 - [ ] `AgentsMetrics` (spec 3.6) with the observability containment and tag-hygiene rules; Agent
   Framework's OTel GenAI spans wired to the exporter configuration; fleet identity declared.
 - [ ] Check the 3.8 defaults against the Phase 0 numbers, including the instance hop, and adjust
   the spec table if they moved.
-- [ ] Tests: counter exactness against scripted usage, each budget stops with its name, metrics
-  emitted (`MeterListener`), no user input in tag values.
+- [x] Tests: counter exactness against scripted usage, each budget stops with its name. *(Phase
+  1b.)*
+- [ ] Tests: metrics emitted (`MeterListener`), no user input in tag values.
 
 ## Phase 4: swarm mode
 
@@ -409,6 +419,9 @@ Intent: ship what exists; leave the repo consistent.
   allowlists, configuration reference incl. the two purposes, the Phase 0 record and fallback
   ladder, security posture (proxy-only, one REST family, read-only-tiers recommendation,
   prompt-injection honesty note).
+- [ ] `CLAUDE.md`: the deployable is on its project map and has its architecture note, added
+  mid-branch because this phase listed every other place the architecture story lives and not the
+  file that states the repo's own rules. Re-check it at landing against what actually shipped.
 - [ ] Once landed: move `features/open/agent-host/` to `features/done/agent-host/`; add the
   "operate the agent host" note to the skill library's spec (there, not here).
 - [ ] Full suite green, build clean (warnings-as-errors), convention tests pass for the new

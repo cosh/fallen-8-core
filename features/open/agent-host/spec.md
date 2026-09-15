@@ -1,6 +1,10 @@
 # Fallen-8 Agent Host: Specification
 
-> **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
+> **Status:** Phases 0, 1a, 1b and 2 are IMPLEMENTED on `feature/agent-host` and unmerged; Phase
+> 3 (metrics) is next, then 4 (swarm) and 5 (packaging, docs, land). This line said "spec only (no
+> implementation yet)" while a whole deployable, the apiApp proxy and the chat-gateway purposes had
+> landed, which is the one line a reader checks to place the feature. Per-phase state and dates are
+> in [plan.md](./plan.md). Follow the feature workflow in the
 > repository root `CLAUDE.md`. Feature branch: `feature/agent-host` (branch-only workflow:
 > no GitHub issue or PR).
 >
@@ -344,8 +348,12 @@ Rules, each with its reason:
 - **Trace:** every step is recorded: `modelCall` (duration as the host measured it, `backend` and
   `model` as the instance reported them, usage delta, or an `unreportedUsage` marker),
   `toolCall` (tool-call id, tool name, arguments capped at `Agents:Trace:ArgsBytes`, result capped
-  at `Agents:Trace:ResultBytes`, `truncated`, total bytes, duration, success), `message`
-  (direction, `messageId`, `inReplyTo`), `spawn`, `citationCheck` and state changes. The buffer is
+  at `Agents:Trace:ResultBytes`, `truncated`, total bytes, duration, success, and `error` when it
+  failed, which is the framework's own message and is what the model was told too), `message`
+  (direction, `messageId`, `inReplyTo`, `text` capped like a result), `spawn`, `citationCheck` and
+  state changes. Every field in these lists exists; `error` and `text` are here because they
+  shipped while the lists omitted them, so a consumer written from this section dropped the one
+  field that says WHY a tool call failed. The buffer is
   bounded (`Agents:Trace:MaxSteps`, oldest dropped with a marker step): review needs recency, not
   an unbounded archive. Provenance is therefore **per step**, not per host: a deployment that
   switches backend mid-day shows it in the trace.
@@ -413,21 +421,31 @@ an edit that drops one fails the suite rather than the next agent run.
 ### 3.3 Control-plane API
 
 The host serves its routes under `/agent/*` on an unpublished port; the apiApp proxies them as
-`/agents/*`, Fallen-8-level, gated by a new `Agents` capability (403 when `Fallen8:Agents:Enabled`
-is off, credentialed when the instance has an API key, anonymous only on a keyless instance:
-the integrations proxy's posture, and its client base). The proxy invents exactly one status, a
+`/agents/*`, Fallen-8-level, gated by a new `Agents` capability: the integrations proxy's posture,
+and its client base. **With the capability off the answer depends on whether the instance has a
+key**, and this sentence used to say 403 unconditionally. The shared policy pairs
+`RequireAuthenticatedUser` with the capability requirement, so an anonymous caller is challenged
+before the capability is read: a keyed instance answers **403**, a keyless one (a bare
+`dotnet run`) answers **401**. Both are pinned by test, because a client that reads only 403 as
+"the feature is absent" shows a broken screen on exactly the second instance. The proxy invents exactly one status, a
 503 for an unconfigured or unreachable host; everything the host answered passes through.
+
+The routes are **unversioned and Fallen-8-level**, like the integrations proxy: the controller's
+actions carry absolute templates, which by ASP.NET's routing rules discard the class-level
+`api/v{version}/[controller]`. This table spelled every row `/api/v0.1/agents...` while the
+regenerated OpenAPI snapshot carried `/agents...`, so seven of its eight rows were unreachable as
+written and it contradicted its own prose four lines above.
 
 | Method and route (apiApp) | Purpose |
 |---|---|
-| `POST /api/v0.1/agents` | Spawn; 202 with the agent id and initial state |
-| `GET /api/v0.1/agents` | All agents: id, name, role, state, task, parentId, tokens {input, output, total}, steps, toolCalls, durationMs, budget, createdAt, lastActivityAt |
-| `GET /api/v0.1/agents/{id}` | One agent, incl. children ids, citations and the last N trace steps |
-| `GET /api/v0.1/agents/{id}/trace` | The full retained trace |
-| `POST /api/v0.1/agents/{id}/messages` | User to agent message; 202 with a `messageId`; 409 unless the agent can accept one (running/waitingForUser). **Deferred, 2026-09-10; see the note under 3.4** |
-| `DELETE /api/v0.1/agents/{id}` | Cancel; cascades to live descendants |
-| `GET /api/v0.1/agents/status` | Host posture: chat gateway reachability, `lastSeen { backend, model }`, MCP target, tiers seen and tool count, caps, active and retained counts |
-| `GET /api/v0.1/agents/feed` | SSE stream (3.4), streamed through the proxy |
+| `POST /agents` | Spawn; 202 with the agent id and initial state |
+| `GET /agents` | All agents: id, name, role, state, task, parentId, tokens {input, output, total}, steps, toolCalls, durationMs, budget, createdAt, lastActivityAt |
+| `GET /agents/{id}` | One agent, incl. children ids, citations and the last N trace steps |
+| `GET /agents/{id}/trace` | The full retained trace |
+| `POST /agents/{id}/messages` | User to agent message; 202 with a `messageId`; 409 unless the agent can accept one (running/waitingForUser). **Deferred, 2026-09-10; see 3.4a**, so it is in no snapshot and answers 404 |
+| `DELETE /agents/{id}` | Cancel; cascades to live descendants |
+| `GET /agents/status` | Host posture: chat gateway reachability, the last backend and model seen, MCP target, tiers seen and tool count, caps, active and retained counts, and the event kinds this host EMITS beside the ones its filter ACCEPTS |
+| `GET /agents/feed` | SSE stream (3.4), streamed through the proxy |
 
 The reply to a user message arrives on the feed (and in the trace) as an `agentMessage` event
 carrying `inReplyTo: <messageId>`; the POST returns 202 immediately, because a step on a remote
@@ -446,12 +464,18 @@ kinds:
 
 `agentSpawned, agentStateChanged, agentMessage, toolCalled, agentCompleted, agentFailed`
 
-Every event carries `{ seq, ts, agentId, parentId?, kind, ... }`. `agentMessage` carries the text,
+Every event carries `{ seq, ts, agentId, parentId?, kind, role, name, state, tokens, ... }`: the
+role, the name and the state are on EVERY kind rather than only on a state change, because a
+subscriber rendering a list should not have to join against the listing to label a row. `agentMessage` carries the text,
 direction and `messageId`/`inReplyTo`; `toolCalled` carries the tool-call id, tool name, the
 capped argument and result summaries with `truncated` and total bytes (never full payloads; the
-trace is the place to re-fetch); `agentStateChanged` carries the four counters so a subscriber can
-render live cost without polling; `agentCompleted` carries the result text, the counters and the
-citation counts. The proxy forwards the stream with response-headers-read semantics and flushes
+trace is the place to re-fetch); `agentStateChanged` carries the counters so a subscriber can
+render live cost without polling, and so does every other kind, for the same reason; `agentCompleted`
+and `agentFailed` carry the result text (capped, with `truncated`), `failure`, `durationMs`, and the
+citation counts when a check ran. The counters are `input`, `output`, `total`, `steps` and
+`toolCalls`, plus `unreportedUsage`: this said "the four counters" and there are five and a flag,
+and the flag is the one that distinguishes a backend reporting zero from a backend reporting
+nothing. The proxy forwards the stream with response-headers-read semantics and flushes
 per event; this streaming forward is the one new arm on the shared proxy client base. No catch-up
 buffer in v1 (`GET .../trace` is the catch-up mechanism); *revisit trigger:* a UI that must survive
 reconnects without re-fetching traces.
@@ -731,11 +755,11 @@ instance hop is not in these numbers), plus a framework probe built and run on n
 |---|---|
 | The engine (`fallen-8-core`) | **No change.** |
 | The chat gateway (`fallen-8-core-apiApp`, `/chat`) | **Additions only on the wire** (3.1a): `purpose`, `tools`, `toolCalls`, `toolCallId`; tool shapes on `IChatBackend` and its three types; native tool mapping in the Ollama-protocol, OpenAI and Anthropic backends; `Models:Assist` (renamed from `Model`, no alias) and `Models:Agent` on the four backend blocks, four catalog entries renamed and four added; `ChatBackendFactory.ResolveModel(options, purpose)`; the startup posture line, the config view and the residency probe report per purpose. NL assist and Studio send neither new field and see no change. |
-| The `Model` rename | **One-time sweep, no alias, in one phase:** `Fallen8ChatOptions`, `ChatBackendFactory`, `ChatModelCatalog` and the residency probe, `Fallen8SettingCatalog`; `docker-compose.yml` and the `nahil`, `openai` and `anthropic` overlays (the `F8_*_CHAT_MODEL` variables keep their names, only the keys they map to change), `.env.example`; Studio's picker key in `ConfigurationSurface.tsx`; the docs pages that spell the key (`nahil.md`, `model-providers.md`, `running.mdx`, `nl-assist.md` where it does); the Configuration screenshots; every test that spells it. An instance still carrying the old key fails closed at startup naming the new one. The fine-tune fixtures and `RETRAIN-LOG.md` do not spell the key. |
-| The proxy (`fallen-8-core-apiApp`, `/agents/*`) | **Eight proxied routes, one options class, one capability arm.** `AgentsController` (Fallen-8-level, `Fallen8.Agents` policy) on the shared sidecar-proxy client base, which gains one streaming-forward arm for the feed; `Fallen8AgentsOptions`; an `Agents` arm in `DynamicCapabilityAuthorization.Capability`. `Microsoft.Extensions.AI.Abstractions` moves to 10.9.0 with OllamaSharp following. |
-| The pinned OpenAPI snapshot | regenerated with `scripts/update-openapi-snapshot.ps1`, additions only: the eight operations and the new chat fields. |
-| `NamespaceEndpointTest` | eight entries in the Fallen-8-level set, or `/agents` becomes a prefix rule as `/savegames` is. |
-| The MCP coverage gate (`McpRestCoverageTest`) | `POST /chat` stays deferred, unchanged. **One new deferral rule, with its reason,** for all eight `/agents/*` routes: agents compose agents through the orchestrator role's swarm tools, inside the host's caps; bridging spawn to the MCP server would put agent creation behind the graph's tool tiers, where none of those caps apply. *Revisit when an agent outside the host needs to delegate to hosted agents.* |
+| The `Model` rename | **One-time sweep, no alias, in one phase:** `Fallen8ChatOptions`, `ChatBackendFactory`, `ChatModelCatalog` and the residency probe, `Fallen8SettingCatalog`; `docker-compose.yml` and the `nahil`, `openai` and `anthropic` overlays (the `F8_*_CHAT_MODEL` variables keep their names, only the keys they map to change), `.env.example`; Studio's picker key in `ConfigurationSurface.tsx`; the docs pages that spell the key (`nahil.md`, `model-providers.md`, `running.mdx`, `nl-assist.md` where it does); the Configuration screenshots; every test that spells it. An instance still carrying the old key fails closed naming the new one: a boot WARNING and a 503 on the chat routes, from the one `Validate` both read, because the boot line is deliberately not a startup failure (a chat misconfiguration must not take a graph database down). That took `ChatBackendFactory.StaleModelKey` reading the raw configuration; see 3.8, where the first version of the promise is corrected. The fine-tune fixtures and `RETRAIN-LOG.md` do not spell the key. |
+| The proxy (`fallen-8-core-apiApp`, `/agents/*`) | **Seven proxied operations over five paths, one options class, one capability arm.** Seven, not the eight this row claimed in four places: `POST /agents/{id}/messages` was deferred in the same commit that added 3.4a, and 3.3's table was updated while this row was not. A reviewer reconciling the snapshot against this table counts seven and cannot tell a deferral from a route dropped in a rebase, which is the one thing the sweep exists to make visible. `AgentsController` (Fallen-8-level, `Fallen8.Agents` policy) on the shared sidecar-proxy client base, which gains one streaming-forward arm for the feed; `Fallen8AgentsOptions`; an `Agents` arm in `DynamicCapabilityAuthorization.Capability`. `Microsoft.Extensions.AI.Abstractions` moves to 10.9.0 with OllamaSharp following. |
+| The pinned OpenAPI snapshot | regenerated with `scripts/update-openapi-snapshot.ps1`, additions only: the seven operations (`/agents` GET and POST, `/agents/feed`, `/agents/status`, `/agents/{id}` GET and DELETE, `/agents/{id}/trace`) and the new chat fields. Phase 1a's six documented removals are the one exception, and they are recorded in findings.md. |
+| `NamespaceEndpointTest` | the implementation chose the PREFIX rule, as `/savegames` has: one `path.StartsWith("/agents")` entry rather than one per route, so a route added later needs no gate change. This row offered both and named the per-route count first, which is not what shipped. |
+| The MCP coverage gate (`McpRestCoverageTest`) | `POST /chat` stays deferred, unchanged. **One new deferral rule, with its reason,** for the `/agents/*` family: agents compose agents through the orchestrator role's swarm tools, inside the host's caps; bridging spawn to the MCP server would put agent creation behind the graph's tool tiers, where none of those caps apply. *Revisit when an agent outside the host needs to delegate to hosted agents.* |
 | `CodeQualityTest` and the standing gates | `fallen-8-agents` joins `_allProjects`, `_productProjects` and the REST-only rule (`TheRestOnlyDeployables_ReferenceNeitherTheEngineNorTheApiApp`); a new test pins its REST route family to the chat gateway; warnings stay errors. The test project gains the project reference. |
 | `fallen-8-mcp` | **No change.** It gains its first in-repo client; its docs page gains a pointer. |
 | F8 Studio (`fallen-8-web-ui`) | **No agent UI in v1** (non-goal). The Configuration surface renders `/config`, so the purpose keys appear without code; the catalog picker binds one key today (`ConfigurationSurface.tsx`, the `Fallen8:Chat:<Backend>:Model` line) and becomes one picker per purpose fed by the same `GET /chat/models` catalog, with the card showing model and residency per purpose. The Configuration screenshots are recaptured. |

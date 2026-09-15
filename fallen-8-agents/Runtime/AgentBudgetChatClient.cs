@@ -107,9 +107,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
         /// <summary>
         ///   Counted the same way, because a streamed step costs the same as a buffered one. The
-        ///   adapter below reports no streaming and answers this in one update, so the aggregation
-        ///   here is over a sequence of length one in practice; it is written for the general case so
-        ///   a future streamed gateway needs no second meter.
+        ///   aggregation here is load-bearing rather than defensive: the adapter reports no
+        ///   streaming, but it still renders a completion as at least TWO updates, and the reported
+        ///   usage rides on the trailing one. This used to say the sequence had length one in
+        ///   practice, which would have made reading a single update look safe and would have
+        ///   dropped exactly the usage this class exists to count.
         /// </summary>
         public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> messages, ChatOptions? options = null,
@@ -152,11 +154,6 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
-        ///   Decides whether this agent may make another model call. Throws rather than returning a
-        ///   refusal because it sits under the framework's loop, which has no vocabulary for "stop,
-        ///   but not because of an error"; the runner turns it back into the ending it is.
-        /// </summary>
-        /// <summary>
         ///   A provenance value the adapter stamped on the response. Read from the response rather
         ///   than from the adapter's own aggregate because several agents share one adapter, so the
         ///   aggregate belongs to whichever call finished last.
@@ -172,6 +169,17 @@ namespace NoSQL.GraphDB.Agents.Runtime
             return null;
         }
 
+        /// <summary>
+        ///   Decides whether this agent may make another model call. Throws rather than returning a
+        ///   refusal because it sits under the framework's loop, which has no vocabulary for "stop,
+        ///   but not because of an error"; the runner turns it back into the ending it is.
+        ///   <para>
+        ///     This explanation was stacked as a SECOND summary above <see cref="Provenance" />,
+        ///     which decides nothing and only reads a response, leaving the one member that does
+        ///     throw with no doc at all. Two summaries on one member raise no compiler warning, so
+        ///     warnings-as-errors did not catch it and the generated XML emitted both.
+        ///   </para>
+        /// </summary>
         private void Admit()
         {
             if (_limits.MaxStepsPerRun > 0 && Interlocked.Read(ref _agent.Steps) >= _limits.MaxStepsPerRun)

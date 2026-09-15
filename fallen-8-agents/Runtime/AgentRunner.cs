@@ -434,9 +434,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
         /// <summary>
         ///   The role prompt, plus whatever the caller appended. The order is the point: the role
-        ///   prompt comes FIRST and the appendix cannot replace it, because the role prompt is what
-        ///   makes the agent call a tool instead of fabricating a result, and a caller who could
-        ///   overwrite it could turn an agent into a confident liar with one request field.
+        ///   prompt comes FIRST and the appendix cannot replace it, because the role prompt carries
+        ///   the honesty properties a reviewer depends on, and a caller who could overwrite it could
+        ///   turn an agent into a confident liar with one request field. What a role prompt may and
+        ///   may not be credited with is on <see cref="RoleCatalog" />, including the measurement
+        ///   that narrowed it.
         /// </summary>
         private static String Instructions(AgentRole role, String? appendix)
         {

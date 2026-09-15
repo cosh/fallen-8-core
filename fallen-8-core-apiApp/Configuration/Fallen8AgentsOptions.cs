@@ -29,7 +29,9 @@ namespace NoSQL.GraphDB.App.Configuration
 {
     /// <summary>
     ///   The agent-host proxy configuration (feature agent-host), section <c>Fallen8:Agents</c>.
-    ///   Default OFF: every <c>/agents</c> route answers 403 and no sidecar is contacted.
+    ///   Default OFF: every <c>/agents</c> route refuses before a sidecar is contacted, with 403
+    ///   on a keyed instance and 401 on a keyless one (<c>AgentsController</c> is the one home for
+    ///   why, and a client that reads only 403 as "absent" breaks on the second kind).
     ///
     ///   <para>The agent host is a separate deployable (<c>fallen-8-agents</c>) whose container port
     ///   is deliberately not published, because an agent can be talked into calling a tool. The

@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -222,20 +223,41 @@ namespace NoSQL.GraphDB.Agents.Hosting
                     options.Mcp.Endpoint, toolset.Failure ?? "no reason reported");
             }
 
+            // The token CEILING, not the default. TryAdmit honours a caller's own tokenBudget up
+            // to Agents:Limits:MaxTokenBudget, so the ceiling is the only enforced bound and the
+            // default is merely what a caller who names nothing gets. This line printed the
+            // default alone, which told an operator a run could not cost more than 100,000 tokens
+            // on a host whose ceiling is four times that.
             logger.LogInformation(
-                "A run is bounded at {MaxSteps} model calls, {MaxToolCalls} tool calls, {MaxRunSeconds}s "
-                + "wall clock and {TokenBudget} tokens, with at most {MaxConcurrent} agents at once. "
+                "A run is bounded at {MaxSteps} model calls, {MaxToolCalls} tool calls, "
+                + "{MaxRunSeconds} wall clock and {MaxTokenBudget} tokens ({DefaultTokenBudget} "
+                + "unless a caller asks for more), with at most {MaxConcurrent} agents at once. "
                 + "Every one of those is enforced in this process, because a model that is looping is "
                 + "the model that will not honour an instruction to stop.",
-                options.Limits.MaxStepsPerRun, options.Limits.MaxToolCallsPerRun,
-                options.Limits.MaxRunSeconds, options.Limits.DefaultTokenBudget,
-                options.Limits.MaxConcurrentAgents);
+                Cap(options.Limits.MaxStepsPerRun), Cap(options.Limits.MaxToolCallsPerRun),
+                Cap(options.Limits.MaxRunSeconds, "s"), Cap(options.Limits.MaxTokenBudget),
+                options.Limits.DefaultTokenBudget, Cap(options.Limits.MaxConcurrentAgents));
 
             logger.LogInformation(
                 "Nothing here is durable: a restart ends every agent and forgets every finished one. "
                 + "A finished agent stays readable for {RetainMinutes} minutes, at most {MaxRetained} "
                 + "of them.",
-                options.Limits.RetainFinishedMinutes, options.Limits.MaxRetainedAgents);
+                Cap(options.Limits.RetainFinishedMinutes), Cap(options.Limits.MaxRetainedAgents));
+        }
+
+        /// <summary>
+        ///   A cap as an operator should read it: the number, or the word for a cap that is switched
+        ///   off. Seven of the printed limits treat a non-positive value as OFF, so printing the raw
+        ///   number told an operator who had deliberately disabled one that this host was the
+        ///   strictest possible: "bounded at 0 model calls" for a host with no step cap at all.
+        ///   The word reads in place of the number rather than beside it, so the ordinary case (a
+        ///   cap that IS set) stays one short sentence.
+        /// </summary>
+        private static String Cap(Int32 value, String unit = "")
+        {
+            return value > 0
+                ? value.ToString(CultureInfo.InvariantCulture) + unit
+                : "unlimited";
         }
 
         /// <summary>

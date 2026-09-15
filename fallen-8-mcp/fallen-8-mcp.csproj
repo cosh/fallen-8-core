@@ -14,9 +14,10 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- The REST-client seam shared with fallen-8-integrations: send classification, the
-         absent-body convention, URL safety. It references neither the engine nor the API app, so
-         consuming it keeps this deployable's REST-only rule intact. -->
+    <!-- The REST-client seam shared with the other REST-only deployables: send classification,
+         the absent-body convention, URL safety. It references neither the engine nor the API app,
+         so consuming it keeps this deployable's REST-only rule intact. The seam's own csproj is
+         where that rule is written down. -->
     <ProjectReference Include="..\fallen-8-rest-client\fallen-8-rest-client.csproj" />
   </ItemGroup>
 

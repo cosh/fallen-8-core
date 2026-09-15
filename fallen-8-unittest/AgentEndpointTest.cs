@@ -647,11 +647,11 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task WithAgentsOffTheProxyForbidsAKeyedCallerAndChallengesAKeylessOne()
         {
-            // The shared capability policy pairs RequireAuthenticatedUser with the capability
-            // requirement, so an ANONYMOUS caller is challenged before the capability is even read.
-            // "Agents are off" therefore arrives as 403 on a keyed instance and as 401 on a bare
-            // dotnet run. Both are pinned, because a client that reads only 403 as "absent" shows a
-            // broken screen on exactly the second instance.
+            // "Agents are off" arrives as 403 on a keyed instance and as 401 on a bare dotnet run.
+            // Both are pinned, because a client that reads only 403 as "absent" shows a broken
+            // screen on exactly the second instance. WHY the keyless one is a challenge rather than
+            // a forbid is on AgentsController, which is its one home; this comment used to give a
+            // different and wrong reason for it.
             using (var factory = new AgentProxyFactory(enabled: "false", withApiKey: true))
             using (var client = factory.CreateAuthenticatedClient())
             {

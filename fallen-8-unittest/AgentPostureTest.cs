@@ -236,6 +236,86 @@ namespace NoSQL.GraphDB.Tests
 
         #endregion
 
+        #region the startup posture line
+
+        [TestMethod]
+        public void ThePostureLineNamesTheCeilingThatBoundsARunRatherThanTheDefault()
+        {
+            // The line's own stated job is "what bounds a run", and it printed
+            // DefaultTokenBudget, which bounds nothing: TryAdmit honours a caller's own
+            // tokenBudget up to MaxTokenBudget, so the ceiling is the only enforced bound. An
+            // operator reading the shipped line recorded 100,000 tokens as the most a run could
+            // cost on a host whose ceiling is four times that. Nothing asserted any of these
+            // lines, which is why it survived.
+            using var sink = new TestLogSink();
+            var options = new AgentsOptions();
+            options.Limits.DefaultTokenBudget = 100000;
+            options.Limits.MaxTokenBudget = 400000;
+
+            Posture(sink, options);
+
+            Assert.IsTrue(sink.Contains(LogLevel.Information, "400000", "bounded at"),
+                "the enforced ceiling is missing from the one line that claims to state the bounds");
+            Assert.IsTrue(sink.Contains(LogLevel.Information, "100000", "unless a caller asks"),
+                "the default is still worth naming, as what a caller who asks for nothing gets");
+        }
+
+        [TestMethod]
+        public void ADisabledCapReadsAsUnboundedRatherThanAsABoundOfZero()
+        {
+            // Seven of the printed limits treat a non-positive value as OFF. Printing the raw
+            // number told an operator who had deliberately disabled one that this host was the
+            // strictest possible: "bounded at 0 model calls" for a host with no step cap at all,
+            // which inverts the meaning of the whole line.
+            using var sink = new TestLogSink();
+            var options = new AgentsOptions();
+            options.Limits.MaxStepsPerRun = 0;
+            options.Limits.MaxToolCallsPerRun = 0;
+            options.Limits.MaxRunSeconds = 0;
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.MaxTokenBudget = 0;
+            options.Limits.RetainFinishedMinutes = 0;
+            options.Limits.MaxRetainedAgents = 0;
+
+            Posture(sink, options);
+
+            var bounds = sink.Entries.Single(e => e.Message.Contains("A run is bounded at",
+                StringComparison.Ordinal));
+            Assert.IsFalse(bounds.Message.Contains(" 0 ", StringComparison.Ordinal),
+                "a cap that is switched off printed as a bound of zero: " + bounds.Message);
+            StringAssert.Contains(bounds.Message, "100000",
+                "the default token budget is still reported when the ceiling is off, because it is "
+                + "then the only number a caller who asks for nothing gets");
+            Assert.AreEqual(5, bounds.Message.Split("unlimited").Length - 1,
+                "all five printed run bounds are off, so five read as unlimited: "
+                + bounds.Message);
+
+            var retention = sink.Entries.Single(e => e.Message.Contains("Nothing here is durable",
+                StringComparison.Ordinal));
+            Assert.AreEqual(2, retention.Message.Split("unlimited").Length - 1,
+                "retention and its ceiling are both off: " + retention.Message);
+        }
+
+        /// <summary>The posture line as the host writes it, with no MCP server and no gateway: this
+        /// is about the caps it prints, and neither probe contributes one.</summary>
+        private static void Posture(TestLogSink sink, AgentsOptions options)
+        {
+            AgentsHost.LogStartupPosture(sink.CreateFactory().CreateLogger("posture"), options,
+                new Fallen8TargetOptions(), RoleCatalog.Load(options), new EmptyToolSource());
+        }
+
+        private sealed class EmptyToolSource : IAgentToolSource
+        {
+            public IReadOnlyList<Microsoft.Extensions.AI.AITool> Tools
+                => Array.Empty<Microsoft.Extensions.AI.AITool>();
+
+            public Boolean Connected => false;
+
+            public String Failure => "no server configured for this test";
+        }
+
+        #endregion
+
         #region harness
 
         private static ILogger Logger()

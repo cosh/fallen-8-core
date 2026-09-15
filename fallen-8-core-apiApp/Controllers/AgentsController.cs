@@ -59,12 +59,20 @@ namespace NoSQL.GraphDB.App.Controllers
     ///   would offer a second way to say the same thing and let the two disagree.</para>
     ///
     ///   <para>Gated by the Agents capability, and the two statuses it produces are BOTH worth
-    ///   knowing: the shared policy pairs the capability with <c>RequireAuthenticatedUser</c>, so an
-    ///   anonymous caller is challenged before the capability is read. "Agents are off" is therefore
-    ///   403 on an instance with an API key and 401 on one without, which is what a bare
-    ///   <c>dotnet run</c> is. A client that reads only 403 as "this feature is absent" shows a
-    ///   broken screen on exactly that instance. Both come from the policy, so nothing here tests
-    ///   the flag.</para>
+    ///   knowing: "agents are off" is <b>403</b> on an instance with an API key and <b>401</b> on
+    ///   one without, which is what a bare <c>dotnet run</c> is. A client that reads only 403 as
+    ///   "this feature is absent" shows a broken screen on exactly that instance. Both come from
+    ///   the policy, so nothing here tests the flag.</para>
+    ///
+    ///   <para>The MECHANISM is not what this comment used to give. It said the policy pairs the
+    ///   capability with <c>RequireAuthenticatedUser</c> so an anonymous caller is challenged
+    ///   first; the policy adds that requirement only when a key is configured, so in the keyless
+    ///   case, the very one that answers 401, no such requirement exists. The 401 comes from the
+    ///   authorization middleware's challenge-versus-forbid rule: authentication did not succeed,
+    ///   so a failed policy is a CHALLENGE rather than a forbid. Removing the key condition on the
+    ///   strength of the old reason would not have made the answer uniform, and adding the
+    ///   requirement unconditionally would lock every anonymous caller out of a keyless
+    ///   instance.</para>
     /// </summary>
     [ApiController]
     [Route("api/v{version:apiVersion}/[controller]")]
@@ -95,7 +103,8 @@ namespace NoSQL.GraphDB.App.Controllers
         /// with <c>purpose: agent</c>, so the model is <c>Fallen8:Chat:&lt;Backend&gt;:Models:Agent</c> and
         /// a caller cannot choose it. <c>role</c> selects a prompt and a tool allowlist;
         /// <c>systemPromptAppendix</c> is APPENDED to that prompt and can never replace it, because the
-        /// role prompt is what makes an agent call a tool instead of fabricating a result.</para>
+        /// role prompt carries the rules that keep an agent honest about what it actually
+        /// called.</para>
         /// <para>The request and response bodies are the HOST's own contract and are deliberately untyped
         /// here, so there is exactly one definition of them: see https://docs.fallen-8.com/agents/.</para></remarks>
         /// <response code="202">Accepted; the body carries the agent's id and state</response>

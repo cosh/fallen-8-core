@@ -248,9 +248,18 @@ it found, all fixed:
 Checked and found clean, recorded so the next reviewer need not redo it: package versions align
 across all four deployables (`ModelContextProtocol` 1.4.1, `Microsoft.Extensions.AI` and
 `.Abstractions` 10.9.0, `Microsoft.Agents.AI` 1.20.0); zero em or en dashes in any line this branch
-adds; no forbidden project names anywhere; the OpenAPI snapshot is additions-only across the branch
-apart from Phase 1a's six documented removals; and the spec 3.3 control-plane table matches the
-routes that exist, row for row, with the one deferred row marked as deferred.
+adds; no forbidden project names anywhere; and the OpenAPI snapshot is additions-only across the
+branch apart from Phase 1a's six documented removals.
+
+**One item in that list was itself wrong**, which is worth leaving on the record rather than
+quietly deleting. It claimed the spec 3.3 control-plane table "matches the routes that exist, row
+for row". It did not: every row spelled the route `/api/v0.1/agents...` while the shipped surface
+is unversioned `/agents...`, because the controller's actions carry absolute templates that discard
+the class-level version prefix. Seven of the eight rows were unreachable as written, and the table
+contradicted its own prose four lines above it. The check compared the ROWS to each other and to
+the deferral note rather than to the snapshot, which is the only thing that could have caught it.
+Section 10 records the fix; the lesson is that "verified row for row" has to name what the rows
+were compared AGAINST.
 
 One observation rather than a finding: the apiApp's setting-catalog governance filters on sections
 prefixed `Fallen8:`, and the agent host's own sections are `Agents` and `Fallen8Target`. So

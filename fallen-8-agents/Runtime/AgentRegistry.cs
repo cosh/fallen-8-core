@@ -604,7 +604,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>Appended to the role prompt. It cannot replace it: the role prompt is what makes
-        /// the agent call tools instead of fabricating results.</summary>
+        /// the agent honest about what it did and did not call; see RoleCatalog for what a prompt
+        /// may and may not be credited with.</summary>
         public String? SystemPromptAppendix
         {
             get; set;

@@ -46,6 +46,23 @@ namespace NoSQL.GraphDB.Agents.Runtime
     ///     stops the process at startup rather than degrading it into a confident liar.
     ///   </para>
     ///   <para>
+    ///     <b>That measurement does NOT hold for the model this host ships with, and this is the
+    ///     one home that says so</b> (spec 3.2a's amendment; findings.md section 1). Measured
+    ///     later and more carefully against the stock agent model: with no instructions at all it
+    ///     calls the tool, and with ANY instruction text present it emits the literal text of a
+    ///     tool-call marker followed by an invented result. The polarity is reversed, and our own
+    ///     gateway is exonerated, because a request sent direct to the platform behaves
+    ///     identically.
+    ///   </para>
+    ///   <para>
+    ///     So what may be claimed for a role prompt is narrower than it was: it carries the honesty
+    ///     properties a reviewer depends on (never invent a result, cite the call a figure came
+    ///     from, one tool at a time) and it is what a caller must not be able to overwrite. What it
+    ///     may no longer be called is the thing that makes tool calling work. Four other sites
+    ///     asserted the pre-amendment claim as live fact and now point here instead, one of them
+    ///     through the published OpenAPI document.
+    ///   </para>
+    ///   <para>
     ///     <b>The allowlist narrows and can never widen.</b> It is applied to the tool list handed
     ///     to the agent, so a tool outside it is not merely discouraged by prose: the model never
     ///     sees it and cannot name it. The MCP server's own tiers remain the outer bound, enforced

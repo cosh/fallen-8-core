@@ -66,10 +66,12 @@ namespace NoSQL.GraphDB.App.Security
             Integrations,
 
             /// <summary>The agent-host proxy (feature agent-host,
-            /// <c>Fallen8:Agents:Enabled</c>) - default off: every <c>/agents</c> route answers 403
-            /// and no sidecar is contacted. Off by default for a sharper reason than its siblings:
-            /// an agent decides for itself which tools to call, so turning this on is a decision an
-            /// operator makes rather than one a deployment inherits.</summary>
+            /// <c>Fallen8:Agents:Enabled</c>) - default off: every <c>/agents</c> route refuses
+            /// before a sidecar is contacted, with 403 on a keyed instance and 401 on a keyless one
+            /// (<see cref="Controllers.AgentsController" /> is the one home for why). Off by
+            /// default for a sharper reason than its siblings: an agent decides for itself which
+            /// tools to call, so turning this on is a decision an operator makes rather than one a
+            /// deployment inherits.</summary>
             Agents
         }
 

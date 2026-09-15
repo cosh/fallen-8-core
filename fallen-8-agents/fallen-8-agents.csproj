@@ -51,9 +51,11 @@
 
   <ItemGroup>
     <!-- The role prompts are EMBEDDED rather than mounted, and that is a safety property rather
-         than packaging taste: a prompt is what makes a small model call a tool instead of
-         fabricating a result (spec section 3.2a), so a deployment that could edit or lose one
-         could silently turn an agent into a liar. -->
+         than packaging taste: a prompt carries the honesty properties a reviewer depends on (never
+         invent a result, cite the call a figure came from), so a deployment that could edit or lose
+         one could silently turn an agent into a liar. Deliberately NOT "a prompt is what makes a
+         small model call a tool": spec 3.2a's amendment reversed that for the shipped model. See
+         RoleCatalog, which is the one home for the measurement. -->
     <EmbeddedResource Include="Prompts\*.md" />
   </ItemGroup>
 
