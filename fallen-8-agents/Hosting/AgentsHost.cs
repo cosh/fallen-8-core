@@ -236,7 +236,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 + "the model that will not honour an instruction to stop.",
                 Cap(options.Limits.MaxStepsPerRun), Cap(options.Limits.MaxToolCallsPerRun),
                 Cap(options.Limits.MaxRunSeconds, "s"), Cap(options.Limits.MaxTokenBudget),
-                options.Limits.DefaultTokenBudget, Cap(options.Limits.MaxConcurrentAgents));
+                Cap(options.Limits.DefaultTokenBudget), Cap(options.Limits.MaxConcurrentAgents));
 
             logger.LogInformation(
                 "Nothing here is durable: a restart ends every agent and forgets every finished one. "
@@ -247,11 +247,18 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
         /// <summary>
         ///   A cap as an operator should read it: the number, or the word for a cap that is switched
-        ///   off. Seven of the printed limits treat a non-positive value as OFF, so printing the raw
+        ///   off. ALL EIGHT printed limits treat a non-positive value as OFF, so printing the raw
         ///   number told an operator who had deliberately disabled one that this host was the
         ///   strictest possible: "bounded at 0 model calls" for a host with no step cap at all.
         ///   The word reads in place of the number rather than beside it, so the ordinary case (a
         ///   cap that IS set) stays one short sentence.
+        ///   <para>
+        ///     Eight, not the seven this said: <c>DefaultTokenBudget</c> switches off too, and was
+        ///     the one left printing a raw 0 on the strength of that miscount. A spawn that names no
+        ///     budget of its own takes the default, and the meter only enforces a budget above
+        ///     zero, so a default of 0 means no token cap at all: exactly the shape this helper
+        ///     exists to stop reading as the strictest possible host.
+        ///   </para>
         /// </summary>
         private static String Cap(Int32 value, String unit = "")
         {

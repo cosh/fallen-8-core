@@ -1415,7 +1415,7 @@
           "Chat"
         ],
         "summary": "Lists the models the instance's configured chat backend catalogues",
-        "description": "For the RUNNING backend (feature chat-model-catalog), so a client can offer real\r\n    names for the server-owned model instead of a blank field; choosing one is still a\r\n    configuration write (Fallen8:Chat:&lt;Backend&gt;:Model), not a per-request field. A\r\n    pending-restart backend switch is not previewed. The list is not necessarily the whole\r\n    RESOLVABLE set - a backend can resolve a name it does not catalogue - so free-text entry\r\n    stays valid. Capability, availability and class are null wherever the backend does not\r\n    report them; filtering is the client's job.",
+        "description": "For the RUNNING backend (feature chat-model-catalog), so a client can offer real\r\n    names for the server-owned model instead of a blank field; choosing one is still a\r\n    configuration write, into the purpose key the model is for\r\n    (Fallen8:Chat:&lt;Backend&gt;:Models:Assist or :Models:Agent), not a per-request field.\r\n    This named Fallen8:Chat:&lt;Backend&gt;:Model, which the purposes rename retired and an\r\n    instance carrying it is now refused for, so following this instruction took chat down on\r\n    the next restart. A\r\n    pending-restart backend switch is not previewed. The list is not necessarily the whole\r\n    RESOLVABLE set - a backend can resolve a name it does not catalogue - so free-text entry\r\n    stays valid. Capability, availability and class are null wherever the backend does not\r\n    report them; filtering is the client's job.",
         "parameters": [
           {
             "name": "api-version",
@@ -18856,7 +18856,7 @@
               "null",
               "string"
             ],
-            "description": "The name VERBATIM, as the backend spells it (tag included): the value that goes\r\n    back into `Fallen8:Chat:&lt;Backend&gt;:Model`.",
+            "description": "The name VERBATIM, as the backend spells it (tag included): the value that goes\r\n    back into the purpose key it is for, `Fallen8:Chat:&lt;Backend&gt;:Models:Assist` or\r\n    `:Models:Agent`. Not `Fallen8:Chat:&lt;Backend&gt;:Model`, which the purposes\r\n    rename retired.",
             "example": "phi4-f8-mini:latest"
           },
           "capability": {

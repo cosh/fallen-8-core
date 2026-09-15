@@ -360,15 +360,26 @@ Intent: "review what they are doing all the time", the observability half of the
 
 Intent: honest cost accounting and hard stops, the other half of the review contract.
 
-> **Two of these landed early, in Phases 1b and 2, and were left unticked.** A reader took two
-> unticked boxes for unimplemented work and would have built the counters and the budget meter a
-> second time, discovering the duplication when both counted the same step. Only the metrics box is
-> genuinely outstanding, which is what makes this phase still open.
+> **Most of this landed early, in Phase 1b, and was left unticked.** A reader took unticked boxes
+> for unimplemented work and would have built the counters and the budget meter a second time,
+> discovering the duplication when both counted the same step.
+>
+> THREE boxes are still open, not one: `AgentsMetrics`, its `MeterListener` test, and the 3.8
+> defaults check, which is not metrics work by any reading. A first version of this note said "only
+> the metrics box", credited Phase 2 for work that was all Phase 1b's, and would have had a
+> contributor close the phase with the spec's configuration table never reconciled against the
+> Phase 0 measurements.
 
 - [x] Usage from the instance's stats accumulated per agent; `unreportedUsage` step; steps, tool
-  calls and wall clock counted by the host; all four on list/detail and on `agentStateChanged`.
-  *(Phase 1b: `AgentBudgetChatClient` meters each call, `EventCounters` carries them on every
-  event, `TraceStep.UnreportedUsage` distinguishes an absence from a measurement.)*
+  calls and wall clock counted by the host; all four on list/detail. *(Phase 1b:
+  `AgentBudgetChatClient` meters each call, `EventCounters` carries input, output, total, steps and
+  toolCalls on every event, `TraceStep.UnreportedUsage` distinguishes an absence from a
+  measurement.)*
+- [ ] Wall clock on `agentStateChanged`. The tick above used to claim "all four ... and on
+  `agentStateChanged`" and three of the four are there: `AgentEvent.DurationMs` is set on an ending
+  and on `toolCalled` and nowhere else, so a subscriber rendering live duration from a state change
+  gets nothing and has to poll the listing, which is the one thing the feed's counters exist to
+  avoid.
 - [x] Budget enforcement after each step at the framework's per-step seam (maximum iterations
   where the framework has the knob): `budgetExceeded` naming `tokens`, `steps`, `toolCalls` or
   `time`; feed event. *(Phase 1b: all four kinds enforced and named, each with a test that fails

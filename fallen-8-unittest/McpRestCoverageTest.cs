@@ -123,7 +123,8 @@ namespace NoSQL.GraphDB.Tests
                 "the model catalog exists to fill a PICKER: it turns a free-text configuration field " +
                 "into a list for a human choosing from a dropdown. An agent needs no dropdown, and it " +
                 "is not short of the capability either - f8_admin get_settings already reads " +
-                "Fallen8:Chat:<Backend>:Model and set_settings already writes it, since PATCH /config " +
+                "Fallen8:Chat:<Backend>:Models:Assist and :Models:Agent and set_settings already " +
+                "writes them, since PATCH /config " +
                 "is bridged - so the catalog would add a convenience, not a reach. Deliberately NOT " +
                 "justified by f8_overview: that reports chatEnabled and chatBackend only, and does not " +
                 "carry the model name"),

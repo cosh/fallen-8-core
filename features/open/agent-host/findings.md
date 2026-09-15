@@ -175,8 +175,11 @@ have made the grounding check dangle every citation on that host. The marker is 
 outside the buffer and updated in place, which is the shape the doc had always claimed.
 
 Two corollaries came with it. `Recorded` and `Dropped` counted markers, so the numbers a reader saw
-were of the class's own bookkeeping rather than of an agent's work; markers now take no sequence
-number and are not counted. And `ToolsCalled()` read the surviving buffer, so a citation to a real
+were of the class's own bookkeeping rather than of an agent's work; markers now consume no sequence
+number of their own and are not counted. They do CARRY one, borrowed: the sequence of the last step
+they report on, so the marker and the step after it read as consecutive. This said "take no
+sequence number", which the code doc now contradicts in terms, and trimming the marker's `Seq` on
+the strength of it would break that consecutive-sequence contract. And `ToolsCalled()` read the surviving buffer, so a citation to a real
 early call dangled on any run long enough to overflow; tool names are now remembered outside the
 bound, where the set is bounded by the number of distinct tools the MCP server advertises.
 
@@ -258,7 +261,7 @@ is unversioned `/agents...`, because the controller's actions carry absolute tem
 the class-level version prefix. Seven of the eight rows were unreachable as written, and the table
 contradicted its own prose four lines above it. The check compared the ROWS to each other and to
 the deferral note rather than to the snapshot, which is the only thing that could have caught it.
-Section 10 records the fix; the lesson is that "verified row for row" has to name what the rows
+Section 13 records the fix; the lesson is that "verified row for row" has to name what the rows
 were compared AGAINST.
 
 One observation rather than a finding: the apiApp's setting-catalog governance filters on sections
@@ -495,7 +498,7 @@ instead of quietly rewritten.
 ## 12. The last five, and where the gate stands
 
 - **`GET /agent/status` reported `lastSeenBackend` and `lastSeenModel`**, two sibling scalars, where
-  spec 3.2 and 3.3 both specify `lastSeen { backend, model }`. A consumer written from either read
+  spec 3.2 and the 3.3 status row both name `lastSeen { backend, model }`. A consumer written from either read
   `chat.lastSeen.backend` and got nothing on a host that had served many steps. The code was
   changed rather than the spec, because the nested shape is also the truer one: the two are one fact
   about one step, and its absence says "nothing has served a step yet" once instead of twice. The
@@ -541,3 +544,72 @@ independent reader has reviewed THIS round of fixes, which is the same gap secti
 its own. The pattern across three gates is stable enough to state plainly: the defect this feature
 produces most is a test that passes while the behaviour it names is absent, and the cheapest guard
 against it is to break the thing on purpose and watch the test fail with its own message.
+
+## 13. The doc-drift cluster, and a review OF the fixes
+
+Two things belong here that were only in commit messages. The first is the doc-drift and
+false-claim cluster the gate found: nineteen items, fixed in one pass, recorded in
+`cc0664e7` and nowhere in this document, which is why section 8's pointer had nothing to resolve
+to. The headline ones: the 3.3 control-plane table spelled every route `/api/v0.1/agents...` while
+the shipped surface is unversioned, so seven of its eight rows were unreachable as written; section
+7's impact table still claimed eight proxied routes in four places after one was deferred, and
+offered a per-route gate entry where the prefix rule shipped; the status line said "spec only (no
+implementation yet)" with four phases landed; `CLAUDE.md` described two REST-only deployables and
+never mentioned this one; the capability gate's 403 was asserted unconditionally at four sites in
+the branch whose plan says the repo's docs widely get exactly that wrong; and the premise spec
+3.2a's own amendment reversed was still stated as fact at five product sites, one of them shipping
+verbatim in the published OpenAPI document.
+
+**Then the fixes were reviewed, which is what section 12 said was still owed.** Five readers over
+the five fix commits, each candidate handed to a sceptic. Twelve of the sceptics died on a session
+limit, so twelve candidates were verified by hand instead, against the code, and that is a weaker
+instrument worth naming. What it found, all fixed, and note how many are defects IN the fixes:
+
+- **The stale-key guard refused a key the published REST contract still told operators to write.**
+  Three apiApp sites named `Fallen8:Chat:<Backend>:Model` as the live write target for a name chosen
+  from `GET /chat/models`, two of them landing in the shipped OpenAPI document. Phase 1a's rename
+  sweep missed them; the guard turned that miss into an outage, because an operator following the
+  documented instruction would brick chat on the next restart. **The worst defect of the round, and
+  this round created it.**
+- **`TryAdmit`'s decisive reason was contradicted 55 lines below it, in the same method.** The doc
+  names a blocking log provider as why journal calls stay outside the registry lock, and the
+  token-budget clamp was calling `_logger.LogInformation` inside it. The clamp now remembers and
+  reports after the release; nothing logs under `_gate`.
+- **The stale-key guard's WIRING was executed by no test.** Its unit test hands `Validate` its own
+  in-memory configuration, so it can only prove the pure function refuses. De-wiring the controller
+  left that test green while both 503s and the boot warning vanished. A hosted test now covers it,
+  and writing it found a second defect: the first version asked for `/api/v0.1/chat/models`, read
+  the 200 that answered as the guard being skipped, and nearly produced a report that the fix did
+  not work.
+- **A test comment still said the registry journals under its own lock**, which was true for exactly
+  one commit before the move was reverted. It was the last artifact in the tree saying so.
+- **"Seven of the printed limits treat a non-positive value as off" undercounted by one**, and the
+  eighth was the one still printing a raw `0`. `DefaultTokenBudget` switches off too: a spawn naming
+  no budget takes it, and the meter enforces only a budget above zero, so a default of 0 is no token
+  cap at all. The test hard-coded the same undercount and set seven limits, deliberately leaving
+  that one alone.
+- **Spec 3.3 re-asserted the capability-gate mechanism the same commit was deleting from four code
+  sites as false**, and in a form that contradicts itself: a caller challenged before the capability
+  is read would make the KEYED instance answer 401 too. Two readers found this independently.
+- **The window past an ending is bounded by the writers in flight, not by one step.** A cancel during
+  a model call lets that call journal one, and the tool call its response asked for journal another,
+  because a call already sent to the graph is deliberately not undone.
+- **`ChatGatewayPosture` stored its pair atomically and then exposed it as two reads**, which moves
+  the seam rather than closing it. One accessor returns both, and the status route uses it.
+- Smaller, all real: the spawn kind's "first step of every trace" against the shutdown race the same
+  round documented; three sites claiming spec 3.3 names `lastSeen { backend, model }` after this
+  branch rewrote that row to prose (the row names the shape again, which is the more useful half);
+  section 7's "markers take no sequence number" against the code doc that now says they carry a
+  borrowed one; plan.md's "only the metrics box is outstanding" when three boxes are open and one is
+  not metrics work; a Phase 3 tick claiming wall clock on `agentStateChanged`, where
+  `AgentEvent.DurationMs` is set on endings and tool calls and nowhere else; `CLAUDE.md` grouping
+  this host under deployables that reach the graph over REST, which it does not do at all, and
+  asserting a container posture that has no Dockerfile yet; the MCP deferral for `GET /chat/models`
+  justified by the retired key; and a harness knob nothing passed, left behind when the test that
+  needed it was rewritten.
+
+**What this round is evidence for.** Nine of the fourteen are defects introduced or left by the
+fixes themselves, and three of those are a fix whose own comment or doc is now false. The rule the
+earlier sections arrived at needs one addition: after fixing a false claim, grep the tree for the
+claim, not just the file. Two of the worst here (the retired key, the re-asserted gate mechanism)
+were a correct fix applied at one site while the same sentence lived on at three or four others.

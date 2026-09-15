@@ -48,9 +48,12 @@ namespace NoSQL.GraphDB.Agents.Runtime
         Message = 3,
 
         /// <summary>
-        ///   A spawn, and the kind is deliberately OVERLOADED: it is the first step of every trace,
-        ///   meaning "this agent was spawned", and it also appears on a parent's trace meaning
-        ///   "this agent spawned that one".
+        ///   A spawn, and the kind is deliberately OVERLOADED: it is ordinarily the first step of a
+        ///   trace, meaning "this agent was spawned", and it also appears on a parent's trace
+        ///   meaning "this agent spawned that one". Ordinarily rather than always, because the
+        ///   registry journals outside its lock and says so: a shutdown cancelling everything can
+        ///   record an ending for an agent whose spawn has not been journaled yet, which puts the
+        ///   cancellation first. <c>AgentRegistry.TryAdmit</c> is the one home for that window.
         ///   <para>
         ///     <see cref="TraceStep.ChildId" /> is how the two are told apart, and it is the only
         ///     way: the first carries a state and the host instance and no child, the second carries

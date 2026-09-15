@@ -230,6 +230,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
             AgentFeedDispatcher feed, AgentsOptions options, Fallen8TargetOptions target)
         {
             var seen = chat.LastSeen;
+            var probe = posture.Read();
 
             return new HostStatus
             {
@@ -237,8 +238,10 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 Chat = new ChatStatus
                 {
                     BaseUrl = target.BaseUrl,
-                    Reachability = posture.State,
-                    ProbedAt = posture.ProbedAt,
+                    // One read for both, so the word and its moment cannot come from different
+                    // probes on a route that exists to be trusted.
+                    Reachability = probe.State,
+                    ProbedAt = probe.ProbedAt,
                     TimeoutSeconds = target.TimeoutSeconds,
                     // Absent until a step has actually run, and that is the point: this host holds
                     // no model configuration, so there is nothing to report before the instance has

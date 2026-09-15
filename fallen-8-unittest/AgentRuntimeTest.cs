@@ -943,9 +943,14 @@ namespace NoSQL.GraphDB.Tests
             // The record is shared, and the journal used to read the state back off it. So an
             // ending landing between setting a state and journaling it made the step report the
             // TERMINAL state: a live transition that said "changed to completed", and a spawn step
-            // that said "cancelled" on an agent that had been alive. The registry now journals
-            // under its own lock, which closes the window; this pins the other half, that the
-            // journal records what it was TOLD, so the two cannot drift apart again.
+            // that said "cancelled" on an agent that had been alive. What is pinned here is that
+            // the journal records the state it was TOLD, so the two cannot drift apart again.
+            //
+            // The ordering window itself is deliberately still open, and AgentRegistry.TryAdmit is
+            // the one home for that and for the three reasons the journal calls stay outside its
+            // lock. This comment claimed the window was closed by a lock, which was true for
+            // exactly one commit before the move was reverted, and it was the last artifact in the
+            // tree still saying so.
             using var harness = new Harness(Script.Says("done"));
 
             Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "count"),

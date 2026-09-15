@@ -116,12 +116,27 @@ namespace NoSQL.GraphDB.Agents.Hosting
     {
         private ChatProbe _probe = new ChatProbe("unprobed", null);
 
+        /// <summary>
+        ///   The probe's answer and the moment of it, as ONE read. A caller that wants both must
+        ///   use this rather than the two properties below: those are two separate reads, so with a
+        ///   second writer they could return a word from one probe and a moment from another, which
+        ///   is exactly the mismatch the single-object storage exists to prevent. Storing the pair
+        ///   atomically and then exposing it as two reads would have moved the seam rather than
+        ///   closed it.
+        /// </summary>
+        public (String State, DateTimeOffset? ProbedAt) Read()
+        {
+            var probe = Volatile.Read(ref _probe);
+            return (probe.State, probe.At);
+        }
+
         /// <summary>One of <c>reachable</c>, <c>unreachable</c>, <c>refused:401</c>,
-        /// <c>status:&lt;n&gt;</c> or <c>unprobed</c>.</summary>
+        /// <c>status:&lt;n&gt;</c> or <c>unprobed</c>. For a caller that wants only the word; use
+        /// <see cref="Read" /> for both.</summary>
         public String State => Volatile.Read(ref _probe).State;
 
         /// <summary>When the probe that produced <see cref="State" /> ran, or null if none has.
-        /// The age of this is how stale the word above may be.</summary>
+        /// The age of this is how stale the word may be. Use <see cref="Read" /> for both.</summary>
         public DateTimeOffset? ProbedAt => Volatile.Read(ref _probe).At;
 
         internal void Record(String state, DateTimeOffset at)

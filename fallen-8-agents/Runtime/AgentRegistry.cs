@@ -136,9 +136,17 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///     another thread can record an ending, so a live transition's step can land after it,
         ///     and an admission racing a shutdown can be journaled after the ending it precedes.
         ///     The state each step REPORTS is not affected, because the state is passed to the
-        ///     journal rather than read back off the shared record. This is the same one-step
-        ///     window <see cref="Finish" /> already documents for a model call in flight, and
-        ///     closing it would mean paying the three costs above on every transition.
+        ///     journal rather than read back off the shared record. It is the same window
+        ///     <see cref="Finish" /> documents, and closing it would mean paying the three costs
+        ///     above on every transition.
+        ///   </para>
+        ///   <para>
+        ///     <b>How far past an ending a step can land is bounded by the writers in flight, not
+        ///     by one.</b> These docs said "one step", which undercounts: a cancel arriving during
+        ///     a model call lets that call journal its own step when it returns, and if the
+        ///     response asked for a tool the invocation already dispatched journals a second, since
+        ///     a tool call already sent to the graph is deliberately not undone. So a reader should
+        ///     expect a short tail past an ending rather than exactly one row.
         ///   </para>
         /// </summary>
         public Boolean TryAdmit(AgentSpawn spawn, out AgentRecord agent, out String problem)
@@ -153,6 +161,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
             var limits = _options.Value.Limits;
             AgentState admitted;
+
+            // Captured under the lock, reported after it. See the clamp below: this method's own
+            // doc names a blocking log provider as the decisive reason the journal calls stay
+            // outside this lock, and the clamp was logging inside it.
+            Int32? clampedFrom = null;
 
             lock (_gate)
             {
@@ -184,9 +197,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 var budget = spawn.TokenBudget is > 0 ? spawn.TokenBudget.Value : limits.DefaultTokenBudget;
                 if (limits.MaxTokenBudget > 0 && budget > limits.MaxTokenBudget)
                 {
-                    _logger.LogInformation(
-                        "A spawn asked for a {Asked} token budget; this host allows {Allowed} "
-                        + "(Agents:Limits:MaxTokenBudget).", budget, limits.MaxTokenBudget);
+                    // Remembered rather than logged here. Logging under this lock contradicted the
+                    // third reason on this method's own doc, 55 lines above, in the one method that
+                    // states it: a log provider is somebody else's code and may block, and holding
+                    // the registry across it stalls every read and every transition on the host.
+                    clampedFrom = budget;
                     budget = limits.MaxTokenBudget;
                 }
 
@@ -203,6 +218,13 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
                 _agents[id] = agent;
                 admitted = agent.State;
+            }
+
+            if (clampedFrom != null)
+            {
+                _logger.LogInformation(
+                    "A spawn asked for a {Asked} token budget; this host allows {Allowed} "
+                    + "(Agents:Limits:MaxTokenBudget).", clampedFrom.Value, limits.MaxTokenBudget);
             }
 
             // Outside the lock, for the three reasons on this method's own doc. The state is
@@ -374,9 +396,12 @@ namespace NoSQL.GraphDB.Agents.Runtime
             //
             // NOT a guarantee that the ending is the last step, and the honest version is worth
             // stating: a model call already in flight when a cancel arrives records its own step
-            // when it returns, which lands after the ending. Preventing that would mean holding
-            // this lock across an inference call. So a trace can carry one step past its ending,
-            // and a reader comparing the last step's kind against the state should expect it.
+            // when it returns, which lands after the ending, and the tool call that response asked
+            // for can add another, because a call already sent to the graph is not undone.
+            // Preventing that would mean holding this lock across an inference call. So a trace can
+            // carry a short tail past its ending rather than exactly one step, and a reader
+            // comparing the last step's kind against the state should expect it. See TryAdmit for
+            // the bound.
             _journal.Finished(finished, citations);
 
             // Also outside: cancelling the token runs continuations, and one of those is the

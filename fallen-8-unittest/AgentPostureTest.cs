@@ -263,10 +263,16 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ADisabledCapReadsAsUnboundedRatherThanAsABoundOfZero()
         {
-            // Seven of the printed limits treat a non-positive value as OFF. Printing the raw
-            // number told an operator who had deliberately disabled one that this host was the
-            // strictest possible: "bounded at 0 model calls" for a host with no step cap at all,
-            // which inverts the meaning of the whole line.
+            // ALL EIGHT printed limits treat a non-positive value as OFF. Printing the raw number
+            // told an operator who had deliberately disabled one that this host was the strictest
+            // possible: "bounded at 0 model calls" for a host with no step cap at all, which
+            // inverts the meaning of the whole line.
+            //
+            // Eight, and this test said seven: it set seven and deliberately left
+            // DefaultTokenBudget alone, which is the one that was still printing a raw 0. A spawn
+            // naming no budget takes the default, and the meter enforces only a budget above zero,
+            // so a default of 0 is no token cap at all. Every limit the line prints is set to 0
+            // here, which is the only version of this test that could have caught that.
             using var sink = new TestLogSink();
             var options = new AgentsOptions();
             options.Limits.MaxStepsPerRun = 0;
@@ -274,6 +280,7 @@ namespace NoSQL.GraphDB.Tests
             options.Limits.MaxRunSeconds = 0;
             options.Limits.MaxConcurrentAgents = 0;
             options.Limits.MaxTokenBudget = 0;
+            options.Limits.DefaultTokenBudget = 0;
             options.Limits.RetainFinishedMinutes = 0;
             options.Limits.MaxRetainedAgents = 0;
 
@@ -281,19 +288,42 @@ namespace NoSQL.GraphDB.Tests
 
             var bounds = sink.Entries.Single(e => e.Message.Contains("A run is bounded at",
                 StringComparison.Ordinal));
-            Assert.IsFalse(bounds.Message.Contains(" 0 ", StringComparison.Ordinal),
-                "a cap that is switched off printed as a bound of zero: " + bounds.Message);
-            StringAssert.Contains(bounds.Message, "100000",
-                "the default token budget is still reported when the ceiling is off, because it is "
-                + "then the only number a caller who asks for nothing gets");
-            Assert.AreEqual(5, bounds.Message.Split("unlimited").Length - 1,
-                "all five printed run bounds are off, so five read as unlimited: "
+            Assert.IsFalse(bounds.Message.Contains("0", StringComparison.Ordinal),
+                "a cap that is switched off printed as a number: " + bounds.Message);
+            Assert.AreEqual(6, bounds.Message.Split("unlimited").Length - 1,
+                "the line prints six bounds and all six are off, so six read as unlimited: "
                 + bounds.Message);
 
             var retention = sink.Entries.Single(e => e.Message.Contains("Nothing here is durable",
                 StringComparison.Ordinal));
             Assert.AreEqual(2, retention.Message.Split("unlimited").Length - 1,
                 "retention and its ceiling are both off: " + retention.Message);
+        }
+
+
+        [TestMethod]
+        public void ACapThatISSetStillPrintsItsNumberBesideTheOnesThatAreOff()
+        {
+            // The control arm the all-zero case cannot give: a host with a real step cap and no
+            // token ceiling has to read as both, or "unlimited" would be the answer to every
+            // question and the line would carry no information at all.
+            using var sink = new TestLogSink();
+            var options = new AgentsOptions();
+            options.Limits.MaxStepsPerRun = 24;
+            options.Limits.MaxTokenBudget = 0;
+            options.Limits.DefaultTokenBudget = 100000;
+
+            Posture(sink, options);
+
+            var bounds = sink.Entries.Single(e => e.Message.Contains("A run is bounded at",
+                StringComparison.Ordinal));
+
+            StringAssert.Contains(bounds.Message, "24 model calls");
+            StringAssert.Contains(bounds.Message, "unlimited tokens",
+                "the ceiling is off, so it is unlimited whatever the default says: " + bounds.Message);
+            StringAssert.Contains(bounds.Message, "100000",
+                "the default is still what a caller who asks for nothing gets, so it is still "
+                + "worth printing when the ceiling is off");
         }
 
         /// <summary>The posture line as the host writes it, with no MCP server and no gateway: this

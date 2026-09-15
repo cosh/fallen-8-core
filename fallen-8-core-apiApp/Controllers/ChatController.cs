@@ -225,7 +225,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="cancellationToken">Aborts the outbound catalog read when the caller goes away</param>
         /// <remarks>For the RUNNING backend (feature chat-model-catalog), so a client can offer real
         /// names for the server-owned model instead of a blank field; choosing one is still a
-        /// configuration write (Fallen8:Chat:&lt;Backend&gt;:Model), not a per-request field. A
+        /// configuration write, into the purpose key the model is for
+        /// (Fallen8:Chat:&lt;Backend&gt;:Models:Assist or :Models:Agent), not a per-request field.
+        /// This named Fallen8:Chat:&lt;Backend&gt;:Model, which the purposes rename retired and an
+        /// instance carrying it is now refused for, so following this instruction took chat down on
+        /// the next restart. A
         /// pending-restart backend switch is not previewed. The list is not necessarily the whole
         /// RESOLVABLE set - a backend can resolve a name it does not catalogue - so free-text entry
         /// stays valid. Capability, availability and class are null wherever the backend does not

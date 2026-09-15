@@ -13,11 +13,12 @@ Fallen-8 is an in-memory graph database written in C# (.NET 10). Namespaces are 
   OpenAPI via `Microsoft.AspNetCore.OpenApi`; interactive docs via Scalar.
 - **`fallen-8-unittest`** covers every project in the solution (MSTest).
 
-Three more are **separate deployables** that reach the graph over the public REST API only, never
-in process, and reference neither the engine nor the apiApp: **`fallen-8-mcp`** (the agent channel),
-**`fallen-8-integrations`** (the job runner that reads a system on the operator's own network) and
-**`fallen-8-agents`** (the agent host, which RUNS agents rather than exposing tools to somebody
-else's). Each has an architecture note below. They share one small library,
+Three more are **separate deployables** that never touch the engine in process and reference neither
+it nor the apiApp: **`fallen-8-mcp`** (the agent channel) and **`fallen-8-integrations`** (the job
+runner that reads a system on the operator's own network), both of which reach the graph over the
+public REST API, and **`fallen-8-agents`** (the agent host, which RUNS agents rather than exposing
+tools to somebody else's), which reaches the graph through NO REST route at all: it calls the
+instance's `/chat` and reads the graph only as a client of the MCP server. Each has an architecture note below. They share one small library,
 **`fallen-8-rest-client`** (`NoSQL.GraphDB.Rest`): the REST-client seam, which is held to the same
 rule and references neither the engine nor the apiApp either. **`fallen-8-bench`** is the throughput harness and does
 reference the engine, because it measures it in process.
@@ -152,8 +153,11 @@ dotnet run --project fallen-8-core-apiApp
   feed's dialect; both are in-memory, so nothing survives a restart, which is why every trace
   carries the host instance that produced it. Its container port is never published; the browser
   reaches it through the apiApp's authenticated proxy at `/agents/*`, behind an `Agents`
-  capability. The feature record is [features/open/agent-host/](features/open/agent-host/); it is
-  **not merged**, and a docs-site page and README entry are owed at landing.
+  capability, and that proxy is what exists today. The **container** is not built yet: there is no
+  Dockerfile and no compose service, so the unpublished-port posture is the intended shape rather
+  than a shipped one, and Phase 5 owes it along with a docs-site page and a README entry. The
+  feature record is [features/open/agent-host/](features/open/agent-host/) and it is **not
+  merged**.
 
 ## Quality gates (enforced, feature code-quality)
 

@@ -52,8 +52,11 @@ namespace NoSQL.GraphDB.App.Chat
     public sealed class ChatCatalogModel
     {
         /// <summary>The name VERBATIM, as the backend spells it (tag included). This is the value an
-        /// operator writes back into <c>Fallen8:Chat:&lt;Backend&gt;:Model</c>, so nothing here
-        /// strips, appends or normalizes a <c>:tag</c>.</summary>
+        /// operator writes back into one of the purpose keys,
+        /// <c>Fallen8:Chat:&lt;Backend&gt;:Models:Assist</c> or <c>:Models:Agent</c>, so nothing
+        /// here strips, appends or normalizes a <c>:tag</c>. It is NOT
+        /// <c>Fallen8:Chat:&lt;Backend&gt;:Model</c>, which this said: that key was retired by the
+        /// purposes rename and an instance still carrying it is refused by name.</summary>
         public String Name
         {
             get; init;

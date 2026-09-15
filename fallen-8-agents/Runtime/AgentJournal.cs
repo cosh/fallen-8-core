@@ -139,9 +139,17 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   <para>
         ///     The citation check is recorded BEFORE the ending step, which is the order it
         ///     happened in: it is a statement about the final text, and the final text exists
-        ///     before the run is marked ended. Recording it after made the ending the second to
-        ///     last step of EVERY checked run, so the registry's claim that the ending is ordinarily
-        ///     the last step was false in the ordinary case rather than the exceptional one.
+        ///     before the run is marked ended. So the ending is the last step of a completed run,
+        ///     and a test pins that.
+        ///   </para>
+        ///   <para>
+        ///     A deliberate ordering decision, NOT the repair of a false claim, which is what this
+        ///     said. Recording it afterwards was defensible: no wire contract says the ending is
+        ///     last, the spec's one sentence about a last step is about cancellation (where there
+        ///     is no check and the ending IS last), and the only reader scans the tail for citation
+        ///     fields and is position-agnostic. A sceptic refuted that half of the finding and was
+        ///     right; the reorder is kept because this order is the truer one and because it makes
+        ///     the tail a pinned property instead of an accident.
         ///   </para>
         /// </summary>
         public void Finished(AgentRecord agent, CitationCounts? citations)

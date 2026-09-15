@@ -315,7 +315,7 @@ namespace NoSQL.GraphDB.Tests
             // null a reader has to interpret. Which model served a step is the instance's answer,
             // per step.
             //
-            // ONE object, which is what spec 3.2 and 3.3 both specify. It shipped as two sibling
+            // ONE object, which is what spec 3.2 and the 3.3 status row both name. It shipped as two sibling
             // scalars, lastSeenBackend and lastSeenModel, so a consumer written from either read
             // chat.lastSeen.backend and got nothing on a host that had served many steps. Nothing
             // compared the spec's shape to the emitted one, which is why it survived two reviews.
@@ -367,7 +367,7 @@ namespace NoSQL.GraphDB.Tests
             var lastSeen = chat.GetProperty("lastSeen");
 
             Assert.AreEqual(JsonValueKind.Object, lastSeen.ValueKind,
-                "spec 3.2 and 3.3 both name lastSeen { backend, model }, and this shipped as two "
+                "spec 3.2 and the 3.3 status row both name lastSeen { backend, model }, and this shipped as two "
                 + "sibling scalars, so a consumer read chat.lastSeen.backend and got nothing: "
                 + payload);
             Assert.AreEqual("Nahil", lastSeen.GetProperty("backend").GetString());
@@ -1303,24 +1303,26 @@ namespace NoSQL.GraphDB.Tests
             private readonly Int32 _maxTokenBudget;
             private readonly Int32 _keepAliveSeconds;
             private readonly Int32 _maxSubscribers;
-            private readonly Int32 _maxQueuedEvents;
             private readonly Int32 _maxTraceSteps;
 
-            // maxQueuedEvents and maxTraceSteps are settable because the two bounds they control
-            // had no HTTP coverage at all: nothing overran a subscriber's queue while a real stream
-            // was open, and nothing produced a truncated trace over the trace route, so the drop
-            // marker's serialization and the writer's reaction to a dropped subscriber were both
-            // reachable only through the unit-level classes.
+            // maxTraceSteps is settable because the bound it controls had no HTTP coverage at
+            // all: nothing produced a truncated trace over the trace route, so the drop marker's
+            // serialization was reachable only through AgentTrace itself.
+            //
+            // There was a maxQueuedEvents beside it, added for a test that overran a subscriber's
+            // queue to end a stream. That test was rewritten to dispose the dispatcher instead,
+            // because whether the queue overflows is a race, so the knob had no caller left and
+            // its comment claimed HTTP coverage of the drop path that nothing takes up. Deleted
+            // rather than kept: a harness knob nothing passes is one more thing to keep true.
             public AgentHostFactory(Int32 maxConcurrent = 4, String baseUrl = "http://127.0.0.1:1/",
                 Int32 maxTokenBudget = 400_000, Int32 keepAliveSeconds = 15,
-                Int32 maxSubscribers = 16, Int32 maxQueuedEvents = 512, Int32 maxTraceSteps = 1000)
+                Int32 maxSubscribers = 16, Int32 maxTraceSteps = 1000)
             {
                 _maxConcurrent = maxConcurrent;
                 _baseUrl = baseUrl;
                 _maxTokenBudget = maxTokenBudget;
                 _keepAliveSeconds = keepAliveSeconds;
                 _maxSubscribers = maxSubscribers;
-                _maxQueuedEvents = maxQueuedEvents;
                 _maxTraceSteps = maxTraceSteps;
             }
 
@@ -1336,8 +1338,6 @@ namespace NoSQL.GraphDB.Tests
                     _keepAliveSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 builder.UseSetting("Agents:Feed:MaxSubscribers",
                     _maxSubscribers.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                builder.UseSetting("Agents:Feed:MaxQueuedEvents",
-                    _maxQueuedEvents.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 builder.UseSetting("Agents:Trace:MaxSteps",
                     _maxTraceSteps.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 builder.UseSetting("Fallen8Target:BaseUrl", _baseUrl);
