@@ -111,6 +111,35 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   Admits an agent, or refuses it because the host is already running as many as it may.
         ///   The refusal is a first-class outcome rather than an exception: a caller hitting the cap
         ///   has something to do about it (wait, or raise the cap), and the message says which.
+        ///   <para>
+        ///     <b>Every journal call in this class happens OUTSIDE <c>_gate</c></b>, and the reason
+        ///     is here because three sites share it.
+        ///   </para>
+        ///   <para>
+        ///     Not the reason this comment used to give. It said publishing releases a reader's
+        ///     continuations onto the publishing thread, and that was never true: the dispatcher
+        ///     creates every subscriber channel with <c>AllowSynchronousContinuations</c> false and
+        ///     says it relies on that, so a reader's continuation is scheduled rather than run
+        ///     inline. Measured against the runtime, not reasoned from the name.
+        ///   </para>
+        ///   <para>
+        ///     The real reasons are three, and they survive that correction. Journaling under this
+        ///     lock would nest registry, trace and feed locks on one path. It would hold the
+        ///     registry across every subscriber write, so one publish delays every read and every
+        ///     transition. And <see cref="AgentFeedDispatcher.Publish" /> calls a LOGGER on the
+        ///     publishing thread when it drops a subscriber that fell behind; a log provider is
+        ///     somebody else's code and may block, which is exactly why the dispatcher keeps that
+        ///     call outside its OWN lock, and holding the registry across it would undo that.
+        ///   </para>
+        ///   <para>
+        ///     What it costs, stated rather than hidden: between the release and the journal call
+        ///     another thread can record an ending, so a live transition's step can land after it,
+        ///     and an admission racing a shutdown can be journaled after the ending it precedes.
+        ///     The state each step REPORTS is not affected, because the state is passed to the
+        ///     journal rather than read back off the shared record. This is the same one-step
+        ///     window <see cref="Finish" /> already documents for a model call in flight, and
+        ///     closing it would mean paying the three costs above on every transition.
+        ///   </para>
         /// </summary>
         public Boolean TryAdmit(AgentSpawn spawn, out AgentRecord agent, out String problem)
         {
@@ -123,6 +152,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
             problem = String.Empty;
 
             var limits = _options.Value.Limits;
+            AgentState admitted;
 
             lock (_gate)
             {
@@ -172,19 +202,13 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 };
 
                 _agents[id] = agent;
-
-                // INSIDE the lock, and the reason it was outside does not hold: the claim was that
-                // publishing releases a reader's continuations onto this thread, but the dispatcher
-                // creates every subscriber channel with AllowSynchronousContinuations false
-                // precisely so that cannot happen, and says so. Nothing in a publish waits.
-                //
-                // What being outside DID allow is the thing the doc above promises against: the
-                // record is reachable the moment it is in the dictionary, so a shutdown cancelling
-                // everything could record an ending before the spawn was journaled, and "the first
-                // step of every trace" became whichever of the two won.
-                _journal.Spawned(agent, agent.State);
+                admitted = agent.State;
             }
 
+            // Outside the lock, for the three reasons on this method's own doc. The state is
+            // passed rather than read back off the record, which is what bounds the cost of
+            // the placement to ordering alone.
+            _journal.Spawned(agent, admitted);
             return true;
         }
 
@@ -276,6 +300,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     "An ending is recorded with Finish, which releases the agent's slot.", nameof(state));
             }
 
+            AgentRecord? moved;
             lock (_gate)
             {
                 if (!_agents.TryGetValue(id, out var agent) || AgentStates.IsTerminal(agent.State))
@@ -292,15 +317,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
                 agent.State = state;
                 agent.LastActivityUtc = _clock.GetUtcNow();
-
-                // Under the lock, with the state that was set passed explicitly. Journaling after
-                // the release let an ending land in between, which put a live transition's step
-                // AFTER the ending and, because the journal re-read the record, made that step
-                // report the terminal state: a completed run whose trace said it changed to
-                // completed twice.
-                _journal.StateChanged(agent, state);
+                moved = agent;
             }
 
+            // Outside the lock, for the reasons on TryAdmit. The state that was SET is passed
+            // rather than read back off the record: an ending landing in this window used to make
+            // this step report the TERMINAL state, so a completed run's trace said it changed to
+            // completed twice. The ordering window remains and is documented; the false state does
+            // not, and that was the half that lied.
+            _journal.StateChanged(moved, state);
             return true;
         }
 
@@ -341,21 +366,20 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 agent.FinishedUtc = now;
                 agent.LastActivityUtc = now;
                 finished = agent;
-
-                // Journaled under the lock and BEFORE the token is cancelled, so no other
-                // transition can interleave and the ending is on the record before the
-                // cancellation releases anything waiting on it.
-                //
-                // Still NOT a guarantee that it is the last step, and the honest version is worth
-                // stating: a model call already in flight when a cancel arrives records its own
-                // step when it returns, which lands after the ending. Preventing that would mean
-                // holding this lock across an inference call. So a trace can carry one step past
-                // its ending, and a reader comparing the last step's kind against the state should
-                // expect it.
-                _journal.Finished(agent, citations);
             }
 
-            // Outside the lock: cancelling the token runs continuations, and one of those is the
+            // Journaled BEFORE the token is cancelled, so the ending is on the record before the
+            // cancellation releases anything waiting on it, and outside the lock for the reasons
+            // on TryAdmit.
+            //
+            // NOT a guarantee that the ending is the last step, and the honest version is worth
+            // stating: a model call already in flight when a cancel arrives records its own step
+            // when it returns, which lands after the ending. Preventing that would mean holding
+            // this lock across an inference call. So a trace can carry one step past its ending,
+            // and a reader comparing the last step's kind against the state should expect it.
+            _journal.Finished(finished, citations);
+
+            // Also outside: cancelling the token runs continuations, and one of those is the
             // runner's own finally, which calls back in here.
             finished.SignalCancellation();
             return true;
@@ -633,14 +657,25 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///
         ///   <para>
         ///     A reference rather than an id looked up on demand, because the spawn step is written
-        ///     once and the lookup would be a second chance to get the lifetime wrong. But the
-        ///     reference is CLEARED on eviction, in both directions, which it was not: a record
-        ///     held its parent, which held its own, so one retained record kept a whole ancestry of
-        ///     bounded traces and undisposed token sources alive after the listing had forgotten
-        ///     them. The justification for keeping it, that a spawn step is worth writing to an
-        ///     evicted parent anyway, was wrong on its own terms, because no route can read that
-        ///     parent's trace. <see cref="AgentRecord.ParentId" /> is what survives, and it is what
-        ///     a summary reports.
+        ///     once and the lookup would be a second chance to get the lifetime wrong. The
+        ///     reference is CLEARED on eviction, in both directions, because nothing cleared it: a
+        ///     record held its parent, which held its own, so a retained record would keep a whole
+        ///     ancestry of bounded traces and undisposed token sources alive after the listing had
+        ///     forgotten them, while <c>Evict</c> claimed the collector took them.
+        ///   </para>
+        ///   <para>
+        ///     <b>Latent rather than live, and the difference is worth stating.</b> No shipped path
+        ///     supplies a parent today: the spawn route refuses a caller-supplied <c>parentId</c>
+        ///     with a 400, and the orchestrator's swarm tool that will supply one is Phase 4. So
+        ///     <see cref="Parent" /> is null on every record a deployment currently holds and the
+        ///     retention cannot occur; only the registry's own tests build a chain. It is fixed
+        ///     ahead of the phase that makes it reachable rather than after, because an eviction
+        ///     contract that depends on an unrelated route's validation to be true is one route
+        ///     change away from being false. The reason previously given for keeping the link, that
+        ///     a spawn step is worth writing to an evicted parent anyway, was wrong on its own
+        ///     terms: no route can read that parent's trace.
+        ///     <see cref="AgentRecord.ParentId" /> is what survives, and it is what a summary
+        ///     reports.
         ///   </para>
         /// </summary>
         public AgentRecord? Parent
@@ -764,8 +799,17 @@ namespace NoSQL.GraphDB.Agents.Runtime
             get; internal set;
         }
 
-        /// <summary>Adds one step's measurements. Returns the running token total, which is what the
-        /// runner compares against the budget.</summary>
+        /// <summary>
+        ///   Adds one step's measurements and returns the running token total.
+        ///   <para>
+        ///     The return value is a convenience, and NOT what any budget is compared against: both
+        ///     call sites discard it, and the comparison happens in
+        ///     <see cref="AgentBudgetChatClient" /> from its own fresh reads BEFORE the next call.
+        ///     This said the runner compares it, which named the wrong component, the wrong moment
+        ///     and a consumer that does not exist; the meter's own class doc is the one home for how
+        ///     a cap is enforced.
+        ///   </para>
+        /// </summary>
         public Int64 CountStep(Int64 inputTokens, Int64 outputTokens, Boolean usageReported)
         {
             Interlocked.Increment(ref Steps);

@@ -551,10 +551,14 @@ namespace NoSQL.GraphDB.Tests
         {
             // A record held its parent by reference and nothing ever cleared it, so eviction
             // removed a record from the listing while a descendant kept it, its bounded trace and
-            // its undisposed token source alive, transitively up the whole ancestry. Evict's own
-            // comment claimed the record was unreachable and the collector took it; it was not, and
-            // a long-lived orchestrator made that a growing leak with nothing in the listing to
-            // show for it.
+            // its undisposed token source alive, transitively up the whole ancestry, while Evict's
+            // own comment claimed the collector took them.
+            //
+            // LATENT, not live, and the test says so because the claim was first written as though
+            // it were live: no shipped path supplies a parent today, since the spawn route refuses
+            // a caller-supplied parentId and the orchestrator's swarm tool is Phase 4. This test
+            // builds the chain itself, which is the point: it pins the registry's eviction contract
+            // rather than relying on another route's validation to keep it true.
             var clock = new StepClock(DateTimeOffset.Parse("2026-09-10T06:00:00Z"));
             var options = new AgentsOptions();
             options.Limits.MaxConcurrentAgents = 0;
@@ -590,10 +594,10 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.IsNull(leaf.Parent,
                 "the live leaf still holds its evicted parent, so that parent's whole trace and "
-                + "token source are retained by a record the listing has forgotten");
+                + "token source would be retained by a record the listing has forgotten");
             Assert.IsNull(middle.Parent,
-                "an evicted record still holds ITS parent, so one retained descendant keeps the "
-                + "entire ancestry alive through the chain");
+                "an evicted record still holds ITS parent, so one retained descendant would keep "
+                + "the entire ancestry alive through the chain");
 
             // The lineage a client reads is unchanged: only the object reference goes.
             Assert.AreEqual(middle.Id, leaf.ParentId);

@@ -331,30 +331,60 @@ host's instance id, read from `GET /agent/status`.
 
 **The citation check, Phase 2's headline, was delivered by code no test executed.** Every citation
 test called `GroundingCheck.Count` directly, so the counts reaching a trace step and an ending event
-ran nowhere: deleting the journal's whole citation block left the suite green. And the check was
-recorded AFTER the ending step, so the tail of every checked run was `[stateChanged, citationCheck]`
-and the registry's claim that the ending is ordinarily the last step was false in the ordinary case
-rather than the exceptional one. The check is a statement about the final text, which exists before
-the run is marked ended, so it is recorded first. The distinction the registry promises, that no
-citation check is NOT zero of each, was also untested; a cancelled run is now pinned.
+ran nowhere: deleting the journal's whole citation block left the suite green. The distinction the
+registry promises, that no citation check is NOT zero of each, was also untested; a cancelled run is
+now pinned.
+
+The same finding also called the ORDER a false claim, because the check was recorded after the
+ending step and so the tail of every checked run was `[stateChanged, citationCheck]`. **The sceptic
+refuted that half**, and the reasoning holds: no wire contract says the ending is last, the spec's
+one sentence about a last step is about cancellation, where there is no check and the ending IS
+last, and the only reader scans the tail for citation fields and is position-agnostic by
+construction. The order was swapped anyway, because the check is a statement about the final text
+and the final text exists before the run is marked ended, and because the new test now PINS the
+ending as last rather than leaving the tail an accident. That is a deliberate ordering decision plus
+coverage, not the repair of a false claim, and the first version of this entry called it the
+latter.
 
 **The journal read the state back off the shared record.** So an ending landing between setting a
 state and journaling it made the step report the TERMINAL state: a completed run whose trace said it
-changed to completed twice, and a spawn step carrying `cancelled` on an agent that had been alive,
-which also breaks "the spawn is the first step of every trace". Both transitions now pass the state
-they SET, and the registry journals under its own lock, which closes the window. The comment
-justifying journaling outside the lock was itself false: it said publishing releases a reader's
-continuations onto the publishing thread, and the dispatcher creates every subscriber channel with
-`AllowSynchronousContinuations` false precisely so that cannot happen, and says so.
+changed to completed twice, and a spawn step carrying `cancelled` on an agent that had been alive.
+Both transitions now pass the state they SET, so what a step REPORTS no longer depends on the race.
 
-**An evicted agent was retained by its descendants.** `AgentRecord.Parent` was a strong reference
-that nothing cleared, so eviction removed a record from the listing while a descendant kept it, its
-bounded trace and its undisposed token source alive, transitively up the whole ancestry. `Evict`'s
-own comment claimed the record was unreachable and the collector took it. The stated justification
-for keeping the link, that a spawn step is worth writing to an evicted parent anyway, was wrong on
-its own terms: no route can read that parent's trace, so the write retained megabytes for a reader
-who gets a 404. The link is now cleared in both directions on eviction; `ParentId`, which is what a
-summary reports, is untouched.
+**The reason given for journaling outside the lock was separately false**, and two verifiers
+measured it: it said publishing releases a reader's continuations onto the publishing thread, and
+the dispatcher creates every subscriber channel with `AllowSynchronousContinuations` false precisely
+so that cannot happen, and says it relies on that. Provenance corrected too: the reason was never
+true rather than made false, because the channel defaulted to false before the option was written
+down.
+
+**And the first attempt at this fix moved the journal calls INSIDE the registry lock, which was
+wrong.** Both verifiers of the false-claim finding said in terms that a reader should not fix it by
+moving the call, because the placement is right for reasons the comment did not give: it would nest
+registry, trace and feed locks, hold the registry across every subscriber write, and, decisively,
+`Publish` calls a LOGGER on the publishing thread when it drops a lagging subscriber. A log provider
+is somebody else's code and may block, which is exactly why the dispatcher keeps that call outside
+its OWN lock, so holding the registry across it reintroduced the hazard one level up, in the same
+round that fixed the drop it fires on. The move is reverted, the three real reasons are stated once
+on `TryAdmit`, and the ordering window the placement costs is documented beside them rather than
+closed: it is the same one-step window `Finish` already documents for a model call in flight.
+
+**An evicted agent would be retained by its descendants, latently.** `AgentRecord.Parent` was a
+strong reference that nothing cleared, so eviction removed a record from the listing while a
+descendant kept it, its bounded trace and its undisposed token source alive, transitively up the
+ancestry, while `Evict`'s own comment claimed the collector took them. The stated justification for
+keeping the link, that a spawn step is worth writing to an evicted parent anyway, is wrong on its
+own terms: no route can read that parent's trace.
+
+**The sceptic REFUTED this one, and was right about the part that matters.** No shipped path
+supplies a parent today: the spawn route refuses a caller-supplied `parentId` with a 400, and the
+orchestrator's swarm tool that will supply one is Phase 4. So `Parent` is null on every record a
+deployment currently holds, only this feature's own tests build a chain, and the retention cannot
+occur. The fix is kept because an eviction contract that depends on an unrelated route's validation
+to be true is one route change away from being false, and Phase 4 is that change. But the first
+version of this entry, and the commit that carried it, described a live leak retaining megabytes.
+It is latent, the code comment and the test now say so, and this paragraph is here because getting
+that wrong is the same defect class as everything above it.
 
 **The renamed chat-model key did not fail closed, and the spec promised it did.** `Model` became
 `Models:Assist` with no alias, and configuration binding ignores a key no property claims, silently.
@@ -379,6 +409,23 @@ key default. Production never produces that sentence, because the chat factory p
 key explicitly; the default belongs to the embedding blocks, where `Fallen8:Embedding:*:Model` is
 real and catalogued. Left alone, a reader would take it for the live chat contract. It now exercises
 the embedding block that relies on the default, plus the chat block naming its purpose.
+
+**Two more findings this round verified and this pass also fixed**, both documentation: `CountStep`
+was documented as returning the total the runner compares against the budget, and the return value
+is discarded by both call sites while the comparison happens in the meter from its own fresh reads
+before the next call, which named the wrong component, the wrong moment and a consumer that does not
+exist. And `CapWithMarker` promised the whole result stays inside `maxBytes` while the branch thirty
+lines below returns the marker alone: measured, every cap from 1 to 31 bytes yields 32 bytes for a
+500 byte input, and the threshold moves with the reported total. Both summaries now say what the
+code does; the behaviour is deliberate in both cases.
+
+**What the seventeen refutations were worth.** Two of them landed on findings this pass had already
+acted on, which is the argument for the sceptic arm rather than against it: one turned a live leak
+into a latent one, and one turned a false-claim repair into an ordering preference. A third said
+plainly that the right fix for a false comment is the comment, and this pass had moved the code
+instead, reintroducing a hazard the same round had just removed elsewhere. A reader who takes a
+verified finding's own framing at face value inherits its overstatement; the verdicts have to be
+read too, including the ones that agree.
 
 **What this round says about the earlier ones.** Six of the nine are a test that passed while the
 behaviour it named was absent or wrong, which is the same class section 7 found and section 2 found

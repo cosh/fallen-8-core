@@ -580,8 +580,19 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
-        ///   Caps a capture and appends its truncation marker, keeping the WHOLE result inside
-        ///   <paramref name="maxBytes" />.
+        ///   Caps a capture and appends its truncation marker, keeping the whole result inside
+        ///   <paramref name="maxBytes" /> whenever the marker itself fits.
+        ///
+        ///   <para>
+        ///     The qualification is load-bearing and this summary used to omit it. When the cap is
+        ///     smaller than the marker the marker is returned ALONE and exceeds the cap: measured,
+        ///     every cap from 1 to 31 bytes yields the same 32 bytes for a 500 byte input, and the
+        ///     threshold moves with the reported total, because the marker spells that total out.
+        ///     The branch below chooses that deliberately and says why; what was wrong was a
+        ///     summary promising a guarantee the code contradicts thirty lines later. The caps a
+        ///     deployment actually sets are orders of magnitude above the marker, so this is a
+        ///     degenerate-configuration statement, not a live overrun.
+        ///   </para>
         ///
         ///   <para>
         ///     The reason this exists rather than callers doing both: capping and then appending put
