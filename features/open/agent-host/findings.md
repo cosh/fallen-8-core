@@ -443,3 +443,51 @@ under test had just produced, rather than against the contract. `StringAssert.Co
 "id: ")`, `prompt.Contains("tool")`, and `SubscriberCount == 0` read after a `using` block are all
 the same mistake. The cheapest guard is the one used throughout this round: break the thing on
 purpose and watch the test fail with its own message.
+
+## 11. The coverage half of the same gate (fixed)
+
+The remaining verified findings were all one shape: shipped code that no test executed, several of
+it code added to fix a recorded incident. Each fix below is a test, and each is mutation-checked by
+breaking the thing it names.
+
+- **The spawn step on the PARENT's trace was gated by nothing.** `childId` appeared nowhere in the
+  test project, and deleting the block left all 152 agent tests green. Its stated purpose is that a
+  swarm is readable from the orchestrator's own trace, so the phase that makes it load-bearing is
+  Phase 4; it is pinned before then rather than after.
+- **The out-of-range run-cap clamp had no test, and neither did `Rescue`.** Both were added for a
+  recorded incident: `CancelAfter` refuses a delay past about 49 days, so a `MaxRunSeconds` an
+  operator meant as "no cap" threw where no catch could turn it into an ending, and the agent sat at
+  `pending` holding a concurrency slot for the life of the process with nothing in the log. Across
+  the whole suite `MaxRunSeconds` was only ever 1 or 300, both far below the armable maximum, so the
+  branch ran nowhere. `Rescue` had zero references, and its own doc ("it should never fire, and that
+  is exactly why it exists") is the argument for pinning it. It is reached now through the one
+  stretch of a run that its own try does not cover, and removing it reproduces the incident's exact
+  signature: *the agent stayed at pending, holding its slot with nothing recorded*.
+- **The feed's `agents=` filter never ran through the route.** `kinds=` was covered end to end;
+  `agents=` had only the proxy forwarding a literal string and `AgentFeedFilter.Admits` called
+  directly, so nothing connected the query parameter to the filter applied at publish. Binding it to
+  a key nobody sends leaves both of those green while a subscriber asking for one agent receives the
+  whole host's traffic, which is also how that subscriber then gets dropped for lagging.
+- **The writer's reaction to an ended subscription ran nowhere.** The unit tests assert the
+  SUBSCRIPTION returns null and stop there. Turning the writer's `break` into a `continue` is the
+  spin loop itself, and it is now a failing test rather than a green suite.
+- **The trace route's own headline case was untested.** It is named for saying whether a trace is
+  whole and only ever asserted the whole case, because nothing set `Agents:Trace:MaxSteps` over
+  HTTP: `dropped > 0` was produced by no test, so the drop marker's serialization was covered
+  nowhere. Both halves are pinned now, including that recorded minus dropped equals the real rows
+  handed back.
+
+**One of these could not be fully closed, and the test says so rather than implying otherwise.** The
+detail route's documented 20-step tail cannot be pinned over HTTP in this phase: no model is
+reachable from these tests, so a run produces about four steps and the cap is unreachable. What is
+pinned is the tail-versus-whole distinction on a deliberately truncated trace. Handing back the
+whole trace instead of the tail therefore still survives mutation, and that is recorded here because
+a coverage limit nobody writes down reads afterwards as coverage.
+
+**A defect in this pass, found by mutation-checking it.** The first version of the writer-exit test
+overran a subscriber's queue to produce the null. That looked simpler and was wrong: the writer
+drains the channel into the response as fast as it is filled, so whether the queue ever overflows is
+a race. It passed three times, then failed under an unrelated mutation, which is how it was caught.
+Disposing the dispatcher reaches the same null deterministically, and the baseline was then measured
+three times before the mutants ran. The repo's flake rule is the reason this is in the record
+instead of quietly rewritten.

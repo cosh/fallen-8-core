@@ -763,6 +763,100 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void TheParentsTraceRecordsTheChildItSpawned()
+        {
+            // The spawn step on the PARENT's trace, whose stated purpose is that a swarm is
+            // readable from the orchestrator's own trace. Nothing gated it: childId appeared
+            // nowhere in this project, and measured, deleting the block left every agent test
+            // green. The phase that makes it load-bearing is the swarm, so it is pinned before then
+            // rather than after.
+            using var harness = new Harness(Script.Says("ok"));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "orchestrate"),
+                out var boss, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "part one") { ParentId = boss.Id }, out var worker, out _));
+
+            var onTheParent = boss.Trace.Steps().Where(s => s.Kind == "spawn").ToList();
+            Assert.AreEqual(2, onTheParent.Count,
+                "the parent's own spawn step, then one for the child it spawned");
+            Assert.AreEqual(worker.Id, onTheParent[^1].ChildId,
+                "the parent's trace has to name WHICH child, or a swarm reads as an orchestrator "
+                + "that spawned something unidentified");
+
+            // And the child's own first step is its own spawn, carrying no childId: the two uses of
+            // the kind are distinguished by that field and by nothing else.
+            var onTheChild = worker.Trace.Steps().Single(s => s.Kind == "spawn");
+            Assert.IsNull(onTheChild.ChildId);
+            Assert.AreEqual("pending", onTheChild.State);
+        }
+
+        [TestMethod]
+        public async Task AnOutOfRangeRunCapIsClampedRatherThanThrowingPastEveryCatch()
+        {
+            // A recorded incident, not a hypothesis: CancelAfter refuses a delay past a timer's
+            // maximum (about 49 days), so a MaxRunSeconds an operator meant as "no cap" threw where
+            // no catch could turn it into an ending, and the agent sat at pending holding a
+            // concurrency slot for the life of the process with nothing in the log. The clamp and
+            // its warning were added for it and neither had a test: across the whole suite
+            // MaxRunSeconds was only ever 1 or 300, both far below the armable maximum, so this
+            // branch ran nowhere.
+            using var sink = new TestLogSink();
+            var options = new AgentsOptions();
+            options.Limits.MaxRunSeconds = Int32.MaxValue;
+
+            using var harness = new Harness(Script.Says("done"), options: options, sink: sink);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "count"),
+                out var agent, out _));
+            await harness.Run(agent);
+
+            Assert.AreEqual(AgentState.Completed, agent.State,
+                "the run must reach an ending rather than escaping as an unhandled argument error");
+            Assert.IsTrue(sink.Contains(LogLevel.Warning, "MaxRunSeconds", "bounded at"),
+                "silently ignoring a configured number is its own defect, so the clamp says what "
+                + "it did");
+        }
+
+        [TestMethod]
+        public void AFailureBeforeTheRunsOwnTryIsStillRecordedAsAnEnding()
+        {
+            // Rescue, the last resort, which had zero references anywhere. Its own doc says it
+            // should never fire and that this is exactly why it exists: the alternative to a
+            // recorded failure is a silent one, and a silent one costs a concurrency slot until the
+            // process restarts. RunAsync catches everything inside its try, so what is pinned here
+            // is the stretch BEFORE it, which is where the original incident threw.
+            using var sink = new TestLogSink();
+            var real = Options.Create(new AgentsOptions());
+
+            using var feed = new AgentFeedDispatcher(real,
+                TestLoggerFactory.Create().CreateLogger<AgentFeedDispatcher>());
+            var journal = new AgentJournal(feed, real);
+            using var registry = new AgentRegistry(real,
+                TestLoggerFactory.Create().CreateLogger<AgentRegistry>(), journal);
+            var roles = RoleCatalog.Load(real.Value);
+            using var chat = new ScriptedChatClient(Script.Says("never reached"));
+
+            // Only the RUNNER gets unreadable options, so the registry still admits normally and
+            // the failure lands exactly where Rescue is documented to cover: before the try.
+            var runner = new AgentRunner(registry, roles, new FixedToolSource(null), chat, journal,
+                new UnreadableOptions(), sink.CreateFactory());
+
+            Assert.IsTrue(registry.TryAdmit(new AgentSpawn("assistant", "count"), out var agent, out _));
+            Assert.IsTrue(roles.TryGet(agent.Role, out var role, out _));
+
+            runner.Start(agent, role, null);
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => AgentStates.IsTerminal(agent.State), 10_000),
+                "the agent stayed at " + AgentStates.Wire(agent.State) + ", holding its slot with "
+                + "nothing recorded, which is the incident this exists to prevent");
+            Assert.AreEqual(AgentState.Failed, agent.State);
+            StringAssert.Contains(agent.Failure, "the options could not be read",
+                "the ending has to carry WHY, or an operator sees a failure with no cause");
+            Assert.IsTrue(sink.Contains(LogLevel.Error, agent.Id, "before it could record an ending"));
+        }
+
+        [TestMethod]
         public async Task TheCitationCountReachesTheTraceAndTheEndingEvent()
         {
             // Phase 2's headline, and it was delivered by code that no test executed: every
@@ -897,10 +991,11 @@ namespace NoSQL.GraphDB.Tests
             private readonly RoleCatalog _roles;
 
             public Harness(Script script, AgentsOptions options = null, IReadOnlyList<AITool> tools = null,
-                TimeProvider clock = null)
+                TimeProvider clock = null, TestLogSink sink = null)
             {
                 var resolved = options ?? new AgentsOptions();
                 var wrapped = Options.Create(resolved);
+                var loggers = sink == null ? TestLoggerFactory.Create() : sink.CreateFactory();
 
                 Client = new ScriptedChatClient(script);
                 _roles = RoleCatalog.Load(resolved);
@@ -915,7 +1010,7 @@ namespace NoSQL.GraphDB.Tests
                 Registry = new AgentRegistry(wrapped,
                     TestLoggerFactory.Create().CreateLogger<AgentRegistry>(), Journal, clock);
                 Runner = new AgentRunner(Registry, _roles, new FixedToolSource(tools), Client, Journal,
-                    wrapped, TestLoggerFactory.Create());
+                    wrapped, loggers);
             }
 
             public AgentFeedDispatcher Feed
@@ -955,6 +1050,17 @@ namespace NoSQL.GraphDB.Tests
                 Feed.Dispose();
                 Client.Dispose();
             }
+        }
+
+        /// <summary>
+        ///   Options whose value cannot be read, standing in for any failure in the stretch of a run
+        ///   BEFORE its own try block. The shipped code reads the limits there, which is where the
+        ///   recorded incident threw.
+        /// </summary>
+        private sealed class UnreadableOptions : IOptions<AgentsOptions>
+        {
+            public AgentsOptions Value
+                => throw new InvalidOperationException("the options could not be read");
         }
 
         private sealed class FixedToolSource : IAgentToolSource

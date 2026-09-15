@@ -39,6 +39,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.Agents.Runtime;
 using NoSQL.GraphDB.App.Agents;
 using NoSQL.GraphDB.App.Integrations;
 // The capturing log sink, reused rather than written twice. It is a general test utility that
@@ -409,6 +410,112 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task TheDetailRoutesTraceIsATailAndItsTotalSaysHowMuchIsMissing()
+        {
+            // The test above is named for a tail and a total and asserted only that both are
+            // non-empty: hand back the WHOLE trace instead of the tail and it stays green, which
+            // unbounds a response body that the constant exists to bound. What is pinned here is
+            // the distinction itself, on a trace short enough to truncate: rows fewer than
+            // recorded, the newest kept, and the total reported beside them.
+            //
+            // The constant 20 is NOT pinned here, deliberately: a run in these tests produces about
+            // four steps, because no model is reachable, so no HTTP test can reach the cap.
+            // AgentTraceTest.TheTailIsTheNewestStepsAndNeverMoreThanExist covers Tail(n) itself.
+            using var factory = new AgentHostFactory(maxTraceSteps: 2);
+            using var client = factory.CreateClient();
+
+            String id;
+            using (var spawned = await client.PostAsync("/agent", Json("{\"task\":\"count\"}")))
+            {
+                id = (await Read(spawned)).GetProperty("id").GetString();
+            }
+
+            // The run ends on its own, because its chat target is a closed port, which is what
+            // takes the trace past a bound of two rows.
+            Assert.IsTrue(await Settles(client, id), "the run never reached an ending");
+
+            using var response = await client.GetAsync("/agent/" + id);
+            var body = await Read(response);
+
+            var rows = body.GetProperty("trace").EnumerateArray().ToList();
+            var recorded = body.GetProperty("traceRecorded").GetInt64();
+
+            Assert.AreEqual(2, rows.Count, "the trace bound applies to what the detail route hands back");
+            Assert.IsTrue(recorded > rows.Count,
+                "recorded (" + recorded + ") has to exceed the rows shown, or there is nothing for "
+                + "a reader to notice is missing");
+            Assert.AreEqual("dropped", rows[0].GetProperty("kind").GetString(),
+                "the marker has to survive serialization, or the response reads as a complete run");
+            Assert.IsTrue(rows[0].GetProperty("droppedSteps").GetInt64() > 0);
+
+            // The NEWEST row, which is what makes it a tail rather than the front of the buffer.
+            Assert.AreEqual(recorded, rows[^1].GetProperty("seq").GetInt64(),
+                "the last row is not the newest step, so this is not a tail");
+        }
+
+        [TestMethod]
+        public async Task TheTraceRouteSaysSoWhenTheTraceIsNOTWholeAndTheMarkerSurvivesTheWire()
+        {
+            // The route above is named for saying whether the trace is whole and only ever asserted
+            // the whole case, because nothing set the trace bound: dropped > 0 was produced by no
+            // HTTP test, so the drop marker's serialization over this route was covered nowhere.
+            // A trace that quietly lost its middle is the one failure the bound's design exists to
+            // prevent, and it is the reader of this route who would be misled.
+            using var factory = new AgentHostFactory(maxTraceSteps: 2);
+            using var client = factory.CreateClient();
+
+            String id;
+            using (var spawned = await client.PostAsync("/agent", Json("{\"task\":\"count\"}")))
+            {
+                id = (await Read(spawned)).GetProperty("id").GetString();
+            }
+
+            Assert.IsTrue(await Settles(client, id), "the run never reached an ending");
+
+            using var response = await client.GetAsync("/agent/" + id + "/trace");
+            var body = await Read(response);
+
+            var dropped = body.GetProperty("dropped").GetInt64();
+            var recorded = body.GetProperty("recorded").GetInt64();
+            var steps = body.GetProperty("steps").EnumerateArray().ToList();
+
+            Assert.IsTrue(dropped > 0, "the trace was truncated and the route reported no loss");
+            Assert.AreEqual(recorded - dropped, steps.Count(s => s.GetProperty("kind").GetString() != "dropped"),
+                "recorded minus dropped has to equal the real steps handed back, or the numbers "
+                + "beside the rows describe a different trace");
+
+            var marker = steps.Single(s => s.GetProperty("kind").GetString() == "dropped");
+            Assert.AreEqual(dropped, marker.GetProperty("droppedSteps").GetInt64(),
+                "the marker carries the running total, which is the whole answer to how much went");
+            Assert.AreEqual(steps[0].GetProperty("seq").GetInt64() + 1,
+                steps[1].GetProperty("seq").GetInt64(),
+                "the marker and the step after it read as consecutive on the wire too");
+        }
+
+        /// <summary>
+        ///   Waits until an agent has reached an ending, bounded. Its chat target is a closed port
+        ///   in these tests, so every run ends on its own; the wait is for the run to get there
+        ///   rather than for anything to be retried.
+        /// </summary>
+        private static async Task<Boolean> Settles(HttpClient client, String id)
+        {
+            using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            while (!budget.IsCancellationRequested)
+            {
+                using var response = await client.GetAsync("/agent/" + id, budget.Token);
+                var state = (await Read(response)).GetProperty("agent").GetProperty("state").GetString();
+                if (state is "completed" or "failed" or "cancelled" or "budgetExceeded")
+                {
+                    return true;
+                }
+
+                await Task.Delay(25, budget.Token);
+            }
+
+            return false;
+        }
+
+        [TestMethod]
         public async Task TheFeedStreamsFramesInTheSameShapeAsTheChangeFeed()
         {
             // The frame contract, asserted on the bytes: a client that can read this instance's
@@ -514,6 +621,113 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual("agentFailed", frame.Event);
             StringAssert.Contains(frame.Data, id);
+        }
+
+        [TestMethod]
+        public async Task AnAgentFilterOnTheRouteDeliversOnlyThatAgentsEvents()
+        {
+            // The agents= parameter had no coverage that ran the ROUTE. kinds= is covered end to
+            // end; for agents= the only two touches were the proxy forwarding the literal string
+            // and AgentFeedFilter.Admits called directly, so nothing connected the query parameter
+            // to the filter applied at publish. Bind it to the wrong key and both of those stay
+            // green while a Studio subscriber asking for one agent receives the whole host's
+            // traffic, which is also how that subscriber then gets dropped for lagging.
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+            using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            // One agent spawned FIRST, so its id is the one to filter on, and its own events are
+            // already past: there is no catch-up, which is what makes the next spawn the test.
+            String mine;
+            using (var spawned = await client.PostAsync("/agent", Json("{\"task\":\"mine\"}")))
+            {
+                mine = (await Read(spawned)).GetProperty("id").GetString();
+            }
+
+            using var stream = await client.GetAsync("/agent/feed?agents=" + mine,
+                HttpCompletionOption.ResponseHeadersRead);
+            Assert.AreEqual(HttpStatusCode.OK, stream.StatusCode);
+            using var reader = new System.IO.StreamReader(await stream.Content.ReadAsStreamAsync());
+
+            // A DIFFERENT agent is spawned and runs to failure (its chat target is a closed port),
+            // so the host publishes a spawn, a state change and an ending for it. None may arrive.
+            String other;
+            using (var spawned = await client.PostAsync("/agent", Json("{\"task\":\"not mine\"}")))
+            {
+                other = (await Read(spawned)).GetProperty("id").GetString();
+            }
+
+            Assert.AreNotEqual(mine, other);
+
+            // The filtered agent then gets an event of its own, by being cancelled. The FIRST frame
+            // to arrive has to be that one: anything earlier is traffic the filter should have kept
+            // out, and this read is bounded, so a filter that admits nothing fails rather than
+            // hanging.
+            using (var cancelled = await client.DeleteAsync("/agent/" + mine))
+            {
+                Assert.AreEqual(HttpStatusCode.Accepted, cancelled.StatusCode, await Text(cancelled));
+            }
+
+            var frame = await ReadFrame(reader, budget.Token);
+            var data = JsonSerializer.Deserialize<JsonElement>(frame.Data);
+
+            Assert.AreEqual(mine, data.GetProperty("agentId").GetString(),
+                "the first frame was " + frame.Event + " for another agent, so agents= is not "
+                + "reaching the filter that is applied at publish");
+        }
+
+        [TestMethod]
+        public async Task AStreamEndsWhenItsSubscriptionDoesRatherThanSpinning()
+        {
+            // The writer's reaction to a subscription that has ENDED, over HTTP, which no test
+            // reached: the unit tests assert the subscription returns null and stop there, so the
+            // writer's own behaviour on that null ran nowhere. Turn its break into a continue and
+            // the suite stays green while, on exactly the shutdown path the design exists to
+            // handle, ReadAsync returns null on every iteration and the writer spins.
+            //
+            // The dispatcher is DISPOSED to produce the null, rather than overrunning a queue.
+            // Overrunning it looked simpler and was wrong: the writer drains the channel into the
+            // response as fast as it is filled, so whether the queue ever overflows is a race, and
+            // a first version of this test passed on timing and then failed under an unrelated
+            // mutation. Disposal is the same null by a deterministic route.
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            using var stream = await client.GetAsync("/agent/feed",
+                HttpCompletionOption.ResponseHeadersRead);
+            Assert.AreEqual(HttpStatusCode.OK, stream.StatusCode);
+            using var reader = new System.IO.StreamReader(await stream.Content.ReadAsStreamAsync());
+
+            // One event first, so the stream is established and the writer is inside its loop
+            // rather than still starting up.
+            using (var spawned = await client.PostAsync("/agent", Json("{\"task\":\"count\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.Accepted, spawned.StatusCode);
+            }
+
+            using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var first = await ReadFrame(reader, budget.Token);
+            Assert.AreEqual("agentSpawned", first.Event);
+
+            // Now the host stops feeding. Every open subscription ends, which is the null the
+            // writer has to break on.
+            factory.Services.GetRequiredService<AgentFeedDispatcher>().Dispose();
+
+            var lines = 0;
+            try
+            {
+                while (await reader.ReadLineAsync(budget.Token) != null)
+                {
+                    lines++;
+                    Assert.IsTrue(lines < 10_000,
+                        "the writer is still producing after its subscription ended");
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                Assert.Fail("the response never ended after the subscription did, having sent "
+                    + lines + " further line(s): the writer did not stop when its feed stopped");
+            }
         }
 
         [TestMethod]
@@ -1032,16 +1246,25 @@ namespace NoSQL.GraphDB.Tests
             private readonly Int32 _maxTokenBudget;
             private readonly Int32 _keepAliveSeconds;
             private readonly Int32 _maxSubscribers;
+            private readonly Int32 _maxQueuedEvents;
+            private readonly Int32 _maxTraceSteps;
 
+            // maxQueuedEvents and maxTraceSteps are settable because the two bounds they control
+            // had no HTTP coverage at all: nothing overran a subscriber's queue while a real stream
+            // was open, and nothing produced a truncated trace over the trace route, so the drop
+            // marker's serialization and the writer's reaction to a dropped subscriber were both
+            // reachable only through the unit-level classes.
             public AgentHostFactory(Int32 maxConcurrent = 4, String baseUrl = "http://127.0.0.1:1/",
                 Int32 maxTokenBudget = 400_000, Int32 keepAliveSeconds = 15,
-                Int32 maxSubscribers = 16)
+                Int32 maxSubscribers = 16, Int32 maxQueuedEvents = 512, Int32 maxTraceSteps = 1000)
             {
                 _maxConcurrent = maxConcurrent;
                 _baseUrl = baseUrl;
                 _maxTokenBudget = maxTokenBudget;
                 _keepAliveSeconds = keepAliveSeconds;
                 _maxSubscribers = maxSubscribers;
+                _maxQueuedEvents = maxQueuedEvents;
+                _maxTraceSteps = maxTraceSteps;
             }
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -1056,6 +1279,10 @@ namespace NoSQL.GraphDB.Tests
                     _keepAliveSeconds.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 builder.UseSetting("Agents:Feed:MaxSubscribers",
                     _maxSubscribers.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                builder.UseSetting("Agents:Feed:MaxQueuedEvents",
+                    _maxQueuedEvents.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                builder.UseSetting("Agents:Trace:MaxSteps",
+                    _maxTraceSteps.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 builder.UseSetting("Fallen8Target:BaseUrl", _baseUrl);
             }
         }
