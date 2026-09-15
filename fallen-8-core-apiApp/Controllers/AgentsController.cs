@@ -155,13 +155,18 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Reports the agent host's posture (feature agent-host)
         /// </summary>
         /// <param name="cancellationToken">Aborts the proxied call when the request is cancelled</param>
-        /// <remarks>The first thing to read when an agent fails: whether the host can reach this instance's
-        /// chat gateway, what backend and model last served a step, whether the MCP server answered and
+        /// <remarks>The first thing to read when an agent fails: whether the host COULD reach this
+        /// instance's chat gateway when it started and when that was, what backend and model last served
+        /// a step, whether the MCP server answered and
         /// how many tools it advertises, what each role actually ended up with, the caps a run is held to,
         /// and how many agents are active and retained.
         /// <para>The model is reported as LAST SEEN rather than as configuration, and that is not a
         /// limitation: the host holds no model configuration at all, so before a step has run there is no
-        /// name to report. Which model served a step is the instance's answer, per step.</para></remarks>
+        /// name to report. Which model served a step is the instance's answer, per step.</para>
+        /// <para>Reachability is ONE STARTUP PROBE and nothing refreshes it, which is why it carries the
+        /// moment it ran. A host that started before the instance answered says <c>unreachable</c> for the
+        /// life of the container while every agent runs fine, so read it against that timestamp and against
+        /// the last-seen model: a completion can only have been served by a gateway that answered.</para></remarks>
         /// <response code="200">The host's posture, as it reports it</response>
         /// <response code="401">No valid credential was supplied, or agents are off on an instance with no API key</response>
         /// <response code="403">Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance</response>

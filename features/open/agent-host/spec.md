@@ -366,12 +366,24 @@ Rules, each with its reason:
 - **Retention.** Finished agents stay listed and reviewable for `Agents:Limits:RetainFinishedMinutes`,
   bounded by `MaxRetainedAgents` (oldest finished evicted first). A host restart ends everything;
   the first trace step of every agent says which host instance ran it.
-- **Posture check at startup.** The host calls `GET /chat/models` once, bounded and best-effort,
+- **Posture check at startup.** The host calls `GET /chat/models` ONCE, bounded and best-effort,
   and logs the outcome: reachable and how many models the instance's backend catalogues, or a
   401/403 that means the Chat capability is off or the key is wrong, or unreachable. It never
   gates and it never learns the agent purpose's model name that way: the model is server-owned
   and is revealed per step by the instance's answer, which `GET /agents/status` then reports as
   `lastSeen { backend, model }`.
+  - **Once means once, and the status route now says WHEN** (review finding, fixed). Nothing
+    re-probes and no failed completion downgrades the word, so in the case this design itself calls
+    ordinary, compose starting the host before the instance answers, it reported `unreachable` for
+    the life of the container while every agent ran fine. It is reported beside a `probedAt`, and
+    the route that calls it the first thing to read when an agent fails now says what it is: a
+    startup probe, to be read against that timestamp and against `lastSeen`, which only a
+    completion that actually happened can set. Refreshing it from the adapter was rejected, because
+    the probe and the last completion are two different facts and this type's own doc says
+    conflating them would let a host that has never run an agent report a model.
+  - The caps that row reports include `maxTokenBudget`, which it omitted: it CLAMPS a caller's own
+    `tokenBudget` rather than refusing it, so the one cap that silently rewrites a request was the
+    one cap the posture surface hid, and there was no pre-flight way to learn it.
 
 ### 3.2a The role prompts are load-bearing, and why
 

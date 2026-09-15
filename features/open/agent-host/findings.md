@@ -491,3 +491,53 @@ a race. It passed three times, then failed under an unrelated mutation, which is
 Disposing the dispatcher reaches the same null deterministically, and the baseline was then measured
 three times before the mutants ran. The repo's flake rule is the reason this is in the record
 instead of quietly rewritten.
+
+## 12. The last five, and where the gate stands
+
+- **`GET /agent/status` reported `lastSeenBackend` and `lastSeenModel`**, two sibling scalars, where
+  spec 3.2 and 3.3 both specify `lastSeen { backend, model }`. A consumer written from either read
+  `chat.lastSeen.backend` and got nothing on a host that had served many steps. The code was
+  changed rather than the spec, because the nested shape is also the truer one: the two are one fact
+  about one step, and its absence says "nothing has served a step yet" once instead of twice. The
+  HTTP test could only ever reach the ABSENT case, since no model is reachable from these tests, so
+  the shape is pinned where the value exists: renaming it back leaves the route test green, which is
+  how the wrong shape survived two reviews.
+- **The posture route omitted `maxTokenBudget`**, the one cap that silently rewrites a caller's
+  request: it CLAMPS rather than refuses, so a client pre-validating a spawn form had no way to
+  learn it and a user saw a budget the run never got, while the route documented itself as reporting
+  the caps a run is held to.
+- **The chat gateway's reachability is ONE startup probe and nothing refreshes it**, while the proxy
+  documented it as the first thing to read when an agent fails. In the case the probe's own doc
+  calls ordinary, compose starting the host before the instance answers, it reported `unreachable`
+  for the life of the container while every agent ran fine. It now carries the moment it ran, the
+  route says what it is, and a reader is pointed at what IS live. Refreshing it from the adapter was
+  rejected: the probe and the last completion are two different facts, and the type's own doc says
+  conflating them would let a host that has never run an agent report a model. The state and its
+  timestamp are one immutable object behind one volatile field, which is what the adapter already
+  does for its provenance and for the same reason, a mismatched pair being worse than a stale one.
+- **The `Emitted` guard did not observe the code it was described as pinning.** Both a commit
+  message and this document said it "fails when the two lists stop matching the code"; it checked a
+  subset relation between two hand-written lists and pinned their counts. So the one drift direction
+  that was explicitly worried about, the swarm starting to call `AgentJournal.Message` while
+  `Emitted` still omits `agentMessage`, failed nothing, and `GET /agent/status` would have told every
+  client that `agentMessage` cannot arrive while it was arriving. It now reads the product sources
+  for a caller of that method, in the same spirit as the convention gate, and fails in BOTH
+  directions: advertising a kind nothing emits, and emitting one that is not advertised.
+- **The spawn step kind is overloaded and said so nowhere.** It is the first step of every trace
+  ("this agent was spawned") and also a row on a parent's trace ("this agent spawned that one"), told
+  apart by `childId` and by nothing else, so a client rendering the documented kind showed "a1-17
+  spawned nothing" as the first row of every agent that spawned nothing.
+- **The per-step provenance rule was narrated in full at four sites**, and the byte-cap rule at two.
+  `TraceStep.Backend` and `CapWithMarker` own them; the others are pointers now, which is the
+  repository's own rule and the reason a later change to either will not leave three sites asserting
+  the old one.
+
+**Where the gate stands.** Of the 61 candidates the delegated panel produced, 44 survived
+verification and all 44 are now addressed: fixed, or reframed where a sceptic was right that the
+finding overstated its case. The 17 refutations were worth reading too, and section 10 records what
+two of them cost. **Two things are still open and named rather than implied:** the detail route's
+20-step tail cannot be pinned over HTTP until a model is reachable from a test (section 11), and no
+independent reader has reviewed THIS round of fixes, which is the same gap section 8 recorded about
+its own. The pattern across three gates is stable enough to state plainly: the defect this feature
+produces most is a test that passes while the behaviour it names is absent, and the cheapest guard
+against it is to break the thing on purpose and watch the test fail with its own message.

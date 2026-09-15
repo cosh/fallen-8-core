@@ -47,7 +47,18 @@ namespace NoSQL.GraphDB.Agents.Runtime
         /// <summary>A message to or from the agent.</summary>
         Message = 3,
 
-        /// <summary>This agent spawned another.</summary>
+        /// <summary>
+        ///   A spawn, and the kind is deliberately OVERLOADED: it is the first step of every trace,
+        ///   meaning "this agent was spawned", and it also appears on a parent's trace meaning
+        ///   "this agent spawned that one".
+        ///   <para>
+        ///     <see cref="TraceStep.ChildId" /> is how the two are told apart, and it is the only
+        ///     way: the first carries a state and the host instance and no child, the second carries
+        ///     a child and nothing else. This said only "this agent spawned another", so a client
+        ///     rendering the documented kind showed "a1-17 spawned nothing" as the first row of
+        ///     every agent that spawned nothing at all.
+        ///   </para>
+        /// </summary>
         Spawn = 4,
 
         /// <summary>The mechanical count of citations in the final text against the calls that
@@ -100,8 +111,17 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
         // ---- modelCall
 
-        /// <summary>The backend that served this step, as the instance reported it. Per STEP, not
-        /// per host: a deployment that switches backend mid-day shows it here.</summary>
+        /// <summary>
+        ///   The backend that served this step, as the instance reported it.
+        ///   <para>
+        ///     <b>THE home for the per-step provenance rule.</b> Per STEP, not per host: a
+        ///     deployment that switches backend mid-day shows it here, and one that runs two
+        ///     backends behind one gateway shows which answered. The adapter, the meter and the
+        ///     journal each carry a pointer to this field rather than a fourth copy of the reason,
+        ///     because a change to how provenance is recorded should not leave three sites
+        ///     asserting the old rule.
+        ///   </para>
+        /// </summary>
         [JsonPropertyName("backend")]
         public String? Backend
         {

@@ -224,7 +224,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
             // Recorded as a trace step and NOT as a feed event: a subscriber watching a swarm does
             // not want one notification per model call, and the trace is where a reviewer looks at
-            // the steps. Provenance comes off the response, so it is per step - a deployment that
+            // the steps. Provenance comes off the response, so it is per step (TraceStep.Backend
+            // has the reason) - a deployment that
             // switches backend mid-day shows it here rather than only in an aggregate.
             _journal.ModelCall(_agent,
                 Provenance(response, Model.Fallen8ChatClient.BackendProperty),

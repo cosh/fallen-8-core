@@ -93,9 +93,9 @@ namespace NoSQL.GraphDB.Agents.Model
         public ModelProvenance? LastSeen => Volatile.Read(ref _lastSeen);
 
         /// <summary>
-        ///   The response property names the per-step provenance travels under. Provenance is per
-        ///   STEP rather than per host: a deployment that switches backend mid-day shows it in the
-        ///   trace, and the aggregate above cannot.
+        ///   The response property names the per-step provenance travels under. Why it is per step
+        ///   rather than per host is on <c>TraceStep.Backend</c>, the field that carries it; the
+        ///   aggregate above cannot answer that question, which is why these exist.
         /// </summary>
         public const String BackendProperty = "fallen8.backend";
 

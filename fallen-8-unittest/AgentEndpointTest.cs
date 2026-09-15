@@ -302,12 +302,27 @@ namespace NoSQL.GraphDB.Tests
             var chat = body.GetProperty("chat");
             Assert.IsFalse(String.IsNullOrWhiteSpace(chat.GetProperty("reachability").GetString()));
 
+            // WHEN the probe ran, beside what it saw. Nothing refreshes that word, so a host that
+            // started before the instance answered reports unreachable for the life of the
+            // container while every agent runs fine: without the timestamp a route documented as
+            // the first thing to read when an agent fails was permanently wrong in the case its
+            // own doc calls ordinary, with no way for a reader to tell.
+            Assert.AreEqual(JsonValueKind.String, chat.GetProperty("probedAt").ValueKind,
+                "the reachability word has to carry the moment it was measured");
+
             // ABSENT before a step, not null: this host holds no model configuration and does not
             // invent one, and the host's serializer omits what has no value rather than writing a
             // null a reader has to interpret. Which model served a step is the instance's answer,
             // per step.
+            //
+            // ONE object, which is what spec 3.2 and 3.3 both specify. It shipped as two sibling
+            // scalars, lastSeenBackend and lastSeenModel, so a consumer written from either read
+            // chat.lastSeen.backend and got nothing on a host that had served many steps. Nothing
+            // compared the spec's shape to the emitted one, which is why it survived two reviews.
+            Assert.IsFalse(chat.TryGetProperty("lastSeen", out _),
+                "nothing has served a step, so the object is absent rather than one of nulls");
             Assert.IsFalse(chat.TryGetProperty("lastSeenModel", out _),
-                "a model this host has never seen was reported as a null rather than omitted");
+                "the flat shape is gone: it was never the documented one");
             Assert.IsFalse(chat.TryGetProperty("lastSeenBackend", out _));
 
             var roles = body.GetProperty("roles").EnumerateArray().Select(r => r.GetProperty("name").GetString()).ToList();
@@ -317,7 +332,49 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(24, limits.GetProperty("maxStepsPerRun").GetInt32());
             Assert.AreEqual(100000, limits.GetProperty("defaultTokenBudget").GetInt32());
 
+            // The CEILING, which this route documents itself as reporting and did not: it is the
+            // one cap that silently rewrites a caller's own tokenBudget, because it clamps rather
+            // than refuses, so a client pre-validating a spawn form had no way to learn it and the
+            // user saw a budget the run never got.
+            Assert.AreEqual(400000, limits.GetProperty("maxTokenBudget").GetInt32(),
+                "the cap that clamps a caller's request was the one cap the posture route hid");
+
             Assert.IsFalse(String.IsNullOrWhiteSpace(body.GetProperty("hostInstanceId").GetString()));
+        }
+
+        [TestMethod]
+        public void TheChatPostureReportsLastSeenAsOneObjectWithTheShapeTheSpecNames()
+        {
+            // Serialized directly, because the HTTP test above can only reach the ABSENT case: no
+            // model is reachable from these tests, so nothing ever serves a step and the field is
+            // omitted whatever it is called. Renaming it back to the two sibling scalars it shipped
+            // as therefore leaves that test green, which is exactly how the wrong shape survived
+            // two reviews. Here the value is present, so the shape is the assertion.
+            var payload = JsonSerializer.Serialize(new NoSQL.GraphDB.Agents.Hosting.ChatStatus
+            {
+                BaseUrl = "http://127.0.0.1:1/",
+                Reachability = "reachable",
+                TimeoutSeconds = 120,
+                ProbedAt = DateTimeOffset.Parse("2026-09-15T09:00:00Z"),
+                LastSeen = new NoSQL.GraphDB.Agents.Hosting.LastSeenStatus
+                {
+                    Backend = "Nahil",
+                    Model = "an-agent-model",
+                },
+            }, NoSQL.GraphDB.Agents.Hosting.AgentsHost.Json);
+
+            var chat = JsonSerializer.Deserialize<JsonElement>(payload);
+            var lastSeen = chat.GetProperty("lastSeen");
+
+            Assert.AreEqual(JsonValueKind.Object, lastSeen.ValueKind,
+                "spec 3.2 and 3.3 both name lastSeen { backend, model }, and this shipped as two "
+                + "sibling scalars, so a consumer read chat.lastSeen.backend and got nothing: "
+                + payload);
+            Assert.AreEqual("Nahil", lastSeen.GetProperty("backend").GetString());
+            Assert.AreEqual("an-agent-model", lastSeen.GetProperty("model").GetString());
+
+            Assert.IsFalse(chat.TryGetProperty("lastSeenBackend", out _),
+                "the flat shape must not come back alongside the nested one");
         }
 
         [TestMethod]

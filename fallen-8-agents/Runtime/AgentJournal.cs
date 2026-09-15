@@ -49,8 +49,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
     ///   </para>
     ///   <para>
     ///     A capped capture carries its own "truncated, N bytes total" suffix, and the suffix is
-    ///     inside the configured cap rather than added past it: <c>ArgsBytes</c> is what a stored
-    ///     capture costs, not what it costs before the marker.
+    ///     inside the configured cap rather than added past it. <see cref="TraceStepKinds.CapWithMarker" />
+    ///     owns that rule and its one exception.
     ///   </para>
     /// </summary>
     public sealed class AgentJournal
@@ -190,8 +190,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
             _feed.Publish(ended, at);
         }
 
-        /// <summary>One model call, as a trace step only. Provenance is per STEP here rather than
-        /// per host, which is the point: a deployment that switches backend mid-day shows it.</summary>
+        /// <summary>One model call, as a trace step only. The provenance it records is per STEP;
+        /// <c>TraceStep.Backend</c> is the one home for why.</summary>
         public void ModelCall(AgentRecord agent, String? backend, String? model, Int64 durationMs,
             Int64 inputTokens, Int64 outputTokens, Boolean usageReported)
         {

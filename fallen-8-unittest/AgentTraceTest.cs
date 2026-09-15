@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
@@ -659,6 +660,56 @@ namespace NoSQL.GraphDB.Tests
                 "agentMessage is emitted by nothing until a conversation or a swarm exists; if that "
                 + "changed, add it to Emitted so the status route stops understating what a "
                 + "subscriber can receive");
+        }
+
+        [TestMethod]
+        public void TheEmittedSetIsCheckedAgainstTheCODERatherThanAgainstItself()
+        {
+            // The test above was described, in a commit message and in findings.md, as failing when
+            // the two lists stop matching the CODE. It observes no code: it checks a subset
+            // relation between two hand-written lists and pins their counts. So the one drift
+            // direction that was explicitly worried about, the swarm phase starting to call
+            // AgentJournal.Message while Emitted still omits agentMessage, failed nothing, and
+            // GET /agent/status would have told every client that agentMessage cannot arrive while
+            // it was arriving.
+            //
+            // This reads the product SOURCES, in the same spirit as the convention gate: the one
+            // method that publishes agentMessage is AgentJournal.Message, so whether it has a
+            // caller is exactly the question Emitted answers.
+            var product = Path.Combine(TestRepo.Root(), "fallen-8-agents");
+            var callers = new List<String>();
+
+            foreach (var file in Directory.EnumerateFiles(product, "*.cs", SearchOption.AllDirectories))
+            {
+                if (file.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar,
+                        StringComparison.Ordinal)
+                    || file.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar,
+                        StringComparison.Ordinal)
+                    || Path.GetFileName(file) == "AgentJournal.cs")
+                {
+                    // AgentJournal declares it; a call from inside its own file would be the
+                    // declaration, not a use.
+                    continue;
+                }
+
+                var text = File.ReadAllText(file);
+                if (text.Contains("_journal.Message(", StringComparison.Ordinal)
+                    || text.Contains("Journal.Message(", StringComparison.Ordinal))
+                {
+                    callers.Add(Path.GetFileName(file));
+                }
+            }
+
+            var emitsMessages = AgentEventKinds.Emitted
+                .Contains("agentMessage", StringComparer.OrdinalIgnoreCase);
+
+            Assert.AreEqual(callers.Count > 0, emitsMessages,
+                callers.Count > 0
+                    ? "AgentJournal.Message is now called from " + String.Join(", ", callers)
+                        + ", so agentMessage IS emitted and belongs in AgentEventKinds.Emitted; "
+                        + "GET /agent/status is currently telling clients it cannot arrive"
+                    : "nothing calls AgentJournal.Message, so agentMessage must not be advertised "
+                        + "as emitted: a subscriber filtering on it would wait forever");
         }
 
         [TestMethod]

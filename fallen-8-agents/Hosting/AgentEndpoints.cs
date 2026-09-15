@@ -238,13 +238,20 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 {
                     BaseUrl = target.BaseUrl,
                     Reachability = posture.State,
+                    ProbedAt = posture.ProbedAt,
                     TimeoutSeconds = target.TimeoutSeconds,
                     // Absent until a step has actually run, and that is the point: this host holds
                     // no model configuration, so there is nothing to report before the instance has
                     // answered once. Reporting a configured name here would be reporting a value
                     // that does not exist.
-                    LastSeenBackend = seen?.Backend,
-                    LastSeenModel = seen?.Model,
+                    // Absent rather than an object of nulls when no step has been served, so
+                    // "nothing yet" is one fact a client can test rather than two fields to
+                    // correlate.
+                    LastSeen = seen == null ? null : new LastSeenStatus
+                    {
+                        Backend = seen.Backend,
+                        Model = seen.Model,
+                    },
                 },
                 Mcp = new McpStatus
                 {
@@ -274,6 +281,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
                     MaxStepsPerRun = options.Limits.MaxStepsPerRun,
                     MaxToolCallsPerRun = options.Limits.MaxToolCallsPerRun,
                     MaxRunSeconds = options.Limits.MaxRunSeconds,
+                    MaxTokenBudget = options.Limits.MaxTokenBudget,
                     DefaultTokenBudget = options.Limits.DefaultTokenBudget,
                     MaxConcurrentAgents = options.Limits.MaxConcurrentAgents,
                     RetainFinishedMinutes = options.Limits.RetainFinishedMinutes,
@@ -533,8 +541,20 @@ namespace NoSQL.GraphDB.Agents.Hosting
         [JsonPropertyName("baseUrl")]
         public String BaseUrl { get; set; } = String.Empty;
 
+        /// <summary>
+        ///   What the STARTUP probe saw. Paired with <see cref="ProbedAt" />, because nothing
+        ///   refreshes it: see <see cref="ChatGatewayPosture" /> for why the age matters and what to
+        ///   read instead for a live answer.
+        /// </summary>
         [JsonPropertyName("reachability")]
         public String Reachability { get; set; } = String.Empty;
+
+        /// <summary>When the probe behind <see cref="Reachability" /> ran. Absent until it has.</summary>
+        [JsonPropertyName("probedAt")]
+        public DateTimeOffset? ProbedAt
+        {
+            get; set;
+        }
 
         [JsonPropertyName("timeoutSeconds")]
         public Int32 TimeoutSeconds
@@ -542,14 +562,35 @@ namespace NoSQL.GraphDB.Agents.Hosting
             get; set;
         }
 
-        [JsonPropertyName("lastSeenBackend")]
-        public String? LastSeenBackend
+        /// <summary>
+        ///   The backend and model that served the most recent step, or absent when none has.
+        ///   <para>
+        ///     ONE object rather than two sibling scalars, which is what spec 3.2 and 3.3 both
+        ///     specify and what this shipped differently: a consumer written from either read
+        ///     <c>chat.lastSeen.backend</c> and got nothing on a host that had served many steps.
+        ///     Nested is the truer shape too, because the two are one fact about one step, and its
+        ///     absence says "nothing has served a step yet" once instead of twice.
+        ///   </para>
+        /// </summary>
+        [JsonPropertyName("lastSeen")]
+        public LastSeenStatus? LastSeen
+        {
+            get; set;
+        }
+    }
+
+    /// <summary>The backend and the model that served one step, as the instance reported them.
+    /// Per STEP: see <see cref="Runtime.TraceStep.Backend" />, which owns that rule.</summary>
+    public sealed class LastSeenStatus
+    {
+        [JsonPropertyName("backend")]
+        public String? Backend
         {
             get; set;
         }
 
-        [JsonPropertyName("lastSeenModel")]
-        public String? LastSeenModel
+        [JsonPropertyName("model")]
+        public String? Model
         {
             get; set;
         }
@@ -619,6 +660,19 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
         [JsonPropertyName("maxRunSeconds")]
         public Int32 MaxRunSeconds
+        {
+            get; set;
+        }
+
+        /// <summary>
+        ///   The operator ceiling on a caller's own <c>tokenBudget</c>. Reported because it CLAMPS
+        ///   rather than refuses: a caller asking for more is honoured up to this and told nothing,
+        ///   so the one cap that silently rewrites a request was the one cap this route omitted
+        ///   while documenting itself as the caps a run is held to. There is otherwise no
+        ///   pre-flight way to learn it.
+        /// </summary>
+        [JsonPropertyName("maxTokenBudget")]
+        public Int32 MaxTokenBudget
         {
             get; set;
         }

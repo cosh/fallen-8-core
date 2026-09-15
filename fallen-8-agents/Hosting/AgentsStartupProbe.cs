@@ -76,8 +76,9 @@ namespace NoSQL.GraphDB.Agents.Hosting
             await _toolset.ConnectAsync(cancellationToken).ConfigureAwait(false);
 
             var http = _clients.CreateClient(AgentsHost.ChatClientName);
-            _posture.Record(await AgentsHost
-                .ProbeChatAsync(http, _logger, cancellationToken).ConfigureAwait(false));
+            _posture.Record(
+                await AgentsHost.ProbeChatAsync(http, _logger, cancellationToken).ConfigureAwait(false),
+                DateTimeOffset.UtcNow);
 
             // Said AFTER both probes, so the line reports what is true rather than what was
             // configured. It is the one place an operator can read this host's whole posture.
@@ -91,21 +92,65 @@ namespace NoSQL.GraphDB.Agents.Hosting
     }
 
     /// <summary>
-    ///   The chat gateway's last known reachability, as one word. Separate from the adapter because
-    ///   it is a fact about the PROBE, and the adapter's own provenance is a fact about the last
-    ///   completion; conflating them would let a host that has never run an agent report a model.
+    ///   The chat gateway's reachability as ONE STARTUP PROBE saw it, with the moment it saw it.
+    ///   Separate from the adapter because it is a fact about the PROBE, and the adapter's own
+    ///   provenance is a fact about the last completion; conflating them would let a host that has
+    ///   never run an agent report a model.
+    ///
+    ///   <para>
+    ///     <b>It is not refreshed, and the timestamp exists so a reader can see that.</b> Nothing
+    ///     re-probes and no failed completion downgrades it, so in the case this host's own doc
+    ///     calls ordinary (compose starting the host before the instance answers) it says
+    ///     <c>unreachable</c> for the life of the container while every agent runs fine. Reporting
+    ///     the word alone let a route that is documented as the first thing to read when an agent
+    ///     fails be permanently wrong in the two cases it exists for.
+    ///   </para>
+    ///   <para>
+    ///     What IS live is the adapter's last-seen provenance, which only a completion that
+    ///     actually happened can set, and a failed run's own recorded failure. A reader comparing
+    ///     this word against those two can tell a cold probe from a broken gateway, which is the
+    ///     answer the word on its own cannot give.
+    ///   </para>
     /// </summary>
     public sealed class ChatGatewayPosture
     {
-        private String _state = "unprobed";
+        private ChatProbe _probe = new ChatProbe("unprobed", null);
 
         /// <summary>One of <c>reachable</c>, <c>unreachable</c>, <c>refused:401</c>,
         /// <c>status:&lt;n&gt;</c> or <c>unprobed</c>.</summary>
-        public String State => Volatile.Read(ref _state);
+        public String State => Volatile.Read(ref _probe).State;
 
-        internal void Record(String state)
+        /// <summary>When the probe that produced <see cref="State" /> ran, or null if none has.
+        /// The age of this is how stale the word above may be.</summary>
+        public DateTimeOffset? ProbedAt => Volatile.Read(ref _probe).At;
+
+        internal void Record(String state, DateTimeOffset at)
         {
-            Volatile.Write(ref _state, state);
+            // ONE immutable object behind one volatile field, which is what the adapter does for
+            // its own provenance and for the same reason: two fields written one after the other
+            // let a reader take a state from one probe and a time from another, and a mismatched
+            // pair is worse than a stale one because it describes something that never happened.
+            Volatile.Write(ref _probe, new ChatProbe(state, at));
+        }
+
+        /// <summary>One probe's answer and the moment of it, together because they are one fact.</summary>
+        private sealed class ChatProbe
+        {
+            public ChatProbe(String state, DateTimeOffset? at)
+            {
+                State = state;
+                At = at;
+            }
+
+            public String State
+            {
+                get;
+            }
+
+            public DateTimeOffset? At
+            {
+                get;
+            }
         }
     }
 }
