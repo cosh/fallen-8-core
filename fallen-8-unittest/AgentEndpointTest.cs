@@ -416,6 +416,15 @@ namespace NoSQL.GraphDB.Tests
             // dialect rather than inventing one.
             using var factory = new AgentHostFactory();
             using var client = factory.CreateClient();
+            using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            // Read first, because the id's prefix is asserted to BE this host's instance id and the
+            // status route is what a client reads it from.
+            String hostInstanceId;
+            using (var status = await client.GetAsync("/agent/status"))
+            {
+                hostInstanceId = (await Read(status)).GetProperty("hostInstanceId").GetString();
+            }
 
             using var stream = await client.GetAsync("/agent/feed",
                 HttpCompletionOption.ResponseHeadersRead);
@@ -432,17 +441,31 @@ namespace NoSQL.GraphDB.Tests
                 Assert.AreEqual(HttpStatusCode.Accepted, spawned.StatusCode);
             }
 
-            var frame = await ReadFrame(reader);
+            var frame = await ReadFrame(reader, budget.Token);
 
-            StringAssert.Contains(frame, "event: agentSpawned");
-            StringAssert.Contains(frame, "id: ");
-            StringAssert.Contains(frame, "data: {");
+            Assert.AreEqual("agentSpawned", frame.Event);
 
-            var data = JsonSerializer.Deserialize<JsonElement>(
-                frame.Split("data: ", 2)[1].Trim());
+            // id: <hostInstanceId>:<seq>, split on the LAST colon as the change feed's own test
+            // splits its epoch id. Asserting that the frame merely CONTAINS "id: " asserted
+            // nothing: measured, stripping the host instance and its separator from the writer
+            // left this test green, so the half of the id that makes it useful was unpinned. A
+            // reconnecting client compares that prefix to decide whether its own last id still
+            // means anything here, and a bare sequence would read a restart as a gap.
+            var separator = frame.Id.LastIndexOf(':');
+            Assert.IsTrue(separator > 0, "the id carries <hostInstanceId>:<seq>, and was: " + frame.Id);
+            Assert.AreEqual(hostInstanceId, frame.Id.Substring(0, separator),
+                "the id's prefix is not this host's instance id, so a reconnecting client cannot "
+                + "tell a restart from a gap");
+            Assert.IsTrue(Int64.TryParse(frame.Id.Substring(separator + 1), out var streamedSeq)
+                && streamedSeq == 1L,
+                "the id's suffix is the event sequence, and was: " + frame.Id);
+
+            var data = JsonSerializer.Deserialize<JsonElement>(frame.Data);
             Assert.AreEqual("agentSpawned", data.GetProperty("kind").GetString());
             Assert.IsFalse(String.IsNullOrWhiteSpace(data.GetProperty("agentId").GetString()));
             Assert.AreEqual(1L, data.GetProperty("seq").GetInt64());
+            Assert.AreEqual(streamedSeq, data.GetProperty("seq").GetInt64(),
+                "the id's sequence and the payload's have to be the same number");
 
             // The counters are on EVERY event, which is what lets a subscriber render live cost
             // without polling. Their absence would make the feed a notification and not a monitor.
@@ -473,6 +496,8 @@ namespace NoSQL.GraphDB.Tests
             using var factory = new AgentHostFactory();
             using var client = factory.CreateClient();
 
+            using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
             using var stream = await client.GetAsync("/agent/feed?kinds=agentFailed",
                 HttpCompletionOption.ResponseHeadersRead);
             using var reader = new System.IO.StreamReader(await stream.Content.ReadAsStreamAsync());
@@ -485,10 +510,10 @@ namespace NoSQL.GraphDB.Tests
 
             // The spawn and the state change are filtered out; the agent then fails, because its
             // chat target is a closed port, and THAT is the event this subscriber asked for.
-            var frame = await ReadFrame(reader);
+            var frame = await ReadFrame(reader, budget.Token);
 
-            StringAssert.Contains(frame, "event: agentFailed");
-            StringAssert.Contains(frame, id);
+            Assert.AreEqual("agentFailed", frame.Event);
+            StringAssert.Contains(frame.Data, id);
         }
 
         [TestMethod]
@@ -503,7 +528,26 @@ namespace NoSQL.GraphDB.Tests
                 HttpCompletionOption.ResponseHeadersRead);
             using var reader = new System.IO.StreamReader(await stream.Content.ReadAsStreamAsync());
 
-            var line = await reader.ReadLineAsync();
+            // Bounded, and this is the read where it matters most: this test is the ONLY gate on
+            // the keep-alive write, and it had no bound at all. Removing that write left the read
+            // waiting on a stream that by design sends nothing, which wedged the whole suite for
+            // more than 450 seconds instead of failing this test. Generous against a 1 second
+            // keep-alive so a loaded machine cannot flake it, and still an outcome rather than a
+            // hang.
+            using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            String line;
+            try
+            {
+                line = await reader.ReadLineAsync(budget.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Assert.Fail("an idle feed sent nothing for 30 seconds against a keep-alive of 1, "
+                    + "so a proxy in between would have closed the connection");
+                throw;
+            }
+
             StringAssert.StartsWith(line, ":", "an idle feed sent something that was not a comment: " + line);
         }
 
@@ -538,43 +582,62 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        ///   Reads one SSE frame, skipping keep-alive comments. Bounded by the reader's own timeout
-        ///   rather than looping forever: a test that hung waiting for an event that never came
-        ///   would be worse than one that failed.
+        ///   Reads one SSE frame, skipping keep-alive comments, and returns its PARTS so a caller
+        ///   asserts on the id and the event name rather than on a substring of the whole frame.
+        ///
+        ///   <para>
+        ///     <b>Bounded by the caller's token, which is the only thing that bounds it.</b> This
+        ///     compared <c>DateTimeOffset.UtcNow</c> to a deadline around a tokenless
+        ///     <c>ReadLineAsync</c>, and such a loop cannot reach its own check, because the read
+        ///     does not return. Nor does <c>HttpClient.Timeout</c> cover it: measured with the
+        ///     timeout at five seconds and <c>ResponseHeadersRead</c>, a content read on a stream
+        ///     sending nothing had not returned after thirty, under TestHost and under a real
+        ///     Kestrel alike, because that timeout covers the headers phase only. So the bound was
+        ///     decorative and a missing event WEDGED the suite rather than failing it, which this
+        ///     repository's flake rule calls the one outcome worse than no test: a hung run cannot
+        ///     even say which test hung.
+        ///   </para>
         /// </summary>
-        private static async Task<String> ReadFrame(System.IO.StreamReader reader)
+        private static async Task<(String Id, String Event, String Data)> ReadFrame(
+            System.IO.StreamReader reader, CancellationToken cancellation)
         {
-            var frame = new StringBuilder();
-            var deadline = DateTimeOffset.UtcNow.AddSeconds(30);
+            String id = null, name = null;
 
-            while (DateTimeOffset.UtcNow < deadline)
+            while (true)
             {
-                var line = await reader.ReadLineAsync();
+                String line;
+                try
+                {
+                    line = await reader.ReadLineAsync(cancellation);
+                }
+                catch (OperationCanceledException)
+                {
+                    Assert.Fail("no SSE frame arrived within the test's budget; saw id="
+                        + (id ?? "<none>") + " event=" + (name ?? "<none>"));
+                    throw;
+                }
+
                 if (line == null)
                 {
-                    break;
+                    Assert.Fail("the SSE stream ended before a frame arrived; saw id="
+                        + (id ?? "<none>") + " event=" + (name ?? "<none>"));
                 }
 
-                if (line.StartsWith(':'))
+                if (line.StartsWith("id: ", StringComparison.Ordinal))
                 {
-                    continue; // keep-alive
+                    id = line.Substring(4);
                 }
-
-                if (line.Length == 0)
+                else if (line.StartsWith("event: ", StringComparison.Ordinal))
                 {
-                    if (frame.Length > 0)
-                    {
-                        return frame.ToString();
-                    }
-
-                    continue;
+                    name = line.Substring(7);
+                }
+                else if (line.StartsWith("data: ", StringComparison.Ordinal))
+                {
+                    return (id, name, line.Substring(6));
                 }
 
-                frame.Append(line).Append('\n');
+                // Keep-alive comments (": keepalive") and the blank separator fall through.
             }
-
-            Assert.Fail("no SSE frame arrived within 30 seconds; got: " + frame);
-            return String.Empty;
         }
 
         #endregion

@@ -571,7 +571,8 @@ namespace NoSQL.GraphDB.App
                 builder.Configuration.GetSection(Fallen8ChatOptions.SectionName));
             builder.Services.AddSingleton<IChatBackend>(sp =>
                 ChatBackendFactory.Create(sp.GetRequiredService<IOptions<Fallen8ChatOptions>>().Value,
-                    sp.GetRequiredService<ILoggerFactory>()));
+                    sp.GetRequiredService<ILoggerFactory>(),
+                    sp.GetRequiredService<IConfiguration>()));
             builder.Services.AddSingleton(sp => new Fallen8ChatProvider(
                 sp.GetRequiredService<IOptions<Fallen8ChatOptions>>(),
                 new Lazy<IChatBackend>(() => sp.GetRequiredService<IChatBackend>())));
@@ -855,7 +856,8 @@ namespace NoSQL.GraphDB.App
                 // A name this app does not have is reported by Validate, not inferred from a null
                 // resolution: a null now also means a supported backend that speaks no protocol the
                 // residency probe can ask, so inferring would warn about a working deployment.
-                var chatProblem = NoSQL.GraphDB.App.Chat.ChatBackendFactory.Validate(chatOptions);
+                var chatProblem = NoSQL.GraphDB.App.Chat.ChatBackendFactory.Validate(chatOptions,
+                    configuration: app.Configuration);
                 if (chatProblem != null)
                 {
                     startupLogger.LogWarning(

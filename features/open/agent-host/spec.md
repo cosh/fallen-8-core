@@ -277,9 +277,19 @@ Rules, each with its reason:
 - **`Model` is renamed to `Models:Assist`, with no alias** (operator decision, 2026-09-09). Two
   spellings for one setting is the duplication this repository refuses, and the fine-tune itself
   was renamed the same way. An instance still carrying the old key fails closed with a message
-  naming the new one, exactly as an incomplete block always has; the one-time sweep the rename
-  costs is listed in section 7. The compose variables an operator sets (`F8_NAHIL_CHAT_MODEL` and
-  its siblings) keep their names; only the instance keys they map to change.
+  naming the new one; the one-time sweep the rename costs is listed in section 7. The compose
+  variables an operator sets (`F8_NAHIL_CHAT_MODEL` and its siblings) keep their names; only the
+  instance keys they map to change.
+  - **That fail-closed took code, and the first version of this bullet claimed it for free**
+    (review finding, fixed). It said the stale key fails closed "exactly as an incomplete block
+    always has", and nothing did it: configuration binding ignores a key no property claims,
+    silently, so on Ollama and Nahil, whose `Models:Assist` carries a default, the operator's
+    model was REPLACED by a stock one on every request with nothing said. A fine-tuned assist
+    model swapped for the sidecar's default is the worst shape a configuration fault can take,
+    because the instance keeps answering. `ChatBackendFactory.StaleModelKey` now reads the RAW
+    configuration, which is the only way to see a key that binds to nothing, and refuses the
+    SELECTED backend's block by name through the same `Validate` the boot warning and the 503
+    share. A stale key in a block nobody selected refuses the day it is selected.
 - **Tools are mapped per backend with the SDK's native types**, for the reason the backends are
   native today: they forward generation stats the generic abstraction does not expose. If mapping
   four ways proves heavier than expected, the implementer may compose the generic clients from

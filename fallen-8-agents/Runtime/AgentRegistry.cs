@@ -172,12 +172,19 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 };
 
                 _agents[id] = agent;
+
+                // INSIDE the lock, and the reason it was outside does not hold: the claim was that
+                // publishing releases a reader's continuations onto this thread, but the dispatcher
+                // creates every subscriber channel with AllowSynchronousContinuations false
+                // precisely so that cannot happen, and says so. Nothing in a publish waits.
+                //
+                // What being outside DID allow is the thing the doc above promises against: the
+                // record is reachable the moment it is in the dictionary, so a shutdown cancelling
+                // everything could record an ending before the spawn was journaled, and "the first
+                // step of every trace" became whichever of the two won.
+                _journal.Spawned(agent, agent.State);
             }
 
-            // Outside the lock: publishing an event releases a reader's continuations, and running
-            // those under this lock would put a subscriber's work on the admitting request's thread
-            // while every other registry operation waited behind it.
-            _journal.Spawned(agent);
             return true;
         }
 
@@ -269,7 +276,6 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     "An ending is recorded with Finish, which releases the agent's slot.", nameof(state));
             }
 
-            AgentRecord? moved;
             lock (_gate)
             {
                 if (!_agents.TryGetValue(id, out var agent) || AgentStates.IsTerminal(agent.State))
@@ -286,10 +292,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
                 agent.State = state;
                 agent.LastActivityUtc = _clock.GetUtcNow();
-                moved = agent;
+
+                // Under the lock, with the state that was set passed explicitly. Journaling after
+                // the release let an ending land in between, which put a live transition's step
+                // AFTER the ending and, because the journal re-read the record, made that step
+                // report the terminal state: a completed run whose trace said it changed to
+                // completed twice.
+                _journal.StateChanged(agent, state);
             }
 
-            _journal.StateChanged(moved);
             return true;
         }
 
@@ -330,18 +341,19 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 agent.FinishedUtc = now;
                 agent.LastActivityUtc = now;
                 finished = agent;
-            }
 
-            // Journaled BEFORE the token is cancelled, so the ending is recorded before the
-            // cancellation releases anything waiting on it. In the ordinary case that makes it the
-            // last step of the run.
-            //
-            // It is NOT a guarantee, and the honest version is worth stating: a model call already
-            // in flight when a cancel arrives records its own step when it returns, which lands
-            // after the ending. Preventing that would mean holding this lock across an inference
-            // call. So a trace can carry one step past its ending, and a reader comparing the last
-            // step's kind against the state should expect it.
-            _journal.Finished(finished, citations);
+                // Journaled under the lock and BEFORE the token is cancelled, so no other
+                // transition can interleave and the ending is on the record before the
+                // cancellation releases anything waiting on it.
+                //
+                // Still NOT a guarantee that it is the last step, and the honest version is worth
+                // stating: a model call already in flight when a cancel arrives records its own
+                // step when it returns, which lands after the ending. Preventing that would mean
+                // holding this lock across an inference call. So a trace can carry one step past
+                // its ending, and a reader comparing the last step's kind against the state should
+                // expect it.
+                _journal.Finished(agent, citations);
+            }
 
             // Outside the lock: cancelling the token runs continuations, and one of those is the
             // runner's own finally, which calls back in here.
@@ -481,13 +493,40 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 doomed.AddRange(finished.Except(doomed).Take(surviving - limits.MaxRetainedAgents));
             }
 
+            if (doomed.Count == 0)
+            {
+                return;
+            }
+
+            var gone = new HashSet<String>(StringComparer.Ordinal);
             foreach (var agent in doomed)
             {
                 // Removed, not disposed: a run recording its own ending still holds this record and
-                // reads its token. The token source is small, the record is now unreachable, and
-                // the collector takes both; an ObjectDisposedException out of a property getter is
-                // the worse trade.
+                // reads its token. The token source is small and an ObjectDisposedException out of
+                // a property getter is the worse trade, so the collector takes it.
                 _agents.Remove(agent.Id);
+                gone.Add(agent.Id);
+
+                // Its own parent LINK goes, which is what makes "the collector takes it" true. A
+                // chain of records held each other by reference, so evicting a worker while its
+                // orchestrator was still reachable kept the orchestrator's whole trace alive
+                // through it, and the grandparent's through that: megabytes of bounded buffers and
+                // an undisposed token source per link, retained by a record already removed from
+                // the listing. The comment above claimed the opposite.
+                agent.Parent = null;
+            }
+
+            foreach (var survivor in _agents.Values)
+            {
+                if (survivor.Parent != null && gone.Contains(survivor.Parent.Id))
+                {
+                    // The other direction: a LIVE child outliving its orchestrator. Nothing is
+                    // lost by dropping the link, because the spawn step it exists to write goes on
+                    // a trace no route can reach once the parent is off the listing, so writing it
+                    // retained the parent for a reader that gets a 404. ParentId stays, so the
+                    // lineage a summary reports is unchanged.
+                    survivor.Parent = null;
+                }
             }
         }
 
@@ -588,10 +627,22 @@ namespace NoSQL.GraphDB.Agents.Runtime
             get;
         }
 
-        /// <summary>The agent that spawned this one, for the spawn step that belongs on ITS trace.
-        /// Null for anything a caller spawned. Holds a reference rather than looking the id up
-        /// again, because the parent may be evicted while this agent is still running and a spawn
-        /// step is worth keeping either way.</summary>
+        /// <summary>
+        ///   The agent that spawned this one, for the spawn step that belongs on ITS trace. Null for
+        ///   anything a caller spawned, and null again once the parent is evicted.
+        ///
+        ///   <para>
+        ///     A reference rather than an id looked up on demand, because the spawn step is written
+        ///     once and the lookup would be a second chance to get the lifetime wrong. But the
+        ///     reference is CLEARED on eviction, in both directions, which it was not: a record
+        ///     held its parent, which held its own, so one retained record kept a whole ancestry of
+        ///     bounded traces and undisposed token sources alive after the listing had forgotten
+        ///     them. The justification for keeping it, that a spawn step is worth writing to an
+        ///     evicted parent anyway, was wrong on its own terms, because no route can read that
+        ///     parent's trace. <see cref="AgentRecord.ParentId" /> is what survives, and it is what
+        ///     a summary reports.
+        ///   </para>
+        /// </summary>
         public AgentRecord? Parent
         {
             get; internal set;

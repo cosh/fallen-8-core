@@ -35,6 +35,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Chat;
+using Microsoft.Extensions.Configuration;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
@@ -69,11 +70,17 @@ namespace NoSQL.GraphDB.App.Controllers
         /// backend factory the way the residency probe does, and the provider exposes no
         /// Ollama-protocol-independent target to resolve it from.</summary>
         private readonly Fallen8ChatOptions _options;
+        private readonly IConfiguration _configuration;
 
-        public ChatController(Fallen8ChatProvider provider, IOptions<Fallen8ChatOptions> options)
+        public ChatController(Fallen8ChatProvider provider, IOptions<Fallen8ChatOptions> options,
+            IConfiguration configuration)
         {
             _provider = provider;
             _options = options.Value;
+
+            // The raw configuration, for the one fault the bound options cannot show: a block still
+            // carrying the model key the rename replaced. See ChatBackendFactory.StaleModelKey.
+            _configuration = configuration;
         }
 
         /// <summary>Maps chat provider faults to problem+json: timeout → 504, backend down → 503,
@@ -239,7 +246,7 @@ namespace NoSQL.GraphDB.App.Controllers
         public async Task<IActionResult> ChatModels(CancellationToken cancellationToken)
         {
             // The same reason the boot warning and the chat 503 give, from the same one home.
-            if (ChatBackendFactory.Validate(_options) is { } problem)
+            if (ChatBackendFactory.Validate(_options, configuration: _configuration) is { } problem)
             {
                 return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
                     "Chat provider unavailable", problem);

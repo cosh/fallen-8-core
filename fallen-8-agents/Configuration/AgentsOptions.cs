@@ -98,9 +98,16 @@ namespace NoSQL.GraphDB.Agents.Configuration
         /// </summary>
         public sealed class TraceOptions
         {
-            /// <summary>Steps one agent's trace holds. Past this the OLDEST are dropped and a marker
-            /// step records how many went, so a reader can tell a short run from a truncated one.
-            /// A non-positive value switches the bound off.</summary>
+            /// <summary>
+            ///   ROWS one agent's trace holds. Past this the oldest steps are dropped and a marker
+            ///   row records how many went, so a reader can tell a short run from a truncated one.
+            ///   <para>
+            ///     Rows rather than steps, because the marker is one of them: a trace that has
+            ///     dropped anything holds this many minus one real steps. A positive value below 2
+            ///     is floored at 2, since a single row could hold either a step or the news that
+            ///     steps were lost. A non-positive value switches the bound off.
+            ///   </para>
+            /// </summary>
             public Int32 MaxSteps { get; set; } = 1000;
 
             /// <summary>Bytes of a tool call's ARGUMENTS kept. Small, because arguments are a model's

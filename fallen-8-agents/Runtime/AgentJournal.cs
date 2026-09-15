@@ -70,10 +70,19 @@ namespace NoSQL.GraphDB.Agents.Runtime
         /// <summary>The trace bound every new agent's buffer is built with.</summary>
         public Int32 MaxSteps => _options.Value.Trace.MaxSteps;
 
-        /// <summary>An agent was admitted. The first step of every trace, and it carries the host
-        /// instance, because nothing here survives a restart and a reader comparing two traces has
-        /// to be able to tell.</summary>
-        public void Spawned(AgentRecord agent)
+        /// <summary>
+        ///   An agent was admitted. The first step of every trace, and it carries the host instance,
+        ///   because nothing here survives a restart and a reader comparing two traces has to be
+        ///   able to tell.
+        /// </summary>
+        /// <param name="agent">The agent that was admitted.</param>
+        /// <param name="state">
+        ///   The state the caller SET, passed in rather than read off the record here. The record is
+        ///   shared, so re-reading it reports whatever it holds at this instant instead of the
+        ///   transition being journaled: a cancel landing in that window made a spawn step carry
+        ///   <c>cancelled</c>, which reads as an agent that was never alive.
+        /// </param>
+        public void Spawned(AgentRecord agent, AgentState state)
         {
             Guard(agent);
             var at = _clock.GetUtcNow();
@@ -81,11 +90,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
             agent.Trace.Record(new TraceStep
             {
                 Kind = TraceStepKinds.Wire(TraceStepKind.Spawn),
-                State = AgentStates.Wire(agent.State),
+                State = AgentStates.Wire(state),
                 HostInstanceId = agent.HostInstanceId,
             }, at);
 
-            _feed.Publish(Basic(agent, AgentEventKind.AgentSpawned), at);
+            _feed.Publish(Basic(agent, AgentEventKind.AgentSpawned, state), at);
 
             // On the PARENT's trace as well, because "this agent spawned that one" is a fact about
             // the parent's run and is what makes a swarm readable from the orchestrator's trace.
@@ -97,20 +106,28 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>The agent moved to a live state.</summary>
-        public void StateChanged(AgentRecord agent)
+        /// <param name="agent">The agent that moved.</param>
+        /// <param name="state">
+        ///   The state the caller SET. See <see cref="Spawned" /> for why this is a parameter rather
+        ///   than a read of <see cref="AgentRecord.State" />; here the same window made a live
+        ///   transition record the TERMINAL state instead, so a completed run's trace carried a
+        ///   second "changed to completed" step that no transition produced.
+        /// </param>
+        public void StateChanged(AgentRecord agent, AgentState state)
         {
             Guard(agent);
             var at = _clock.GetUtcNow();
+            var budget = state == AgentState.BudgetExceeded ? AgentStates.Wire(agent.Budget) : null;
 
             agent.Trace.Record(new TraceStep
             {
                 Kind = TraceStepKinds.Wire(TraceStepKind.StateChanged),
-                State = AgentStates.Wire(agent.State),
-                Budget = agent.State == AgentState.BudgetExceeded ? AgentStates.Wire(agent.Budget) : null,
+                State = AgentStates.Wire(state),
+                Budget = budget,
             }, at);
 
-            var moved = Basic(agent, AgentEventKind.AgentStateChanged);
-            moved.Budget = agent.State == AgentState.BudgetExceeded ? AgentStates.Wire(agent.Budget) : null;
+            var moved = Basic(agent, AgentEventKind.AgentStateChanged, state);
+            moved.Budget = budget;
             _feed.Publish(moved, at);
         }
 
@@ -118,20 +135,20 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   The agent reached an ending. One state change, then the ending's own event, because a
         ///   subscriber filtering on <c>agentCompleted</c> should not have to also watch state
         ///   changes to learn a run finished.
+        ///
+        ///   <para>
+        ///     The citation check is recorded BEFORE the ending step, which is the order it
+        ///     happened in: it is a statement about the final text, and the final text exists
+        ///     before the run is marked ended. Recording it after made the ending the second to
+        ///     last step of EVERY checked run, so the registry's claim that the ending is ordinarily
+        ///     the last step was false in the ordinary case rather than the exceptional one.
+        ///   </para>
         /// </summary>
         public void Finished(AgentRecord agent, CitationCounts? citations)
         {
             Guard(agent);
             var at = _clock.GetUtcNow();
             var caps = _options.Value.Trace;
-
-            agent.Trace.Record(new TraceStep
-            {
-                Kind = TraceStepKinds.Wire(TraceStepKind.StateChanged),
-                State = AgentStates.Wire(agent.State),
-                Budget = agent.State == AgentState.BudgetExceeded ? AgentStates.Wire(agent.Budget) : null,
-                DurationMs = (Int64)((agent.FinishedUtc ?? at) - agent.CreatedUtc).TotalMilliseconds,
-            }, at);
 
             if (citations != null)
             {
@@ -143,8 +160,18 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 }, at);
             }
 
+            // The ending LAST, so a reader taking the tail of a trace sees how the run ended there.
+            agent.Trace.Record(new TraceStep
+            {
+                Kind = TraceStepKinds.Wire(TraceStepKind.StateChanged),
+                State = AgentStates.Wire(agent.State),
+                Budget = agent.State == AgentState.BudgetExceeded ? AgentStates.Wire(agent.Budget) : null,
+                DurationMs = (Int64)((agent.FinishedUtc ?? at) - agent.CreatedUtc).TotalMilliseconds,
+            }, at);
+
             var ended = Basic(agent,
-                agent.State == AgentState.Completed ? AgentEventKind.AgentCompleted : AgentEventKind.AgentFailed);
+                agent.State == AgentState.Completed ? AgentEventKind.AgentCompleted : AgentEventKind.AgentFailed,
+                agent.State);
             ended.Budget = agent.State == AgentState.BudgetExceeded ? AgentStates.Wire(agent.Budget) : null;
             ended.Failure = agent.Failure;
             ended.Citations = citations;
@@ -214,7 +241,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 DurationMs = durationMs,
             }, at);
 
-            var called = Basic(agent, AgentEventKind.ToolCalled);
+            var called = Basic(agent, AgentEventKind.ToolCalled, agent.State);
             called.ToolCallId = toolCallId;
             called.Tool = tool;
             called.Arguments = cappedArgs;
@@ -247,7 +274,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 Truncated = cut ? true : null,
             }, at);
 
-            var message = Basic(agent, AgentEventKind.AgentMessage);
+            var message = Basic(agent, AgentEventKind.AgentMessage, agent.State);
             message.Direction = direction;
             message.MessageId = messageId;
             message.InReplyTo = inReplyTo;
@@ -261,7 +288,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   than only the ending, so a subscriber can render live cost without polling, which is
         ///   the reason the feed exists at all rather than a listing being enough.
         /// </summary>
-        private static AgentEvent Basic(AgentRecord agent, AgentEventKind kind)
+        /// <param name="agent">The agent the event is about.</param>
+        /// <param name="kind">The event kind, which decides which further fields a caller sets.</param>
+        /// <param name="state">
+        ///   The state to stamp. A parameter rather than a read of the record, because for a
+        ///   transition the event is ABOUT the state being set, and the record may already hold a
+        ///   later one. A caller reporting something that merely happened while the agent was in
+        ///   some state passes <c>agent.State</c>, which is the right answer for it.
+        /// </param>
+        private static AgentEvent Basic(AgentRecord agent, AgentEventKind kind, AgentState state)
         {
             var input = Interlocked.Read(ref agent.InputTokens);
             var output = Interlocked.Read(ref agent.OutputTokens);
@@ -273,7 +308,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 ParentId = agent.ParentId,
                 Role = agent.Role,
                 Name = agent.Name,
-                State = AgentStates.Wire(agent.State),
+                State = AgentStates.Wire(state),
                 Tokens = new EventCounters
                 {
                     Input = input,

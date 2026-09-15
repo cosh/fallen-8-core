@@ -67,10 +67,21 @@ namespace NoSQL.GraphDB.Tests
                 Assert.IsTrue(catalog.TryGet(name, out var role, out _), name + " is a shipped role");
                 var prompt = role.Prompt.ToLowerInvariant();
 
-                Assert.IsTrue(prompt.Contains("tool"),
-                    name + ": the prompt must say tools exist and are how data is obtained");
-                Assert.IsTrue(prompt.Contains("calling") || prompt.Contains("call"),
-                    name + ": the prompt must say a question needing data is answered by CALLING one");
+                // Property 1 was pinned by prompt.Contains("tool") and Contains("call"), which
+                // both hold from the citation paragraph alone: measured, deleting the ENTIRE
+                // "You have tools" paragraph from all three prompts left this test green, so the
+                // one property Phase 0 measured as deciding whether a tool call parses at all was
+                // covered by nothing. What is asserted now is the paragraph's three claims, in the
+                // words that carry them. A reword has to keep the claim, which is the intent.
+                Assert.IsTrue(role.Prompt.Contains("the only way you", StringComparison.Ordinal),
+                    name + ": the prompt must say tools are the ONLY way it learns anything, not "
+                    + "merely that tools exist");
+                Assert.IsTrue(role.Prompt.Contains("by CALLING a", StringComparison.Ordinal),
+                    name + ": the prompt must say a question needing data is answered by CALLING "
+                    + "one, in those terms: a bare imperative produced a fabricated result");
+                Assert.IsTrue(role.Prompt.Contains("one tool at a time", StringComparison.Ordinal),
+                    name + ": the prompt must say to call one tool and read its result before "
+                    + "deciding the next, or a model fans out and reasons over nothing");
                 Assert.IsTrue(prompt.Contains("never invent"),
                     name + ": the prompt must forbid inventing a tool's result");
                 Assert.IsTrue(role.Prompt.Contains("[t:<name>]", StringComparison.Ordinal),
@@ -536,6 +547,61 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void EvictionBreaksTheParentLinkSoAnEvictedAncestorIsNotRetainedByItsDescendants()
+        {
+            // A record held its parent by reference and nothing ever cleared it, so eviction
+            // removed a record from the listing while a descendant kept it, its bounded trace and
+            // its undisposed token source alive, transitively up the whole ancestry. Evict's own
+            // comment claimed the record was unreachable and the collector took it; it was not, and
+            // a long-lived orchestrator made that a growing leak with nothing in the listing to
+            // show for it.
+            var clock = new StepClock(DateTimeOffset.Parse("2026-09-10T06:00:00Z"));
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.RetainFinishedMinutes = 10;
+            options.Limits.MaxRetainedAgents = 0;
+
+            using var harness = new Harness(Script.Says("ok"), options: options, clock: clock);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "orchestrate"),
+                out var grand, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("assistant", "middle") { ParentId = grand.Id }, out var middle, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("assistant", "leaf") { ParentId = middle.Id }, out var leaf, out _));
+
+            Assert.AreSame(grand, middle.Parent, "this test needs the chain it is about");
+            Assert.AreSame(middle, leaf.Parent);
+
+            // The two ancestors end; the leaf keeps working, which is the case that matters. An
+            // orchestrator completing does not cancel a worker, so this is reachable in an ordinary
+            // run rather than only at shutdown.
+            clock.Advance(TimeSpan.FromSeconds(1));
+            Assert.IsTrue(harness.Registry.Finish(grand.Id, AgentState.Completed, resultText: "done"));
+            clock.Advance(TimeSpan.FromSeconds(1));
+            Assert.IsTrue(harness.Registry.Finish(middle.Id, AgentState.Completed, resultText: "done"));
+
+            clock.Advance(TimeSpan.FromMinutes(11));
+
+            // Any read evicts, which is this registry's contract rather than a timer.
+            Assert.AreEqual(1, harness.Registry.All().Count, "both finished ancestors are past retention");
+            Assert.IsFalse(harness.Registry.TryGet(grand.Id, out _));
+            Assert.IsFalse(harness.Registry.TryGet(middle.Id, out _));
+
+            Assert.IsNull(leaf.Parent,
+                "the live leaf still holds its evicted parent, so that parent's whole trace and "
+                + "token source are retained by a record the listing has forgotten");
+            Assert.IsNull(middle.Parent,
+                "an evicted record still holds ITS parent, so one retained descendant keeps the "
+                + "entire ancestry alive through the chain");
+
+            // The lineage a client reads is unchanged: only the object reference goes.
+            Assert.AreEqual(middle.Id, leaf.ParentId);
+            Assert.AreEqual(grand.Id, middle.ParentId);
+            Assert.AreEqual(AgentState.Pending, leaf.State, "the live agent was not disturbed");
+        }
+
+        [TestMethod]
         public void EveryAgentCarriesTheHostInstanceThatRanItSoAnEmptyListIsNotMistakenForNothingEverRan()
         {
             using var harness = new Harness(Script.Says("ok"));
@@ -690,6 +756,121 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(catalog.TryGet("worker", out var worker, out _));
             Assert.AreEqual(2, worker.Filter(new List<AITool> { Tool("a"), Tool("b") }).Count,
                 "a blank entry is not a tool name, so the list is empty and empty means all");
+        }
+
+        [TestMethod]
+        public async Task TheCitationCountReachesTheTraceAndTheEndingEvent()
+        {
+            // Phase 2's headline, and it was delivered by code that no test executed: every
+            // citation test called GroundingCheck.Count directly, so the counts reaching a trace
+            // step and an ending event ran nowhere. Deleting the journal's whole citation block
+            // left the suite green.
+            var tool = AIFunctionFactory.Create(() => "8",
+                new AIFunctionFactoryOptions { Name = "count_vertices", Description = "Counts vertices." });
+
+            using var harness = new Harness(
+                Script.Calls("c1", "count_vertices")
+                    .Then("There are 8 [t:count_vertices], and none deleted [t:delete_all]."),
+                tools: new List<AITool> { tool });
+
+            Assert.IsTrue(harness.Feed.TrySubscribe(AgentFeedFilter.All, out var subscription, out _));
+            using (subscription)
+            {
+                Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "count"),
+                    out var agent, out _));
+                await harness.Run(agent);
+
+                Assert.AreEqual(AgentState.Completed, agent.State);
+
+                var steps = agent.Trace.Steps();
+                var check = steps.SingleOrDefault(s => s.Kind == "citationCheck");
+                Assert.IsNotNull(check, "the citation check never reached the trace");
+                Assert.AreEqual(1, check.ValidCitations,
+                    "count_vertices was called, so citing it is grounded");
+                Assert.AreEqual(1, check.DanglingCitations,
+                    "delete_all was never called, so citing it dangles");
+
+                // The ENDING is last, and the check is the step before it. Recording the check
+                // afterwards made the tail of every checked run [stateChanged, citationCheck], so
+                // the registry's claim that the ending is ordinarily the last step was false in
+                // the ordinary case rather than the exceptional one.
+                Assert.AreEqual("stateChanged", steps[^1].Kind,
+                    "the last step of a completed run is how it ended");
+                Assert.AreEqual("completed", steps[^1].State);
+                Assert.AreEqual("citationCheck", steps[^2].Kind,
+                    "the check is a statement about the final text, so it belongs before the ending");
+
+                // And on the wire, where a subscriber reads it without fetching the trace.
+                using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                AgentEvent ended = null;
+                while (ended == null)
+                {
+                    var next = await subscription.ReadAsync(budget.Token);
+                    Assert.IsNotNull(next, "the feed ended before the completion arrived");
+                    if (next.Kind == "agentCompleted")
+                    {
+                        ended = next;
+                    }
+                }
+
+                Assert.IsNotNull(ended.Citations, "the ending event carried no citation counts");
+                Assert.AreEqual(1, ended.Citations.Valid);
+                Assert.AreEqual(1, ended.Citations.Dangling);
+            }
+        }
+
+        [TestMethod]
+        public async Task ACancelledRunCarriesNoCitationCountsRatherThanZeroOfEach()
+        {
+            // The distinction the registry's doc promises and nothing checked: none is NOT zero.
+            // Reporting zero valid and zero dangling on a run that was never checked is the same
+            // shape as an answer that cited nothing, which is the fabrication shape.
+            using var harness = new Harness(Script.Waits(TimeSpan.FromSeconds(30)));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "wait"),
+                out var agent, out _));
+
+            var running = harness.Run(agent);
+            Assert.IsTrue(harness.Registry.TryCancel(agent.Id, out _));
+            await running;
+
+            Assert.AreEqual(AgentState.Cancelled, agent.State);
+            Assert.IsFalse(agent.Trace.Steps().Any(s => s.Kind == "citationCheck"),
+                "a cancelled run was given a citation check it never had");
+        }
+
+        [TestMethod]
+        public void AJournaledTransitionCarriesTheStateItWasGivenNotWhateverTheRecordHolds()
+        {
+            // The record is shared, and the journal used to read the state back off it. So an
+            // ending landing between setting a state and journaling it made the step report the
+            // TERMINAL state: a live transition that said "changed to completed", and a spawn step
+            // that said "cancelled" on an agent that had been alive. The registry now journals
+            // under its own lock, which closes the window; this pins the other half, that the
+            // journal records what it was TOLD, so the two cannot drift apart again.
+            using var harness = new Harness(Script.Says("done"));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "count"),
+                out var agent, out _));
+
+            // The record is put in its TERMINAL state first, standing in for the ending the racing
+            // thread records. The journal is then told about a live transition, which is what a
+            // thread already past the registry's lock would do.
+            Assert.IsTrue(harness.Registry.Finish(agent.Id, AgentState.Completed, resultText: "done"));
+            Assert.AreEqual(AgentState.Completed, agent.State);
+
+            harness.Journal.StateChanged(agent, AgentState.Running);
+            harness.Journal.Spawned(agent, AgentState.Pending);
+
+            var steps = agent.Trace.Steps();
+            var moved = steps.Last(s => s.Kind == "stateChanged");
+            var spawn = steps.Last(s => s.Kind == "spawn");
+
+            Assert.AreEqual("running", moved.State,
+                "the step reported the record's state rather than the transition being journaled");
+            Assert.AreEqual("pending", spawn.State,
+                "the spawn step reported the record's state, so an agent that had been alive read "
+                + "as one that never was");
         }
 
         private static AgentsOptions.RoleOptions Allow(params String[] tools)

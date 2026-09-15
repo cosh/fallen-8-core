@@ -306,9 +306,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
     ///     One row, updated in place, is the shape the doc always claimed.
     ///   </para>
     ///   <para>
-    ///     <b>A marker is not a step.</b> It takes no sequence number and is not counted as
-    ///     recorded or dropped, so <see cref="Recorded" /> and <see cref="Dropped" /> are counts of
-    ///     an agent's real work rather than of this class's own bookkeeping.
+    ///     <b>A marker is not a step.</b> It is not counted as recorded or dropped, so
+    ///     <see cref="Recorded" /> and <see cref="Dropped" /> are counts of an agent's real work
+    ///     rather than of this class's own bookkeeping. It does CARRY a sequence number, but a
+    ///     borrowed one: the sequence of the last step it reports on, so that it and the step after
+    ///     it read as consecutive. It consumes none of its own.
     ///   </para>
     ///   <para>
     ///     Lives ON the agent record, so it is evicted exactly when the agent is and there is no
@@ -338,9 +340,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
         private Int64 _dropped;
         private TraceStep? _marker;
 
+        /// <param name="maxSteps">
+        ///   The rows the whole view may hold, marker included. A positive value below 2 is floored
+        ///   at 2: once anything has been dropped the marker occupies one row, so a bound of 1 could
+        ///   hold either a step or the news that steps were lost, and silently keeping both would
+        ///   double the bound an operator configured. Zero or less is unbounded.
+        /// </param>
         public AgentTrace(Int32 maxSteps)
         {
-            _maxSteps = maxSteps;
+            _maxSteps = maxSteps > 0 ? Math.Max(2, maxSteps) : maxSteps;
         }
 
         /// <summary>How many steps have EVER been recorded, including dropped ones. The
@@ -375,12 +383,18 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     _toolsCalled.Add(step.Tool);
                 }
 
-                // The marker occupies one of the configured rows once anything has been dropped, so
-                // the whole view stays inside MaxSteps rather than the buffer alone doing so.
-                var room = _marker == null ? _maxSteps : _maxSteps - 1;
-                if (_maxSteps > 0 && _steps.Count > room)
+                // Measured against the ROWS a reader would get, marker included, rather than against
+                // the buffer alone. Comparing the buffer to a bound that the marker also counts
+                // against is what let the first overflow return MaxSteps + 1 rows: the marker's row
+                // was reserved only on rounds where a marker already existed, so the round that
+                // created it dropped one step and then added a row.
+                var rows = _steps.Count + (_marker == null ? 0 : 1);
+                if (_maxSteps > 0 && rows > _maxSteps)
                 {
-                    while (_steps.Count > Math.Max(1, room))
+                    // One row is the marker's from the moment it exists, and the constructor floors
+                    // the bound at 2, so there is always room for at least one real step.
+                    var room = _maxSteps - 1;
+                    while (_steps.Count > room)
                     {
                         _steps.Dequeue();
                         _dropped++;
@@ -397,8 +411,9 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     _marker.DroppedSteps = _dropped;
 
                     // The sequence of the last step it reports on, so the marker and the step after
-                    // it read as consecutive: "this many went, and the record resumes here".
-                    _marker.Seq = _steps.Count > 0 ? _steps.Peek().Seq - 1 : _sequence;
+                    // it read as consecutive: "this many went, and the record resumes here". The
+                    // buffer is never empty here, because room is at least 1.
+                    _marker.Seq = _steps.Peek().Seq - 1;
                 }
 
                 return step;

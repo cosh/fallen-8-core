@@ -195,8 +195,12 @@ itself.
 
 **One defect in the fix, found by mutation-checking it.** The new drop test read the stream until it
 ended, which under the old drop mode never happens, so it WEDGED the suite instead of failing it. A
-hung suite is worse than an untested one, because the failure cannot be identified. Every feed read in
-the tests is now bounded and fails with what it had seen.
+hung suite is worse than an untested one, because the failure cannot be identified.
+
+This section claimed in its first version that every feed read in the tests was then bounded. **That
+was false**, and section 10 records what it cost: the three reads in `AgentEndpointTest` were not,
+one of them not even decoratively. The claim was written from the reads that had just been fixed
+rather than from a sweep, which is the same mistake as trusting a stale README.
 
 **The shipped proxy client was executed by no test at all**, which is how three of the findings
 above could exist in it. Every proxy test substituted a fake for `IAgentsClient`, which is right for
@@ -254,10 +258,10 @@ prefixed `Fallen8:`, and the agent host's own sections are `Agents` and `Fallen8
 how `fallen-8-mcp` and `fallen-8-integrations` already work, so it is consistent rather than wrong,
 but it means a typo in one of the host's own option names is caught by nothing.
 
-**What is still unrun.** No adversarial verification pass ran over any of section 8's findings, and
-no independent reader has reviewed the fix commit `53abda96` or the cross-phase coherence questions
-in depth. Worth one more delegated gate before this branch merges, and false claims is the highest
-yield of them: the gates so far have found fifteen.
+**What was still unrun then.** No adversarial verification pass had run over any of section 8's
+findings, and no independent reader had reviewed the fix commit `53abda96` or the cross-phase
+coherence questions. That gate has since run over the whole branch, including this section's own
+fixes; **section 10 is what it found**, and it found nine more, six of them the same class again.
 
 ## 9. Environment traps worth remembering
 
@@ -277,3 +281,109 @@ restoring rather than trusting the script.
 A test that pins a DEADLINE hangs when the deadline is removed, so the mutation check wedges instead
 of failing. Three tests here needed their own bound for that reason. A hung suite is worse than an
 untested one, because the failure cannot be identified; the repo's flake rule says the same thing.
+
+## 10. The delegated gate, and the nine defects it found (fixed)
+
+The gate section 8 said still had to run did run: a panel over the whole branch, 67 readers across
+the dimensions, each candidate finding then handed to sceptics told to REFUTE it. 61 candidates, 44
+of them surviving verification. What follows is every one that changed behaviour or a claim, with
+the measurement that established it. Each fix is mutation-checked: reverting it fails exactly the
+test that names it, and the mutants that proved nothing are noted where they were instructive.
+
+**The trace could exceed its own bound, once, on every trace that ever truncates.** The marker's row
+was reserved only on rounds where a marker ALREADY existed, so the round that CREATED it dropped one
+step and then added a row: a bound of 5 held 6 rows after the sixth step and was correct forever
+after. Every existing bound test overshot by 20 to 500 steps, so all of them measured steady state
+and none the first overflow. The overflow test is now made against the ROWS a reader gets rather
+than the buffer alone, and `MaxSteps` is documented as rows. A bound below 2 is floored at 2 rather
+than silently doubled: `Math.Max(1, room)` had made a configured 1 hold 2 rows permanently, which
+is an operator's setting quietly overridden. Reverting only the condition and leaving the new `room`
+is a mutant that proves nothing, because the two are behaviourally the same; the pre-fix shape has
+to be reconstructed whole.
+
+**A dropped feed subscriber was completed but left in the table**, which is half of dropping it and
+the half that shows. Its channel is full and complete forever, so every later publish re-entered the
+drop branch: measured, one slow reader and eleven further events logged **eleven warnings for one
+drop**, left `SubscriberCount` reporting the stream as open, and held one of
+`Agents:Feed:MaxSubscribers` until the reader disposed, which a reader that has stopped reading is
+precisely the one not about to do. A host would run out of subscriber slots with no stream open. The
+test that "covered" the drop asserted `SubscriberCount == 0` AFTER its `using` block, so it pinned
+`Dispose` while its message described the drop.
+
+**Three SSE reads in the endpoint tests were unbounded, and section 7 of this document claimed
+otherwise.** `ReadFrame` compared `DateTimeOffset.UtcNow` to a deadline around a tokenless
+`ReadLineAsync`, and such a loop cannot reach its own check, because the read does not return. Nor
+does `HttpClient.Timeout` cover it: measured with the timeout at five seconds under
+`ResponseHeadersRead`, a content read on a silent stream had not returned after thirty, under
+TestHost and a real Kestrel alike, because that timeout covers the headers phase only. The
+keep-alive test had no bound at all and is the ONLY gate on the keep-alive write: removing that
+write wedged the suite for over 450 seconds instead of failing. There is no `[Timeout]` in this test
+project and no `--blame-hang-timeout` in CI, so nothing else would have caught it. Every read now
+takes the test's own token, as the change feed's own reader already did; with the fix the keep-alive
+mutant fails in 33 seconds and names itself.
+
+**The frame-shape test did not assert the shape.** It checked that the frame contained `"id: "`.
+Measured: stripping `hostInstanceId` and its separator from the writer left the test GREEN, with a
+live control arm proving the binary had been rebuilt. So the half of the id that makes it useful was
+unpinned, on the one test whose stated purpose is that a change-feed client can read this feed. It
+now splits on the last colon as the change feed's own test does, and asserts the prefix IS this
+host's instance id, read from `GET /agent/status`.
+
+**The citation check, Phase 2's headline, was delivered by code no test executed.** Every citation
+test called `GroundingCheck.Count` directly, so the counts reaching a trace step and an ending event
+ran nowhere: deleting the journal's whole citation block left the suite green. And the check was
+recorded AFTER the ending step, so the tail of every checked run was `[stateChanged, citationCheck]`
+and the registry's claim that the ending is ordinarily the last step was false in the ordinary case
+rather than the exceptional one. The check is a statement about the final text, which exists before
+the run is marked ended, so it is recorded first. The distinction the registry promises, that no
+citation check is NOT zero of each, was also untested; a cancelled run is now pinned.
+
+**The journal read the state back off the shared record.** So an ending landing between setting a
+state and journaling it made the step report the TERMINAL state: a completed run whose trace said it
+changed to completed twice, and a spawn step carrying `cancelled` on an agent that had been alive,
+which also breaks "the spawn is the first step of every trace". Both transitions now pass the state
+they SET, and the registry journals under its own lock, which closes the window. The comment
+justifying journaling outside the lock was itself false: it said publishing releases a reader's
+continuations onto the publishing thread, and the dispatcher creates every subscriber channel with
+`AllowSynchronousContinuations` false precisely so that cannot happen, and says so.
+
+**An evicted agent was retained by its descendants.** `AgentRecord.Parent` was a strong reference
+that nothing cleared, so eviction removed a record from the listing while a descendant kept it, its
+bounded trace and its undisposed token source alive, transitively up the whole ancestry. `Evict`'s
+own comment claimed the record was unreachable and the collector took it. The stated justification
+for keeping the link, that a spawn step is worth writing to an evicted parent anyway, was wrong on
+its own terms: no route can read that parent's trace, so the write retained megabytes for a reader
+who gets a 404. The link is now cleared in both directions on eviction; `ParentId`, which is what a
+summary reports, is untouched.
+
+**The renamed chat-model key did not fail closed, and the spec promised it did.** `Model` became
+`Models:Assist` with no alias, and configuration binding ignores a key no property claims, silently.
+On Ollama and Nahil, whose `Models:Assist` carries a default, an operator who missed one key during
+the rename had their model REPLACED by a stock one on every request and was told nothing: a
+fine-tuned assist model swapped for the sidecar's default, which is the worst shape a configuration
+fault can take, because the instance keeps answering. `ChatBackendFactory.StaleModelKey` now reads
+the RAW configuration, the only way to see a key that binds to nothing, and refuses the SELECTED
+block by name through the same `Validate` the boot warning and the 503 already share. No new
+configuration surface and no catalog entry: the key exists to be refused, not to be set.
+
+**The role-prompt test did not pin the property that decides whether tool calling works at all.**
+Property 1 was covered by `prompt.Contains("tool")` and `Contains("call")`, both of which hold from
+the citation paragraph alone. Measured: deleting the ENTIRE "You have tools" paragraph from all
+three shipped prompts left the test green, and that paragraph is the one Phase 0 measured as
+deciding whether a call parses rather than arrives as literal text with a fabricated result. The
+three claims the paragraph actually makes are now asserted in the words that carry them.
+
+**One misleading test, no product defect.** `RemoteModelTargetTest` asserted a refusal naming
+`Fallen8:Chat:OpenAI:Model`, constructing the target with a chat section key and letting the model
+key default. Production never produces that sentence, because the chat factory passes the purpose
+key explicitly; the default belongs to the embedding blocks, where `Fallen8:Embedding:*:Model` is
+real and catalogued. Left alone, a reader would take it for the live chat contract. It now exercises
+the embedding block that relies on the default, plus the chat block naming its purpose.
+
+**What this round says about the earlier ones.** Six of the nine are a test that passed while the
+behaviour it named was absent or wrong, which is the same class section 7 found and section 2 found
+before it. The pattern is specific enough to act on: an assertion written against the value the code
+under test had just produced, rather than against the contract. `StringAssert.Contains(frame,
+"id: ")`, `prompt.Contains("tool")`, and `SubscriberCount == 0` read after a `using` block are all
+the same mistake. The cheapest guard is the one used throughout this round: break the thing on
+purpose and watch the test fail with its own message.

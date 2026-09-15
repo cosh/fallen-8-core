@@ -24,7 +24,9 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.Reflection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Chat;
 using NoSQL.GraphDB.App.Configuration;
@@ -280,6 +282,48 @@ namespace NoSQL.GraphDB.Tests
 
         /// <summary>The factory is internal (the repository adds no InternalsVisibleTo), so it is
         /// reached the same way the embedding twin's tests reach theirs.</summary>
+        [TestMethod]
+        public void TheRenamedModelKeyIsRefusedByNameRatherThanQuietlyReplacedByADefault()
+        {
+            // Model was renamed to Models:Assist with no alias, and the spec promised an instance
+            // still carrying the old key "fails closed with a message naming the new one". Nothing
+            // kept that promise: configuration binding ignores a key no property claims, silently,
+            // and on the two backends whose Models:Assist carries a default the operator's model
+            // was replaced by a stock one on every request with nothing said. A fine-tuned assist
+            // model swapped for the sidecar's default is the worst version of a silent config
+            // fault, because the instance keeps answering.
+            foreach (var backend in new[] { "Nahil", "Ollama", "OpenAI", "Anthropic" })
+            {
+                var options = new Fallen8ChatOptions { Backend = backend };
+                var stale = Config((("Fallen8:Chat:" + backend + ":Model"), "phi4-f8-mini:latest"));
+
+                var problem = Validate(options, configuration: stale);
+                Assert.IsNotNull(problem, backend + ": a stale model key was not refused at all");
+                StringAssert.Contains(problem, "Fallen8:Chat:" + backend + ":Model is no longer read",
+                    backend + ": the refusal has to name the key the operator actually set");
+                StringAssert.Contains(problem, "Fallen8:Chat:" + backend + ":Models:Assist",
+                    backend + ": and the key they should set instead, or the sweep is guesswork");
+            }
+
+            // Only the SELECTED block, because that is what a request depends on. A stale key in a
+            // block nobody selected refuses the day it is selected, not before.
+            var elsewhere = Validate(
+                OpenAI("https://api.openai.com", OpenAIModel, "sk-key"),
+                configuration: Config(("Fallen8:Chat:Nahil:Model", "something")));
+            Assert.IsNull(elsewhere,
+                "a stale key in an unselected block refused a working deployment");
+
+            // Models and Model are different sections, so the key this looks for the absence of
+            // cannot be what satisfies it.
+            var current = Validate(
+                OpenAI("https://api.openai.com", OpenAIModel, "sk-key"),
+                configuration: Config(("Fallen8:Chat:OpenAI:Models:Assist", OpenAIModel)));
+            Assert.IsNull(current, "the NEW key was read as the old one");
+
+            // A caller with no raw configuration still gets the rest of the answer.
+            Assert.IsNull(Validate(OpenAI("https://api.openai.com", OpenAIModel, "sk-key")));
+        }
+
         private static MethodInfo Method(String name)
         {
             var factory = typeof(OllamaChatBackend).Assembly
@@ -290,12 +334,29 @@ namespace NoSQL.GraphDB.Tests
             return method;
         }
 
-        // Both take a purpose now, defaulted the way the production signatures default it, so a
-        // call that names none still exercises the assist path a request without a purpose takes.
+        // Defaulted the way the production signatures default them, so a call that names neither
+        // still exercises the assist path a request without a purpose takes. Every parameter is
+        // passed explicitly, because reflection applies no default values: a new optional parameter
+        // on the production method turns a short argument array into a runtime failure, not a
+        // compile one.
         private static String Validate(Fallen8ChatOptions options,
-            ChatPurpose purpose = ChatPurpose.Assist)
+            ChatPurpose purpose = ChatPurpose.Assist, IConfiguration configuration = null)
         {
-            return (String)Method("Validate").Invoke(null, new Object[] { options, purpose });
+            return (String)Method("Validate")
+                .Invoke(null, new Object[] { options, purpose, configuration });
+        }
+
+        /// <summary>Configuration holding exactly the keys given, as the raw root a stale-key check
+        /// reads.</summary>
+        private static IConfiguration Config(params (String Key, String Value)[] keys)
+        {
+            var pairs = new Dictionary<String, String>(StringComparer.Ordinal);
+            foreach (var (key, value) in keys)
+            {
+                pairs[key] = value;
+            }
+
+            return new ConfigurationBuilder().AddInMemoryCollection(pairs).Build();
         }
 
         private static String ResolveModel(Fallen8ChatOptions options,
@@ -323,7 +384,8 @@ namespace NoSQL.GraphDB.Tests
         {
             try
             {
-                return (IChatBackend)Method("Create").Invoke(null, new Object[] { options, null });
+                return (IChatBackend)Method("Create")
+                    .Invoke(null, new Object[] { options, null, null });
             }
             catch (TargetInvocationException ex)
             {

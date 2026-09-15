@@ -133,6 +133,60 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void TheVeryFIRSTOverflowAlreadyStaysInsideTheBound()
+        {
+            // The case every other bound test missed, because they all overshoot by 20 to 500 steps
+            // and so only ever measure steady state. The marker's row was reserved only on rounds
+            // where a marker ALREADY existed, so the round that created it dropped one step and then
+            // added a row: measured, a bound of 5 held 6 rows after the sixth step, and stayed
+            // correct forever after. One row over, once, on every trace that ever truncates.
+            var trace = new AgentTrace(5);
+            for (var i = 1; i <= 5; i++)
+            {
+                trace.Record(Step("modelCall"), At);
+            }
+
+            Assert.AreEqual(5, trace.Steps().Count, "the bound was hit exactly, so nothing goes yet");
+            Assert.IsFalse(trace.Steps().Any(s => s.Kind == "dropped"),
+                "nothing was dropped, so there is nothing for a marker to report");
+
+            trace.Record(Step("modelCall"), At);
+
+            var steps = trace.Steps();
+            Assert.AreEqual(5, steps.Count,
+                "the first overflow left " + steps.Count + " rows against a bound of 5");
+            Assert.AreEqual(1, steps.Count(s => s.Kind == "dropped"));
+            Assert.AreEqual(4, steps.Count(s => s.Kind != "dropped"),
+                "the marker takes one of the five rows from the moment it exists");
+            Assert.AreEqual(2L, trace.Dropped,
+                "two had to go, not one: the marker needs a row of its own");
+        }
+
+        [TestMethod]
+        public void ABoundBelowTwoIsFlooredRatherThanSilentlyDoubled()
+        {
+            // A single row cannot hold both a step and the news that steps were lost, and quietly
+            // keeping both would hand an operator who configured 1 a view of 2. The floor is the
+            // honest version of the same behaviour, and it is documented on the setting.
+            foreach (var configured in new[] { 1, 2 })
+            {
+                var trace = new AgentTrace(configured);
+                for (var i = 0; i < 40; i++)
+                {
+                    trace.Record(Step("modelCall"), At);
+                }
+
+                var steps = trace.Steps();
+                Assert.AreEqual(2, steps.Count,
+                    "a bound of " + configured + " held " + steps.Count + " rows");
+                Assert.AreEqual("dropped", steps[0].Kind);
+                Assert.AreEqual(39L, trace.Dropped);
+                Assert.AreEqual(trace.Recorded - trace.Dropped,
+                    steps.Count(s => s.Kind != "dropped"));
+            }
+        }
+
+        [TestMethod]
         public void ThereIsExactlyONEDropMarkerHoweverManyTimesTheBoundIsHit()
         {
             // The test the first bound tests should have been. They pinned only the buffer's Count,
@@ -707,10 +761,54 @@ namespace NoSQL.GraphDB.Tests
                 Assert.AreEqual(3, seen.Count, "the queue bound was not applied");
                 CollectionAssert.AreEqual(new[] { 1L, 2L, 3L }, seen.ToArray(),
                     "a thinned subscriber would have seen later events too");
+
+                // INSIDE the using, which is the whole value of the assertion. Outside it, the
+                // scope has already disposed the subscription and Dispose removes it from the
+                // table, so the count read zero whether or not the drop removed anything: the
+                // assertion pinned Dispose and its message described the drop.
+                Assert.AreEqual(0, feed.SubscriberCount,
+                    "the dropped subscriber was left in the table, so it still reads as an open "
+                    + "stream and still holds a MaxSubscribers slot");
+            }
+        }
+
+        [TestMethod]
+        public void ADroppedSubscriberReleasesItsSlotAndIsReportedOnce()
+        {
+            // The consequences of leaving a completed subscriber IN the table, which is the half of
+            // dropping that shows. Its channel is full and complete forever, so TryWrite keeps
+            // failing and every later publish re-enters the drop branch: measured, one slow reader
+            // and eleven further events produced eleven warnings for one drop, and the slot stayed
+            // taken until the reader disposed - which a reader that has stopped reading is
+            // precisely the one not about to do. A host would run out of subscriber slots with no
+            // stream open.
+            using var sink = new TestLogSink();
+            using var feed = Dispatcher(maxQueued: 2, maxSubscribers: 1, sink: sink);
+
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var slow, out _));
+            Assert.IsFalse(feed.TrySubscribe(AgentFeedFilter.All, out _, out _),
+                "this test needs the single slot to be taken");
+
+            // Never read, so the queue of two fills and the next publish drops the subscriber. The
+            // ten after that are the point: they must not each report the drop again.
+            for (var i = 0; i < 13; i++)
+            {
+                feed.Publish(Event("agentStateChanged", "a1"), At);
             }
 
-            Assert.AreEqual(0, feed.SubscriberCount,
-                "the dropped subscriber was left in the table");
+            var warnings = sink.Entries
+                .Count(e => e.Level >= LogLevel.Warning
+                    && e.Message.Contains("MaxQueuedEvents", StringComparison.Ordinal));
+
+            Assert.AreEqual(1, warnings,
+                "one subscriber was dropped once, so one warning: " + warnings + " were logged, "
+                + "which is one per event published after the drop");
+            Assert.AreEqual(0, feed.SubscriberCount);
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var replacement, out var problem),
+                "the dropped subscriber still held the only slot: " + problem);
+
+            replacement.Dispose();
+            slow.Dispose();
         }
 
         [TestMethod]
@@ -870,14 +968,16 @@ namespace NoSQL.GraphDB.Tests
                 "the count has to hold with no subscriber, or the status route reads zero on a busy host");
         }
 
-        private static AgentFeedDispatcher Dispatcher(Int32 maxQueued = 512, Int32 maxSubscribers = 16)
+        private static AgentFeedDispatcher Dispatcher(Int32 maxQueued = 512, Int32 maxSubscribers = 16,
+            TestLogSink sink = null)
         {
             var options = new AgentsOptions();
             options.Feed.MaxQueuedEvents = maxQueued;
             options.Feed.MaxSubscribers = maxSubscribers;
 
+            var factory = sink == null ? TestLoggerFactory.Create() : sink.CreateFactory();
             return new AgentFeedDispatcher(Options.Create(options),
-                TestLoggerFactory.Create().CreateLogger<AgentFeedDispatcher>());
+                factory.CreateLogger<AgentFeedDispatcher>());
         }
 
         private static AgentEvent Event(String kind, String agentId)

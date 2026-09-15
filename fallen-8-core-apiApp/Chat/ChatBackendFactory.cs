@@ -25,6 +25,7 @@
 
 using System;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Configuration;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Helper;
 
@@ -41,9 +42,10 @@ namespace NoSQL.GraphDB.App.Chat
     /// </summary>
     internal static class ChatBackendFactory
     {
-        internal static IChatBackend Create(Fallen8ChatOptions options, ILoggerFactory loggerFactory)
+        internal static IChatBackend Create(Fallen8ChatOptions options, ILoggerFactory loggerFactory,
+            IConfiguration configuration = null)
         {
-            if (Validate(options) is { } problem)
+            if (Validate(options, configuration: configuration) is { } problem)
             {
                 throw new InvalidOperationException(problem);
             }
@@ -198,14 +200,29 @@ namespace NoSQL.GraphDB.App.Chat
 
         /// <summary>
         ///   Whether the configured backend can be used at all, and the operator-facing reason when
-        ///   it cannot; <c>null</c> when it can. THE home for the three-way distinction a null
-        ///   resolution cannot make on its own: a name this app does not have, a supported name whose
-        ///   block is incomplete, and a usable target. The boot warning and the 503 both read this,
-        ///   so the two can never say different things about one deployment.
+        ///   it cannot; <c>null</c> when it can. THE home for the distinctions a null resolution
+        ///   cannot make on its own: a name this app does not have, a supported name whose block is
+        ///   incomplete, a block still carrying the key the rename replaced, and a usable target.
+        ///   The boot warning and the 503 both read this, so the two can never say different things
+        ///   about one deployment.
         /// </summary>
+        /// <param name="options">The bound chat options.</param>
+        /// <param name="purpose">Which purpose's model must be present.</param>
+        /// <param name="configuration">
+        ///   The RAW configuration, for the one fault a bound options object cannot see. Optional
+        ///   because a caller that has none is still entitled to the rest of the answer; every
+        ///   operator-facing path passes it. See <see cref="StaleModelKey" />.
+        /// </param>
         internal static String Validate(Fallen8ChatOptions options,
-            ChatPurpose purpose = ChatPurpose.Assist)
+            ChatPurpose purpose = ChatPurpose.Assist, IConfiguration configuration = null)
         {
+            if (StaleModelKey(options, configuration) is { } stale)
+            {
+                // First, because it is the fault that explains the others: a block whose model key
+                // is the old spelling reads as complete when it is not.
+                return stale;
+            }
+
             if (ResolveConnection(options, purpose) is { } connection)
             {
                 return connection.IsValid(out var problem) ? null : problem;
@@ -219,6 +236,48 @@ namespace NoSQL.GraphDB.App.Chat
             return String.Format(
                 "Fallen8:Chat:Backend is '{0}', which is not a supported chat backend. "
                 + "Expected Ollama, Nahil, OpenAI or Anthropic.", options.Backend);
+        }
+
+        /// <summary>
+        ///   The one configuration fault a BOUND options object cannot see: a block still carrying
+        ///   <c>Model</c>, which <c>Models:Assist</c> replaced with no alias.
+        ///
+        ///   <para>
+        ///     Configuration binding ignores a key no property claims, silently. On Ollama and
+        ///     Nahil, whose <c>Models:Assist</c> carries a default, that silence meant an operator
+        ///     who missed one key during the rename had their configured model replaced by a stock
+        ///     one and was told nothing: a fine-tuned assist model swapped for the sidecar's
+        ///     default on every request. The rename's own promise was that such an instance fails
+        ///     CLOSED naming the new key, and nothing kept it. Reading the raw configuration is the
+        ///     only way to keep it, because the whole problem is that the key binds to nothing.
+        ///   </para>
+        ///   <para>
+        ///     Only the SELECTED backend's block is refused, because that is what the request
+        ///     depends on, exactly as its endpoint and credential are. A stale key in a block
+        ///     nobody selected refuses the day it is selected.
+        ///   </para>
+        /// </summary>
+        internal static String StaleModelKey(Fallen8ChatOptions options, IConfiguration configuration)
+        {
+            if (configuration == null || String.IsNullOrWhiteSpace(options?.Backend))
+            {
+                return null;
+            }
+
+            var block = "Fallen8:Chat:" + options.Backend;
+
+            // Exact key, not a prefix: Model and Models are different sections, so this cannot be
+            // satisfied by the new key it is looking for the absence of.
+            if (String.IsNullOrWhiteSpace(configuration[block + ":Model"]))
+            {
+                return null;
+            }
+
+            return String.Format(
+                "{0}:Model is no longer read. It was renamed to {0}:Models:Assist, with no alias, "
+                + "and {0}:Models:Agent selects the model for agent runs. Move the value to the "
+                + "purpose it belongs to and remove the old key; until then this instance refuses "
+                + "rather than quietly serving a different model.", block);
         }
     }
 }

@@ -566,6 +566,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
             }
 
             var behind = 0;
+            List<AgentFeedSubscription>? dropped = null;
             lock (_gate)
             {
                 candidate.Seq = ++_sequence;
@@ -589,7 +590,26 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     if (!target.TryWrite(candidate))
                     {
                         behind++;
-                        target.Complete();
+
+                        // Collected rather than completed here, because completing a subscriber
+                        // while it is still IN the table is only half of dropping it, and the half
+                        // that shows. A completed-but-listed subscriber has a full channel forever,
+                        // so every later publish re-entered this branch: measured, one slow reader
+                        // and eleven further events logged eleven drop warnings for one drop, left
+                        // SubscriberCount reporting the stream as open, and held one of
+                        // Agents:Feed:MaxSubscribers until the reader disposed - which a reader
+                        // that has stopped reading is precisely the one not about to do.
+                        (dropped ??= new List<AgentFeedSubscription>()).Add(target);
+                    }
+                }
+
+                if (dropped != null)
+                {
+                    // After the loop, not during it: the list is being enumerated.
+                    foreach (var gone in dropped)
+                    {
+                        _subscribers.Remove(gone);
+                        gone.Complete();
                     }
                 }
             }
