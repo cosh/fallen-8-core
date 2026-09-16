@@ -1,4 +1,4 @@
-﻿# Tag-driven publishing: pushing a git tag vX.Y.Z is the ONLY trigger and the only manual
+# Tag-driven publishing: pushing a git tag vX.Y.Z is the ONLY trigger and the only manual
 # step of a release. The tag is the single source of truth for every version (MinVer derives
 # assembly/file/package versions; docker/metadata-action derives the image tags).
 #
@@ -7,7 +7,7 @@
 #
 # Publish targets, all gated on the full test suite:
 #   - GHCR images (GITHUB_TOKEN):  ghcr.io/cosh/fallen-8-core (+ -api, -studio, -mcp,
-#     -integrations, -ollama, -nlp), multi-arch except -nlp (see the matrix note).
+#     -integrations, -agents, -ollama, -nlp), multi-arch except -nlp (see the matrix note).
 #   - nuget.org (Trusted Publishing via OIDC - NO stored API key, no fallback):  Fallen-8.
 #   - GitHub Packages NuGet feed (GITHUB_TOKEN):  continuity mirror, best-effort.
 #   - npm (Trusted Publishing via OIDC - NO stored token; provenance is automatic):
@@ -119,6 +119,12 @@ jobs:
             platforms: linux/amd64,linux/arm64
             build_args: version
             description: "Fallen-8 integrations runtime: runs integration jobs that read a system on your own network and write what they saw into a graph"
+          - image: fallen-8-core-agents
+            dockerfile: fallen-8-agents/Dockerfile
+            context: .
+            platforms: linux/amd64,linux/arm64
+            build_args: version
+            description: "Fallen-8 agent host: runs agents against a Fallen-8, asking that instance's own chat gateway for every model call"
           - image: fallen-8-core-ollama
             dockerfile: Dockerfile.ollama
             context: .

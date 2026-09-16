@@ -233,6 +233,30 @@ function main() {
     console.log('  is deliberately per-host and never a job setting.');
   }
 
+  // The agent host (feature agent-host): its own "agents" profile, and the ONE sidecar that is
+  // OFF by default. Not taste: an agent decides for itself which tools to call, so turning it on
+  // is a decision an operator makes rather than one a deployment inherits. F8_AGENTS=true brings
+  // up the sidecar AND flips the instance's own Fallen8:Agents:Enabled (the fallen8 service reads
+  // the same variable), because a sidecar nothing can reach is not a feature.
+  const agents = process.env.F8_AGENTS === 'true';
+  if (agents) profiles.push('--profile', 'agents');
+  console.log(
+    agents
+      ? 'Agents are ON - the f8-agents sidecar comes up. It has NO host port (an agent chooses its\n' +
+        'own tool calls), so the API proxy is the only way in, and it holds no model configuration:\n' +
+        'every model call goes to this instance\'s own POST /chat with purpose: agent.'
+      : 'F8_AGENTS is not true - no agent host; the /agents routes refuse. Set F8_AGENTS=true to\n' +
+        'run agents against this instance.'
+  );
+  // The one thing that makes an agent useless rather than absent, stated at startup rather than
+  // discovered on a run that answered "I cannot do that": an agent reaches the graph ONLY through
+  // the MCP server, so with every tool tier off it has nothing to call.
+  if (agents && process.env.F8_MCP_ENABLE_WRITE !== 'true' && process.env.F8_MCP_ENABLE_ADMIN !== 'true') {
+    console.log('  Agents read the graph through f8-mcp, whose read tier is always on. Writes and admin');
+    console.log('  stay off unless F8_MCP_ENABLE_WRITE / F8_MCP_ENABLE_ADMIN are set, which is the');
+    console.log('  recommended posture: an agent that can only read cannot be talked into a write.');
+  }
+
   console.log(
     'F8 Studio runs as its own container (feature standalone-ui): UI on ' +
       `http://localhost:${process.env.F8_UI_PORT || '8081'}, REST API on ` +

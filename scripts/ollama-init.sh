@@ -18,6 +18,8 @@
 F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini:v0.0.35}"  # -> phi4-f8-mini
 F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8:v0.0.35}"           # -> phi4-f8
 F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-1}"
+# The agent purpose's model. Pulled only when F8_AGENTS=true; see the pull near the end.
+F8_AGENT_MODEL="${F8_AGENT_MODEL:-phi4-mini:latest}"
 # The embedding model the F8 API's provider is wired to in docker-compose.yml (feature
 # embedding-out-of-box); on by default, opted out together with the provider.
 F8_EMBEDDINGS="${F8_EMBEDDINGS:-true}"
@@ -164,6 +166,30 @@ case "$F8_PULL_PHI4F8" in
     ensure_finetune "$F8_PHI4F8_REPO" "phi4-f8" || MISSING="$MISSING phi4-f8"
     ;;
 esac
+
+# The agent purpose's model (feature agent-host), pulled only when the agent host is coming up.
+# Off by default like the host itself, and skipped rather than failed when it is off: a deployment
+# that runs no agents should not spend a pull on a model nothing will ask for.
+#
+# A STOCK base model, not a fine-tune: the assist purpose points at the delegate fine-tune and the
+# agent purpose at a general model, which is the whole reason the two purposes exist. So ensure_base
+# rather than ensure_finetune, and no local retagging.
+#
+# In the DEFAULT configuration this pull finds the model already there, because F8_PULL_ASSIST
+# pulls phi4-mini above and ensure_base skips what is present. It earns its place in the two cases
+# that are not the default: a hosted-chat deployment (F8_PULL_ASSIST=0, which the openai and
+# anthropic overlays set) that still wants agents on a local model, and any deployment that points
+# F8_AGENT_MODEL somewhere else.
+#
+# Measured and worth knowing before choosing it: the shipped default emits no parsed tool call when
+# ANY instruction text is present (findings.md section 1). It is the stock tool-capable MIT model
+# the sidecar can pull, so it is what the default names; a deployment that wants agents that
+# actually call tools sets Fallen8__Chat__Nahil__Models__Agent to a model that does.
+if [ "$F8_AGENTS" = "true" ]; then
+  ensure_base "$F8_AGENT_MODEL" || MISSING="$MISSING $F8_AGENT_MODEL"
+else
+  log_info "F8_AGENTS is not true - skipping the agent model pull"
+fi
 
 if [ -n "$MISSING" ]; then
   log_error "Some models are missing:$MISSING"
