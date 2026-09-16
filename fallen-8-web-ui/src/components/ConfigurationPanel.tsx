@@ -68,10 +68,15 @@ import { ErrorBox } from "./ErrorBox";
 function isNamespacePolicy(key: string, lockNamespace?: boolean): boolean {
   return lockNamespace === true && key.startsWith("Fallen8:Namespaces:");
 }
+/**
+ * The label column is sized for the LONGEST label any card prints, not for the average one: it is
+ * fixed width so the rows of both cards line up, so a label that does not fit wraps onto a second
+ * line while its value stays on the first. `model (assist)` did exactly that at the previous 5rem.
+ */
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-2 text-[12px]">
-      <span className="text-fg-faint w-20 shrink-0 tracking-wide uppercase">{label}</span>
+      <span className="text-fg-faint w-28 shrink-0 tracking-wide uppercase">{label}</span>
       <span className="text-fg-dim min-w-0 truncate" title={value}>
         {value}
       </span>
@@ -110,7 +115,8 @@ function StatusRow({ status }: { status: ModelStatus }) {
     status.state === "loaded" ? "bg-accent" : status.state === "idle" ? "bg-fg-faint" : "bg-warn";
   return (
     <div className="flex items-center gap-2 text-[12px]" data-testid="config-model-status">
-      <span className="text-fg-faint w-20 shrink-0 tracking-wide uppercase">status</span>
+      {/* Same width as Row's label column, or this row's dot and text sit out of line with them. */}
+      <span className="text-fg-faint w-28 shrink-0 tracking-wide uppercase">status</span>
       <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
       <span className="text-fg-dim min-w-0 truncate">{status.text}</span>
     </div>
