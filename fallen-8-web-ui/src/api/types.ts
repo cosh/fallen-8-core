@@ -518,8 +518,18 @@ export interface ChatProviderStatsREST {
   /**
    * From the configured options, not from a probe target: reported for EVERY backend, including
    * the ones with no residency API.
+   *
+   * The ASSIST purpose's model. It keeps the bare name `model` deliberately: every reader of it
+   * predates the purposes, and renaming it would have changed a contract to add one.
    */
   model: string | null;
+  /**
+   * The AGENT purpose's model (feature agent-host), or null when the selected backend names none,
+   * which is the shipped state for OpenAI and Anthropic. Distinct from `model` because the two are
+   * configured by different people for different reasons: the assist model is the fine-tune, the
+   * agent model is a general one that can call tools.
+   */
+  agentModel?: string | null;
   loaded: boolean;
   // Live model residency + GPU (Ollama /api/ps), only set on GET /config; null/undefined = unknown.
   resident?: boolean | null;

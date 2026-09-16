@@ -153,7 +153,17 @@ function ChatCard({ chat }: { chat: ChatProviderStatsREST | null | undefined }) 
       {chat?.enabled ? (
         <div className="mt-2 space-y-0.5">
           <Row label="backend" value={chat.backend ?? "—"} />
-          <Row label="model" value={chat.model ?? "—"} />
+          {/* One row PER PURPOSE (feature agent-host): the two are configured by different people
+              for different reasons, so a single "model" row could only ever show one of them and
+              an operator reading it would have no way to tell which. The agent row says "not set"
+              rather than a dash when the backend names none: that is the shipped state for the two
+              metered providers, and it is the difference between "nothing configured" and "agents
+              will be refused on this backend". */}
+          <Row label="model (assist)" value={chat.model ?? "not set"} />
+          <Row label="model (agent)" value={chat.agentModel ?? "not set"} />
+          {/* ONE residency row, not one per purpose. It is the probe's answer about the backend's
+              loaded model, and the probe reports a single one; printing it twice would claim the
+              two purposes were probed separately. */}
           <StatusRow status={modelStatus(chat.loaded, chat.resident, chat.gpu)} />
         </div>
       ) : (

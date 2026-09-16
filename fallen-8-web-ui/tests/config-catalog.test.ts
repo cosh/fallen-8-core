@@ -94,9 +94,14 @@ describe("configuration section taxonomy", () => {
       bulkio: 3,
       ceilings: 2, // Plugins 1 + StoredQueries 1
       embedding: 25,
-      chat: 16,
+      // 20, not 16: the purposes rename (feature agent-host) turned each backend's Model into
+      // Models:Assist and added Models:Agent beside it, so four keys arrived. This count went
+      // unfixed from the phase that added them, because the .NET suite was green and nothing here
+      // was run.
+      chat: 20,
       ingestion: 29, // Ingestion 23 + Nlp 6
       integrations: 4, // Enabled, Endpoint, TimeoutSeconds, JobTimeoutSeconds
+      agents: 3, // Enabled, Endpoint, TimeoutSeconds (feature agent-host)
       observability: 6,
       identity: 4,
       security: 8,
@@ -201,14 +206,20 @@ describe("groupSettings", () => {
   });
 
   it("puts a section's own keys first, then one sub-group per provider prefix", () => {
+    // Each backend gained ONE key in the purposes rename: Model became Models:Assist and
+    // Models:Agent arrived beside it. The counts below are what the grouping must produce, and the
+    // interesting part is what it must NOT: before groupKeyOf was clamped to the provider segment,
+    // the five-segment Models:* keys grouped under a sub-group literally labelled "Models",
+    // holding eight keys from four backends while each backend's own group lost its model.
     const chat = groupSettings(shipped).find((entry) => entry.section.id === "chat")!;
     expect(chat.groups.map((g) => ({ label: g.label, n: g.settings.length }))).toEqual([
       { label: "", n: 4 },
-      { label: "Ollama", n: 2 },
-      { label: "Nahil", n: 3 },
-      { label: "OpenAI", n: 3 },
-      { label: "Anthropic", n: 4 },
+      { label: "Ollama", n: 3 },
+      { label: "Nahil", n: 4 },
+      { label: "OpenAI", n: 4 },
+      { label: "Anthropic", n: 5 },
     ]);
+    expect(chat.groups.map((g) => g.label)).not.toContain("Models");
 
     const embedding = groupSettings(shipped).find((entry) => entry.section.id === "embedding")!;
     expect(embedding.groups.map((g) => ({ label: g.label, n: g.settings.length }))).toEqual([

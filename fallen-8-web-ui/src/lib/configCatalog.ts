@@ -165,6 +165,17 @@ export const CONFIG_SECTIONS: readonly ConfigSection[] = [
     flat: true,
   },
   {
+    id: "agents",
+    group: "operations",
+    label: "Agent host",
+    // The three keys the INSTANCE owns. The host's own settings (Agents:Limits, Agents:Trace,
+    // Agents:Feed) live in that container's configuration and never reach this surface, which is
+    // the same split the integrations runtime has.
+    blurb: "Whether an agent host is reachable, and where.",
+    raw: ["Agents"],
+    flat: true,
+  },
+  {
     id: "observability",
     group: "operations",
     label: "Observability",
@@ -234,8 +245,21 @@ export interface SectionGroup {
 
 /** The prefix a key shares with its siblings: Fallen8:Embedding:Onnx:ModelPath -> Fallen8:Embedding:Onnx. */
 function groupKeyOf(key: string): string {
-  const last = key.lastIndexOf(":");
-  return last < 0 ? key : key.slice(0, last);
+  const segments = key.split(":");
+  if (segments.length < 2) {
+    return key;
+  }
+  // Everything but the leaf, CLAMPED to the provider segment (Fallen8:Section:Provider).
+  //
+  // The clamp is the fix for a real defect rather than defensiveness. Dropping only the last
+  // segment is right for a two-level key (Fallen8:Chat:Ollama:Endpoint groups under Ollama) and
+  // wrong for a three-level one: when the purposes rename turned each backend's Model into
+  // Models:Assist and Models:Agent, Fallen8:Chat:Ollama:Models:Assist grouped under "Models", so
+  // the Chat section grew a sub-group called Models holding eight keys from four different
+  // backends while each backend's own group lost its model. The test that declares these groups
+  // caught it; nothing ran the test.
+  const depth = Math.min(3, segments.length - 1);
+  return segments.slice(0, depth).join(":");
 }
 
 /** The two prefixes whose last segment reads badly as a header. Everything else uses its own name. */

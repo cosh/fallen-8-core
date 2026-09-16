@@ -209,8 +209,8 @@ last-seen model: a completion can only have been served by a gateway that answer
 
 ## See also
 
-- [MCP server](/mcp-server/) — the tool surface an agent calls, and the tiers that bound it
-- [Model providers](/model-providers/) — which backend serves the agent purpose, and how to choose
-- [Nahil](/nahil/) — the default remote backend, and its shared quota
-- [Observability](/observability/) — where the agent meter and the GenAI spans go
-- [Configuration](/configuration/) — the instance keys and how they are written
+- [MCP server](/mcp-server/): the tool surface an agent calls, and the tiers that bound it
+- [Model providers](/model-providers/): which backend serves the agent purpose, and how to choose
+- [Nahil](/nahil/): the default remote backend, and its shared quota
+- [Observability](/observability/): where the agent meter and the GenAI spans go
+- [Configuration](/configuration/): the instance keys and how they are written
