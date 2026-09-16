@@ -153,11 +153,13 @@ dotnet run --project fallen-8-core-apiApp
   feed's dialect; both are in-memory, so nothing survives a restart, which is why every trace
   carries the host instance that produced it. Its container port is never published; the browser
   reaches it through the apiApp's authenticated proxy at `/agents/*`, behind an `Agents`
-  capability, and that proxy is what exists today. The **container** is not built yet: there is no
-  Dockerfile and no compose service, so the unpublished-port posture is the intended shape rather
-  than a shipped one, and Phase 5 owes it along with a docs-site page and a README entry. The
-  feature record is [features/open/agent-host/](features/open/agent-host/) and it is **not
-  merged**.
+  capability. Roles bound what an agent may call (a prompt plus an allowlist that can only narrow
+  what the MCP server advertises), and budgets are enforced in the host rather than asked of the
+  model. It ships **off by default** at both ends, alone among the capabilities here, because an
+  agent decides for itself which tools to call and the MCP tiers are therefore the real boundary.
+  Living doc: [`docs/src/content/docs/agents.md`](docs/src/content/docs/agents.md) (published at
+  <https://docs.fallen-8.com/agents/>); the feature record is
+  [features/done/agent-host/](features/done/agent-host/).
 
 ## Quality gates (enforced, feature code-quality)
 

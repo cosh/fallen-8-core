@@ -440,27 +440,50 @@ Intent: orchestrator/worker composition on the framework's primitives, bounded b
 
 Intent: ship what exists; leave the repo consistent.
 
-- [ ] `Dockerfile` (sdk to aspnet runtime, house conventions, copies `fallen-8-rest-client`);
+- [x] `Dockerfile` (sdk to aspnet runtime, house conventions, copies `fallen-8-rest-client`);
   compose service `f8-agents` on the `agents` profile: unpublished, `expose:` only, `read_only`,
   `/tmp` tmpfs, no volume, `Fallen8Target__*` and MCP variables reused, **no model setting**;
   `fallen8` gains the two instance keys; `scripts/ollama-init.sh` pulls the agent model when
   `F8_AGENTS=true`; `env-up.js`, `env:down`/`logs`/`status`, `.env.example` (`F8_AGENTS`),
   `release.yml` matrix. Default compose unchanged.
-- [ ] Studio: one catalog picker per purpose beside each other in `ConfigurationSurface.tsx`, the
-  card showing model and residency per purpose; recapture the Configuration screenshots.
-- [ ] Docs page `docs/src/content/docs/agents.md` registered in the *AI agents* sidebar group; the
+- [x] Studio: one catalog picker per purpose in `ConfigurationSurface.tsx` (both rows, ONE catalog
+  read, eligibility per key so the compose environment declaring one purpose does not withhold the
+  other's list), and the card showing a model row per purpose. Screenshots recaptured.
+
+  **Two deviations, both deliberate.** Residency stays ONE row rather than one per purpose: it is
+  the probe's answer about the backend's loaded model and the probe reports a single one, so
+  printing it twice would claim the two purposes were probed separately. And the first capture
+  published a wrapped label, which is why `Row`'s fixed label column went from 5rem to 7rem: three
+  specs passed while the card read "MODEL" and "(ASSIST)" on two lines, so the frame had to be
+  LOOKED at, not just exit-code checked.
+- [x] Docs page `docs/src/content/docs/agents.md` registered in the *AI agents* sidebar group; the
   chat-body fields on `nl-assist.md` and `rest-api.mdx`; the purposes paragraph on
   `model-providers.md`; the quotas sentence on `nahil.md`; a pointer on `mcp-server.md`; README
   "Key features" line; **both architecture diagrams** updated in the same PR (the host reaches the
   MCP server and the chat gateway, never a provider); docs build green.
-- [ ] Feature `README.md` (LIVING doc): quickstart (enable, spawn curl, subscribe curl), roles and
+- [x] Feature `README.md` (LIVING doc): quickstart (enable, spawn curl, subscribe curl), roles and
   allowlists, configuration reference incl. the two purposes, the Phase 0 record and fallback
   ladder, security posture (proxy-only, one REST family, read-only-tiers recommendation,
   prompt-injection honesty note).
-- [ ] `CLAUDE.md`: the deployable is on its project map and has its architecture note, added
+- [x] `CLAUDE.md`: the deployable is on its project map and has its architecture note, added
   mid-branch because this phase listed every other place the architecture story lives and not the
   file that states the repo's own rules. Re-check it at landing against what actually shipped.
-- [ ] Once landed: move `features/open/agent-host/` to `features/done/agent-host/`; add the
-  "operate the agent host" note to the skill library's spec (there, not here).
-- [ ] Full suite green, build clean (warnings-as-errors), convention tests pass for the new
-  project.
+- [x] Moved to `features/done/agent-host/`, and the skill library's spec gained the note as
+  section 3.2c: it EXTENDS `fallen8-operations` rather than adding a skill, because a second
+  operations skill would fork the entry that already teaches compose deployment and the security
+  flags. Its two content rules are the things an agent operating this gets wrong: the capability
+  gate answers 401 without a key and 403 only with one, and the host has no model setting to set.
+- [x] Full suite green, build clean (warnings-as-errors), convention tests pass for the new
+  project. Studio 1461 and tsc clean, docs build green with every internal link and anchor valid
+  (verified by breaking one on purpose), dash audit clean over both the branch's added lines and
+  its commit messages.
+
+  Two gaps this phase found in its own checklist. `running.mdx` is the environment reference and
+  documented neither `F8_AGENTS` nor `F8_AGENT_MODEL`, so the compose profile shipped while the page
+  an operator reads to find it did not mention it. And the item asking for chat-body fields on
+  `rest-api.mdx` was aimed at the wrong page: that one carries a route-family table that POINTS at
+  the contract, and the chat body's own home is `semantic-traversal.mdx`, which had already gained
+  `purpose` and `tools` in Phase 1a. Nothing was owed there. A related correction: a "one model per
+  purpose" section written onto `model-providers.md` in this phase was a DUPLICATE of that page's
+  section and stated the shipped defaults wrongly (Nahil names both purposes). It is a pointer
+  now.

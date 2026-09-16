@@ -1,9 +1,11 @@
 # Fallen-8 Agent Host: Specification
 
-> **Status:** Phases 0 through 4 are IMPLEMENTED on `feature/agent-host` and unmerged; Phase 5
-> (packaging, docs, land) is what remains. This line said "spec only (no
-> implementation yet)" while a whole deployable, the apiApp proxy and the chat-gateway purposes had
-> landed, which is the one line a reader checks to place the feature. Per-phase state and dates are
+> **Status:** IMPLEMENTED. Every phase, 0 through 5, is done on `feature/agent-host`, which is
+> awaiting merge: the deployable, its image and compose service, the apiApp proxy, the chat-gateway
+> purposes, metrics, swarm mode, the Studio surface and the docs page all ship. One item is a
+> recorded deferral rather than an omission (the messages route, plan Phase 4). This line once said
+> "spec only (no implementation yet)" while a whole deployable had landed, which is the one line a
+> reader checks to place the feature. Per-phase state and dates are
 > in [plan.md](./plan.md). Follow the feature workflow in the
 > repository root `CLAUDE.md`. Feature branch: `feature/agent-host` (branch-only workflow:
 > no GitHub issue or PR).
