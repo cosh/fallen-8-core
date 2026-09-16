@@ -110,6 +110,11 @@ Each feature has a deep-dive doc — follow the link.
 - **[MCP server](https://docs.fallen-8.com/mcp-server/)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
   writes and three auth modes up to OAuth 2.1.
+- **[Agents](https://docs.fallen-8.com/agents/)**: a sidecar that RUNS agents against your graph,
+  reading it through the MCP server above. It holds no model configuration and no provider key, so
+  every model call goes to this instance's own chat gateway; each run leaves a bounded trace, an
+  SSE event feed and hard budgets on steps, tool calls, wall clock and tokens. Off by default,
+  because an agent decides for itself which tools to call.
 - **[NL assist and fine-tuning](https://docs.fallen-8.com/nl-assist/)**: draft C# fragments from a
   sentence, and an offline pipeline (compile-gated dataset, QLoRA training, held-out eval,
   feedback loop) to train, evaluate and publish your own model.
@@ -150,6 +155,7 @@ flowchart TB
 
     mcp["MCP server<br/>fallen-8-mcp"]:::mcp
     integrations["Integrations runtime<br/>fallen-8-integrations · no host port"]:::mcp
+    agenthost["Agent host<br/>fallen-8-agents · no host port"]:::mcp
 
     subgraph unit["Fallen-8 · one Docker unit"]
         direction TB
@@ -181,6 +187,10 @@ flowchart TB
     integrations -->|HTTP · REST| rest
     integrations -.->|reads| sources
     integrations -.->|OTLP push| obs
+    rest -->|proxy /agents/*| agenthost
+    agenthost -->|"chat · purpose: agent"| rest
+    agenthost -->|MCP| mcp
+    agenthost -.->|OTLP push| obs
 
     classDef client fill:#45494D,stroke:#666666,color:#FEFEFE
     classDef mcp fill:#E2001A,stroke:#FC0606,color:#FEFEFE
@@ -191,8 +201,12 @@ flowchart TB
     style unit fill:#000000,stroke:#E2001A,stroke-width:1.5px,color:#C6C7C8
 ```
 
-Full details, the writer thread, plugin system, durability, the model sidecar and the
-integrations runtime, are in
+The agent host reaches a model the same way anything else does: through the REST API's chat
+gateway, so it never talks to a provider itself and holds no key. It reads the graph only as a
+client of the MCP server, at the tiers enabled there.
+
+Full details, the writer thread, plugin system, durability, the model sidecar, the integrations
+runtime and the agent host, are in
 [docs/architecture.md](https://docs.fallen-8.com/architecture/).
 
 ## Running it

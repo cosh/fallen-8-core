@@ -58,7 +58,10 @@ Three things are genuinely new, and all three come from Nahil rather than from O
    resident on a worker, Nahil starts pulling it in the background and tells you to come back,
    with a `Retry-After`. Fallen-8 waits and retries rather than failing (see below).
 3. **There are quotas.** A spent hourly token budget answers `429`, and a single request is
-   capped at 64 items on the embedding path.
+   capped at 64 items on the embedding path. The budget is per key, so it is **shared by every
+   agent on a host**: that is why [agents](/agents/) default to four at once and to a token budget
+   per run, and why a swarm's worker count is bounded over an orchestrator's whole life rather than
+   at any one moment.
 
 ## Turn it on
 
@@ -113,7 +116,7 @@ Fallen8__Chat__Backend=Nahil
 Fallen8__Chat__Nahil__Endpoint=https://api.nahil.dev
 Fallen8__Chat__Nahil__ApiKey=...
 Fallen8__Chat__Nahil__Models__Assist=phi4-f8-mini:latest
-Fallen8__Chat__Nahil__Models__Agent=phi4-mini:latest
+Fallen8__Chat__Nahil__Models__Agent=phi4-mini:latest   # the agent purpose; see /agents/
 Fallen8__Chat__TimeoutSeconds=600
 Fallen8__Chat__Stream=true                  # the default; listed so the profile is complete
 

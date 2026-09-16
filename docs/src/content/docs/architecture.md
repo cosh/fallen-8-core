@@ -46,6 +46,7 @@ flowchart TB
     docling["Document sidecar (docling-serve)<br/>binary-to-structured conversion"]:::ext
     nlp["NLP sidecar (spaCy)<br/>named entities + key terms"]:::ext
     integrations["Integrations runtime · fallen-8-integrations<br/>separate deployable · no host port · writes via REST"]:::mcp
+    agenthost["Agent host · fallen-8-agents<br/>separate deployable · no host port · runs agents · no model config"]:::mcp
     sources["Your network<br/>CSV · UniFi console · Fronius inverter · ARXML extract"]:::ext
 
     subgraph obs["Observability · one Grafana pane"]
@@ -86,6 +87,10 @@ flowchart TB
     integrations -->|HTTP · REST · own API key| rest
     integrations -.->|reads| sources
     integrations -.->|OTLP| collector
+    rest -->|proxy /agents/*| agenthost
+    agenthost -->|"chat · purpose: agent · own API key"| rest
+    agenthost -->|"MCP · the only way it reads the graph"| mcp
+    agenthost -.->|OTLP| collector
     ns --> writer --> model
     model --- plugins
     model --- durab
@@ -176,11 +181,26 @@ deployment (see [Topology and the deployable](#topology-and-the-deployable)).
 
 ## AI agents and the MCP server
 
-AI agents do not call the REST API directly. They go through **`fallen-8-mcp`**, a separate
-deployable that bridges the [Model Context Protocol](https://modelcontextprotocol.io) to the
-REST surface over HTTP: it references neither the engine nor the app. It is a small,
-token-frugal tool surface, read-only by default, with opt-in write, admin, and code tiers and
-three auth modes. The full story is in [MCP server](/mcp-server/).
+There are two sides to this, and they point in opposite directions.
+
+**Somebody else's agent, in somebody else's client**, does not call the REST API directly. It goes
+through **`fallen-8-mcp`**, a separate deployable that bridges the
+[Model Context Protocol](https://modelcontextprotocol.io) to the REST surface over HTTP: it
+references neither the engine nor the app. It is a small, token-frugal tool surface, read-only by
+default, with opt-in write, admin, and code tiers and three auth modes. The full story is in
+[MCP server](/mcp-server/).
+
+**Agents that run here** are **`fallen-8-agents`**, a third such deployable, and it is the only one
+that reaches the graph through no REST route of its own: it is a CLIENT of the MCP server above, so
+an agent can call exactly the tools enabled there. It holds **no model configuration and no
+provider credential** either. Every model call goes to the app's own chat gateway with
+`purpose: agent`, which is what keeps the model an operator's single decision and keeps provider
+keys in one place. Like the integrations runtime it has **no host port**, because an agent decides
+for itself which tools to call, and the browser reaches it through the proxy at `/agents/*`.
+
+Nothing it produces is durable: a restart ends every agent and forgets every finished one, so each
+run's value is in what it leaves behind while it is retained, a bounded trace and an SSE event
+feed. The full story is in [Agents](/agents/).
 
 ## Data from your own network: the integrations runtime
 
@@ -259,12 +279,15 @@ Around the data plane the same environment brings up the Ollama model sidecar (w
 document-conversion sidecar (`F8_INGESTION=false` skips it), the spaCy NLP sidecar
 (`F8_NLP=false` skips it), the `f8-mcp` bridge on `:8090` (anonymous and read-only in this local-dev
 posture), the `f8-integrations` runtime on the `integrations` profile with no published port
-(`F8_INTEGRATIONS=false` skips it), and the observability containers above. The data plane is durable by default: checkpoints,
+(`F8_INTEGRATIONS=false` skips it), the `f8-agents` host on the `agents` profile, also with no
+published port and the only one that is OFF unless asked for (`F8_AGENTS=true` starts it and opens
+the instance's own `/agents` routes), and the observability containers above. The data plane is durable by default: checkpoints,
 the WAL, and the save-game registry share one mounted named volume.
 
 ## See also
 
 - [Running](/running/): how to launch each of these
+- [Agents](/agents/): running agents against this graph, their budgets and what a run leaves behind
 - [Model providers](/model-providers/): which backend serves embeddings and chat, and where its key lives
 - [Standalone F8 Studio](/standalone-ui/): deploying the UI apart from the data plane
 - [Graph model](/graph-model/): the data model and the transaction/read contract

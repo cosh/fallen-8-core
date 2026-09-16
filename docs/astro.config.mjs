@@ -110,8 +110,9 @@ export default defineConfig({
 						},
 						{
 							label: 'AI agents',
-							description: 'the MCP server tool surface and auth modes, plus NL assist and fine-tuning',
-							paths: ['mcp-server', 'nl-assist'],
+							description:
+								'running agents against a graph, the MCP server tool surface and auth modes, plus NL assist and fine-tuning',
+							paths: ['agents', 'mcp-server', 'nl-assist'],
 						},
 						{
 							label: 'F8 Studio',
@@ -224,6 +225,7 @@ export default defineConfig({
 				{
 					label: 'AI agents',
 					items: [
+						{ label: 'Agents', slug: 'agents' },
 						{ label: 'MCP server', slug: 'mcp-server' },
 						{ label: 'NL assist and fine-tuning', slug: 'nl-assist' },
 					],
