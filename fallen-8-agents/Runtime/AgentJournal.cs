@@ -58,13 +58,24 @@ namespace NoSQL.GraphDB.Agents.Runtime
         private readonly AgentFeedDispatcher _feed;
         private readonly IOptions<AgentsOptions> _options;
         private readonly TimeProvider _clock;
+        private readonly Diagnostics.AgentsMetrics? _metrics;
 
+        /// <param name="feed">The broadcast every fact is published to.</param>
+        /// <param name="options">The trace caps a capture is held to.</param>
+        /// <param name="clock">The clock every step and event is stamped from.</param>
+        /// <param name="metrics">
+        ///   The host's meter, or null for a caller that is not measuring. It belongs HERE rather
+        ///   than at each fact's origin because this type already exists to be the one call site
+        ///   per fact: a meter wired anywhere else would be a second place to remember, and the
+        ///   thing most likely to be forgotten is the one nothing fails without.
+        /// </param>
         public AgentJournal(AgentFeedDispatcher feed, IOptions<AgentsOptions> options,
-            TimeProvider? clock = null)
+            TimeProvider? clock = null, Diagnostics.AgentsMetrics? metrics = null)
         {
             _feed = feed ?? throw new ArgumentNullException(nameof(feed));
             _options = options ?? throw new ArgumentNullException(nameof(options));
             _clock = clock ?? TimeProvider.System;
+            _metrics = metrics;
         }
 
         /// <summary>The trace bound every new agent's buffer is built with.</summary>
@@ -128,6 +139,13 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
             var moved = Basic(agent, AgentEventKind.AgentStateChanged, state);
             moved.Budget = budget;
+
+            // Wall clock SO FAR, which is the fourth counter and the one a state change was
+            // missing: the other three ride on every event, so a subscriber rendering live cost
+            // had to poll the listing for duration alone, which is the one thing the counters on
+            // the feed exist to avoid. Measured from admission, as the ending's duration is, so
+            // the numbers a subscriber sees over a run are one series rather than two.
+            moved.DurationMs = (Int64)(at - agent.CreatedUtc).TotalMilliseconds;
             _feed.Publish(moved, at);
         }
 
@@ -196,6 +214,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
             }
 
             _feed.Publish(ended, at);
+
+            // The outcome carries the BUDGET's name for a budget ending, because budgetExceeded
+            // alone cannot tell an operator whether to raise a cap or fix a loop.
+            _metrics?.Finished(agent.State, agent.Budget, agent.Role);
         }
 
         /// <summary>One model call, as a trace step only. The provenance it records is per STEP;
@@ -215,6 +237,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 OutputTokens = outputTokens,
                 UnreportedUsage = usageReported ? null : true,
             }, _clock.GetUtcNow());
+
+            // The backend as the instance named it, which is a closed set and therefore safe as a
+            // tag; the role likewise. Nothing a caller typed goes near this.
+            _metrics?.ModelCall(backend, agent.Role, inputTokens, outputTokens, durationMs);
         }
 
         /// <summary>
@@ -260,6 +286,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
             called.Success = success;
             called.DurationMs = durationMs;
             _feed.Publish(called, at);
+
+            // The tool name as the MCP server advertises it, a closed set. Neither capture goes
+            // near a tag: arguments and results are the model's and the graph's.
+            _metrics?.ToolCall(tool, success);
         }
 
         /// <summary>A message to or from the agent.</summary>

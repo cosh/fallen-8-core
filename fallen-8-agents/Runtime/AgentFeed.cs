@@ -208,6 +208,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
             get; set;
         }
 
+        /// <summary>
+        ///   Wall clock in milliseconds. On an ENDING it is the whole run, on a
+        ///   <c>toolCalled</c> the call, and on an <c>agentStateChanged</c> the run so far. Absent
+        ///   on a spawn, where it would always be zero.
+        /// </summary>
         [JsonPropertyName("durationMs")]
         public Int64? DurationMs
         {

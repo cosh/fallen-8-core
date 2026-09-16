@@ -140,11 +140,23 @@ namespace NoSQL.GraphDB.Agents.Hosting
             services.AddSingleton<Microsoft.Extensions.AI.IChatClient>(provider =>
                 provider.GetRequiredService<Fallen8ChatClient>());
 
+            // The meter, ALWAYS, whether or not an exporter is configured: an instrument nobody
+            // listens to costs a few objects, and a host that had to be configured before it could
+            // count would have nothing to say about the run that made an operator look. The gauge
+            // reads the registry rather than keeping its own tally, because two counts of one
+            // thing drift.
+            services.AddSingleton(provider => new Diagnostics.AgentsMetrics(
+                () => provider.GetRequiredService<AgentRegistry>().ActiveCount));
+
             // The feed is a singleton because it IS the host's broadcast; the journal wraps it so
             // there is one call site per fact rather than a caller remembering to write both the
-            // trace and the event.
+            // trace and the event, and the meter is the third thing it writes.
             services.AddSingleton<AgentFeedDispatcher>();
-            services.AddSingleton<AgentJournal>();
+            services.AddSingleton(provider => new AgentJournal(
+                provider.GetRequiredService<AgentFeedDispatcher>(),
+                provider.GetRequiredService<IOptions<AgentsOptions>>(),
+                clock: null,
+                metrics: provider.GetRequiredService<Diagnostics.AgentsMetrics>()));
 
             services.AddSingleton<McpToolset>();
             services.AddSingleton<IAgentToolSource>(provider => provider.GetRequiredService<McpToolset>());
@@ -154,6 +166,10 @@ namespace NoSQL.GraphDB.Agents.Hosting
             // a restart ends everything, which is why every listing names the host instance.
             services.AddSingleton<AgentRegistry>();
             services.AddSingleton<AgentRunner>();
+
+            // Last, so nothing above it has to know whether telemetry is on: with no endpoint
+            // configured this returns before touching AddOpenTelemetry.
+            AgentsObservability.AddAgentsObservability(services, configuration);
 
             services.AddHostedService<AgentsStartupProbe>();
 

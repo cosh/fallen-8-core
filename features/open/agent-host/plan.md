@@ -360,38 +360,49 @@ Intent: "review what they are doing all the time", the observability half of the
 
 Intent: honest cost accounting and hard stops, the other half of the review contract.
 
-> **Most of this landed early, in Phase 1b, and was left unticked.** A reader took unticked boxes
-> for unimplemented work and would have built the counters and the budget meter a second time,
-> discovering the duplication when both counted the same step.
->
-> THREE boxes are still open, not one: `AgentsMetrics`, its `MeterListener` test, and the 3.8
-> defaults check, which is not metrics work by any reading. A first version of this note said "only
-> the metrics box", credited Phase 2 for work that was all Phase 1b's, and would have had a
-> contributor close the phase with the spec's configuration table never reconciled against the
-> Phase 0 measurements.
+> **COMPLETE, 2026-09-16.** Most of it landed early, in Phase 1b, and was left unticked, which a
+> reader would have taken for unimplemented work and built a second time. The rest, the meter and
+> the defaults reconciliation, is done; see the notes on each box for what shipped where.
 
 - [x] Usage from the instance's stats accumulated per agent; `unreportedUsage` step; steps, tool
   calls and wall clock counted by the host; all four on list/detail. *(Phase 1b:
   `AgentBudgetChatClient` meters each call, `EventCounters` carries input, output, total, steps and
   toolCalls on every event, `TraceStep.UnreportedUsage` distinguishes an absence from a
   measurement.)*
-- [ ] Wall clock on `agentStateChanged`. The tick above used to claim "all four ... and on
-  `agentStateChanged`" and three of the four are there: `AgentEvent.DurationMs` is set on an ending
-  and on `toolCalled` and nowhere else, so a subscriber rendering live duration from a state change
-  gets nothing and has to poll the listing, which is the one thing the feed's counters exist to
-  avoid.
+- [x] Wall clock on `agentStateChanged`. *(Phase 3: the run's duration SO FAR, measured from
+  admission as the ending's is, so a run reads as one series rather than two. The tick above used to
+  claim it and three of the four counters were there, so a subscriber had to poll the listing for
+  duration alone, which is the one thing the feed's counters exist to avoid.)*
 - [x] Budget enforcement after each step at the framework's per-step seam (maximum iterations
   where the framework has the knob): `budgetExceeded` naming `tokens`, `steps`, `toolCalls` or
   `time`; feed event. *(Phase 1b: all four kinds enforced and named, each with a test that fails
   when its own enforcement is removed; the time budget is the runner's linked deadline rather than
   the meter's, which the meter's doc states.)*
-- [ ] `AgentsMetrics` (spec 3.6) with the observability containment and tag-hygiene rules; Agent
+- [x] `AgentsMetrics` (spec 3.6) with the observability containment and tag-hygiene rules; Agent
   Framework's OTel GenAI spans wired to the exporter configuration; fleet identity declared.
-- [ ] Check the 3.8 defaults against the Phase 0 numbers, including the instance hop, and adjust
-  the spec table if they moved.
+  *(Phase 3: the five instruments 3.6 names on one meter, recorded from `AgentJournal`, which is
+  already the one call site per fact so the meter is not a second place to remember. Every
+  recording path is contained, because `Counter.Add` invokes listener callbacks inline on the
+  agent's thread and the BCL does not swallow them. `Agents:Observability:Otlp:Endpoint` and
+  `Agents:Identity:*` mirror the other two sidecars, off by default and off meaning zero OTel code
+  paths. The framework's GenAI spans land on this host's own source name, handed to
+  `OpenTelemetryAgent` by the runner with `EnableSensitiveData` explicitly false, which is what
+  keeps message content, tool arguments and tool results out of telemetry: the tag-hygiene rule
+  would otherwise be broken by a library rather than by us.)*
+- [x] Check the 3.8 defaults against the Phase 0 numbers, including the instance hop, and adjust
+  the spec table if they moved. *(Phase 3: none moved, and 3.8 now records the arithmetic instead of
+  leaving it to be re-derived. What it did find was four shipped settings the table never mentioned,
+  one of them the ceiling that clamps a caller's own token budget, and two it listed that no code
+  binds, both Phase 4's. All six rows say which they are.)*
 - [x] Tests: counter exactness against scripted usage, each budget stops with its name. *(Phase
   1b.)*
-- [ ] Tests: metrics emitted (`MeterListener`), no user input in tag values.
+- [x] Tests: metrics emitted (`MeterListener`), no user input in tag values. *(Phase 3:
+  `AgentsMetricsTest`. The tag-hygiene test spawns with a task and a name carrying unmistakable
+  markers and asserts neither reaches a tag, nor does the agent id, since ids are unbounded over a
+  host's lifetime. Containment is split into the two claims that are actually ours: a throwing
+  exporter must not fault the agent's thread, and a throwing gauge source must report a number to
+  the collector rather than an exception. A throwing listener faulting the COLLECTOR is not
+  containable here and is not claimed. All five mutation-checked.)*
 
 ## Phase 4: swarm mode
 

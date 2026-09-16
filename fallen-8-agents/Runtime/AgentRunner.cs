@@ -31,6 +31,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NoSQL.GraphDB.Agents.Diagnostics;
 using NoSQL.GraphDB.Agents.Configuration;
 
 namespace NoSQL.GraphDB.Agents.Runtime
@@ -254,10 +255,29 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     UseProvidedChatClientAsIs = true,
                 }, _loggers);
 
-                var session = await framework.CreateSessionAsync(cancellationToken: linked.Token)
+                // The framework's own GenAI telemetry: invoke_agent, the chat span below the tool
+                // loop, and execute_tool per call, emitted on OUR source name so one registration
+                // in the exporter covers all three (spec 3.6).
+                //
+                // EnableSensitiveData stays FALSE, and it is set rather than left to a default
+                // because the whole tag-hygiene rule depends on it: with it on, the library writes
+                // message content, tool arguments and tool results into telemetry, which is
+                // exactly what this feature refuses to put in a monitoring backend. A task
+                // sentence is a caller's text.
+                // DISPOSED, because it owns an OpenTelemetry chat client of its own and this is
+                // built per run: one undisposed meter per agent is a leak that grows with use,
+                // which is worse than no telemetry. Disposal chains down through the pipeline and
+                // stops at AgentBudgetChatClient, whose Dispose deliberately does not touch the
+                // chat client every agent on this host shares.
+                using var observed = new OpenTelemetryAgent(framework, AgentsMetrics.SourceName)
+                {
+                    EnableSensitiveData = false,
+                };
+
+                var session = await observed.CreateSessionAsync(cancellationToken: linked.Token)
                     .ConfigureAwait(false);
 
-                var response = await framework.RunAsync(agent.Task, session, options: null, linked.Token)
+                var response = await observed.RunAsync(agent.Task, session, options: null, linked.Token)
                     .ConfigureAwait(false);
 
                 // An agent that stopped without saying anything has not answered, so it has not

@@ -600,17 +600,21 @@ Host (`Agents:*` for this process, `Fallen8Target:*` for the instance it asks):
 | `Fallen8Target:BaseUrl` / `ApiKey` / `ApiKeyHeader` | `http://localhost:8080` / none / `X-Api-Key` | the same spelling the other two sidecars use |
 | `Fallen8Target:TimeoutSeconds` | `630` | above the largest chat budget a shipped profile sets (600 on Nahil), for the two-deadlines reason |
 | `Agents:Mcp:Endpoint` / `BearerToken` | `http://localhost:8090` / none | |
+| `Agents:Mcp:ConnectTimeoutSeconds` | `15` | the startup handshake only; an unreachable server leaves the toolset empty with a reason rather than failing the host |
 | `Agents:Roles:<role>:Tools` | see 3.2 | MCP tool names; empty = all advertised |
-| `Agents:Limits:DefaultTokenBudget` | `100000` | |
+| `Agents:Limits:DefaultTokenBudget` | `100000` | what a spawn naming no budget gets; a non-positive value means no token cap at all |
+| `Agents:Limits:MaxTokenBudget` | `400000` | the CEILING on a caller's own `tokenBudget`, which it clamps rather than refuses. Added by the Phase 1b review and missing from this table until the Phase 3 reconciliation; reported on `GET /agents/status`, because a cap that silently rewrites a request is one a client has to be able to read |
 | `Agents:Limits:MaxStepsPerRun` | `24` | |
 | `Agents:Limits:MaxToolCallsPerRun` | `48` | |
 | `Agents:Limits:MaxRunSeconds` | `1800` | a cap, not a target; see section 5 |
 | `Agents:Limits:MaxConcurrentAgents` | `4` | Nahil's hourly quota, the step latency and the instance's rate-limit window all argue for few |
-| `Agents:Limits:MaxSwarmDepth` | `2` | |
-| `Agents:Limits:MaxWorkersPerOrchestrator` | `4` | |
+| `Agents:Limits:MaxSwarmDepth` | `2` | **Phase 4**, not implemented: no swarm exists yet, so the key binds to nothing |
+| `Agents:Limits:MaxWorkersPerOrchestrator` | `4` | **Phase 4**, as above |
 | `Agents:Limits:RetainFinishedMinutes` / `MaxRetainedAgents` | `60` / `200` | |
 | `Agents:Trace:MaxSteps` / `ArgsBytes` / `ResultBytes` | `1000` / `2048` / `8192` | |
-| `Agents:Feed:KeepAliveSeconds` | `15` | |
+| `Agents:Feed:KeepAliveSeconds` | `15` | an idle feed is never silent, or a proxy in between closes it |
+| `Agents:Feed:MaxSubscribers` | `16` | a refusal names the limit, and it is a 503 rather than a 400: a full table is transient and worth retrying |
+| `Agents:Feed:MaxQueuedEvents` | `512` | past this a subscriber is DROPPED rather than thinned, and its stream ends; the trace is how it finds out what it missed |
 | `Agents:Observability:Otlp:Endpoint`, `Agents:Identity:*` | as the other sidecars | |
 
 Instance:
@@ -619,9 +623,22 @@ Instance:
 |---|---|---|
 | `Fallen8:Chat:<Backend>:Models:Assist` | Ollama `phi4-f8-mini:latest`, others none | the renamed `Model`; Restart tier, catalogued |
 | `Fallen8:Chat:<Backend>:Models:Agent` | Ollama `phi4-mini:latest`, others none | required for `purpose: agent` on that backend; the overlays set it |
-| `Fallen8:Agents:Enabled` | `false` | the `/agents/*` routes answer 403 |
+| `Fallen8:Agents:Enabled` | `false` | the `/agents/*` routes refuse before the sidecar is contacted: 403 on a keyed instance, 401 on a keyless one (see 3.3) |
 | `Fallen8:Agents:Endpoint` | empty | the proxy answers 503 rather than timing out |
 | `Fallen8:Agents:TimeoutSeconds` | `30` | the small routes; the feed is a stream and takes none |
+
+**Reconciled against the Phase 0 measurements, 2026-09-16 (Phase 3).** Every default above was
+compared to what the code binds and to section 5's numbers. **None of them moved**, and the
+arithmetic is worth writing down rather than re-deriving: a warm step measured between 0.3 s and
+41 s, so `MaxStepsPerRun` of 24 puts the worst plausible run at about sixteen minutes, which is
+what makes `MaxRunSeconds` of 1800 a cap rather than a target. `Fallen8Target:TimeoutSeconds` of
+630 stays above the largest chat budget a shipped profile sets, which is the two-deadlines rule.
+
+What the reconciliation DID find was four shipped settings this table did not mention
+(`MaxTokenBudget`, `Mcp:ConnectTimeoutSeconds`, `Feed:MaxSubscribers`, `Feed:MaxQueuedEvents`) and
+two it mentioned that no code binds, both Phase 4's. All six rows are now honest about which they
+are. A configuration table that lists a key nothing reads and omits one that clamps a caller's
+request is worse than no table, because it is the document an operator tunes from.
 
 Compose: `F8_AGENTS=true` activates the `agents` profile, sets the two instance keys and makes the
 sidecar pull the agent model. The base file and the overlays map their existing chat-model
