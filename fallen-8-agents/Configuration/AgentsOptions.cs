@@ -233,6 +233,34 @@ namespace NoSQL.GraphDB.Agents.Configuration
             /// budget and the instance's own rate limit are both shared by all of them.</summary>
             public Int32 MaxConcurrentAgents { get; set; } = 4;
 
+            /// <summary>
+            ///   How deep a swarm may nest. A caller's agent is depth 0, a worker it spawns is 1,
+            ///   so the default of 2 lets an orchestrator delegate and stops its workers from
+            ///   orchestrating in turn.
+            ///   <para>
+            ///     The bound exists because the cost of a tree is multiplicative while the thing an
+            ///     operator configures is per agent: three levels of four workers is 21 agents from
+            ///     one request, each with its own token budget, against a provider quota they all
+            ///     share. Depth is recorded on the record at admission rather than walked at spawn
+            ///     time, so an evicted ancestor cannot make a deep agent look shallow. A
+            ///     non-positive value switches the bound off.
+            ///   </para>
+            /// </summary>
+            public Int32 MaxSwarmDepth { get; set; } = 2;
+
+            /// <summary>
+            ///   How many workers ONE orchestrator may spawn over its whole life.
+            ///   <para>
+            ///     Over its life, not at once, and the difference is the whole point: a live-only
+            ///     count would let an orchestrator spawn its four, await them, and spawn four more
+            ///     without limit, because an orchestrator's token budget bounds its OWN calls and
+            ///     not its workers'. So the count is kept on the orchestrator's record and never
+            ///     decremented, which also makes it survive the eviction of the workers it counted.
+            ///     A non-positive value switches the bound off.
+            ///   </para>
+            /// </summary>
+            public Int32 MaxWorkersPerOrchestrator { get; set; } = 4;
+
             /// <summary>How long a finished agent stays readable before it is evicted. A run's
             /// value is in reviewing it afterwards, and nothing here is durable: a restart ends
             /// everything.</summary>

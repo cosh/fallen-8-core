@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.Agents.Configuration;
@@ -181,9 +182,38 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     return false;
                 }
 
-                if (spawn.ParentId != null && !_agents.ContainsKey(spawn.ParentId))
+                AgentRecord? parent = null;
+                if (spawn.ParentId != null && !_agents.TryGetValue(spawn.ParentId, out parent))
                 {
                     problem = String.Format("No agent '{0}' to be the parent of this one.", spawn.ParentId);
+                    return false;
+                }
+
+                // A caller's agent is depth 0; a worker is one deeper than whatever spawned it.
+                // Read off the PARENT's record rather than walked up the tree, so an evicted
+                // ancestor cannot make a deep agent look shallow.
+                var depth = parent == null ? 0 : parent.Depth + 1;
+                if (parent != null && limits.MaxSwarmDepth > 0 && depth >= limits.MaxSwarmDepth)
+                {
+                    problem = String.Format(CultureInfo.InvariantCulture,
+                        "Agent '{0}' is at depth {1} and this host allows {2} "
+                        + "(Agents:Limits:MaxSwarmDepth), so it may not spawn a worker of its own. "
+                        + "A deeper tree multiplies cost that is configured per agent.",
+                        parent.Id, parent.Depth, limits.MaxSwarmDepth);
+                    return false;
+                }
+
+                // Over the orchestrator's whole LIFE, not at once: a live-only count would let it
+                // spawn its allowance, await, and spawn again without bound, because its token
+                // budget bounds its own calls and not its workers'.
+                if (parent != null && limits.MaxWorkersPerOrchestrator > 0
+                    && parent.WorkersSpawned >= limits.MaxWorkersPerOrchestrator)
+                {
+                    problem = String.Format(CultureInfo.InvariantCulture,
+                        "Agent '{0}' has already spawned {1} workers, which is its limit "
+                        + "(Agents:Limits:MaxWorkersPerOrchestrator). Await the ones it has and "
+                        + "compose what they found.",
+                        parent.Id, parent.WorkersSpawned);
                     return false;
                 }
 
@@ -214,7 +244,16 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     CreatedUtc = now,
                     LastActivityUtc = now,
                     HostInstanceId = HostInstanceId,
+                    Depth = depth,
                 };
+
+                // Counted on the parent BEFORE the child is reachable, and never decremented: the
+                // number this bounds is how many an orchestrator has spawned, which does not go
+                // down when a worker finishes or is evicted.
+                if (parent != null)
+                {
+                    parent.WorkersSpawned++;
+                }
 
                 _agents[id] = agent;
                 admitted = agent.State;
@@ -301,6 +340,28 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>The live children of one agent, for the cascade a cancel performs.</summary>
+        /// <summary>
+        ///   Every child of this agent that the registry still holds, live or finished, oldest
+        ///   first.
+        ///   <para>
+        ///     What an orchestrator awaits over. Live-only would be wrong in both directions: a
+        ///     worker that finished before the await was called would be dropped from the results,
+        ///     and one that finished during the await would vanish from them. Retention bounds this
+        ///     list, so a worker evicted before its orchestrator collected it is simply gone, which
+        ///     is the same answer the listing gives.
+        ///   </para>
+        /// </summary>
+        public IReadOnlyList<AgentRecord> Children(String parentId)
+        {
+            lock (_gate)
+            {
+                return _agents.Values
+                    .Where(a => String.Equals(a.ParentId, parentId, StringComparison.Ordinal))
+                    .OrderBy(a => a.CreatedUtc)
+                    .ToList();
+            }
+        }
+
         public IReadOnlyList<AgentRecord> LiveChildren(String parentId)
         {
             lock (_gate)
@@ -407,6 +468,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
             // Also outside: cancelling the token runs continuations, and one of those is the
             // runner's own finally, which calls back in here.
             finished.SignalCancellation();
+
+            // AFTER the ending is journaled and the token is cancelled, so an orchestrator woken
+            // by this reads a record that is already complete rather than one mid-transition.
+            finished.SignalFinished();
             return true;
         }
 
@@ -658,6 +723,9 @@ namespace NoSQL.GraphDB.Agents.Runtime
     {
         private readonly CancellationTokenSource _cancellation = new CancellationTokenSource();
 
+        private readonly TaskCompletionSource<Boolean> _finished =
+            new TaskCompletionSource<Boolean>(TaskCreationOptions.RunContinuationsAsynchronously);
+
         internal AgentRecord(String id, String role, String task, Int32 maxTraceSteps)
         {
             Id = id;
@@ -675,6 +743,28 @@ namespace NoSQL.GraphDB.Agents.Runtime
         public AgentTrace Trace
         {
             get;
+        }
+
+        /// <summary>
+        ///   How deep in a swarm this agent sits: 0 for one a caller spawned, one more than its
+        ///   parent for a worker. Stamped at admission from the parent's own depth rather than
+        ///   computed by walking up, because an ancestor can be evicted while this agent still
+        ///   runs and a walk would then report a depth that flatters the tree.
+        /// </summary>
+        public Int32 Depth
+        {
+            get; internal set;
+        }
+
+        /// <summary>
+        ///   How many workers this agent has spawned over its whole life, which is what
+        ///   <c>Agents:Limits:MaxWorkersPerOrchestrator</c> bounds. Never decremented, so a
+        ///   finished or evicted worker still counts against the orchestrator that created it;
+        ///   mutated only under the registry's lock.
+        /// </summary>
+        public Int32 WorkersSpawned
+        {
+            get; internal set;
         }
 
         /// <summary>
@@ -885,6 +975,21 @@ namespace NoSQL.GraphDB.Agents.Runtime
             };
         }
 
+        /// <summary>
+        ///   Completes when this agent reaches an ending, whatever the ending is. What an
+        ///   orchestrator awaits, so <c>await_workers</c> needs no polling and no scheduler of its
+        ///   own: the framework still runs every agent's loop and this is only the signal that one
+        ///   has stopped.
+        ///   <para>
+        ///     <c>RunContinuationsAsynchronously</c>, deliberately. Without it the thread that
+        ///     finishes a worker would run the awaiting orchestrator's continuation inline, which
+        ///     on the cancel path is a thread already inside the registry's cascade cancel, walking a
+        ///     list of descendants. The registry's own rule about not running other people's work
+        ///     on its threads applies to this just as it does to the journal.
+        ///   </para>
+        /// </summary>
+        public Task Finished => _finished.Task;
+
         internal void SignalCancellation()
         {
             try
@@ -897,8 +1002,18 @@ namespace NoSQL.GraphDB.Agents.Runtime
             }
         }
 
+        /// <summary>Releases whoever is awaiting this agent. Called once, by the registry, after
+        /// the ending is on the record.</summary>
+        internal void SignalFinished()
+        {
+            _finished.TrySetResult(true);
+        }
+
         public void Dispose()
         {
+            // Released before the source goes, so an orchestrator awaiting a worker that is being
+            // evicted mid-await is woken rather than left on a task nothing will ever complete.
+            SignalFinished();
             _cancellation.Dispose();
         }
     }

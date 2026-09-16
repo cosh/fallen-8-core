@@ -206,20 +206,12 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 detail.Trace = record.Trace.Tail(DetailTraceSteps);
                 detail.TraceRecorded = record.Trace.Recorded;
 
-                // The citation counts come off the trace's own citationCheck step rather than being
-                // recomputed, so the detail route and the feed event cannot disagree about a run
-                // that has already ended.
-                foreach (var step in detail.Trace)
-                {
-                    if (step.ValidCitations != null || step.DanglingCitations != null)
-                    {
-                        detail.Citations = new CitationCounts
-                        {
-                            Valid = step.ValidCitations ?? 0,
-                            Dangling = step.DanglingCitations ?? 0,
-                        };
-                    }
-                }
+                // The counts come off the trace's own citationCheck step rather than being
+                // recomputed, so every reader of a finished run agrees; AgentTrace.Citations is
+                // the one home for that read. This used to scan the twenty-step TAIL above, which
+                // reported no citations at all for a run whose check had been dropped from the
+                // front of a long trace.
+                detail.Citations = record.Trace.Citations();
             }
 
             return detail;

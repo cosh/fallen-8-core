@@ -408,17 +408,33 @@ Intent: honest cost accounting and hard stops, the other half of the review cont
 
 Intent: orchestrator/worker composition on the framework's primitives, bounded by configuration.
 
-- [ ] `SwarmTools`: `spawn_worker` / `await_workers` as registry-backed `AIFunction`s, attached only
+- [x] `SwarmTools`: `spawn_worker` / `await_workers` as registry-backed `AIFunction`s, attached only
   to `orchestrator` agents; workers are first-class `worker`-role agents with `parentId`;
-  `await_workers` returns typed results.
-- [ ] Caps enforced in the registry (`MaxConcurrentAgents`, `MaxSwarmDepth`,
-  `MaxWorkersPerOrchestrator`): breach = tool error + `toolCalled(success=false)` event.
-- [ ] Cascade cancel; worker results delivered to the awaiting orchestrator via Agent Framework
-  handoff/concurrent patterns (no bespoke scheduler); orchestrator prompt states the one-composer
-  rule.
-- [ ] Tests (fake client, scripted orchestrator): spawn visibility, every cap, depth limit, cascade
+  `await_workers` returns typed results. *(Phase 4: built per orchestrator, because each may only
+  spawn and await its own workers. Appended after the role's allowlist, since they are not MCP
+  tools. A caller may spawn an `orchestrator` now, which was refused before because the tools did
+  not exist; a `worker` is still refused, because one spawned over the API would have nobody to
+  report to.)*
+- [x] Caps enforced in the registry (`MaxConcurrentAgents`, `MaxSwarmDepth`,
+  `MaxWorkersPerOrchestrator`): breach = tool error + `toolCalled(success=false)` event. *(Phase 4:
+  all three in `TryAdmit`, so the swarm has no second opinion about them. Depth is stamped on the
+  record from the parent's, not walked, or an evicted ancestor would make a deep worker look
+  shallow; the worker count is kept on the orchestrator and never decremented, or awaiting would
+  buy another round forever.)*
+- [x] Cascade cancel; worker results delivered to the awaiting orchestrator; orchestrator prompt
+  states the one-composer rule. *(Phase 4. The handoff/concurrent clause was WITHDRAWN and spec 3.5
+  records why: measured, those patterns fix their participants at build time and cannot express a
+  task the model chooses per worker mid-run. No scheduler was written: the framework runs every
+  agent's loop and the await is one `Task.WhenAll` over completion signals the registry raises
+  anyway.)*
+- [x] Tests (fake client, scripted orchestrator): spawn visibility, every cap, depth limit, cascade
   cancel, await semantics and result shape, orchestrator budget independent of workers',
-  orchestrator allowlist (no graph tool beyond `f8_overview` offered).
+  orchestrator allowlist (no graph tool beyond `f8_overview` offered). *(Phase 4, all
+  mutation-checked. Two things the tests taught: one script shared by an orchestrator and its
+  workers is indexed by a single counter, so which turn each agent gets is a RACE, and the client
+  now scripts workers separately; and an instant worker cannot prove an await waits, because a
+  broken await still finds it finished. The awaited worker is deliberately slow, and removing the
+  wait left the test green until it was.)*
 
 ## Phase 5: packaging, docs, land
 

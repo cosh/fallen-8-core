@@ -547,6 +547,123 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public void TheSwarmDepthCapStopsAWorkerOrchestratingInTurn()
+        {
+            // The cost of a tree is multiplicative while the thing an operator configures is per
+            // agent: three levels of four is 21 agents from one request, each with its own token
+            // budget, against a provider quota they all share. Depth 2 is "delegate once".
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.MaxSwarmDepth = 2;
+
+            using var harness = new Harness(Script.Says("ok"), options: options);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            Assert.AreEqual(0, boss.Depth, "a caller's agent is the root");
+
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "part one") { ParentId = boss.Id }, out var worker, out _));
+            Assert.AreEqual(1, worker.Depth);
+
+            Assert.IsFalse(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "deeper") { ParentId = worker.Id }, out _, out var problem),
+                "a worker at the depth limit spawned one of its own");
+            StringAssert.Contains(problem, "MaxSwarmDepth");
+            StringAssert.Contains(problem, worker.Id, "the refusal names WHICH agent is too deep");
+        }
+
+        [TestMethod]
+        public void TheWorkerCapCountsOverTheOrchestratorsLifeRatherThanWhatIsLive()
+        {
+            // A live-only count would let an orchestrator spawn its allowance, await them all, and
+            // spawn again without bound, because its token budget bounds its OWN calls and not its
+            // workers'. So finishing a worker does not buy another.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.MaxWorkersPerOrchestrator = 2;
+
+            using var harness = new Harness(Script.Says("ok"), options: options);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "one") { ParentId = boss.Id }, out var first, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "two") { ParentId = boss.Id }, out var second, out _));
+
+            // Both finish, which a live-only count would treat as room for two more.
+            Assert.IsTrue(harness.Registry.Finish(first.Id, AgentState.Completed, resultText: "a"));
+            Assert.IsTrue(harness.Registry.Finish(second.Id, AgentState.Completed, resultText: "b"));
+
+            Assert.IsFalse(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "three") { ParentId = boss.Id }, out _, out var problem),
+                "finishing a worker bought the orchestrator another, so the cap bounds nothing");
+            StringAssert.Contains(problem, "MaxWorkersPerOrchestrator");
+            Assert.AreEqual(2, boss.WorkersSpawned, "the count is of what it spawned, ever");
+        }
+
+        [TestMethod]
+        public void EitherSwarmCapIsOffAtANonPositiveValueLikeEveryOtherLimit()
+        {
+            // The convention every other limit here follows, and the one a startup line reports as
+            // "unlimited": a non-positive value means off rather than a bound of zero, which for
+            // these two would otherwise refuse every worker a swarm ever spawns.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.MaxSwarmDepth = 0;
+            options.Limits.MaxWorkersPerOrchestrator = 0;
+
+            using var harness = new Harness(Script.Says("ok"), options: options);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+
+            var parent = boss;
+            for (var depth = 1; depth <= 5; depth++)
+            {
+                Assert.IsTrue(harness.Registry.TryAdmit(
+                    new AgentSpawn("worker", "level " + depth) { ParentId = parent.Id },
+                    out var child, out var problem), "depth " + depth + " was refused: " + problem);
+                Assert.AreEqual(depth, child.Depth, "depth is still recorded when it is not capped");
+                parent = child;
+            }
+        }
+
+        [TestMethod]
+        public void AnEvictedAncestorCannotMakeADeepWorkerLookShallow()
+        {
+            // Depth is stamped at admission from the parent's own depth rather than walked up the
+            // tree at spawn time. A walk would report a depth that flatters the tree the moment an
+            // ancestor is evicted, which is exactly when a long swarm is most likely to try again.
+            var clock = new StepClock(DateTimeOffset.Parse("2026-09-16T06:00:00Z"));
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.MaxSwarmDepth = 3;
+            options.Limits.RetainFinishedMinutes = 10;
+
+            using var harness = new Harness(Script.Says("ok"), options: options, clock: clock);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "middle") { ParentId = boss.Id }, out var middle, out _));
+
+            // The root finishes and is evicted; the middle worker is still live and still depth 1.
+            Assert.IsTrue(harness.Registry.Finish(boss.Id, AgentState.Completed, resultText: "done"));
+            clock.Advance(TimeSpan.FromMinutes(11));
+            Assert.IsFalse(harness.Registry.TryGet(boss.Id, out _), "the root had to be evicted");
+
+            Assert.AreEqual(1, middle.Depth, "the recorded depth survives its ancestor");
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "leaf") { ParentId = middle.Id }, out var leaf, out _));
+            Assert.AreEqual(2, leaf.Depth,
+                "a walk up the tree would have called this depth 1, and a cap of 3 would then "
+                + "admit a whole extra level for every ancestor that had been evicted");
+        }
+
+        [TestMethod]
         public void EvictionBreaksTheParentLinkSoAnEvictedAncestorIsNotRetainedByItsDescendants()
         {
             // A record held its parent by reference and nothing ever cleared it, so eviction
@@ -564,6 +681,11 @@ namespace NoSQL.GraphDB.Tests
             options.Limits.MaxConcurrentAgents = 0;
             options.Limits.RetainFinishedMinutes = 10;
             options.Limits.MaxRetainedAgents = 0;
+
+            // The depth cap is off because this test needs a three-generation chain and the
+            // shipped cap of 2 exists precisely to refuse one. What is under test here is
+            // eviction's effect on the parent link, not how deep a swarm may go.
+            options.Limits.MaxSwarmDepth = 0;
 
             using var harness = new Harness(Script.Says("ok"), options: options, clock: clock);
 
@@ -976,6 +1098,281 @@ namespace NoSQL.GraphDB.Tests
                 + "as one that never was");
         }
 
+        #region swarm mode
+
+        [TestMethod]
+        public async Task AnOrchestratorGetsTheSwarmToolsAndNobodyElseDoes()
+        {
+            // The swarm tools are appended after the role's allowlist, because they are not MCP
+            // tools. Only an orchestrator gets them: a worker with spawn_worker is how a swarm
+            // becomes a tree nobody bounded, and an assistant with it would be an orchestrator
+            // that was never told the one-composer rule.
+            var graphTool = Tool("f8_overview");
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+
+            using var harness = new Harness(Script.Says("done"), options: options,
+                tools: new List<AITool> { graphTool, Tool("f8_write") });
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            var offered = harness.Client.LastTools;
+            CollectionAssert.Contains(offered.ToArray(), SwarmTools.SpawnWorker);
+            CollectionAssert.Contains(offered.ToArray(), SwarmTools.AwaitWorkers);
+            CollectionAssert.Contains(offered.ToArray(), "f8_overview");
+            CollectionAssert.DoesNotContain(offered.ToArray(), "f8_write",
+                "the orchestrator's allowlist still narrows the MCP tools; the swarm tools are "
+                + "appended, not a way around it");
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "count"),
+                out var solo, out _));
+            await harness.Run(solo);
+
+            CollectionAssert.DoesNotContain(harness.Client.LastTools.ToArray(), SwarmTools.SpawnWorker);
+            CollectionAssert.DoesNotContain(harness.Client.LastTools.ToArray(), SwarmTools.AwaitWorkers);
+        }
+
+        [TestMethod]
+        public async Task AnOrchestratorSpawnsARealWorkerAndCollectsATypedResult()
+        {
+            // The whole phase in one test: the orchestrator's model calls spawn_worker, a real
+            // worker agent is admitted and run, and await_workers returns its result as a TYPED
+            // value rather than prose. Prose would have to be parsed by a model, which is where a
+            // swarm starts inventing.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker, new Dictionary<String, Object>
+                    {
+                        ["task"] = "count the vertices",
+                        ["name"] = "counter",
+                    })
+                    .ThenCalls("c2", SwarmTools.AwaitWorkers)
+                    .Then("Eight, per the worker. [t:await_workers]"),
+                options: options,
+                // SLOW on purpose. With an instant worker, an await that waited for nothing would
+                // still find it finished, so the assertion below would pass on a broken await:
+                // measured, removing the wait left this test green until the worker took time.
+                workerScript: Script.SaysAfter("eight", TimeSpan.FromMilliseconds(750)));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "how many?"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            Assert.AreEqual(AgentState.Completed, boss.State, boss.Failure);
+
+            // The worker is a first-class agent: listed, with the orchestrator as its parent.
+            var workers = harness.Registry.Children(boss.Id);
+            Assert.AreEqual(1, workers.Count, "spawn_worker did not admit a worker");
+            Assert.AreEqual("worker", workers[0].Role);
+            Assert.AreEqual(boss.Id, workers[0].ParentId);
+            Assert.AreEqual("count the vertices", workers[0].Task,
+                "the task the model chose has to reach the worker, or delegation means nothing");
+            Assert.AreEqual("counter", workers[0].Name);
+            Assert.AreEqual(1, workers[0].Depth);
+
+            // It ran on its own and reached an ending, which is what await_workers waited for.
+            Assert.IsTrue(AgentStates.IsTerminal(workers[0].State),
+                "await_workers returned while its worker was still " + workers[0].State);
+
+            // And the orchestrator's own trace records both calls, so a reviewer sees the
+            // delegation rather than inferring it from a listing.
+            var calls = boss.Trace.Steps().Where(s => s.Kind == "toolCall").ToList();
+            CollectionAssert.AreEquivalent(
+                new[] { SwarmTools.SpawnWorker, SwarmTools.AwaitWorkers },
+                calls.Select(c => c.Tool).ToArray());
+            Assert.IsTrue(calls.All(c => c.Success == true), "a swarm call failed: "
+                + String.Join("; ", calls.Select(c => c.Tool + ": " + c.Error)));
+        }
+
+        [TestMethod]
+        public async Task AwaitWorkersReturnsTheResultShapeAnOrchestratorCanComposeFrom()
+        {
+            // The typed result is the contract: state, answer, citation counts and cost. The
+            // counts come off the worker's own trace through AgentTrace.Citations, the one home,
+            // so an orchestrator and the detail route cannot disagree about the same run.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker, new Dictionary<String, Object>
+                    { ["task"] = "count" })
+                    .ThenCalls("c2", SwarmTools.AwaitWorkers)
+                    .Then("done"),
+                options: options,
+                workerScript: Script.SaysAfter("eight", TimeSpan.FromMilliseconds(750)));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "how many?"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            // The await's own tool-call step carries what came back, capped like any capture.
+            var awaited = boss.Trace.Steps()
+                .Single(s => s.Kind == "toolCall" && s.Tool == SwarmTools.AwaitWorkers);
+            Assert.IsNotNull(awaited.Result, "the await returned nothing for the trace to record");
+
+            var worker = harness.Registry.Children(boss.Id).Single();
+            StringAssert.Contains(awaited.Result, worker.Id,
+                "a result an orchestrator cannot attribute to a worker is prose: " + awaited.Result);
+            StringAssert.Contains(awaited.Result, "state",
+                "the shape is typed, so the state is a field: " + awaited.Result);
+        }
+
+        [TestMethod]
+        public async Task ABreachedCapReachesTheModelAsAToolErrorRatherThanEndingTheRun()
+        {
+            // Spec 3.5: a breached cap is a tool error the orchestrator sees and a
+            // toolCalled(success=false) event the user sees. Thrown instead, it would end the
+            // orchestrator's turn, and the one reader that could act on it (delegate less, await
+            // what it has) would never be told.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.MaxWorkersPerOrchestrator = 1;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker, new Dictionary<String, Object>
+                    { ["task"] = "one" })
+                    .ThenCallsWith("c2", SwarmTools.SpawnWorker, new Dictionary<String, Object>
+                        { ["task"] = "two" })
+                    .Then("I could only delegate one part."),
+                options: options,
+                workerScript: Script.Says("one"));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "two parts"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            Assert.AreEqual(AgentState.Completed, boss.State,
+                "a breached cap ended the run instead of being handed to the model: " + boss.Failure);
+            Assert.AreEqual(1, harness.Registry.Children(boss.Id).Count,
+                "the cap admitted a second worker");
+
+            // The refusal is IN the trace, as the result of the second call, naming the key.
+            var second = boss.Trace.Steps()
+                .Where(s => s.Kind == "toolCall" && s.Tool == SwarmTools.SpawnWorker)
+                .Skip(1)
+                .Single();
+            StringAssert.Contains(second.Result, "MaxWorkersPerOrchestrator",
+                "the model was not told WHICH cap it hit: " + second.Result);
+        }
+
+        [TestMethod]
+        public async Task CancellingAnOrchestratorCancelsTheWorkersItIsWaitingFor()
+        {
+            // Cascade cancel, through the swarm rather than through the registry's own API: the
+            // orchestrator is waiting inside await_workers when the cancel arrives, so this also
+            // pins that the await ends rather than holding a task nothing will complete.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker, new Dictionary<String, Object>
+                    { ["task"] = "slow part" })
+                    .ThenCalls("c2", SwarmTools.AwaitWorkers)
+                    .Then("never reached"),
+                options: options,
+                // The worker hangs, which is what leaves the orchestrator genuinely waiting inside
+                // await_workers when the cancel arrives.
+                workerScript: Script.Waits(TimeSpan.FromSeconds(30)));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            var running = harness.Run(boss);
+
+            Assert.IsTrue(SpinWait.SpinUntil(() => harness.Registry.Children(boss.Id).Count == 1, 10_000),
+                "the worker was never spawned");
+            var worker = harness.Registry.Children(boss.Id).Single();
+
+            Assert.IsTrue(harness.Registry.TryCancel(boss.Id, out var signalled));
+            Assert.IsTrue(signalled >= 2,
+                "a cancel has to reach the workers too; it signalled " + signalled);
+
+            await running;
+
+            Assert.AreEqual(AgentState.Cancelled, boss.State);
+            Assert.IsTrue(AgentStates.IsTerminal(worker.State),
+                "the worker outlived the orchestrator that was waiting for it, holding a "
+                + "concurrency slot for a swarm nobody is composing");
+        }
+
+        [TestMethod]
+        public async Task AnOrchestratorsTokenBudgetBoundsItsOwnCallsAndNotItsWorkers()
+        {
+            // Spec 3.6: "Orchestrator budgets bound only their own calls; the global token cap is
+            // MaxConcurrentAgents x DefaultTokenBudget by construction." So a worker gets its own
+            // budget rather than drawing on its orchestrator's, which is also why
+            // MaxWorkersPerOrchestrator has to count over a life: it is the only thing bounding
+            // how much a swarm can spend in total.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.DefaultTokenBudget = 5000;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker, new Dictionary<String, Object>
+                    { ["task"] = "count" })
+                    .ThenCalls("c2", SwarmTools.AwaitWorkers)
+                    .Then("done"),
+                options: options,
+                workerScript: Script.Says("eight"));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "how many?"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            var worker = harness.Registry.Children(boss.Id).Single();
+
+            Assert.AreEqual(5000, worker.TokenBudget,
+                "a worker has to get its own budget, or a swarm's cost would be capped by whatever "
+                + "its orchestrator had left and a long orchestration would starve its own workers");
+            Assert.AreEqual(5000, boss.TokenBudget);
+
+            // And the two meters are separate: what the worker spent is not charged to the
+            // orchestrator, so neither can exhaust the other.
+            Assert.IsTrue(Interlocked.Read(ref worker.InputTokens) > 0,
+                "the worker made a model call, so it spent something");
+            Assert.AreNotSame(boss, worker);
+            Assert.IsTrue(
+                Interlocked.Read(ref boss.InputTokens) + Interlocked.Read(ref boss.OutputTokens)
+                    < boss.TokenBudget,
+                "the orchestrator was charged for its worker's calls");
+        }
+
+        [TestMethod]
+        public async Task TheConcurrencyCapIsSeenByAnOrchestratorAsAToolErrorToo()
+        {
+            // The host-wide cap, reached through a tool call rather than the spawn route. It is the
+            // same refusal either way, which is the point of enforcing it in the registry: the
+            // swarm has no second opinion about how many agents may run.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 1;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker, new Dictionary<String, Object>
+                    { ["task"] = "one" })
+                    .Then("I could not delegate."),
+                options: options,
+                workerScript: Script.Says("never started"));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            Assert.AreEqual(0, harness.Registry.Children(boss.Id).Count,
+                "the orchestrator itself is the one live agent, so no worker had room");
+
+            var call = boss.Trace.Steps()
+                .Single(s => s.Kind == "toolCall" && s.Tool == SwarmTools.SpawnWorker);
+            StringAssert.Contains(call.Result, "MaxConcurrentAgents",
+                "the model has to be told which cap it hit to act on it: " + call.Result);
+            Assert.AreEqual(AgentState.Completed, boss.State,
+                "a full host ended the orchestrator instead of letting it say so");
+        }
+
+        #endregion
+
         private static AgentsOptions.RoleOptions Allow(params String[] tools)
         {
             return new AgentsOptions.RoleOptions { Tools = tools.ToList() };
@@ -996,13 +1393,13 @@ namespace NoSQL.GraphDB.Tests
             private readonly RoleCatalog _roles;
 
             public Harness(Script script, AgentsOptions options = null, IReadOnlyList<AITool> tools = null,
-                TimeProvider clock = null, TestLogSink sink = null)
+                TimeProvider clock = null, TestLogSink sink = null, Script workerScript = null)
             {
                 var resolved = options ?? new AgentsOptions();
                 var wrapped = Options.Create(resolved);
                 var loggers = sink == null ? TestLoggerFactory.Create() : sink.CreateFactory();
 
-                Client = new ScriptedChatClient(script);
+                Client = new ScriptedChatClient(script, workerScript);
                 _roles = RoleCatalog.Load(resolved);
 
                 // The real feed and the real journal, not fakes: the trace and the events are part
@@ -1048,6 +1445,10 @@ namespace NoSQL.GraphDB.Tests
                 Assert.IsTrue(_roles.TryGet(agent.Role, out var role, out _));
                 return Runner.RunAsync(agent, role, null);
             }
+
+            /// <summary>The usage/stat figures the scripted usage reports; the two scripts share
+            /// them, because a swarm's cost is the whole tree's.</summary>
+            public RoleCatalog Roles => _roles;
 
             public void Dispose()
             {
@@ -1120,6 +1521,30 @@ namespace NoSQL.GraphDB.Tests
                 return script;
             }
 
+            /// <summary>One call carrying arguments, for a tool that requires them.</summary>
+            public static Script CallsWith(String id, String name,
+                IReadOnlyDictionary<String, Object> arguments)
+            {
+                var script = new Script();
+                script.Turns.Add(_ => ScriptedTurn.CallWith(id, name, arguments));
+                return script;
+            }
+
+            /// <summary>Appends another call, carrying arguments.</summary>
+            public Script ThenCallsWith(String id, String name,
+                IReadOnlyDictionary<String, Object> arguments)
+            {
+                Turns.Add(_ => ScriptedTurn.CallWith(id, name, arguments));
+                return this;
+            }
+
+            /// <summary>Appends a call with no arguments.</summary>
+            public Script ThenCalls(String id, String name)
+            {
+                Turns.Add(_ => ScriptedTurn.Call(id, name));
+                return this;
+            }
+
             /// <summary>A model that never stops asking for a tool. Only a cap can end it, which is
             /// the whole point of the caps.</summary>
             public static Script AlwaysCalls(String name)
@@ -1136,6 +1561,15 @@ namespace NoSQL.GraphDB.Tests
                 var script = new Script();
                 script.Repeating = i => ScriptedTurn.Calls(
                     Enumerable.Range(0, howMany).Select(n => ("call-" + i + "-" + n, name)).ToList());
+                return script;
+            }
+
+            /// <summary>One answer, delivered after a delay: a worker slow enough that awaiting it
+            /// is observably different from not awaiting it.</summary>
+            public static Script SaysAfter(String text, TimeSpan how)
+            {
+                var script = new Script();
+                script.Turns.Add(_ => ScriptedTurn.SlowText(text, how));
                 return script;
             }
 
@@ -1191,6 +1625,12 @@ namespace NoSQL.GraphDB.Tests
                 get; private set;
             }
 
+            /// <summary>What the scripted call passes, or null for none.</summary>
+            public IReadOnlyDictionary<String, Object> CallArguments
+            {
+                get; private set;
+            }
+
             /// <summary>Several calls in one response, for the overshoot the tool-call cap has.</summary>
             public IReadOnlyList<(String Id, String Name)> Batch
             {
@@ -1209,6 +1649,19 @@ namespace NoSQL.GraphDB.Tests
 
             public static ScriptedTurn Text(String text) => new ScriptedTurn { Content = text };
 
+            /// <summary>
+            ///   A call with ARGUMENTS, which a tool with a required parameter needs: the swarm's
+            ///   spawn_worker takes a task, and a call with an empty argument bag would be refused
+            ///   by the schema rather than reaching the tool.
+            /// </summary>
+            public static ScriptedTurn CallWith(String id, String name,
+                IReadOnlyDictionary<String, Object> arguments)
+            {
+                var turn = Call(id, name);
+                turn.CallArguments = arguments;
+                return turn;
+            }
+
             public static ScriptedTurn Call(String id, String name)
                 => new ScriptedTurn { CallId = id, CallName = name };
 
@@ -1216,6 +1669,12 @@ namespace NoSQL.GraphDB.Tests
                 => new ScriptedTurn { Batch = calls };
 
             public static ScriptedTurn Wait(TimeSpan how) => new ScriptedTurn { Delay = how };
+
+            /// <summary>An answer that takes time to arrive. Wait() answers with NOTHING, which the
+            /// runner records as a run that did not answer, so it cannot stand in for a slow
+            /// worker.</summary>
+            public static ScriptedTurn SlowText(String text, TimeSpan how)
+                => new ScriptedTurn { Content = text, Delay = how };
 
             public static ScriptedTurn Failure(String message) => new ScriptedTurn { Error = message };
         }
@@ -1233,9 +1692,38 @@ namespace NoSQL.GraphDB.Tests
 
             private Int32 _calls;
 
-            public ScriptedChatClient(Script script)
+            private readonly Script _workerScript;
+            private Int32 _workerCalls;
+
+            /// <param name="script">What every agent answers with, unless it is a worker and
+            /// <paramref name="workerScript" /> is given.</param>
+            /// <param name="workerScript">
+            ///   What a WORKER answers with, on its own call counter.
+            ///   <para>
+            ///     A swarm needs this. One script shared by an orchestrator and its workers is
+            ///     indexed by a single counter, so which turn a given agent gets depends on the
+            ///     order the two happened to call in: the worker starts the moment it is spawned,
+            ///     so "the orchestrator's second turn" and "the worker's first" race for index 1.
+            ///     A first version of the swarm tests was written that way and was racy rather
+            ///     than wrong-looking, which is worse.
+            ///   </para>
+            /// </param>
+            public ScriptedChatClient(Script script, Script workerScript = null)
             {
                 _script = script;
+                _workerScript = workerScript;
+            }
+
+            /// <summary>
+            ///   Whether this call is a worker's, decided from the role prompt the framework put on
+            ///   ChatOptions.Instructions. The prompts are the host's own embedded resources, so
+            ///   the marker is stable, and it is the only thing on a chat call that says which
+            ///   agent made it: the adapter deliberately sends no agent id.
+            /// </summary>
+            private static Boolean IsWorker(ChatOptions options)
+            {
+                return options?.Instructions != null
+                    && options.Instructions.Contains("Fallen-8 graph worker", StringComparison.Ordinal);
             }
 
             /// <summary>Completes when the first model call has been entered, so a test can cancel a
@@ -1258,15 +1746,19 @@ namespace NoSQL.GraphDB.Tests
             public async Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages,
                 ChatOptions options = null, CancellationToken cancellationToken = default)
             {
-                var index = Interlocked.Increment(ref _calls) - 1;
+                var worker = _workerScript != null && IsWorker(options);
+                var script = worker ? _workerScript : _script;
+                var index = worker
+                    ? Interlocked.Increment(ref _workerCalls) - 1
+                    : Interlocked.Increment(ref _calls) - 1;
                 LastTools = options?.Tools?.Select(t => t.Name).ToList() ?? (IReadOnlyList<String>)Array.Empty<String>();
                 LastMessages = messages.ToList();
                 LastInstructions = options?.Instructions;
                 _firstCall.TrySetResult();
 
-                var turn = index < _script.Turns.Count
-                    ? _script.Turns[index](index)
-                    : _script.Repeating?.Invoke(index) ?? ScriptedTurn.Text("done");
+                var turn = index < script.Turns.Count
+                    ? script.Turns[index](index)
+                    : script.Repeating?.Invoke(index) ?? ScriptedTurn.Text("done");
 
                 if (turn.Error != null)
                 {
@@ -1290,7 +1782,9 @@ namespace NoSQL.GraphDB.Tests
                 else if (turn.CallName != null)
                 {
                     contents.Add(new FunctionCallContent(turn.CallId, turn.CallName,
-                        new Dictionary<String, Object>(StringComparer.Ordinal)));
+                        turn.CallArguments == null
+                            ? new Dictionary<String, Object>(StringComparer.Ordinal)
+                            : new Dictionary<String, Object>(turn.CallArguments, StringComparer.Ordinal)));
                 }
                 else
                 {

@@ -131,35 +131,46 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public async Task TheTwoSwarmRolesAreRefusedWithTheReasonRatherThanSpawnedWithoutTheirTools()
+        public async Task AnOrchestratorIsSpawnableNowAndAWorkerStillIsNot()
         {
-            // Both roles exist, have prompts and have allowlists, and the runner serves them. What
-            // is missing is the swarm, so spawning either would produce an agent commanded to use
-            // tools it does not have, or one told to report to an orchestrator that does not exist.
-            // Refused with that reason, which is more use than a role the catalogue denies having.
+            // The swarm phase changed half of this. An orchestrator used to be refused because the
+            // tools it delegates with did not exist, so it would have been an agent instructed to
+            // delegate with nothing and a prompt telling it not to answer the task itself. It has
+            // spawn_worker and await_workers now, so a caller may start one.
+            //
+            // A WORKER is still refused, and for a reason the swarm does not change: it reports a
+            // typed result to the orchestrator that gave it its part of a task, and one spawned
+            // over this API would have nobody to report to. Only an orchestrator's own tool call
+            // creates one, which is also what keeps MaxWorkersPerOrchestrator meaningful.
             using var factory = new AgentHostFactory();
             using var client = factory.CreateClient();
 
+            String orchestrator;
             using (var response = await client.PostAsync("/agent",
                 Json("{\"task\":\"plan it\",\"role\":\"orchestrator\"}")))
             {
-                Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
-                var detail = await Text(response);
-                StringAssert.Contains(detail, "delegates with are not available");
-                StringAssert.Contains(detail, "assistant", "the refusal has to say what to do instead");
+                Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode, await Text(response));
+                var body = await Read(response);
+                Assert.AreEqual("orchestrator", body.GetProperty("role").GetString());
+                orchestrator = body.GetProperty("id").GetString();
             }
 
             using (var response = await client.PostAsync("/agent",
                 Json("{\"task\":\"part one\",\"role\":\"worker\"}")))
             {
                 Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode);
-                StringAssert.Contains(await Text(response), "spawned by an orchestrator");
+                var detail = await Text(response);
+                StringAssert.Contains(detail, "spawned by an orchestrator");
+                StringAssert.Contains(detail, "assistant", "the refusal says what to do instead");
             }
 
-            // And nothing was admitted by either attempt.
+            // Exactly one agent was admitted, and it is the orchestrator: the refused worker left
+            // nothing behind, so a caller cannot fill the listing with rejected spawns.
             using (var listed = await client.GetAsync("/agent"))
             {
-                Assert.AreEqual(0, (await Read(listed)).GetArrayLength());
+                var agents = (await Read(listed)).EnumerateArray().ToList();
+                Assert.AreEqual(1, agents.Count);
+                Assert.AreEqual(orchestrator, agents[0].GetProperty("id").GetString());
             }
         }
 

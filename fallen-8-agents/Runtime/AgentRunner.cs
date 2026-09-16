@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -194,7 +195,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
                 _registry.Advance(agent.Id, AgentState.Running);
 
-                var tools = role.Filter(_toolset.Tools);
+                var tools = Tools(agent, role);
                 var instructions = Instructions(role, systemPromptAppendix);
 
                 var pipeline = new ChatClientBuilder(
@@ -451,6 +452,39 @@ namespace NoSQL.GraphDB.Agents.Runtime
         /// </summary>
         private static readonly TimeSpan MaxArmableDeadline =
             TimeSpan.FromMilliseconds(UInt32.MaxValue - 2);
+
+        /// <summary>
+        ///   What this agent may call: the MCP tools its role allows, plus the swarm tools if it is
+        ///   an orchestrator.
+        ///
+        ///   <para>
+        ///     APPENDED after the allowlist rather than listed in it, because the allowlist narrows
+        ///     what the MCP server advertises and these are not MCP tools; <see cref="RoleCatalog" />
+        ///     says so where the allowlist is declared. Built PER AGENT because each orchestrator
+        ///     may only spawn and await its own workers, which is what makes an id from one
+        ///     orchestrator useless to another.
+        ///   </para>
+        ///   <para>
+        ///     Only an orchestrator gets them. A worker with <c>spawn_worker</c> is how a swarm
+        ///     becomes a tree nobody bounded, and the depth cap exists because that cost is
+        ///     multiplicative; an assistant with it would be an orchestrator that was never told
+        ///     the one-composer rule.
+        ///   </para>
+        /// </summary>
+        private IReadOnlyList<AITool> Tools(AgentRecord agent, AgentRole role)
+        {
+            var allowed = role.Filter(_toolset.Tools);
+            if (!String.Equals(role.Name, "orchestrator", StringComparison.OrdinalIgnoreCase))
+            {
+                return allowed;
+            }
+
+            var swarm = new SwarmTools(_registry, _roles, this, agent).Tools();
+            var all = new List<AITool>(allowed.Count + swarm.Count);
+            all.AddRange(allowed);
+            all.AddRange(swarm);
+            return all;
+        }
 
         /// <summary>
         ///   The role prompt, plus whatever the caller appended. The order is the point: the role

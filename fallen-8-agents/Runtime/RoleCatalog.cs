@@ -164,14 +164,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 return false;
             }
 
-            if (String.Equals(role, "orchestrator", StringComparison.OrdinalIgnoreCase))
-            {
-                problem = "An orchestrator works by delegating to workers, and the tools it "
-                    + "delegates with are not available on this host yet, so it would be instructed "
-                    + "to call tools it does not have. Spawn an assistant instead.";
-                return false;
-            }
-
+            // An orchestrator IS spawnable, as of the swarm phase: it has spawn_worker and
+            // await_workers, which the runner appends for that role alone. Before they existed it
+            // was refused rather than spawned, because an agent instructed to delegate with tools
+            // it does not have would have had to answer the whole task itself, from a prompt that
+            // tells it not to.
             return true;
         }
 

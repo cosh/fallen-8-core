@@ -1,7 +1,7 @@
 # Fallen-8 Agent Host: Specification
 
-> **Status:** Phases 0, 1a, 1b and 2 are IMPLEMENTED on `feature/agent-host` and unmerged; Phase
-> 3 (metrics) is next, then 4 (swarm) and 5 (packaging, docs, land). This line said "spec only (no
+> **Status:** Phases 0 through 4 are IMPLEMENTED on `feature/agent-host` and unmerged; Phase 5
+> (packaging, docs, land) is what remains. This line said "spec only (no
 > implementation yet)" while a whole deployable, the apiApp proxy and the chat-gateway purposes had
 > landed, which is the one line a reader checks to place the feature. Per-phase state and dates are
 > in [plan.md](./plan.md). Follow the feature workflow in the
@@ -545,8 +545,21 @@ what to decide, in that order.
   `MaxWorkersPerOrchestrator`. A breached cap is a tool error the orchestrator sees and a
   `toolCalled(success=false)` event the user sees.
 - Cancelling an orchestrator cancels its live descendants; a worker finishing feeds its result to
-  the awaiting orchestrator via Agent Framework's primitives (handoff/concurrent patterns), no
-  bespoke scheduler.
+  the awaiting orchestrator, and no bespoke scheduler is written for it.
+  - **The "via Agent Framework's handoff/concurrent patterns" clause was withdrawn in Phase 4,
+    because it contradicts the two tools above.** Measured against
+    `Microsoft.Agents.AI.Workflows` 1.20.0, which is a real package and pairs with the pinned
+    `Microsoft.Agents.AI`: those patterns fix their participants when the workflow is BUILT. The
+    concurrent builder broadcasts the same messages to every participant; the Magentic builder puts
+    its own LLM manager in charge of a set given up front. Neither expresses
+    `spawn_worker(task)`, where the orchestrator's own model decides mid-run how many workers there
+    are and what each one's task is, which is what this section specifies and what the role prompts
+    are written for. So the tools are the contract and the clause was an assumption about how to
+    build them.
+  - What "no bespoke scheduler" still means, and is still honoured: there is no queue, no
+    dispatcher and no priority. The framework runs every agent's loop, including each worker's;
+    `await_workers` is one `Task.WhenAll` over completion signals the registry raises at an ending
+    anyway.
 
 ### 3.6 Tokens, counters and observability
 
@@ -608,8 +621,8 @@ Host (`Agents:*` for this process, `Fallen8Target:*` for the instance it asks):
 | `Agents:Limits:MaxToolCallsPerRun` | `48` | |
 | `Agents:Limits:MaxRunSeconds` | `1800` | a cap, not a target; see section 5 |
 | `Agents:Limits:MaxConcurrentAgents` | `4` | Nahil's hourly quota, the step latency and the instance's rate-limit window all argue for few |
-| `Agents:Limits:MaxSwarmDepth` | `2` | **Phase 4**, not implemented: no swarm exists yet, so the key binds to nothing |
-| `Agents:Limits:MaxWorkersPerOrchestrator` | `4` | **Phase 4**, as above |
+| `Agents:Limits:MaxSwarmDepth` | `2` | a caller's agent is depth 0, so 2 means "delegate once": an orchestrator may spawn workers and they may not orchestrate in turn. Enforced at admission from the parent's recorded depth |
+| `Agents:Limits:MaxWorkersPerOrchestrator` | `4` | over an orchestrator's whole LIFE, not at once: its token budget bounds its own calls and not its workers', so a live-only count would bound nothing |
 | `Agents:Limits:RetainFinishedMinutes` / `MaxRetainedAgents` | `60` / `200` | |
 | `Agents:Trace:MaxSteps` / `ArgsBytes` / `ResultBytes` | `1000` / `2048` / `8192` | |
 | `Agents:Feed:KeepAliveSeconds` | `15` | an idle feed is never silent, or a proxy in between closes it |

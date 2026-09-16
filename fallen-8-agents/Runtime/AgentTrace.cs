@@ -507,6 +507,42 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
+        ///   The citation counts this run recorded, or null if no check ran.
+        ///
+        ///   <para>
+        ///     Read back off the trace's own <c>citationCheck</c> step rather than recomputed, so
+        ///     every reader of a finished run reports the same pair: the detail route, an
+        ///     orchestrator collecting a worker's result, and the ending event all agree by
+        ///     construction. THE one home for that read, because there are two callers now and a
+        ///     second copy of the scan is a second answer waiting to differ.
+        ///   </para>
+        ///   <para>
+        ///     Scans what the trace still holds, not a tail of it. The detail route used to scan
+        ///     its own twenty-step tail, which would have reported no citations for any run whose
+        ///     check had already been dropped from the front of a long trace.
+        ///   </para>
+        /// </summary>
+        public CitationCounts? Citations()
+        {
+            lock (_gate)
+            {
+                foreach (var step in _steps)
+                {
+                    if (step.ValidCitations != null || step.DanglingCitations != null)
+                    {
+                        return new CitationCounts
+                        {
+                            Valid = step.ValidCitations ?? 0,
+                            Dangling = step.DanglingCitations ?? 0,
+                        };
+                    }
+                }
+
+                return null;
+            }
+        }
+
+        /// <summary>
         ///   Every tool NAME this trace has recorded a call for, INCLUDING calls the buffer has
         ///   since dropped. Names rather than tool-call ids, because no backend shows a tool-call id
         ///   to the model, so an id is not something it could cite.
