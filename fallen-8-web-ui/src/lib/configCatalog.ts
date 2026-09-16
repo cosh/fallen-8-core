@@ -243,6 +243,18 @@ export interface SectionGroup {
   groups: SettingGroup[];
 }
 
+/**
+ * The purposes a chat completion can name, as they are spelled in a settings key
+ * (`Fallen8:Chat:<Backend>:Models:<Purpose>`). ONE list, so a surface that offers something per
+ * purpose cannot offer it for a subset: the server resolves the model per purpose and refuses a
+ * completion whose purpose names none, which is a state an operator has to be able to see and fix
+ * for every purpose that exists.
+ *
+ * Order is the order they are shown in, and `Assist` is first because it is the one an instance
+ * has configured by default.
+ */
+export const CHAT_PURPOSES: readonly string[] = ["Assist", "Agent"];
+
 /** The prefix a key shares with its siblings: Fallen8:Embedding:Onnx:ModelPath -> Fallen8:Embedding:Onnx. */
 function groupKeyOf(key: string): string {
   const segments = key.split(":");

@@ -77,6 +77,13 @@ const OLLAMA_KEY = "Fallen8:Chat:Ollama:Models:Assist";
 const NAHIL_KEY = "Fallen8:Chat:Nahil:Models:Assist";
 const OPENAI_KEY = "Fallen8:Chat:OpenAI:Models:Assist";
 const ANTHROPIC_KEY = "Fallen8:Chat:Anthropic:Models:Assist";
+// The AGENT purpose's key on each backend (feature agent-host). Every backend publishes one, so a
+// fixture holding only the assist keys would describe a catalog this server stopped publishing when
+// the purposes landed, and the picker covering both purposes would have had nothing to prove it on.
+const OLLAMA_AGENT_KEY = "Fallen8:Chat:Ollama:Models:Agent";
+const NAHIL_AGENT_KEY = "Fallen8:Chat:Nahil:Models:Agent";
+const OPENAI_AGENT_KEY = "Fallen8:Chat:OpenAI:Models:Agent";
+const ANTHROPIC_AGENT_KEY = "Fallen8:Chat:Anthropic:Models:Agent";
 const EMBEDDING_KEY = "Fallen8:Embedding:Ollama:Model";
 const CHAT_ENABLED_KEY = "Fallen8:Chat:Enabled";
 const CEILING_KEY = "Fallen8:Plugins:MaxCount";
@@ -130,12 +137,30 @@ function inventory(): SettingREST[] {
     setting(NAHIL_KEY, { value: "phi4-f8-mini:latest" }),
     setting(OPENAI_KEY, { value: "gpt-4o-mini" }),
     setting(ANTHROPIC_KEY, { value: "claude-sonnet-4" }),
+    // The agent purpose, shipped empty on the two metered providers, which is the state the server
+    // reports and the state an operator has to be able to fill in from this surface.
+    setting(OLLAMA_AGENT_KEY, { value: "phi4-mini:latest" }),
+    setting(NAHIL_AGENT_KEY, { value: "" }),
+    setting(OPENAI_AGENT_KEY, { value: "" }),
+    setting(ANTHROPIC_AGENT_KEY, { value: "" }),
   ];
 }
 
 /** The inventory with one row patched, so a case can state the one fact it is about. */
 function inventoryWith(key: string, overrides: Partial<SettingREST>): SettingREST[] {
   return inventory().map((entry) => (entry.key === key ? { ...entry, ...overrides } : entry));
+}
+
+/**
+ * The same patch on BOTH of the running backend's purpose rows. The clauses that withhold a picker
+ * are per key, so a case about one of them has to say it of every purpose: patching only the assist
+ * row would leave the agent row asking for the catalog, and the claim "no credential is spent on
+ * names nothing could consume" would be tested against a surface that still had a consumer.
+ */
+function inventoryWithPurposes(overrides: Partial<SettingREST>): SettingREST[] {
+  return inventory().map((entry) =>
+    entry.key === NAHIL_KEY || entry.key === NAHIL_AGENT_KEY ? { ...entry, ...overrides } : entry,
+  );
 }
 
 const CHAT_ON: ChatProviderStatsREST = {
@@ -284,6 +309,72 @@ describe("Chat model picker", () => {
     expect(getChatModelsMock).toHaveBeenCalledWith(SAME_ORIGIN_INSTANCE, expect.anything());
   });
 
+  it("offers the same names at EVERY purpose of the running backend, from one read", async () => {
+    const user = userEvent.setup();
+    getChatModelsMock.mockResolvedValue(CATALOG);
+    renderSurface();
+
+    await selectSection(user, "chat");
+    await waitFor(() =>
+      expect(row(NAHIL_AGENT_KEY)).toHaveAttribute(
+        "list",
+        `${settingTestId(NAHIL_AGENT_KEY)}-options`,
+      ),
+    );
+
+    // The agent purpose is the one an operator is most likely to be filling in blind: it ships empty
+    // on this backend, and a completion naming a purpose with no model is refused.
+    expect(row(NAHIL_AGENT_KEY)).toHaveValue("");
+    expect(offered(NAHIL_AGENT_KEY)).toEqual(offered(NAHIL_KEY));
+    expect(offered(NAHIL_AGENT_KEY).map((option) => option.value)).toEqual([
+      "phi4-f8-mini:latest",
+      "phi4-f8:latest",
+      "unlabelled:latest",
+    ]);
+    // ONE read for both rows. Two would be one credentialed fan-out per purpose, which is the cost
+    // FR-4 bounds, and it would grow with every purpose added later.
+    expect(getChatModelsMock).toHaveBeenCalledTimes(1);
+    await expectNoMoreCatalogReads(1);
+  });
+
+  it("takes a catalogued name at the agent purpose and leaves the assist one alone", async () => {
+    const user = userEvent.setup();
+    getChatModelsMock.mockResolvedValue(CATALOG);
+    renderSurface();
+
+    await selectSection(user, "chat");
+    await waitFor(() => expect(row(NAHIL_AGENT_KEY)).toHaveAttribute("list"));
+
+    await user.type(row(NAHIL_AGENT_KEY), "phi4-f8:latest");
+
+    // The draft is per key: writing the agent model must not carry into the assist model, which is a
+    // different person's decision and, here, a different value.
+    expect(row(NAHIL_AGENT_KEY)).toHaveValue("phi4-f8:latest");
+    expect(row(NAHIL_KEY)).toHaveValue("phi4-f8-mini:latest");
+    expect(screen.getByTestId("config-save")).toBeEnabled();
+  });
+
+  it("withholds the picker from the purpose the environment declares, and keeps it on the other", async () => {
+    const user = userEvent.setup();
+    getChatModelsMock.mockResolvedValue(CATALOG);
+    // Exactly what the compose environment does: it sets the agent model and leaves the assist model
+    // to the instance. The clauses are per key, so this asymmetry is the shipped state rather than a
+    // contrived one.
+    renderSurface({ settings: inventoryWith(NAHIL_AGENT_KEY, { source: "environment" }) });
+
+    await selectSection(user, "chat");
+    await waitFor(() => expect(row(NAHIL_KEY)).toHaveAttribute("list"));
+    await screen.findByTestId(`${settingTestId(NAHIL_AGENT_KEY)}-env`);
+
+    // The environment-declared row is not typeable, so a list beside it would be a dead control...
+    expect(offered(NAHIL_AGENT_KEY)).toEqual([]);
+    expect(row(NAHIL_AGENT_KEY)).not.toHaveAttribute("list");
+    // ...while the row that IS typeable keeps its names, and the read still happened once.
+    expect(offered(NAHIL_KEY).map((option) => option.value)).toContain("phi4-f8-mini:latest");
+    expect(document.querySelectorAll("datalist")).toHaveLength(1);
+    expect(getChatModelsMock).toHaveBeenCalledTimes(1);
+  });
+
   it("offers nothing on the other backends' model rows", async () => {
     const user = userEvent.setup();
     getChatModelsMock.mockResolvedValue(CATALOG);
@@ -292,12 +383,20 @@ describe("Chat model picker", () => {
     await selectSection(user, "chat");
     await waitFor(() => expect(row(NAHIL_KEY)).toHaveAttribute("list"));
 
-    for (const key of [OLLAMA_KEY, OPENAI_KEY, ANTHROPIC_KEY]) {
+    for (const key of [
+      OLLAMA_KEY,
+      OPENAI_KEY,
+      ANTHROPIC_KEY,
+      OLLAMA_AGENT_KEY,
+      OPENAI_AGENT_KEY,
+      ANTHROPIC_AGENT_KEY,
+    ]) {
       expect(row(key), key).not.toHaveAttribute("list");
       expect(offered(key), key).toEqual([]);
     }
-    // One row in the whole surface, so exactly one datalist exists in it.
-    expect(document.querySelectorAll("datalist")).toHaveLength(1);
+    // The running backend's rows and no others: one per purpose, so exactly two datalists exist in
+    // the whole surface however many backends the inventory describes.
+    expect(document.querySelectorAll("datalist")).toHaveLength(2);
   });
 
   it("never offers a picker on an embedding model row, even with both panes on screen", async () => {
@@ -316,10 +415,10 @@ describe("Chat model picker", () => {
     // R3: the row is not writable at all, so it renders its reason and no control to offer anything to.
     expect(screen.queryByTestId(settingTestId(EMBEDDING_KEY))).toBeNull();
     expect(offered(EMBEDDING_KEY)).toEqual([]);
-    // Names already in hand stay beside the row they belong to, and only that row: a search narrows
-    // the pane, it does not take the list away and it does not move it.
+    // Names already in hand stay beside the rows they belong to, and only those rows: a search
+    // narrows the pane, it does not take the list away and it does not move it.
     expect(row(NAHIL_KEY)).toHaveAttribute("list", `${settingTestId(NAHIL_KEY)}-options`);
-    expect(document.querySelectorAll("datalist")).toHaveLength(1);
+    expect(document.querySelectorAll("datalist")).toHaveLength(2);
     expect(getChatModelsMock).toHaveBeenCalledTimes(1);
   });
 
@@ -583,7 +682,9 @@ describe("Chat model picker", () => {
     // Fallen8:Embedding:*:Model as notWritable under R3, and this row's Endpoint/ApiKey siblings
     // under R4/R8, so a chat model key joining them is one catalog edit away. Such a row renders its
     // reason and NO input, and the credential must not be spent on names nothing could consume.
-    renderSurface({ settings: inventoryWith(NAHIL_KEY, { tier: "notWritable", rule: "R3", reason: "pinned by a rule" }) });
+    renderSurface({
+      settings: inventoryWithPurposes({ tier: "notWritable", rule: "R3", reason: "pinned by a rule" }),
+    });
 
     await selectSection(user, "chat");
     await screen.findByTestId(`${settingTestId(NAHIL_KEY)}-reason`);
@@ -596,7 +697,7 @@ describe("Chat model picker", () => {
     getChatModelsMock.mockResolvedValue(CATALOG);
     // The kind clause on its own: a datalist belongs to a text input, so a descriptor that arrives
     // as another kind gets no picker rather than a combobox grafted onto the wrong control.
-    renderSurface({ settings: inventoryWith(NAHIL_KEY, { kind: "int" }) });
+    renderSurface({ settings: inventoryWithPurposes({ kind: "int" }) });
 
     await selectSection(user, "chat");
     await screen.findByTestId(settingTestId(NAHIL_KEY));
@@ -607,7 +708,7 @@ describe("Chat model picker", () => {
   it("reads nothing when the environment declares the model, and says so instead", async () => {
     const user = userEvent.setup();
     getChatModelsMock.mockResolvedValue(CATALOG);
-    renderSurface({ settings: inventoryWith(NAHIL_KEY, { source: "environment" }) });
+    renderSurface({ settings: inventoryWithPurposes({ source: "environment" }) });
 
     await selectSection(user, "chat");
     await screen.findByTestId(`${settingTestId(NAHIL_KEY)}-env`);

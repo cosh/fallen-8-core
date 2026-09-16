@@ -193,7 +193,7 @@ Instance:
 | `Fallen8:Agents:Enabled` | `false` | the `/agents/*` routes refuse until this is on |
 | `Fallen8:Agents:Endpoint` | empty | the proxy answers 503 rather than timing out |
 | `Fallen8:Agents:TimeoutSeconds` | `30` | the small routes; the feed is a stream and takes none |
-| `Fallen8:Chat:<Backend>:Models:Agent` | Ollama `phi4-mini:latest`, others none | the model the agent purpose resolves to |
+| `Fallen8:Chat:<Backend>:Models:Agent` | `phi4-mini:latest` on Ollama and Nahil, none on OpenAI and Anthropic | the model the agent purpose resolves to; see [one model per purpose](/semantic-traversal/#one-model-per-purpose) |
 
 ## What it reports about itself
 

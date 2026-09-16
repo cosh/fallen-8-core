@@ -98,7 +98,7 @@ The surface explains the requirement instead of showing a Save button that would
 
 One thing worth knowing once writes are on: an unsaved edit **survives** closing the surface. The Configuration card keeps showing that there are unsaved changes and its Refresh control becomes a **Discard**, which is the one way to drop them, and the ten-second poll that keeps model residency fresh stays suspended the whole time, so nothing can overwrite a half-typed field. Preserving someone's work beats asking them to confirm a dismissal.
 
-One row does more than take text: the chat model row suggests the models the **running** backend actually catalogues (not the ones a stored override is waiting to become), while still accepting a name you type yourself - [which models the backend has](/model-providers/#which-models-the-backend-has).
+Some rows do more than take text: each chat model row, one per [purpose](/semantic-traversal/#one-model-per-purpose), suggests the models the **running** backend actually catalogues (not the ones a stored override is waiting to become), while still accepting a name you type yourself - [which models the backend has](/model-providers/#which-models-the-backend-has). One read of the backend's catalog answers for every purpose.
 
 ## Reading configuration is not gated the same way
 
