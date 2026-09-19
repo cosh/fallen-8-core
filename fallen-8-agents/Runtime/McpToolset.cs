@@ -72,6 +72,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
         private readonly HttpMessageHandler? _handler;
         private McpClient? _client;
         private IReadOnlyList<AITool> _tools = Array.Empty<AITool>();
+
+        /// <summary>Monotonic ticks at the last connect attempt, or <see cref="Int64.MinValue" />
+        /// before the first. Read and claimed by <see cref="EnsureConnectedAsync" />.</summary>
+        private Int64 _lastAttempt = Int64.MinValue;
         private Int32 _disposed;
 
         /// <param name="options">This host's configuration.</param>
@@ -113,11 +117,13 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   <c>Agents:Mcp:ConnectTimeoutSeconds</c> and never throwing: the outcome is the return
         ///   value and the state above.
         ///   <para>
-        ///     Called ONCE, at startup. It is written to be callable again, and safely so, but
-        ///     nothing calls it again: an MCP server that comes up late needs this host restarted,
-        ///     which is why the compose service waits for that server to be healthy. The reconnect
-        ///     trigger spec section 3.2 describes is a recorded deferral waiting on a route to ask
-        ///     for it, so no message here promises one.
+        ///     Called at startup, and again by <see cref="EnsureConnectedAsync" /> when a run finds
+        ///     no session. It has always been written to be callable again; what changed is that
+        ///     something calls it. The reconnect was deferred on the grounds that the compose
+        ///     service waits for the MCP server to be healthy, and that is true of <c>up</c> only:
+        ///     a reboot or a <c>docker start</c> restarts the two containers in an unspecified
+        ///     order, which left this host with no tools for the life of the process. A route that
+        ///     asks for a reconnect is still a deferral; a run asking for one is not the same thing.
         ///   </para>
         /// </summary>
         public async Task<Boolean> ConnectAsync(CancellationToken cancellationToken = default)
@@ -185,10 +191,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
                 _logger.LogWarning(failure,
                     "The MCP server at {Endpoint} did not answer, so agents on this host start with NO "
-                    + "tools and cannot reach a graph at all. Fix Agents:Mcp:Endpoint or the server "
-                    + "and restart this host: nothing re-probes it while it is running. "
-                    + "GET /agent/status reports this state.",
-                    _options.Endpoint);
+                    + "tools and cannot reach a graph at all. Fix Agents:Mcp:Endpoint or the server: "
+                    + "the next run tries again, at most once every {ConnectSeconds} seconds, so a "
+                    + "server that comes up late needs no restart here. GET /agent/status reports "
+                    + "this state.",
+                    _options.Endpoint, Math.Max(1, _options.ConnectTimeoutSeconds));
                 return false;
             }
             finally
@@ -217,6 +224,44 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///     are accepted so a serializer-casing change cannot silently turn this off.
         ///   </para>
         /// </summary>
+        public async Task EnsureConnectedAsync(CancellationToken cancellationToken = default)
+        {
+            if (Connected || Volatile.Read(ref _disposed) == 1)
+            {
+                return;
+            }
+
+            // At most one attempt per connect timeout, claimed with a compare-exchange so a host
+            // running four agents at once makes one attempt rather than four. The cooldown IS the
+            // timeout because that is what an attempt costs: a server that is genuinely down then
+            // costs a run one handshake, not one per step.
+            //
+            // Monotonic ticks rather than a wall clock: this is an interval, and the repository
+            // reserves DateTime.Now for the documented helper.
+            var now = Environment.TickCount64;
+            var cooldown = Math.Max(1, _options.ConnectTimeoutSeconds) * 1000L;
+            var last = Volatile.Read(ref _lastAttempt);
+            if (last != Int64.MinValue && now - last < cooldown)
+            {
+                return;
+            }
+
+            if (Interlocked.CompareExchange(ref _lastAttempt, now, last) != last)
+            {
+                // Another run claimed this window. Its attempt is the one this run waits for
+                // nothing on: an agent with no tools still runs and still says so.
+                return;
+            }
+
+            if (await ConnectAsync(cancellationToken).ConfigureAwait(false))
+            {
+                _logger.LogInformation(
+                    "The MCP server at {Endpoint} answered on a later attempt, so agents on this "
+                    + "host have tools again without a restart.",
+                    _options.Endpoint);
+            }
+        }
+
         public static Boolean TryReadError(Object? result, out String message)
         {
             message = String.Empty;

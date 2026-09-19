@@ -2245,6 +2245,40 @@ namespace NoSQL.GraphDB.Tests
                 new AgentsOptions.FeedOptions { KeepAliveSeconds = -5 }.KeepAlive);
         }
 
+        /// <summary>
+        ///   A host that lost the startup race gets its tools on the next run. The handshake was
+        ///   made once, at startup, on the grounds that the compose service waits for the MCP server
+        ///   to be healthy: that holds for <c>up</c> and not for a restart, so a reboot that started
+        ///   the two containers in the other order left this host with no tools for the life of the
+        ///   process, reporting healthy the whole time and answering every agent that it cannot
+        ///   reach a graph.
+        /// </summary>
+        [TestMethod]
+        public async Task AHostThatLostTheStartupRaceGetsItsToolsOnTheNextRunRatherThanAtARestart()
+        {
+            var tool = AIFunctionFactory.Create(() => "8",
+                new AIFunctionFactoryOptions { Name = "f8_query", Description = "Reads." });
+
+            using var harness = new Harness(
+                Script.Calls("c1", "f8_query").Then("Eight. [t:f8_query]"),
+                toolsArrivingLate: new List<AITool> { tool });
+
+            Assert.IsFalse(harness.ToolSource.Connected,
+                "the arrangement has to START disconnected, or it cannot show a late arrival");
+            Assert.AreEqual(0, harness.ToolSource.Tools.Count,
+                "and with no tools, which is what a host that lost the race has");
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "count"),
+                out var agent, out _));
+            await harness.Run(agent);
+
+            Assert.AreEqual(1, harness.ToolSource.Reconnects,
+                "nothing asked the toolset to try again, so the tools can only arrive at a restart");
+            Assert.AreEqual(AgentState.Completed, agent.State, agent.Failure);
+            Assert.AreEqual(1, agent.Trace.Steps().Count(s => s.Kind == "toolCall"),
+                "the run went ahead with the empty toolset it was built with");
+        }
+
         #endregion
 
         /// <summary>
@@ -2305,6 +2339,72 @@ namespace NoSQL.GraphDB.Tests
             CollectionAssert.AreEqual(new[] { "f8_read" }, role.AllowedTools.ToArray());
         }
 
+        /// <summary>
+        ///   A key under <c>Agents:Roles</c> that names no role is fatal. Nothing enumerated those
+        ///   keys, so a misspelled role name was ignored: an operator holding the assistant to
+        ///   reads wrote <c>Agents:Roles:assistent:Tools</c>, the host started without complaint,
+        ///   and that role kept every tool the MCP server advertises. The status route then showed
+        ///   what a default host shows, so nothing surfaced it at all. It is the same failure the
+        ///   options type calls worse than refusing to load, one level up the key.
+        /// </summary>
+        [TestMethod]
+        public void ARoleKeyThatNamesNoRoleRefusesToLoadRatherThanBeingIgnored()
+        {
+            var misspelled = new AgentsOptions();
+            misspelled.Roles["assistent"] = Allow("f8_overview");
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(
+                () => RoleCatalog.Load(misspelled));
+            StringAssert.Contains(thrown.Message, "assistent",
+                "the message has to quote the key an operator typed: " + thrown.Message);
+            StringAssert.Contains(thrown.Message, "assistant",
+                "and name the roles there are, or the operator cannot fix it: " + thrown.Message);
+
+            // The control: the same intent spelled correctly loads AND narrows, so this refusal is
+            // about the key naming nothing rather than about configuring a role at all.
+            var spelled = new AgentsOptions();
+            spelled.Roles["assistant"] = Allow("f8_overview");
+            Assert.IsTrue(RoleCatalog.Load(spelled).TryGet("assistant", out var role, out _));
+            CollectionAssert.AreEqual(new[] { "f8_overview" }, role.AllowedTools.ToArray());
+
+            // Case is not a way in either: the binder keeps an ignore-case comparer, and so does
+            // the check, so a capitalised role name narrows rather than refusing.
+            var capitalised = new AgentsOptions();
+            capitalised.Roles["Orchestrator"] = Allow("f8_overview");
+            Assert.IsTrue(RoleCatalog.Load(capitalised).TryGet("orchestrator", out var same, out _));
+            CollectionAssert.AreEqual(new[] { "f8_overview" }, same.AllowedTools.ToArray());
+        }
+
+        /// <summary>
+        ///   The star's refusal counts the names that NARROW, so it states what is wrong. Taking
+        ///   the length less one said "beside 1 tool names" for a list of two stars: the wrong
+        ///   number, the wrong plural, and a refusal for something that narrows nothing.
+        /// </summary>
+        [TestMethod]
+        public void TheStarRefusalCountsTheNamesThatNarrowRatherThanTheLengthOfTheList()
+        {
+            var one = new AgentsOptions();
+            one.Roles["worker"] = Allow(RoleCatalog.EveryTool, "f8_read");
+            StringAssert.Contains(
+                Assert.ThrowsException<InvalidOperationException>(() => RoleCatalog.Load(one)).Message,
+                "beside 1 tool name.",
+                "one narrowing name is singular");
+
+            var two = new AgentsOptions();
+            two.Roles["worker"] = Allow(RoleCatalog.EveryTool, "f8_read", "f8_write");
+            StringAssert.Contains(
+                Assert.ThrowsException<InvalidOperationException>(() => RoleCatalog.Load(two)).Message,
+                "beside 2 tool names.",
+                "two narrowing names are plural, and the count is of the narrowing ones");
+
+            // A star written twice narrows nothing, so it is every tool rather than a refusal.
+            var repeated = new AgentsOptions();
+            repeated.Roles["worker"] = Allow(RoleCatalog.EveryTool, RoleCatalog.EveryTool);
+            Assert.IsTrue(RoleCatalog.Load(repeated).TryGet("worker", out var widened, out _));
+            Assert.AreEqual(0, widened.AllowedTools.Count,
+                "a repeated star is still every tool the server advertises");
+        }
+
         private static AgentsOptions.RoleOptions Allow(params String[] tools)
         {
             return new AgentsOptions.RoleOptions { Tools = tools.ToList() };
@@ -2325,7 +2425,8 @@ namespace NoSQL.GraphDB.Tests
             private readonly RoleCatalog _roles;
 
             public Harness(Script script, AgentsOptions options = null, IReadOnlyList<AITool> tools = null,
-                TimeProvider clock = null, TestLogSink sink = null, Script workerScript = null)
+                TimeProvider clock = null, TestLogSink sink = null, Script workerScript = null,
+                IReadOnlyList<AITool> toolsArrivingLate = null)
             {
                 var resolved = options ?? new AgentsOptions();
                 var wrapped = Options.Create(resolved);
@@ -2343,11 +2444,17 @@ namespace NoSQL.GraphDB.Tests
 
                 Registry = new AgentRegistry(wrapped,
                     TestLoggerFactory.Create().CreateLogger<AgentRegistry>(), Journal, clock);
-                Runner = new AgentRunner(Registry, _roles, new FixedToolSource(tools), Client, Journal,
+                ToolSource = new FixedToolSource(tools, toolsArrivingLate);
+                Runner = new AgentRunner(Registry, _roles, ToolSource, Client, Journal,
                     wrapped, loggers);
             }
 
             public AgentFeedDispatcher Feed
+            {
+                get;
+            }
+
+            public FixedToolSource ToolSource
             {
                 get;
             }
@@ -2403,19 +2510,43 @@ namespace NoSQL.GraphDB.Tests
 
         private sealed class FixedToolSource : IAgentToolSource
         {
-            public FixedToolSource(IReadOnlyList<AITool> tools)
+            private readonly IReadOnlyList<AITool> _late;
+
+            public FixedToolSource(IReadOnlyList<AITool> tools,
+                IReadOnlyList<AITool> arrivingOnReconnect = null)
             {
                 Tools = tools ?? Array.Empty<AITool>();
+                _late = arrivingOnReconnect;
             }
 
             public IReadOnlyList<AITool> Tools
             {
-                get;
+                get; private set;
             }
 
-            public Boolean Connected => true;
+            /// <summary>False while a late toolset is still pending, which is the state a host has
+            /// after losing the startup race.</summary>
+            public Boolean Connected => _late == null || Reconnects > 0;
 
-            public String Failure => null;
+            public String Failure => Connected ? null : "the server has not answered yet";
+
+            /// <summary>How many times a run asked. Zero means nothing asks, which is the defect
+            /// the seam member exists to remove.</summary>
+            public Int32 Reconnects
+            {
+                get; private set;
+            }
+
+            public Task EnsureConnectedAsync(CancellationToken cancellationToken = default)
+            {
+                Reconnects++;
+                if (_late != null && Reconnects == 1)
+                {
+                    Tools = _late;
+                }
+
+                return Task.CompletedTask;
+            }
         }
 
         /// <summary>

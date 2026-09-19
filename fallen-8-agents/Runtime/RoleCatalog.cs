@@ -131,6 +131,25 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 throw new ArgumentNullException(nameof(options));
             }
 
+            // A key under Agents:Roles that names no role is FATAL, for the reason the options
+            // type gives for its own shape: an allowlist that silently fails to narrow is worse
+            // than one that refuses to load. Nothing enumerated these keys, so a misspelled role
+            // name was ignored and the role it was meant to hold to reads kept every tool the MCP
+            // server advertises, with the status route showing exactly what a default host shows.
+            var unknown = options.Roles.Keys
+                .Where(key => !Known.Contains(key, StringComparer.OrdinalIgnoreCase))
+                .OrderBy(key => key, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (unknown.Length > 0)
+            {
+                throw new InvalidOperationException(String.Format(
+                    "Agents:Roles names no role called {0}. The roles are {1}. A misspelled role "
+                    + "name would otherwise be ignored, leaving the role it was meant to narrow "
+                    + "holding every tool the MCP server advertises.",
+                    String.Join(", ", unknown.Select(name => "'" + name + "'")),
+                    String.Join(", ", Known)));
+            }
+
             var roles = new Dictionary<String, AgentRole>(StringComparer.OrdinalIgnoreCase);
             foreach (var name in Known)
             {
@@ -202,8 +221,9 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   </para>
         /// </summary>
         /// <exception cref="InvalidOperationException"><see cref="EveryTool" /> beside a tool name.
-        /// Deliberately fatal, like a missing prompt: the two are opposite instructions, and an
-        /// allowlist that silently fails to narrow is worse than one that refuses to load.</exception>
+        /// Deliberately fatal, like a missing prompt and like a role key that names no role: the two
+        /// are opposite instructions, and an allowlist that silently fails to narrow is worse than
+        /// one that refuses to load.</exception>
         private static IReadOnlyList<String> Allowed(String role, AgentsOptions options)
         {
             var named = (options.Roles.TryGetValue(role, out var listed) ? listed?.Tools : null)
@@ -222,12 +242,16 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 return named;
             }
 
-            if (named.Length > 1)
+            // Counted over the names that NARROW, so the refusal states what is actually wrong.
+            // Subtracting one from the length said "beside 1 tool names" for a list of two stars,
+            // which names neither the problem nor the number.
+            var narrowing = named.Count(t => !String.Equals(t, EveryTool, StringComparison.Ordinal));
+            if (narrowing > 0)
             {
                 throw new InvalidOperationException(String.Format(
-                    "Agents:Roles:{0}:Tools names '{1}' beside {2} tool names. '{1}' means every tool "
+                    "Agents:Roles:{0}:Tools names '{1}' beside {2} tool {3}. '{1}' means every tool "
                     + "the MCP server advertises and cannot be combined with a list that narrows.",
-                    role, EveryTool, named.Length - 1));
+                    role, EveryTool, narrowing, narrowing == 1 ? "name" : "names"));
             }
 
             return Array.Empty<String>();

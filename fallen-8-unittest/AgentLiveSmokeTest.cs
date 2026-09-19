@@ -184,6 +184,10 @@ namespace NoSQL.GraphDB.Tests
             public Boolean Connected => true;
 
             public String Failure => null;
+
+            public System.Threading.Tasks.Task EnsureConnectedAsync(
+                System.Threading.CancellationToken cancellationToken = default)
+                => System.Threading.Tasks.Task.CompletedTask;
         }
     }
 }

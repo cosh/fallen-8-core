@@ -219,6 +219,62 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(String.IsNullOrWhiteSpace(toolset.Failure));
         }
 
+        /// <summary>
+        ///   The reconnect a run asks for: with no session, it makes one. The handshake used to be
+        ///   made once at startup, so a host that came up before the MCP server stayed toolless for
+        ///   the life of the process.
+        /// </summary>
+        [TestMethod]
+        public async Task ReconnectingMakesTheSessionAStartupRaceLost()
+        {
+            using var server = new McpServerFactory();
+            await using var toolset = Toolset(server);
+
+            Assert.IsFalse(toolset.Connected, "nothing has connected yet, which is the arrangement");
+
+            await toolset.EnsureConnectedAsync(CancellationToken.None);
+
+            Assert.IsTrue(toolset.Connected, toolset.Failure);
+            Assert.IsTrue(toolset.Tools.Count > 0,
+                "a session with no tools is not a recovered host");
+        }
+
+        /// <summary>
+        ///   And it does not hammer. A server that is down costs a run ONE handshake per connect
+        ///   timeout rather than one per run, and a session that works is never torn down to make
+        ///   an identical one. Counted at the transport, so the assertion is on attempts rather
+        ///   than on how long something took.
+        /// </summary>
+        [TestMethod]
+        public async Task ReconnectingIsBoundedByTheConnectTimeoutAndSkippedWhileConnected()
+        {
+            var handler = new RecordingHandler(HttpStatusCode.InternalServerError, "no");
+            await using var toolset = new McpToolset(
+                Options.Create(Configured("http://mcp.localhost", connectSeconds: 15)),
+                TestLoggerFactory.Create(), handler);
+
+            await toolset.EnsureConnectedAsync(CancellationToken.None);
+            Assert.IsFalse(toolset.Connected, "the handler answers 500, so there is no session");
+            var afterFirst = handler.Requests.Count;
+            Assert.IsTrue(afterFirst > 0, "the first reconnect never reached the transport");
+
+            await toolset.EnsureConnectedAsync(CancellationToken.None);
+            Assert.AreEqual(afterFirst, handler.Requests.Count,
+                "a second run inside the connect timeout tried again, so a server that is down "
+                + "costs every run a handshake");
+
+            // The other half: a toolset that IS connected asks nothing at all.
+            using var server = new McpServerFactory();
+            await using var live = Toolset(server);
+            Assert.IsTrue(await live.ConnectAsync(CancellationToken.None), live.Failure);
+            var tools = live.Tools;
+
+            await live.EnsureConnectedAsync(CancellationToken.None);
+            Assert.IsTrue(live.Connected);
+            Assert.AreSame(tools, live.Tools,
+                "a working session was torn down and replaced by an identical one");
+        }
+
         [TestMethod]
         public async Task DisposingTwiceIsANoOpBecauseAContainerDoesExactlyThat()
         {
@@ -440,6 +496,10 @@ namespace NoSQL.GraphDB.Tests
             public Boolean Connected => false;
 
             public String Failure => "no server configured for this test";
+
+            public System.Threading.Tasks.Task EnsureConnectedAsync(
+                System.Threading.CancellationToken cancellationToken = default)
+                => System.Threading.Tasks.Task.CompletedTask;
         }
 
         #endregion

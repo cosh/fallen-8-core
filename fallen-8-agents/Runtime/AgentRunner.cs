@@ -195,6 +195,13 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
                 _registry.Advance(agent.Id, AgentState.Running);
 
+                // The MCP server may have come up after this host did, and a compose depends_on
+                // edge orders `up` only: a reboot restarts the containers in an unspecified order.
+                // Without this, that race left the host with no tools for the life of the process.
+                // IAgentToolSource.EnsureConnectedAsync is the one home for the cooldown and for
+                // why a run is what asks.
+                await _toolset.EnsureConnectedAsync(linked.Token).ConfigureAwait(false);
+
                 var tools = Tools(agent, role);
                 var instructions = Instructions(role, systemPromptAppendix);
 
