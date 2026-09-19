@@ -34,9 +34,11 @@ namespace NoSQL.GraphDB.App.Configuration
     ///   why, and a client that reads only 403 as "absent" breaks on the second kind).
     ///
     ///   <para>The agent host is a separate deployable (<c>fallen-8-agents</c>) whose container port
-    ///   is deliberately not published, because an agent can be talked into calling a tool. The
-    ///   apiApp is therefore the only way in: it proxies the host's routes, being already the
-    ///   authenticated front door, which is why the host needs no second auth story.</para>
+    ///   is deliberately not published, so this proxy is the authenticated way in from outside the
+    ///   compose network. It is not the only caller that can reach the host: every service on that
+    ///   network can, and the host authenticates none of them, which is the posture the integrations
+    ///   runtime ships with too. https://docs.fallen-8.com/security/ is the one home for that
+    ///   boundary.</para>
     ///
     ///   <para><b>Nothing about a MODEL appears here or on the host.</b> Agents ask this instance's
     ///   own chat gateway with <c>purpose: agent</c>, so the provider, the credential and the model

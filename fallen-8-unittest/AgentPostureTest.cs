@@ -308,6 +308,77 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   The posture line states the bind it can observe and makes no claim about port
+        ///   publication, which is a property of a compose file that no process can see: the old
+        ///   line printed "this port is not published" unchanged under a bare <c>dotnet run</c>
+        ///   bound to every interface.
+        /// </summary>
+        [TestMethod]
+        public void TheStartupLineStatesItsBindRatherThanAPortPublicationItCannotObserve()
+        {
+            using var sink = new TestLogSink();
+
+            Posture(sink, new AgentsOptions());
+
+            var listening = sink.Entries.Single(e => e.Message.Contains("Agent host listening on",
+                StringComparison.Ordinal));
+            Assert.AreEqual(LogLevel.Information, listening.Level);
+            StringAssert.Contains(listening.Message, "127.0.0.1");
+            StringAssert.Contains(listening.Message, "8120");
+            StringAssert.Contains(listening.Message, "authenticates no caller");
+            Assert.IsFalse(
+                sink.Entries.Any(e => e.Message.Contains("published", StringComparison.Ordinal)),
+                "nothing this process can observe justifies the word: " + listening.Message);
+        }
+
+        /// <summary>
+        ///   The bind the image actually sets is WARNED about and not refused: the shipped container
+        ///   binds every interface deliberately, and unlike the MCP server this host has no auth
+        ///   mode to fall back to, so a refusal would leave no way to run it.
+        /// </summary>
+        [TestMethod]
+        public void ANonLoopbackBindIsWarnedAboutRatherThanRefused()
+        {
+            using var sink = new TestLogSink();
+
+            Posture(sink, new AgentsOptions { BindAddress = "0.0.0.0" });
+
+            var warning = sink.Entries.Single(e => e.Level == LogLevel.Warning
+                && e.Message.Contains("not loopback", StringComparison.Ordinal));
+            StringAssert.Contains(warning.Message, "0.0.0.0");
+            StringAssert.Contains(warning.Message, "8120");
+            Assert.IsTrue(
+                sink.Entries.Any(e => e.Message.Contains("Agent host listening on",
+                    StringComparison.Ordinal)),
+                "a warning instead of the posture line would hide what the host is doing");
+        }
+
+        /// <summary>
+        ///   The control arm, which is what makes the warning a signal rather than noise on every
+        ///   start: every loopback spelling is silent, and the wildcard forms Kestrel accepts are
+        ///   not loopback and do warn.
+        /// </summary>
+        [TestMethod]
+        public void ALoopbackBindDrawsNoWarningSoTheWarningMeansSomething()
+        {
+            foreach (var address in new[] { "127.0.0.1", "localhost", "::1", "127.0.0.5" })
+            {
+                using var sink = new TestLogSink();
+                Posture(sink, new AgentsOptions { BindAddress = address });
+                Assert.IsFalse(
+                    sink.Entries.Any(e => e.Message.Contains("not loopback", StringComparison.Ordinal)),
+                    address + " was warned about, so the warning is printed on every start and "
+                    + "reads as noise");
+            }
+
+            using var wildcard = new TestLogSink();
+            Posture(wildcard, new AgentsOptions { BindAddress = "*" });
+            Assert.IsTrue(wildcard.Entries.Any(e => e.Level == LogLevel.Warning
+                    && e.Message.Contains("not loopback", StringComparison.Ordinal)),
+                "a wildcard bind is not loopback, which is the side that has to warn");
+        }
+
+        /// <summary>
         ///   The startup line prints the deadline a call GETS, not the number an operator wrote:
         ///   <c>Fallen8Target:TimeoutSeconds</c> is floored at 1 rather than switched off, and the
         ///   line said "deadline 0s" for a host that fails every model call after a second.

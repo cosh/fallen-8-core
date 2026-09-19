@@ -588,9 +588,15 @@ what to decide, in that order.
 ### 3.7 Security posture
 
 - **No published port.** The host binds loopback by default (`dotnet run`), `0.0.0.0` in the
-  container, and the compose service publishes nothing; the apiApp's proxy is the only way in, so
-  the host needs no second auth story. Publishing the port "to debug it" is the instinct this
-  posture rules out.
+  container, and the compose service publishes nothing, so the apiApp's proxy is the way in from
+  outside the compose network. Publishing the port "to debug it" is the instinct this posture rules
+  out. **Corrected after the merge gate:** "the only way in" was false as written and "no second
+  auth story" rested on it. Every service on `f8-net` can reach this listener and it authenticates
+  none of them, while it holds the instance's API key and the MCP bearer. The posture stands,
+  because it is the integrations runtime's and therefore a house convention for these sidecars, but
+  it stands as a convention rather than as an observed impossibility. `AgentsOptions.BindAddress`
+  and the security page are its two homes, and the startup line now states the bind and warns on a
+  non-loopback one instead of claiming a compose property the process cannot see.
 - **Two credentials, both the operator's, both configuration, neither a provider's:** the
   instance's API key (`Fallen8Target:ApiKey`, reusing `F8_API_KEY` exactly as the other two
   sidecars do, presented on the chat gateway only) and the MCP bearer (`Agents:Mcp:BearerToken`).

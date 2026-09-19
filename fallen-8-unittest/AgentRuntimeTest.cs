@@ -186,6 +186,41 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   A model's <c>spawn_worker</c> reaches the registry and nothing else, so the bound has
+        ///   to hold there: the refusal names the bound because the model is the reader that can act
+        ///   on it, the measurement is in UTF-8 BYTES rather than characters, and a refusal spends
+        ///   neither a concurrency slot nor the orchestrator's worker allowance.
+        /// </summary>
+        [TestMethod]
+        public void ACaptureOverItsBoundIsRefusedByTheRegistrySoAModelsSpawnWorkerIsBoundedToo()
+        {
+            using var harness = new Harness(Script.Says("done"));
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+
+            var oversized = new String('x', AgentSpawn.MaxTaskBytes + 1);
+            Assert.IsFalse(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", oversized) { ParentId = boss.Id }, out _, out var taskProblem));
+            StringAssert.Contains(taskProblem,
+                AgentSpawn.MaxTaskBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "a refusal handed to a model has to name the bound: " + taskProblem);
+
+            // BYTES, not characters: 200 two-byte characters is 400 bytes, and a Length check
+            // admits it.
+            Assert.IsFalse(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "part one") { ParentId = boss.Id, Name = new String('\u00e4', 200) },
+                out _, out var nameProblem));
+            StringAssert.Contains(nameProblem,
+                AgentSpawn.MaxNameBytes.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+            Assert.AreEqual(1, harness.Registry.ActiveCount, "a refused worker took a slot");
+            Assert.AreEqual(0, harness.Registry.Children(boss.Id).Count);
+            Assert.AreEqual(0, boss.WorkersSpawned,
+                "a refused worker counted against MaxWorkersPerOrchestrator, which is charged over "
+                + "a whole life");
+        }
+
+        /// <summary>
         ///   A model naming a tool that does not exist ends the TURN rather than being handed an
         ///   error and asked again, and the run is recorded as having produced no answer.
         ///   <para>

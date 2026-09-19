@@ -208,10 +208,20 @@ namespace NoSQL.GraphDB.Agents.Hosting
             }
 
             logger.LogInformation(
-                "Agent host listening on {BindAddress}:{Port} with roles {Roles}. This port is not "
-                + "published: the Fallen-8 proxy at /agents/* is the way in, because an agent can be "
-                + "talked into calling a tool.",
+                "Agent host listening on {BindAddress}:{Port} with roles {Roles}. This listener "
+                + "authenticates no caller; the Fallen-8 proxy at /agents/* is the authenticated "
+                + "way in.",
                 options.BindAddress, options.Port, String.Join(", ", roles.Names));
+
+            if (!BindsLoopback(options.BindAddress))
+            {
+                logger.LogWarning(
+                    "The bind address {BindAddress} is not loopback, so anything that can route to "
+                    + "port {Port} can spawn an agent at the tiers the MCP server allows. The "
+                    + "shipped container binds this deliberately and publishes no host port; "
+                    + "elsewhere, bind loopback or keep the port on a network you trust.",
+                    options.BindAddress, options.Port);
+            }
 
             logger.LogInformation(
                 "Completions come from {BaseUrl} as purpose 'agent' (api key {KeyState}, deadline "
@@ -289,6 +299,26 @@ namespace NoSQL.GraphDB.Agents.Hosting
             return value > 0
                 ? value.ToString(CultureInfo.InvariantCulture) + unit
                 : "unlimited";
+        }
+
+        /// <summary>
+        ///   Whether the configured bind address is a loopback one, which is the only thing about
+        ///   its own reachability this process can actually observe. The startup line used to say
+        ///   "this port is not published", which is a property of the compose file no process can
+        ///   see, and it printed unchanged under a bare <c>dotnet run</c> bound to <c>0.0.0.0</c>.
+        ///   What bounds the listener is stated once, on <see cref="AgentsOptions.BindAddress" />.
+        /// </summary>
+        private static Boolean BindsLoopback(String? bindAddress)
+        {
+            var address = (bindAddress ?? String.Empty).Trim();
+            if (address.Length == 0)
+            {
+                return false;
+            }
+
+            return String.Equals(address, "localhost", StringComparison.OrdinalIgnoreCase)
+                || (System.Net.IPAddress.TryParse(address, out var ip)
+                    && System.Net.IPAddress.IsLoopback(ip));
         }
 
         /// <summary>

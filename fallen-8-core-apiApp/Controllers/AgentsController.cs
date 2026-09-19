@@ -42,9 +42,10 @@ namespace NoSQL.GraphDB.App.Controllers
     /// <summary>
     ///   The instance's door to the agent host (feature agent-host): an authenticated proxy for the
     ///   control-plane routes of the <c>fallen-8-agents</c> sidecar, which runs agents that read this
-    ///   graph through the MCP server. The host's container port is not published, because an agent
-    ///   decides for itself which tools to call, so this proxy is the only way in and the host needs
-    ///   no second auth story.
+    ///   graph through the MCP server. The host's container port is not published, so this proxy is
+    ///   the authenticated way in from outside the compose network; it is not the only caller that
+    ///   can reach the host, and https://docs.fallen-8.com/security/ is the one home for what that
+    ///   means.
     ///
     ///   <para><b>An agent asks THIS instance for its completions</b>, with
     ///   <c>purpose: agent</c> on <c>POST /chat</c>. So the provider, the credential and the model
@@ -114,6 +115,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="429">The host is already running as many agents as it may (Agents:Limits:MaxConcurrentAgents)</response>
         /// <response code="503">No host is configured, or it did not answer</response>
         [HttpPost("/agents")]
+        [RequestSizeLimit(1_048_576)]
         [Consumes("application/json")]
         [Produces("application/json")]
         [ProducesResponseType(StatusCodes.Status202Accepted)]

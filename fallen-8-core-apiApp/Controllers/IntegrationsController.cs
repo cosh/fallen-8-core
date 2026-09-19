@@ -45,7 +45,8 @@ namespace NoSQL.GraphDB.App.Controllers
     ///   proxy for the eight routes of the <c>fallen-8-integrations</c> sidecar, which reads a system
     ///   on the operator's own network and writes what it saw into one namespace. The runtime's
     ///   container port is not published, because jobs hand that container third-party credentials, so
-    ///   this proxy is the only way in and needs no second auth story on the runtime side.
+    ///   this proxy is the way in from outside the compose network; it is not the only caller that can
+    ///   reach the runtime, and https://docs.fallen-8.com/security/ is the one home for that.
     ///
     ///   <para>Fallen-8-level (instance-wide, no <c>/ns/{ns}</c> twin): one runtime serves the whole
     ///   instance and a job names the namespace it writes into, so twinning would offer a second way
@@ -86,7 +87,7 @@ namespace NoSQL.GraphDB.App.Controllers
         ///   and a caller could not tell which one refused them. The consequence, stated rather than
         ///   hidden: this bound caps what raising <c>Integrations:MaxJobFileBytes</c> can achieve through
         ///   this proxy, at about 767 MiB of files less their part framing, and the
-        ///   proxy is the only way in because the runtime publishes no port. A caller does not have to
+        ///   that proxy is the way in from outside the compose network because the runtime publishes no port. A caller does not have to
         ///   work that out: <c>GET /integrations/limits</c> serves the reconciled numbers, which is
         ///   where <c>Binding</c> below applies exactly this cap.</para>
         ///

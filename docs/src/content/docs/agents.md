@@ -157,8 +157,16 @@ run it locally). The citation count is what makes a fabricating run visible when
 
 ## Security posture
 
-- **No host port.** The container publishes none. The browser and your scripts reach it through the
-  API's authenticated proxy at `/agents/*`, which is already the front door.
+- **No host port, and one authenticated way in.** The container publishes none, so the browser and
+  your scripts reach the host through the API's authenticated proxy at `/agents/*`. Inside the
+  compose network it is the same story as the [integrations runtime](/integrations/): every service
+  there can reach the host, it authenticates nobody, and it holds your API key and the MCP bearer.
+  [Security](/security/) is the one home for what that means and what to do about it.
+- **Bounded captures.** A spawn's `task` may be at most 8192 bytes, its `name` at most 256 and its
+  `systemPromptAppendix` at most 4096, all UTF-8, and each is refused with a **400** naming the
+  bound rather than truncated: a cut instruction would change what the agent answers, and a name
+  rides on every feed event to every subscriber. The route's own 1 MiB body bound is the transport
+  backstop behind them.
 - **One REST family.** The host calls this instance's `/chat` and nothing else; a convention test
   enforces it, so it cannot quietly grow a graph route of its own.
 - **The MCP tiers are the boundary.** An agent can do what that server advertises. Leaving write
@@ -182,7 +190,7 @@ Host (`Agents:*` for the sidecar, `Fallen8Target:*` for the instance it asks):
 
 | Key | Default | Note |
 | --- | --- | --- |
-| `Agents:BindAddress` / `Port` | `127.0.0.1` / `8120` | the image sets `0.0.0.0`; never published |
+| `Agents:BindAddress` / `Port` | `127.0.0.1` / `8120` | the image sets `0.0.0.0`; the compose service publishes no host port, and a non-loopback bind is warned about at startup rather than refused |
 | `Fallen8Target:BaseUrl` / `ApiKey` / `ApiKeyHeader` | `http://localhost:8080` / none / `X-Api-Key` | the instance every model call goes to |
 | `Fallen8Target:TimeoutSeconds` | `630` | above the largest chat budget a shipped profile sets, so the instance's own error wins rather than being cut off here |
 | `Agents:Mcp:Endpoint` / `BearerToken` | `http://localhost:8090` / none | how an agent reaches the graph |

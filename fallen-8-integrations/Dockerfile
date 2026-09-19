@@ -36,8 +36,11 @@ WORKDIR /app
 COPY --from=build /app ./
 
 # A container binding loopback is unreachable, so the image binds 0.0.0.0 while the code's own
-# default stays loopback. That is not a widening of the surface: the compose service publishes
-# no host port, so the only caller that can reach this listener is the apiApp on f8-net.
+# default stays loopback. The compose service publishes no host port, so nothing outside f8-net
+# reaches this listener and the browser comes through the apiApp's authenticated proxy. Inside
+# f8-net every service can reach it and this listener authenticates none of them, which is the
+# posture f8-agents ships with too; https://docs.fallen-8.com/security/ is the one home for what
+# it means.
 ENV Integrations__BindAddress=0.0.0.0 \
     Integrations__Port=8110
 EXPOSE 8110

@@ -52,6 +52,11 @@ namespace NoSQL.GraphDB.Agents
                           ?? new AgentsOptions();
             builder.WebHost.UseUrls($"http://{options.BindAddress}:{options.Port}");
 
+            // Without this the framework's 30 MB default applies, so one spawn could hand this
+            // process 30 MB of task text to retain for an hour. See TransportBound.
+            builder.WebHost.ConfigureKestrel(kestrel =>
+                kestrel.Limits.MaxRequestBodySize = TransportBound);
+
             AgentsHost.AddFallen8Agents(builder.Services, builder.Configuration);
 
             var app = builder.Build();
@@ -69,5 +74,21 @@ namespace NoSQL.GraphDB.Agents
             // what the two startup probes FOUND and not what was configured.
             await app.RunAsync().ConfigureAwait(false);
         }
+
+        /// <summary>
+        ///   The bound on a request body reaching this host: 2 MiB, chosen only to sit ABOVE the
+        ///   apiApp proxy's own fixed bound (1 MiB), which is the way in from outside the compose
+        ///   network, so an absurd body is refused at the front door where the 413 names a number a
+        ///   caller can read. Equal bounds would leave a body at the proxy's own limit refused here
+        ///   instead, with a bare 413 the proxy reports as a host that did not answer.
+        ///
+        ///   <para>It is not a statement about how big a spawn may be. That is
+        ///   <see cref="NoSQL.GraphDB.Agents.Runtime.AgentSpawn.MaxTaskBytes" /> per task,
+        ///   <see cref="NoSQL.GraphDB.Agents.Runtime.AgentSpawn.MaxNameBytes" /> per name and
+        ///   <see cref="NoSQL.GraphDB.Agents.Runtime.AgentSpawn.MaxAppendixBytes" /> per appendix,
+        ///   each refused with a message naming its own number, because one legal body can carry
+        ///   all of it in one field.</para>
+        /// </summary>
+        internal const Int64 TransportBound = 2_097_152;
     }
 }

@@ -49,13 +49,31 @@ namespace NoSQL.GraphDB.Agents.Configuration
 
         /// <summary>
         ///   The address Kestrel binds. Loopback by default; the image sets <c>0.0.0.0</c> because a
-        ///   container binding loopback is unreachable, and the port is deliberately not published
-        ///   to the host - an agent can be talked into calling a tool, so the apiApp's authenticated
-        ///   proxy is the only way in, exactly as it is for the integrations runtime.
+        ///   container binding loopback is unreachable.
+        ///
+        ///   <para>
+        ///     <b>This is the one home for what bounds this listener, because it is the network and
+        ///     not a credential.</b> The compose service publishes no host port, so the browser and
+        ///     anything else outside the compose network reach this host only through the apiApp's
+        ///     authenticated proxy at <c>/agents/*</c>. Inside that network the bound is weaker than
+        ///     this doc used to claim: it said the proxy was the ONLY way in, and every service on
+        ///     <c>f8-net</c> can reach this port. This process authenticates none of them, and it
+        ///     holds the instance's API key and the MCP bearer, so a caller that reaches it can
+        ///     spawn an agent at whatever tiers the operator enabled on the MCP server.
+        ///   </para>
+        ///   <para>
+        ///     That is the integrations runtime's posture exactly, which is what makes it a house
+        ///     convention for these sidecars rather than something this host decided; the published
+        ///     home is https://docs.fallen-8.com/security/. A non-loopback bind is WARNED about at
+        ///     startup rather than refused: the image sets one deliberately, so a refusal would
+        ///     break the shipped container, and unlike <c>fallen-8-mcp</c> there is no auth mode to
+        ///     fall back to.
+        ///   </para>
         /// </summary>
         public String BindAddress { get; set; } = "127.0.0.1";
 
-        /// <summary>The listen port. Not published; see <see cref="BindAddress" />.</summary>
+        /// <summary>The listen port. The compose service publishes none; see
+        /// <see cref="BindAddress" /> for what does and does not bound this listener.</summary>
         public Int32 Port { get; set; } = 8120;
 
         /// <summary>The MCP server this host's agents reach the graph through.</summary>

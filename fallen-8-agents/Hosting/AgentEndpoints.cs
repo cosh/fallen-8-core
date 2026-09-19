@@ -39,9 +39,10 @@ using NoSQL.GraphDB.Agents.Runtime;
 namespace NoSQL.GraphDB.Agents.Hosting
 {
     /// <summary>
-    ///   The host's control plane, under <c>/agent/*</c> on an unpublished port. The apiApp proxies
-    ///   it as <c>/agents/*</c>, and that proxy is the only way in: an agent can be talked into
-    ///   calling a tool, so its control plane is not something to expose to a browser directly.
+    ///   The host's control plane, under <c>/agent/*</c>. The apiApp proxies it as <c>/agents/*</c>,
+    ///   which is the authenticated way in from outside the compose network; nothing here
+    ///   authenticates a caller, and <see cref="AgentsOptions.BindAddress" /> is the one home for
+    ///   what bounds this listener instead.
     ///
     ///   <para>
     ///     <b>Nothing here blocks on inference.</b> A spawn answers 202 with an id and the agent
@@ -82,6 +83,16 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 if (request == null || String.IsNullOrWhiteSpace(request.Task))
                 {
                     return Problem(StatusCodes.Status400BadRequest, "A task is required.");
+                }
+
+                // Asked here as well as in TryAdmit, and it cannot disagree with it because it is
+                // the same method: a refusal from the registry is reported as 429, which is right
+                // for the concurrency cap and wrong for a capture that is too big, since retrying
+                // it can never succeed.
+                if (!AgentSpawn.IsWithinBounds(request.Task, request.Name,
+                        request.SystemPromptAppendix, out var tooBig))
+                {
+                    return Problem(StatusCodes.Status400BadRequest, tooBig);
                 }
 
                 if (!roles.TryGet(request.Role, out var role, out var roleProblem))
@@ -319,7 +330,8 @@ namespace NoSQL.GraphDB.Agents.Hosting
     /// <summary>What a caller asks for. Notably NOT a model: the instance owns that.</summary>
     public sealed class SpawnRequest
     {
-        /// <summary>What the agent should do. Required.</summary>
+        /// <summary>What the agent should do. Required, and bounded by
+        /// <see cref="AgentSpawn.MaxTaskBytes" />.</summary>
         [JsonPropertyName("task")]
         public String? Task
         {
@@ -333,7 +345,8 @@ namespace NoSQL.GraphDB.Agents.Hosting
             get; set;
         }
 
-        /// <summary>A label for a reviewer. Omitted takes the agent's id.</summary>
+        /// <summary>A label for a reviewer. Omitted takes the agent's id; bounded by
+        /// <see cref="AgentSpawn.MaxNameBytes" />.</summary>
         [JsonPropertyName("name")]
         public String? Name
         {

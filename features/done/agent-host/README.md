@@ -117,9 +117,10 @@ served each step; then the model itself.
 
 ## Security posture
 
-- **No host port on the container**, and the proxy at `/agents/*` is the only way in. An agent
-  decides for itself which tools to call, so a published port would hand "spawn an agent" to
-  anything on the host.
+- **No host port on the container**, and the proxy at `/agents/*` is the authenticated way in from
+  outside the compose network. Inside it every service can reach this host and it authenticates none
+  of them, exactly as the integrations runtime ships; the one home for that boundary is
+  [Security](https://docs.fallen-8.com/security/).
 - **One REST family.** The host calls the `/chat` family and nothing else;
   `CodeQualityTest.TheAgentHost_CallsTheChatGatewayAndNoOtherRestRoute` enforces it.
 - **The MCP tiers are the real boundary.** Leaving write and admin off is the recommended posture.

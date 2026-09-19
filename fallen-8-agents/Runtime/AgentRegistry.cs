@@ -160,6 +160,17 @@ namespace NoSQL.GraphDB.Agents.Runtime
             agent = null!;
             problem = String.Empty;
 
+            // The captures a caller supplies, checked before anything is admitted, HERE because
+            // both spawn paths pass through this method: the control plane and an orchestrator's
+            // spawn_worker. AgentSpawn.IsWithinBounds owns the numbers and the message;
+            // AgentEndpoints asks it first as well, only so the control plane can answer 400
+            // rather than the 429 every refusal from here is reported as.
+            if (!AgentSpawn.IsWithinBounds(spawn.Task, spawn.Name, spawn.SystemPromptAppendix,
+                    out problem))
+            {
+                return false;
+            }
+
             var limits = _options.Value.Limits;
             AgentState admitted;
 
@@ -795,10 +806,88 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
         /// <summary>Appended to the role prompt. It cannot replace it: the role prompt is what makes
         /// the agent honest about what it did and did not call; see RoleCatalog for what a prompt
-        /// may and may not be credited with.</summary>
+        /// may and may not be credited with. Bounded by <see cref="MaxAppendixBytes" />.</summary>
         public String? SystemPromptAppendix
         {
             get; set;
+        }
+
+        /// <summary>Bytes a <c>task</c> may carry, UTF-8, measured after trimming.</summary>
+        public const Int32 MaxTaskBytes = 8192;
+
+        /// <summary>Bytes a <c>name</c> may carry, UTF-8, measured after trimming.</summary>
+        public const Int32 MaxNameBytes = 256;
+
+        /// <summary>Bytes a <c>systemPromptAppendix</c> may carry, UTF-8, measured after
+        /// trimming.</summary>
+        public const Int32 MaxAppendixBytes = 4096;
+
+        /// <summary>
+        ///   Whether a spawn's free-text captures are inside their bounds, with the refusal a
+        ///   caller reads when they are not.
+        ///
+        ///   <para>
+        ///     The task and the name are the only captures a caller supplies that this host
+        ///     RETAINS: both stay on the record for <c>Agents:Limits:RetainFinishedMinutes</c>, for
+        ///     up to <c>Agents:Limits:MaxRetainedAgents</c> agents, the listing returns both in
+        ///     full, and the name rides on every feed event to every subscriber. A bound on the
+        ///     request body cannot bound them, because one legal body can carry all of it in one
+        ///     field. The appendix is not retained and never broadcast, but it is appended to the
+        ///     system prompt and sent to the operator's provider, so it is a metered call they pay
+        ///     for and it is bounded here for that reason rather than for memory.
+        ///   </para>
+        ///   <para>
+        ///     All three are REFUSED rather than truncated, for two different reasons that arrive
+        ///     at one answer. Truncating a task or an appendix would change the instruction the
+        ///     agent then answers, confidently, with nothing on the trace saying the question was
+        ///     cut. A name could be cut harmlessly, but then "what a spawn may carry" would have
+        ///     two rules and two homes, and a reader of a listing would have to know that a name
+        ///     may not be the name that was sent.
+        ///   </para>
+        ///   <para>
+        ///     Constants rather than configuration: a caller needs to know what it may send without
+        ///     reading the operator's settings, and a configurable bound would arrive with one more
+        ///     "a non-positive value switches it off" claim to keep true. 8192 is the size this
+        ///     host already treats as what a reviewer reads (<c>Agents:Trace:ResultBytes</c>) and
+        ///     is far above any real instruction; 256 is a label rather than a paragraph, and it is
+        ///     the field a large value is multiplied by, once per feed frame per subscriber; 4096 is
+        ///     a paragraph of extra instruction, the role prompt being what carries the rules.
+        ///   </para>
+        /// </summary>
+        public static Boolean IsWithinBounds(String? task, String? name, String? appendix,
+            out String refusal)
+        {
+            refusal = String.Empty;
+
+            // BYTES, not characters: a length check admits 200 two-byte characters as a 400 byte
+            // name, and what is retained and broadcast is bytes.
+            var taskBytes = System.Text.Encoding.UTF8.GetByteCount((task ?? String.Empty).Trim());
+            if (taskBytes > MaxTaskBytes)
+            {
+                refusal = String.Format(CultureInfo.InvariantCulture,
+                    "A task may be at most {0} bytes; this one is {1}.", MaxTaskBytes, taskBytes);
+                return false;
+            }
+
+            var nameBytes = System.Text.Encoding.UTF8.GetByteCount((name ?? String.Empty).Trim());
+            if (nameBytes > MaxNameBytes)
+            {
+                refusal = String.Format(CultureInfo.InvariantCulture,
+                    "A name may be at most {0} bytes; this one is {1}.", MaxNameBytes, nameBytes);
+                return false;
+            }
+
+            var appendixBytes = System.Text.Encoding.UTF8.GetByteCount(
+                (appendix ?? String.Empty).Trim());
+            if (appendixBytes > MaxAppendixBytes)
+            {
+                refusal = String.Format(CultureInfo.InvariantCulture,
+                    "A systemPromptAppendix may be at most {0} bytes; this one is {1}.",
+                    MaxAppendixBytes, appendixBytes);
+                return false;
+            }
+
+            return true;
         }
     }
 

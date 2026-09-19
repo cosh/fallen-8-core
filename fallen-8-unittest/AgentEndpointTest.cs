@@ -1309,6 +1309,98 @@ namespace NoSQL.GraphDB.Tests
         ///   route must answer regardless, because none of them blocks on inference.
         /// </summary>
         /// <summary>
+        ///   An oversized task is refused with 400 and nothing is retained. 400 rather than the 429
+        ///   every registry refusal maps to, because retrying a capture that is too big can never
+        ///   succeed, and the message names both numbers so a caller is not left guessing.
+        /// </summary>
+        [TestMethod]
+        public async Task ASpawnWhoseTaskIsOverItsByteBoundIsRefusedWith400AndRetainsNothing()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            var oversized = new String('x', AgentSpawn.MaxTaskBytes + 1);
+            using var response = await client.PostAsync("/agent",
+                Json("{\"task\":\"" + oversized + "\"}"));
+            var detail = await Text(response);
+
+            Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode,
+                "a capture over its bound reported as 429 tells a caller to retry what can never "
+                + "succeed: " + detail);
+            StringAssert.Contains(detail,
+                AgentSpawn.MaxTaskBytes.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            StringAssert.Contains(detail,
+                (AgentSpawn.MaxTaskBytes + 1).ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "a refusal that does not say how big the body was leaves a caller guessing");
+
+            using var listing = await client.GetAsync("/agent");
+            Assert.AreEqual(0, (await Read(listing)).GetArrayLength(),
+                "a refused spawn must not be retained for an hour or returned by the listing");
+
+            // The control arm: exactly at the bound is accepted, so the number is the bound and not
+            // one less than it.
+            using var atTheBound = await client.PostAsync("/agent",
+                Json("{\"task\":\"" + new String('x', AgentSpawn.MaxTaskBytes) + "\"}"));
+            Assert.AreEqual(HttpStatusCode.Accepted, atTheBound.StatusCode, await Text(atTheBound));
+        }
+
+        /// <summary>
+        ///   The name is bounded too, and refused rather than cut: a listing reporting a name
+        ///   nobody sent is worse than a refusal, and the name is the field that rides on every
+        ///   feed event to every subscriber.
+        /// </summary>
+        [TestMethod]
+        public async Task ASpawnWhoseNameIsOverItsByteBoundIsRefusedRatherThanQuietlyCut()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            var oversized = new String('n', AgentSpawn.MaxNameBytes + 1);
+            using (var response = await client.PostAsync("/agent",
+                Json("{\"task\":\"count\",\"name\":\"" + oversized + "\"}")))
+            {
+                var detail = await Text(response);
+                Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode, detail);
+                StringAssert.Contains(detail,
+                    AgentSpawn.MaxNameBytes.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+
+            var atTheBound = new String('n', AgentSpawn.MaxNameBytes);
+            using (var response = await client.PostAsync("/agent",
+                Json("{\"task\":\"count\",\"name\":\"" + atTheBound + "\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode, await Text(response));
+                Assert.AreEqual(atTheBound, (await Read(response)).GetProperty("name").GetString(),
+                    "a name that was cut on the way in is a listing reporting something nobody sent");
+            }
+        }
+
+        /// <summary>
+        ///   The host bounds a request body rather than taking the framework's 30 MB default, and
+        ///   the bound sits ABOVE the apiApp proxy's own 1 MiB so an absurd body is refused at the
+        ///   front door, where the 413 names a number a caller can read.
+        ///   <para>
+        ///     This pins the WIRING and not Kestrel's enforcement: the test server supports no
+        ///     request-body-size feature, so enforcement would need a real socket. The sibling
+        ///     runtime's identical bound is pinned by nothing at all today.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public void TheHostBoundsARequestBodyRatherThanTakingTheFrameworksThirtyMegabyteDefault()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            var kestrel = factory.Services
+                .GetRequiredService<Microsoft.Extensions.Options.IOptions<
+                    Microsoft.AspNetCore.Server.Kestrel.Core.KestrelServerOptions>>().Value;
+
+            Assert.AreEqual<Int64?>(2_097_152, kestrel.Limits.MaxRequestBodySize,
+                "unset this is the framework's 30 MB, and it has to sit just above the apiApp "
+                + "proxy's 1 MiB so an absurd body is refused at the front door");
+        }
+
+        /// <summary>
         ///   Every cap on <c>Agents:Limits</c> is reported by the status route, with the value that
         ///   key was configured with. The field list is DERIVED from the options type rather than
         ///   written out here, because a hand-picked list is what let the token ceiling and then the

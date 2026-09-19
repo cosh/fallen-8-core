@@ -34,8 +34,9 @@ namespace NoSQL.GraphDB.App.Configuration
     ///
     ///   <para>The integration runtime is a separate deployable (<c>fallen-8-integrations</c>) whose
     ///   container port is deliberately not published, because jobs hand it third-party credentials.
-    ///   The apiApp is therefore the only way in: it proxies the runtime's eight routes, being already
-    ///   the authenticated front door, which is why the runtime needs no second auth story.</para>
+    ///   This proxy is therefore the way in from outside the compose network; it is not the only
+    ///   caller that can reach the runtime, and https://docs.fallen-8.com/security/ is the one home
+    ///   for what that means.</para>
     /// </summary>
     public sealed class Fallen8IntegrationsOptions
     {

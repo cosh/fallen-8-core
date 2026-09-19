@@ -80,6 +80,23 @@ namespace NoSQL.GraphDB.Tests
                 RequestSizeLimitOf(typeof(DelegatesController), "ValidateDelegate"));
         }
 
+        /// <summary>
+        ///   The two routes that forward a body to a credential-holding sidecar carry a bound too.
+        ///   Both hand it to a container that authenticates nobody and holds this instance's key,
+        ///   so an unbounded body is retained or spooled THERE rather than here: the agent spawn
+        ///   shipped with no bound at all while the security page stated the invariant with exactly
+        ///   two named exceptions.
+        /// </summary>
+        [TestMethod]
+        public void TheSidecarProxyRoutesThatTakeABodyAreBoundToo()
+        {
+            Assert.AreEqual(SensitiveBodyLimitBytes,
+                RequestSizeLimitOf(typeof(AgentsController), "Spawn"));
+            Assert.IsTrue(
+                RequestSizeLimitOf(typeof(IntegrationsController), "Job") > SensitiveBodyLimitBytes,
+                "the job route is the named exception: deliberately larger, and never unbounded");
+        }
+
         [TestMethod]
         public void ConfigurationStillCarryingTheRemovedKey_BindsWithoutError()
         {
