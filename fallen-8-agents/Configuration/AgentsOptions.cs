@@ -131,7 +131,8 @@ namespace NoSQL.GraphDB.Agents.Configuration
         {
             /// <summary>How often an idle stream sends a keep-alive comment. It bounds
             /// dead-connection detection and defeats a proxy's idle timeout, which is why an idle
-            /// feed is never silent.</summary>
+            /// feed is never silent and why a non-positive value is floored at 1 second rather than
+            /// sending none.</summary>
             public Int32 KeepAliveSeconds { get; set; } = 15;
 
             /// <summary>
@@ -147,6 +148,12 @@ namespace NoSQL.GraphDB.Agents.Configuration
             ///   skipped events would let a reader believe they saw everything. A dropped
             ///   subscriber reconnects and reads the trace to catch up, which is the documented
             ///   catch-up mechanism.
+            ///   <para>
+            ///     A non-positive value is floored at 1 rather than switching the bound off. There
+            ///     is deliberately no "off" here: an unbounded queue is an unbounded amount of
+            ///     memory held for one slow subscriber, which is the failure
+            ///     <see cref="MaxSubscribers" /> is bounded to avoid.
+            ///   </para>
             /// </summary>
             public Int32 MaxQueuedEvents { get; set; } = 512;
         }
@@ -155,9 +162,12 @@ namespace NoSQL.GraphDB.Agents.Configuration
         public sealed class RoleOptions
         {
             /// <summary>
-            ///   The MCP tool names this role may see. Absent or empty means every tool the server
-            ///   advertises; a non-empty list NARROWS that set and can never widen it, because the
-            ///   server's own tiers are the outer bound and are enforced server-side.
+            ///   The MCP tool names this role may see, REPLACING the list it ships with rather than
+            ///   adding to it. Absent or empty keeps the shipped list (for <c>orchestrator</c> that
+            ///   is the overview read, not everything); a list of names means exactly those; a lone
+            ///   <see cref="Runtime.RoleCatalog.EveryTool" /> means every tool the server
+            ///   advertises. Whichever it is, that server's own tiers are the outer bound and are
+            ///   enforced server-side, so nothing here reaches past them.
             /// </summary>
             public List<String> Tools { get; set; } = new List<String>();
         }
@@ -182,7 +192,8 @@ namespace NoSQL.GraphDB.Agents.Configuration
 
             /// <summary>How long the startup tool-list read may take before the host gives up on it
             /// and starts anyway. Bounded because an unreachable MCP server must not stop this
-            /// process from starting and reporting that it is unreachable.</summary>
+            /// process from starting and reporting that it is unreachable, which is also why a
+            /// non-positive value is floored at 1 second rather than switching the bound off.</summary>
             public Int32 ConnectTimeoutSeconds { get; set; } = 15;
         }
 

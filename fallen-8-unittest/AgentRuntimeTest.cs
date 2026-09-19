@@ -772,35 +772,39 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void AnEvictedAncestorCannotMakeADeepWorkerLookShallow()
+        public void DepthIsStampedFromTheParentsRecordAndIsWhatTheSwarmCapCounts()
         {
             // Depth is stamped at admission from the parent's own depth rather than walked up the
-            // tree at spawn time. A walk would report a depth that flatters the tree the moment an
-            // ancestor is evicted, which is exactly when a long swarm is most likely to try again.
-            var clock = new StepClock(DateTimeOffset.Parse("2026-09-16T06:00:00Z"));
+            // tree, and it is what MaxSwarmDepth compares against, so a tree cannot gain a level.
+            //
+            // This test used to arrange an EVICTED ancestor, on the grounds that a walk would then
+            // flatter the tree. That state is unreachable since every ending cascades to its live
+            // workers and admission refuses a parent that has ended: a live agent's ancestor cannot
+            // be evicted, because it would have had to end first and that would have ended this
+            // agent too. An assertion about it would have been a test of nothing.
             var options = new AgentsOptions();
             options.Limits.MaxConcurrentAgents = 0;
             options.Limits.MaxSwarmDepth = 3;
-            options.Limits.RetainFinishedMinutes = 10;
 
-            using var harness = new Harness(Script.Says("ok"), options: options, clock: clock);
+            using var harness = new Harness(Script.Says("ok"), options: options);
 
             Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
                 out var boss, out _));
+            Assert.AreEqual(0, boss.Depth, "an agent a caller spawned is the root of its own tree");
+
             Assert.IsTrue(harness.Registry.TryAdmit(
                 new AgentSpawn("worker", "middle") { ParentId = boss.Id }, out var middle, out _));
+            Assert.AreEqual(1, middle.Depth);
 
-            // The root finishes and is evicted; the middle worker is still live and still depth 1.
-            Assert.IsTrue(harness.Registry.Finish(boss.Id, AgentState.Completed, resultText: "done"));
-            clock.Advance(TimeSpan.FromMinutes(11));
-            Assert.IsFalse(harness.Registry.TryGet(boss.Id, out _), "the root had to be evicted");
-
-            Assert.AreEqual(1, middle.Depth, "the recorded depth survives its ancestor");
             Assert.IsTrue(harness.Registry.TryAdmit(
                 new AgentSpawn("worker", "leaf") { ParentId = middle.Id }, out var leaf, out _));
-            Assert.AreEqual(2, leaf.Depth,
-                "a walk up the tree would have called this depth 1, and a cap of 3 would then "
-                + "admit a whole extra level for every ancestor that had been evicted");
+            Assert.AreEqual(2, leaf.Depth, "one deeper than the record that spawned it");
+
+            // And the cap counts THAT number: a fourth level is refused, naming the depth it is at.
+            Assert.IsFalse(harness.Registry.TryAdmit(
+                    new AgentSpawn("worker", "too deep") { ParentId = leaf.Id }, out _, out var problem),
+                "a cap of 3 admitted a fourth level of agent");
+            StringAssert.Contains(problem, "MaxSwarmDepth", problem);
         }
 
         [TestMethod]
@@ -839,32 +843,33 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreSame(grand, middle.Parent, "this test needs the chain it is about");
             Assert.AreSame(middle, leaf.Parent);
 
-            // The two ancestors end; the leaf keeps working, which is the case that matters. An
-            // orchestrator completing does not cancel a worker, so this is reachable in an ordinary
-            // run rather than only at shutdown.
-            clock.Advance(TimeSpan.FromSeconds(1));
-            Assert.IsTrue(harness.Registry.Finish(grand.Id, AgentState.Completed, resultText: "done"));
-            clock.Advance(TimeSpan.FromSeconds(1));
+            // The DESCENDANTS end and are evicted while their parent is still live, which is the
+            // direction that is reachable: a parent's ending cancels its live workers, so an
+            // evicted parent no longer has a surviving child, and this is the case the eviction
+            // leak was about anyway. A record that held its parent kept that parent's whole trace
+            // and token source alive after the listing had forgotten the holder.
+            Assert.IsTrue(harness.Registry.Finish(leaf.Id, AgentState.Completed, resultText: "done"));
             Assert.IsTrue(harness.Registry.Finish(middle.Id, AgentState.Completed, resultText: "done"));
 
             clock.Advance(TimeSpan.FromMinutes(11));
 
             // Any read evicts, which is this registry's contract rather than a timer.
-            Assert.AreEqual(1, harness.Registry.All().Count, "both finished ancestors are past retention");
-            Assert.IsFalse(harness.Registry.TryGet(grand.Id, out _));
+            Assert.AreEqual(1, harness.Registry.All().Count,
+                "both finished descendants are past retention");
+            Assert.IsFalse(harness.Registry.TryGet(leaf.Id, out _));
             Assert.IsFalse(harness.Registry.TryGet(middle.Id, out _));
+            Assert.IsTrue(harness.Registry.TryGet(grand.Id, out _), "the live parent stays");
 
             Assert.IsNull(leaf.Parent,
-                "the live leaf still holds its evicted parent, so that parent's whole trace and "
-                + "token source would be retained by a record the listing has forgotten");
+                "an evicted record still holds ITS parent, so one reference kept the whole "
+                + "ancestry alive through the chain");
             Assert.IsNull(middle.Parent,
-                "an evicted record still holds ITS parent, so one retained descendant would keep "
-                + "the entire ancestry alive through the chain");
+                "the same one level up, which is what made it a chain rather than one link");
 
             // The lineage a client reads is unchanged: only the object reference goes.
             Assert.AreEqual(middle.Id, leaf.ParentId);
             Assert.AreEqual(grand.Id, middle.ParentId);
-            Assert.AreEqual(AgentState.Pending, leaf.State, "the live agent was not disturbed");
+            Assert.AreEqual(AgentState.Pending, grand.State, "the live agent was not disturbed");
         }
 
         [TestMethod]
@@ -1009,6 +1014,10 @@ namespace NoSQL.GraphDB.Tests
             // The distinction a role's own config has to preserve: a role entry with no Tools list
             // is "this role is mentioned", not "this role may use nothing". Reading it the other way
             // would silently disarm an agent whose configuration merely existed.
+            //
+            // The worker, whose SHIPPED allowlist is empty, so "keeps what it ships with" and
+            // "sees everything" are the same answer here. They are not for the orchestrator, which
+            // is the arm AnEmptyOrAllBlankAllowlistKeepsTheShippedOneAndAStarEntryWidensIt covers.
             var configuration = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<String, String>
                 {
@@ -1651,6 +1660,64 @@ namespace NoSQL.GraphDB.Tests
         }
 
         #endregion
+
+        /// <summary>
+        ///   The three arms of <c>Agents:Roles:&lt;role&gt;:Tools</c>, on the role where they
+        ///   differ: an empty list keeps the SHIPPED allowlist (not everything, which three sites
+        ///   claimed), a list of blanks keeps it too rather than silently lifting it, and a lone
+        ///   star widens to everything the server advertises.
+        /// </summary>
+        [TestMethod]
+        public void AnEmptyOrAllBlankAllowlistKeepsTheShippedOneAndAStarEntryWidensIt()
+        {
+            var advertised = new List<AITool> { Tool("f8_overview"), Tool("f8_read"), Tool("f8_write") };
+
+            var empty = new AgentsOptions();
+            empty.Roles["orchestrator"] = Allow();
+            Assert.IsTrue(RoleCatalog.Load(empty).TryGet("orchestrator", out var kept, out _));
+            CollectionAssert.AreEqual(new[] { "f8_overview" }, kept.AllowedTools.ToArray(),
+                "an empty configured list keeps what the role ships with");
+            Assert.AreEqual(1, kept.Filter(advertised).Count);
+
+            var blank = new AgentsOptions();
+            blank.Roles["orchestrator"] = Allow(" ", "");
+            Assert.IsTrue(RoleCatalog.Load(blank).TryGet("orchestrator", out var stillKept, out _));
+            CollectionAssert.AreEqual(new[] { "f8_overview" }, stillKept.AllowedTools.ToArray(),
+                "a list of blanks is a typo, not an instruction to lift the allowlist");
+            Assert.AreEqual(1, stillKept.Filter(advertised).Count);
+
+            var star = new AgentsOptions();
+            star.Roles["orchestrator"] = Allow(RoleCatalog.EveryTool);
+            Assert.IsTrue(RoleCatalog.Load(star).TryGet("orchestrator", out var widened, out _));
+            Assert.AreEqual(0, widened.AllowedTools.Count,
+                "no narrowing left, which is how every-tool is represented downstream");
+            Assert.AreEqual(3, widened.Filter(advertised).Count,
+                "a star means every tool the server advertises, whatever the role ships with");
+        }
+
+        /// <summary>
+        ///   A star beside a tool name is refused at load, naming the key: the two are opposite
+        ///   instructions, and guessing which one an operator meant would either silently widen an
+        ///   allowlist or silently discard what they wrote.
+        /// </summary>
+        [TestMethod]
+        public void AStarBesideAToolNameIsRefusedBecauseTheTwoAreOppositeInstructions()
+        {
+            var options = new AgentsOptions();
+            options.Roles["worker"] = Allow(RoleCatalog.EveryTool, "f8_read");
+
+            var thrown = Assert.ThrowsException<InvalidOperationException>(
+                () => RoleCatalog.Load(options));
+            StringAssert.Contains(thrown.Message, "Agents:Roles:worker:Tools",
+                "the message has to name the key an operator edits: " + thrown.Message);
+            StringAssert.Contains(thrown.Message, RoleCatalog.EveryTool);
+
+            // The refusal is about the COMBINATION: the narrowing half alone loads.
+            var narrowed = new AgentsOptions();
+            narrowed.Roles["worker"] = Allow("f8_read");
+            Assert.IsTrue(RoleCatalog.Load(narrowed).TryGet("worker", out var role, out _));
+            CollectionAssert.AreEqual(new[] { "f8_read" }, role.AllowedTools.ToArray());
+        }
 
         private static AgentsOptions.RoleOptions Allow(params String[] tools)
         {

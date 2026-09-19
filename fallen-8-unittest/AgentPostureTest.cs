@@ -263,16 +263,16 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void ADisabledCapReadsAsUnboundedRatherThanAsABoundOfZero()
         {
-            // ALL EIGHT printed limits treat a non-positive value as OFF. Printing the raw number
-            // told an operator who had deliberately disabled one that this host was the strictest
-            // possible: "bounded at 0 model calls" for a host with no step cap at all, which
-            // inverts the meaning of the whole line.
+            // EVERY limit these lines print treats a non-positive value as OFF. Printing the raw
+            // number told an operator who had deliberately disabled one that this host was the
+            // strictest possible: "bounded at 0 model calls" for a host with no step cap at all,
+            // which inverts the meaning of the whole line.
             //
-            // Eight, and this test said seven: it set seven and deliberately left
-            // DefaultTokenBudget alone, which is the one that was still printing a raw 0. A spawn
-            // naming no budget takes the default, and the meter enforces only a budget above zero,
-            // so a default of 0 is no token cap at all. Every limit the line prints is set to 0
-            // here, which is the only version of this test that could have caught that.
+            // The count in this comment went stale twice, so it is gone: it said seven while
+            // DefaultTokenBudget was still printing a raw 0 (a spawn naming no budget takes the
+            // default, and the meter enforces only a budget above zero), then eight while the two
+            // swarm caps were printed nowhere at all. Every limit the lines print is set to 0 here,
+            // which is the only version of this test that can catch the next one.
             using var sink = new TestLogSink();
             var options = new AgentsOptions();
             options.Limits.MaxStepsPerRun = 0;
@@ -283,6 +283,8 @@ namespace NoSQL.GraphDB.Tests
             options.Limits.DefaultTokenBudget = 0;
             options.Limits.RetainFinishedMinutes = 0;
             options.Limits.MaxRetainedAgents = 0;
+            options.Limits.MaxSwarmDepth = 0;
+            options.Limits.MaxWorkersPerOrchestrator = 0;
 
             Posture(sink, options);
 
@@ -298,6 +300,30 @@ namespace NoSQL.GraphDB.Tests
                 StringComparison.Ordinal));
             Assert.AreEqual(2, retention.Message.Split("unlimited").Length - 1,
                 "retention and its ceiling are both off: " + retention.Message);
+
+            var swarm = sink.Entries.Single(e => e.Message.Contains("A swarm may nest",
+                StringComparison.Ordinal));
+            Assert.AreEqual(2, swarm.Message.Split("unlimited").Length - 1,
+                "the depth and the per-orchestrator count are both off: " + swarm.Message);
+        }
+
+        /// <summary>
+        ///   The startup line prints the deadline a call GETS, not the number an operator wrote:
+        ///   <c>Fallen8Target:TimeoutSeconds</c> is floored at 1 rather than switched off, and the
+        ///   line said "deadline 0s" for a host that fails every model call after a second.
+        /// </summary>
+        [TestMethod]
+        public void TheStartupLinePrintsTheDeadlineInForceRatherThanTheConfiguredZero()
+        {
+            using var sink = new TestLogSink();
+
+            Posture(sink, new AgentsOptions(), new Fallen8TargetOptions { TimeoutSeconds = 0 });
+
+            var line = sink.Entries.Single(e => e.Message.Contains("Completions come from",
+                StringComparison.Ordinal));
+            StringAssert.Contains(line.Message, "deadline 1s",
+                "the line reports the number an operator wrote rather than the deadline a call "
+                + "gets: " + line.Message);
         }
 
 
@@ -328,10 +354,11 @@ namespace NoSQL.GraphDB.Tests
 
         /// <summary>The posture line as the host writes it, with no MCP server and no gateway: this
         /// is about the caps it prints, and neither probe contributes one.</summary>
-        private static void Posture(TestLogSink sink, AgentsOptions options)
+        private static void Posture(TestLogSink sink, AgentsOptions options,
+            Fallen8TargetOptions target = null)
         {
             AgentsHost.LogStartupPosture(sink.CreateFactory().CreateLogger("posture"), options,
-                new Fallen8TargetOptions(), RoleCatalog.Load(options), new EmptyToolSource());
+                target ?? new Fallen8TargetOptions(), RoleCatalog.Load(options), new EmptyToolSource());
         }
 
         private sealed class EmptyToolSource : IAgentToolSource

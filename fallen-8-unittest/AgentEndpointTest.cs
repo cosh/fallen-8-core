@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -1307,6 +1308,132 @@ namespace NoSQL.GraphDB.Tests
         ///   closed port on purpose: a host must start and REPORT that, and every control-plane
         ///   route must answer regardless, because none of them blocks on inference.
         /// </summary>
+        /// <summary>
+        ///   Every cap on <c>Agents:Limits</c> is reported by the status route, with the value that
+        ///   key was configured with. The field list is DERIVED from the options type rather than
+        ///   written out here, because a hand-picked list is what let the token ceiling and then the
+        ///   two swarm caps go unreported while this route documented itself as reporting the caps a
+        ///   run is held to.
+        /// </summary>
+        [TestMethod]
+        public async Task EveryCapInTheLimitsBlockIsReportedByTheStatusRouteWithTheValueItWasConfiguredWith()
+        {
+            var caps = typeof(NoSQL.GraphDB.Agents.Configuration.AgentsOptions.LimitsOptions)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.GetIndexParameters().Length == 0 && p.GetMethod != null)
+                .ToList();
+            Assert.IsTrue(caps.Count >= 10,
+                "reflection found " + caps.Count + " caps on AgentsOptions.LimitsOptions, so this "
+                + "pin is reading the wrong type");
+
+            // A DISTINCT value per cap: equal ones would let one field report another's number.
+            var settings = new Dictionary<String, String>(StringComparer.Ordinal);
+            var expected = new Dictionary<String, Int32>(StringComparer.OrdinalIgnoreCase);
+            var configured = 101;
+            foreach (var cap in caps)
+            {
+                Assert.AreEqual(typeof(Int32), cap.PropertyType,
+                    "Agents:Limits:" + cap.Name + " is not an Int32, so this pin does not cover it");
+                settings["Agents:Limits:" + cap.Name] =
+                    configured.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                expected[cap.Name] = configured;
+                configured++;
+            }
+
+            using var factory = new AgentHostFactory(settings: settings);
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agent/status");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+
+            var reported = body.GetProperty("limits").EnumerateObject()
+                .ToDictionary(p => p.Name, p => p.Value, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var cap in expected)
+            {
+                Assert.IsTrue(reported.TryGetValue(cap.Key, out var value),
+                    "Agents:Limits:" + cap.Key + " is a cap the status route does not report");
+                Assert.AreEqual(cap.Value, value.GetInt32(),
+                    "the status route reports something other than the configured Agents:Limits:"
+                    + cap.Key);
+            }
+
+            foreach (var name in reported.Keys)
+            {
+                Assert.IsTrue(expected.ContainsKey(name),
+                    "the status route reports a cap that Agents:Limits does not configure: " + name);
+            }
+        }
+
+        /// <summary>
+        ///   A narrowed role reports the list that narrows it; an unrestricted one OMITS the field,
+        ///   which is the only thing on this route that says "nothing narrows this role". An empty
+        ///   list there would read as "may use nothing", which is the opposite. Neither arm was
+        ///   pinned: the status test asserted role NAMES and nothing else.
+        /// </summary>
+        [TestMethod]
+        public async Task TheStatusRouteDistinguishesANarrowedRoleFromAnUnrestrictedOne()
+        {
+            using var factory = new AgentHostFactory(settings: new Dictionary<String, String>(
+                StringComparer.Ordinal)
+            {
+                ["Agents:Roles:worker:Tools:0"] = "f8_get",
+                ["Agents:Roles:orchestrator:Tools:0"] = NoSQL.GraphDB.Agents.Runtime.RoleCatalog.EveryTool,
+            });
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agent/status");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
+
+            var roles = body.GetProperty("roles").EnumerateArray()
+                .ToDictionary(r => r.GetProperty("name").GetString(), r => r, StringComparer.Ordinal);
+
+            CollectionAssert.AreEqual(
+                new[] { "f8_get" },
+                roles["worker"].GetProperty("allowedTools").EnumerateArray()
+                    .Select(t => t.GetString()).ToArray(),
+                "a narrowed role reports the list that narrows it");
+            Assert.IsFalse(roles["assistant"].TryGetProperty("allowedTools", out _),
+                "an unrestricted role omits the field rather than reporting an empty list a reader "
+                + "would take for 'may use nothing'");
+            Assert.IsFalse(roles["orchestrator"].TryGetProperty("allowedTools", out _),
+                "a star widens the orchestrator past its shipped allowlist, so nothing narrows it");
+
+            // No MCP server answers these tests, which is what makes the field's PRESENCE the
+            // load-bearing signal here rather than the count beside it.
+            Assert.AreEqual(0, roles["worker"].GetProperty("toolCount").GetInt32());
+        }
+
+        /// <summary>
+        ///   The reported deadline is the one a call actually gets.
+        ///   <c>Fallen8Target:TimeoutSeconds</c> is floored rather than switched off, so a host
+        ///   configured with 0 fails every model call after a second while this route said there
+        ///   was no deadline at all.
+        /// </summary>
+        [TestMethod]
+        public async Task TheStatusRouteReportsTheDeadlineInForceRatherThanTheStrayZeroItWasConfiguredWith()
+        {
+            using var floored = new AgentHostFactory(settings: new Dictionary<String, String>(
+                StringComparer.Ordinal) { ["Fallen8Target:TimeoutSeconds"] = "0" });
+            using var flooredClient = floored.CreateClient();
+
+            using var response = await flooredClient.GetAsync("/agent/status");
+            var chat = JsonDocument.Parse(await response.Content.ReadAsStringAsync())
+                .RootElement.GetProperty("chat");
+            Assert.AreEqual(1, chat.GetProperty("timeoutSeconds").GetInt32(),
+                "the floor is what a call actually gets, so it is what the route reports");
+
+            // And not hard-wired to the floor: a host with the shipped value reports that.
+            using var shipped = new AgentHostFactory();
+            using var shippedClient = shipped.CreateClient();
+            using var second = await shippedClient.GetAsync("/agent/status");
+            var shippedChat = JsonDocument.Parse(await second.Content.ReadAsStringAsync())
+                .RootElement.GetProperty("chat");
+            Assert.AreEqual(630, shippedChat.GetProperty("timeoutSeconds").GetInt32());
+        }
+
         private sealed class AgentHostFactory : WebApplicationFactory<NoSQL.GraphDB.Agents.Program>
         {
             private readonly Int32 _maxConcurrent;
@@ -1315,6 +1442,7 @@ namespace NoSQL.GraphDB.Tests
             private readonly Int32 _keepAliveSeconds;
             private readonly Int32 _maxSubscribers;
             private readonly Int32 _maxTraceSteps;
+            private readonly IReadOnlyDictionary<String, String> _settings;
 
             // maxTraceSteps is settable because the bound it controls had no HTTP coverage at
             // all: nothing produced a truncated trace over the trace route, so the drop marker's
@@ -1327,8 +1455,10 @@ namespace NoSQL.GraphDB.Tests
             // rather than kept: a harness knob nothing passes is one more thing to keep true.
             public AgentHostFactory(Int32 maxConcurrent = 4, String baseUrl = "http://127.0.0.1:1/",
                 Int32 maxTokenBudget = 400_000, Int32 keepAliveSeconds = 15,
-                Int32 maxSubscribers = 16, Int32 maxTraceSteps = 1000)
+                Int32 maxSubscribers = 16, Int32 maxTraceSteps = 1000,
+                IReadOnlyDictionary<String, String> settings = null)
             {
+                _settings = settings ?? new Dictionary<String, String>(StringComparer.Ordinal);
                 _maxConcurrent = maxConcurrent;
                 _baseUrl = baseUrl;
                 _maxTokenBudget = maxTokenBudget;
@@ -1352,6 +1482,14 @@ namespace NoSQL.GraphDB.Tests
                 builder.UseSetting("Agents:Trace:MaxSteps",
                     _maxTraceSteps.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 builder.UseSetting("Fallen8Target:BaseUrl", _baseUrl);
+
+                // Last, so a test naming a key this constructor also sets wins rather than racing
+                // it. The cap-coverage test reads every Agents:Limits key off the options type, and
+                // two of them are constructor parameters here.
+                foreach (var setting in _settings)
+                {
+                    builder.UseSetting(setting.Key, setting.Value);
+                }
             }
         }
 

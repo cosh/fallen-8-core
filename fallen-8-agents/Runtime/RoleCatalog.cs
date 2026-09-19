@@ -74,6 +74,19 @@ namespace NoSQL.GraphDB.Agents.Runtime
         /// <summary>The role a spawn request gets when it names none.</summary>
         public const String DefaultRole = "assistant";
 
+        /// <summary>
+        ///   The one entry in <c>Agents:Roles:&lt;role&gt;:Tools</c> that WIDENS: it means every
+        ///   tool the MCP server advertises, whatever the role ships with.
+        ///   <para>
+        ///     It exists because there was otherwise no way to say it. An absent or empty list keeps
+        ///     the role's shipped allowlist, so widening the orchestrator meant enumerating the
+        ///     server's tools, and such a list is wrong again the moment a tier is enabled. It
+        ///     widens only as far as that server advertises: the tiers are the outer bound and are
+        ///     enforced server-side.
+        ///   </para>
+        /// </summary>
+        public const String EveryTool = "*";
+
         private static readonly String[] Known = { "assistant", "orchestrator", "worker" };
 
         /// <summary>
@@ -121,16 +134,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
             var roles = new Dictionary<String, AgentRole>(StringComparer.OrdinalIgnoreCase);
             foreach (var name in Known)
             {
-                // A configured list REPLACES the shipped one rather than adding to it, because the
-                // only reason to configure one is to say "this role may use exactly these".
-                var configured = options.Roles.TryGetValue(name, out var listed) ? listed?.Tools : null;
-                var allowed = configured is { Count: > 0 }
-                    ? configured.Where(t => !String.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToArray()
-                    : ShippedAllowlists.TryGetValue(name, out var shipped)
-                        ? shipped
-                        : Array.Empty<String>();
-
-                roles[name] = new AgentRole(name, Prompt(name), allowed);
+                roles[name] = new AgentRole(name, Prompt(name), Allowed(name, options));
             }
 
             return new RoleCatalog(new ReadOnlyDictionary<String, AgentRole>(roles));
@@ -190,6 +194,52 @@ namespace NoSQL.GraphDB.Agents.Runtime
             return false;
         }
 
+        /// <summary>
+        ///   The allowlist one role ends up with, folding what is configured over what ships.
+        ///   <para>
+        ///     A configured list REPLACES the shipped one rather than adding to it, because the only
+        ///     reason to configure one is to say "this role may use exactly these". Blank entries
+        ///     are dropped BEFORE that decision is made: they used to pass the count check and then
+        ///     filter down to nothing, so a list holding one empty element lifted the role's
+        ///     allowlist entirely, which is the opposite of what a typo should do.
+        ///   </para>
+        ///   <para>
+        ///     An empty result is how "nothing narrows this role" is represented downstream, which
+        ///     is what <see cref="AgentRole.Filter" /> and the status route both read.
+        ///   </para>
+        /// </summary>
+        /// <exception cref="InvalidOperationException"><see cref="EveryTool" /> beside a tool name.
+        /// Deliberately fatal, like a missing prompt: the two are opposite instructions, and an
+        /// allowlist that silently fails to narrow is worse than one that refuses to load.</exception>
+        private static IReadOnlyList<String> Allowed(String role, AgentsOptions options)
+        {
+            var named = (options.Roles.TryGetValue(role, out var listed) ? listed?.Tools : null)
+                ?.Where(t => !String.IsNullOrWhiteSpace(t)).Select(t => t.Trim()).ToArray()
+                ?? Array.Empty<String>();
+
+            if (named.Length == 0)
+            {
+                return ShippedAllowlists.TryGetValue(role, out var shipped)
+                    ? shipped
+                    : Array.Empty<String>();
+            }
+
+            if (!named.Contains(EveryTool, StringComparer.Ordinal))
+            {
+                return named;
+            }
+
+            if (named.Length > 1)
+            {
+                throw new InvalidOperationException(String.Format(
+                    "Agents:Roles:{0}:Tools names '{1}' beside {2} tool names. '{1}' means every tool "
+                    + "the MCP server advertises and cannot be combined with a list that narrows.",
+                    role, EveryTool, named.Length - 1));
+            }
+
+            return Array.Empty<String>();
+        }
+
         private static String Prompt(String role)
         {
             var assembly = typeof(RoleCatalog).Assembly;
@@ -242,7 +292,9 @@ namespace NoSQL.GraphDB.Agents.Runtime
             get;
         }
 
-        /// <summary>The MCP tool names this role may see. Empty means every advertised tool.</summary>
+        /// <summary>The MCP tool names this role may see, after configuration is folded over what it
+        /// ships with (<see cref="RoleCatalog.EveryTool" /> and an absent key both land here). Empty
+        /// means every advertised tool.</summary>
         public IReadOnlyList<String> AllowedTools
         {
             get;

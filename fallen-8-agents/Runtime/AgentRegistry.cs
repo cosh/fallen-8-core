@@ -730,11 +730,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
             {
                 if (survivor.Parent != null && gone.Contains(survivor.Parent.Id))
                 {
-                    // The other direction: a LIVE child outliving its orchestrator. Nothing is
-                    // lost by dropping the link, because the spawn step it exists to write goes on
-                    // a trace no route can reach once the parent is off the listing, so writing it
-                    // retained the parent for a reader that gets a 404. ParentId stays, so the
-                    // lineage a summary reports is unchanged.
+                    // The other direction, which is a guard rather than a live path: a child
+                    // outliving its parent. Since every ending cascades and admission refuses a
+                    // parent that has ended, a child's ending is never later than its parent's, and
+                    // eviction takes the older one first, so this branch is not reachable through
+                    // the retention clock. It is kept for the same reason the walk keeps a visited
+                    // set: the cost is one reference comparison per eviction, and the failure it
+                    // would prevent is an ancestry of bounded traces retained by a record the
+                    // listing has forgotten. ParentId stays either way, so the lineage a summary
+                    // reports is unchanged.
                     survivor.Parent = null;
                 }
             }

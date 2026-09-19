@@ -322,13 +322,14 @@ Rules, each with its reason:
 - **Roles:** `assistant` (default: one agent, one task or conversation), `orchestrator`
   (additionally gets the swarm tools) and `worker` (assistant-shaped, spawned only by an
   orchestrator, answers to it with a typed result). Each role has a prompt file and a **tool
-  allowlist** (`Agents:Roles:<role>:Tools`, MCP tool names; empty means every tool the server
-  advertises). The allowlist is applied to the tool list the runner hands the agent, so a tool
-  outside it is not merely discouraged by the prompt: the model never sees it. Defaults:
+  allowlist** (`Agents:Roles:<role>:Tools`, MCP tool names that REPLACE the role's shipped list:
+  absent or empty keeps that list, and a lone `*` is the one entry that widens, meaning every tool
+  the server advertises). The allowlist is applied to the tool list the runner hands the agent, so a
+  tool outside it is not merely discouraged by the prompt: the model never sees it. Defaults:
   `assistant` and `worker` see every advertised tool; `orchestrator` sees `f8_overview` and the
   swarm tools, because an orchestrator that can look but must delegate decomposes better than one
   that can do everything itself. The MCP server's tiers remain the server-side bound; the
-  allowlist can only narrow.
+  allowlist can only narrow what that server advertises.
 - **States:** `pending -> running <-> waitingForUser -> completed | failed | cancelled |
   budgetExceeded`. `budgetExceeded` carries which budget: `tokens`, `steps`, `toolCalls` or
   `time`. Every transition is a feed event and a trace step.
@@ -616,7 +617,7 @@ Host (`Agents:*` for this process, `Fallen8Target:*` for the instance it asks):
 | `Fallen8Target:TimeoutSeconds` | `630` | above the largest chat budget a shipped profile sets (600 on Nahil), for the two-deadlines reason |
 | `Agents:Mcp:Endpoint` / `BearerToken` | `http://localhost:8090` / none | |
 | `Agents:Mcp:ConnectTimeoutSeconds` | `15` | the startup handshake only; an unreachable server leaves the toolset empty with a reason rather than failing the host |
-| `Agents:Roles:<role>:Tools` | see 3.2 | MCP tool names; empty = all advertised |
+| `Agents:Roles:<role>:Tools` | see 3.2 | MCP tool names, which replace the role's shipped list; absent or empty keeps it, and a lone `*` means all advertised |
 | `Agents:Limits:DefaultTokenBudget` | `100000` | what a spawn naming no budget gets; a non-positive value means no token cap at all |
 | `Agents:Limits:MaxTokenBudget` | `400000` | the CEILING on a caller's own `tokenBudget`, which it clamps rather than refuses. Added by the Phase 1b review and missing from this table until the Phase 3 reconciliation; reported on `GET /agents/status`, because a cap that silently rewrites a request is one a client has to be able to read |
 | `Agents:Limits:MaxStepsPerRun` | `24` | |

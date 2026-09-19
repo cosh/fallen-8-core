@@ -53,7 +53,9 @@ An allowlist NARROWS and can never widen: it is applied to the tool list handed 
 tool outside it is never seen rather than merely discouraged, and the MCP server's own tiers remain
 the outer bound. A configured `Agents:Roles:<role>:Tools` REPLACES the shipped list rather than
 adding to it, because the only reason to configure one is to say "exactly these"; an entry with no
-list is "this role is mentioned", not "this role may use nothing".
+list, or one holding nothing but blanks, keeps the SHIPPED list rather than lifting it, so an empty
+`Tools` leaves the orchestrator on `f8_overview`. A lone `*` is the one value that widens a role to
+everything the server advertises, and `*` beside a tool name is refused at startup.
 
 The swarm tools are not in any allowlist. They are not MCP tools, `SwarmTools` implements them, and
 the runner appends them for the orchestrator role alone.
@@ -83,8 +85,11 @@ The full reference is on the [docs page](https://docs.fallen-8.com/agents/) and 
 [spec.md](./spec.md) 3.8, which also records the Phase 0 arithmetic behind the defaults. Two things
 worth knowing here:
 
-- **Every cap treats a non-positive value as OFF**, and the startup line prints `unlimited` rather
-  than a bound of zero. All eight of them.
+- **A non-positive value switches a cap OFF for every `Agents:Limits:*` and `Agents:Trace:*` key
+  and for `Agents:Feed:MaxSubscribers`**, and the startup line prints `unlimited` for the limits
+  rather than a bound of zero. Four keys are floored at 1 instead and have no "off"
+  (`Fallen8Target:TimeoutSeconds`, `Agents:Mcp:ConnectTimeoutSeconds`, `Agents:Feed:KeepAliveSeconds`,
+  `Agents:Feed:MaxQueuedEvents`); the [docs page](https://docs.fallen-8.com/agents/) says why.
 - **`Agents:*` is covered by no reflection gate.** The apiApp's setting-catalog governance filters
   on sections prefixed `Fallen8:`, and this host's sections are `Agents` and `Fallen8Target`, as
   with the other two sidecars. So a typo in one of its own option names is caught by nothing.

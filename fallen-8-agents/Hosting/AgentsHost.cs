@@ -130,8 +130,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
             {
                 var target = provider.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value;
                 var http = provider.GetRequiredService<IHttpClientFactory>().CreateClient(ChatClientName);
-                return new Fallen8ChatClient(http,
-                    TimeSpan.FromSeconds(Math.Max(1, target.TimeoutSeconds)));
+                return new Fallen8ChatClient(http, target.Deadline);
             });
 
             // The runner asks for the INTERFACE, so a test drives it with a scripted client and
@@ -216,11 +215,11 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
             logger.LogInformation(
                 "Completions come from {BaseUrl} as purpose 'agent' (api key {KeyState}, deadline "
-                + "{TimeoutSeconds}s). This host names no provider, holds no provider credential and "
+                + "{DeadlineSeconds}s). This host names no provider, holds no provider credential and "
                 + "chooses no model: the instance owns all three, so switching a deployment to "
                 + "another provider changes nothing here.",
                 target.BaseUrl, String.IsNullOrEmpty(target.ApiKey) ? "not set" : "set",
-                target.TimeoutSeconds);
+                (Int64)target.Deadline.TotalSeconds);
 
             if (toolset.Connected)
             {
@@ -254,6 +253,13 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 Cap(options.Limits.MaxRunSeconds, "s"), Cap(options.Limits.MaxTokenBudget),
                 Cap(options.Limits.DefaultTokenBudget), Cap(options.Limits.MaxConcurrentAgents));
 
+            // The swarm's two caps on their own line: they bound a TREE, and the line above is
+            // about one run. Printed for the same reason as the rest, which Cap owns.
+            logger.LogInformation(
+                "A swarm may nest {MaxSwarmDepth} levels of agent deep, and one orchestrator may "
+                + "spawn {MaxWorkers} workers over its whole life.",
+                Cap(options.Limits.MaxSwarmDepth), Cap(options.Limits.MaxWorkersPerOrchestrator));
+
             logger.LogInformation(
                 "Nothing here is durable: a restart ends every agent and forgets every finished one. "
                 + "A finished agent stays readable for {RetainMinutes} minutes, at most {MaxRetained} "
@@ -263,14 +269,16 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
         /// <summary>
         ///   A cap as an operator should read it: the number, or the word for a cap that is switched
-        ///   off. ALL EIGHT printed limits treat a non-positive value as OFF, so printing the raw
+        ///   off. EVERY limit these lines print treats a non-positive value as OFF, so printing the raw
         ///   number told an operator who had deliberately disabled one that this host was the
         ///   strictest possible: "bounded at 0 model calls" for a host with no step cap at all.
         ///   The word reads in place of the number rather than beside it, so the ordinary case (a
         ///   cap that IS set) stays one short sentence.
         ///   <para>
-        ///     Eight, not the seven this said: <c>DefaultTokenBudget</c> switches off too, and was
-        ///     the one left printing a raw 0 on the strength of that miscount. A spawn that names no
+        ///     A count stood here and went stale twice, so it is gone: it said seven while
+        ///     <c>DefaultTokenBudget</c> switches off too and was the one left printing a raw 0 on
+        ///     the strength of that miscount, then eight while the two swarm caps were printed
+        ///     nowhere at all. A spawn that names no
         ///     budget of its own takes the default, and the meter only enforces a budget above
         ///     zero, so a default of 0 means no token cap at all: exactly the shape this helper
         ///     exists to stop reading as the strictest possible host.

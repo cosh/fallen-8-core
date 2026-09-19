@@ -234,7 +234,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
                     // probes on a route that exists to be trusted.
                     Reachability = probe.State,
                     ProbedAt = probe.ProbedAt,
-                    TimeoutSeconds = target.TimeoutSeconds,
+                    TimeoutSeconds = (Int32)target.Deadline.TotalSeconds,
                     // Absent until a step has actually run, and that is the point: this host holds
                     // no model configuration, so there is nothing to report before the instance has
                     // answered once. Reporting a configured name here would be reporting a value
@@ -279,6 +279,8 @@ namespace NoSQL.GraphDB.Agents.Hosting
                     MaxTokenBudget = options.Limits.MaxTokenBudget,
                     DefaultTokenBudget = options.Limits.DefaultTokenBudget,
                     MaxConcurrentAgents = options.Limits.MaxConcurrentAgents,
+                    MaxSwarmDepth = options.Limits.MaxSwarmDepth,
+                    MaxWorkersPerOrchestrator = options.Limits.MaxWorkersPerOrchestrator,
                     RetainFinishedMinutes = options.Limits.RetainFinishedMinutes,
                     MaxRetainedAgents = options.Limits.MaxRetainedAgents,
                 },
@@ -551,6 +553,9 @@ namespace NoSQL.GraphDB.Agents.Hosting
             get; set;
         }
 
+        /// <summary>The per-call deadline in FORCE, which is <see cref="Fallen8TargetOptions.Deadline" />
+        /// rather than the raw setting: a non-positive value is floored, and a route that exists to
+        /// answer "why did my agent fail" has to report what a call actually gets.</summary>
         [JsonPropertyName("timeoutSeconds")]
         public Int32 TimeoutSeconds
         {
@@ -631,7 +636,14 @@ namespace NoSQL.GraphDB.Agents.Hosting
             get; set;
         }
 
-        /// <summary>The configured or shipped allowlist, absent when the role sees everything.</summary>
+        /// <summary>
+        ///   The allowlist this role RESOLVED to, out of what is configured and what it ships with,
+        ///   and ABSENT when nothing narrows it. Absent is what says "every tool the server
+        ///   advertises", where an empty list would read as "may use nothing";
+        ///   <see cref="Runtime.RoleCatalog.EveryTool" /> therefore resolves to absent too, because
+        ///   what this route reports is the effect rather than the configuration.
+        ///   <see cref="ToolCount" /> beside it says how many that turned out to be.
+        /// </summary>
         [JsonPropertyName("allowedTools")]
         public IReadOnlyList<String>? AllowedTools
         {
@@ -680,6 +692,23 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
         [JsonPropertyName("maxConcurrentAgents")]
         public Int32 MaxConcurrentAgents
+        {
+            get; set;
+        }
+
+        /// <summary>How deep a swarm may nest, so a client can tell an agent that may still
+        /// delegate from one that may not. What the number bounds is on
+        /// <see cref="AgentsOptions.LimitsOptions.MaxSwarmDepth" />.</summary>
+        [JsonPropertyName("maxSwarmDepth")]
+        public Int32 MaxSwarmDepth
+        {
+            get; set;
+        }
+
+        /// <summary>How many workers one orchestrator may spawn over its whole life; see
+        /// <see cref="AgentsOptions.LimitsOptions.MaxWorkersPerOrchestrator" />.</summary>
+        [JsonPropertyName("maxWorkersPerOrchestrator")]
+        public Int32 MaxWorkersPerOrchestrator
         {
             get; set;
         }

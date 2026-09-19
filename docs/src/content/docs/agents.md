@@ -84,6 +84,13 @@ handed, so a tool outside it is not merely discouraged: the model never sees it.
 A `worker` cannot be spawned over the API. It reports a typed result to the orchestrator that gave
 it its part of a task, so one started by hand would have nobody to report to.
 
+`Agents:Roles:<role>:Tools` **replaces** a role's shipped allowlist rather than adding to it:
+absent or empty keeps what the role ships with (so an empty list leaves `orchestrator` on the
+overview read), a list of tool names means exactly those, and a lone `*` means every tool the
+server advertises, which is the only value that widens. A list holding nothing but blanks counts as
+empty, and `*` beside a tool name is refused at startup rather than guessed at. The MCP tiers bound
+all of them.
+
 ## Swarm mode
 
 An orchestrator gets two extra tools: `spawn_worker(task, name?)` and `await_workers(ids?)`. A
@@ -176,7 +183,7 @@ Host (`Agents:*` for the sidecar, `Fallen8Target:*` for the instance it asks):
 | `Fallen8Target:TimeoutSeconds` | `630` | above the largest chat budget a shipped profile sets, so the instance's own error wins rather than being cut off here |
 | `Agents:Mcp:Endpoint` / `BearerToken` | `http://localhost:8090` / none | how an agent reaches the graph |
 | `Agents:Mcp:ConnectTimeoutSeconds` | `15` | the startup handshake; an unreachable server leaves the toolset empty with a reason rather than failing the host |
-| `Agents:Roles:<role>:Tools` | see above | MCP tool names; empty means every advertised tool |
+| `Agents:Roles:<role>:Tools` | see above | MCP tool names, which replace the role's shipped list; see [Roles](#roles) |
 | `Agents:Limits:DefaultTokenBudget` | `100000` | what a spawn naming no budget gets |
 | `Agents:Limits:MaxTokenBudget` | `400000` | the ceiling on a caller's own `tokenBudget`, which it clamps rather than refuses |
 | `Agents:Limits:MaxStepsPerRun` | `24` | model calls |
@@ -189,8 +196,18 @@ Host (`Agents:*` for the sidecar, `Fallen8Target:*` for the instance it asks):
 | `Agents:Feed:KeepAliveSeconds` / `MaxSubscribers` / `MaxQueuedEvents` | `15` / `16` / `512` | past the queue bound a subscriber is dropped rather than thinned, and its stream ends |
 | `Agents:Observability:Otlp:Endpoint`, `Agents:Identity:*` | unset | OTLP push and fleet identity; see [Observability](/observability/) |
 
-Every non-positive value above switches its cap off, and the startup line says `unlimited` rather
-than printing a bound of zero.
+A non-positive value switches a cap OFF for every `Agents:Limits:*` key, every `Agents:Trace:*` key
+and `Agents:Feed:MaxSubscribers`, and for the `Agents:Limits:*` ones the startup line prints
+`unlimited` rather than a bound of zero.
+
+Four keys are floored at **1** instead, and none of them has an "off":
+`Fallen8Target:TimeoutSeconds`, `Agents:Mcp:ConnectTimeoutSeconds`, `Agents:Feed:KeepAliveSeconds`
+and `Agents:Feed:MaxQueuedEvents`. A model call with no deadline, a startup handshake that never
+gives up and an unbounded subscriber queue are each worse than the bound they would replace, so a
+`0` in them is a one second deadline, a one second handshake, a keep-alive every second and a queue
+of one. Set the number you mean: to wait longer for a completion, raise
+`Fallen8Target:TimeoutSeconds` above the instance's own `Fallen8:Chat:TimeoutSeconds`.
+`GET /agents/status` reports the deadline in force, so a `0` reads back as `1` there.
 
 Instance:
 

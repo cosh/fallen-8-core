@@ -62,8 +62,12 @@ namespace NoSQL.GraphDB.Agents.Configuration
         public String ApiKeyHeader { get; set; } = "X-Api-Key";
 
         /// <summary>
-        ///   The per-request deadline on a completion this host asks for. Values below 1 are floored
-        ///   at 1 second, so a stray 0 cannot fail every call.
+        ///   The per-request deadline on a completion this host asks for. A value below 1 is floored
+        ///   at 1 second, which is a short deadline and NOT an "off": a 0 here fails every model
+        ///   call after one second, and the failure names this key, which is the cheapest thing an
+        ///   operator can act on. To wait longer, raise the number. There is deliberately no way to
+        ///   switch the deadline off, because a call with no deadline is bounded only by
+        ///   <c>Agents:Limits:MaxRunSeconds</c>, which can itself be switched off.
         ///   <para>
         ///     The default sits deliberately ABOVE the largest budget the apiApp applies to the route
         ///     it calls, for the reason <c>fallen-8-mcp</c>'s equivalent states in full: two competing
@@ -74,5 +78,11 @@ namespace NoSQL.GraphDB.Agents.Configuration
         ///   </para>
         /// </summary>
         public Int32 TimeoutSeconds { get; set; } = 630;
+
+        /// <summary>The deadline actually in force, which is <see cref="TimeoutSeconds" /> with its
+        /// floor applied. It exists so the floor has one home: the startup line and the status route
+        /// both printed the raw setting, which said "no deadline" for a host that gives every call
+        /// one second.</summary>
+        public TimeSpan Deadline => TimeSpan.FromSeconds(Math.Max(1, TimeoutSeconds));
     }
 }
