@@ -235,7 +235,9 @@ namespace NoSQL.GraphDB.Agents.Diagnostics
 
         /// <summary>The gauge's callback, contained like every other recording path: it runs on the
         /// COLLECTOR's thread, so a throw there is somebody else's exception in somebody else's
-        /// loop. A negative reading is never published; the collector sees nothing instead.</summary>
+        /// loop. A source that throws is reported as 0: a gauge has to hand the collector a number,
+        /// and zero is the only honest one when the host cannot say how many agents are
+        /// live.</summary>
         private static Int32 Observe(Func<Int32> read)
         {
             try

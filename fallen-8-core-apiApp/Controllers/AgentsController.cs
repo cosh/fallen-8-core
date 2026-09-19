@@ -188,7 +188,7 @@ namespace NoSQL.GraphDB.App.Controllers
         /// Streams what every agent is doing, as Server-Sent Events (feature agent-host)
         /// </summary>
         /// <param name="agents">Only these agent ids, comma-separated or repeated. An id also matches the workers it spawned, so subscribing to an orchestrator shows its swarm. Omitted means every agent</param>
-        /// <param name="kinds">Only these event kinds: agentSpawned, agentStateChanged, agentMessage, toolCalled, agentCompleted, agentFailed. An unknown kind is a 400 naming the set, never a silently empty stream. NOTE that agentMessage is accepted but not yet EMITTED by any code path, because the only things that publish one are a conversation and a swarm and both are later phases; GET /agents/status reports acceptedKinds and emittedKinds so a client need not guess</param>
+        /// <param name="kinds">Only these event kinds: agentSpawned, agentStateChanged, agentMessage, toolCalled, agentCompleted, agentFailed. An unknown kind is a 400 naming the set, never a silently empty stream. NOTE that agentMessage is accepted but not yet EMITTED by any code path, because the only route that would publish one is the deferred conversation route; GET /agents/status reports acceptedKinds and emittedKinds so a client need not guess</param>
         /// <param name="cancellationToken">Ends the stream when the subscriber disconnects, which is how a feed normally ends</param>
         /// <remarks>The same frame conventions as this instance's change feed, so a client that reads one reads
         /// the other: <c>id:</c>, <c>event:</c> and <c>data:</c> per event, with keep-alive comments while idle.

@@ -864,6 +864,35 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(feed.TryGetProperty("published", out _));
         }
 
+        [TestMethod]
+        public async Task TheStatusRouteSaysWhichKindsAreAcceptedAndWhichAreActuallyEmitted()
+        {
+            // The two lists are the whole reason this route reports them: a subscriber filtering on
+            // an accepted-but-never-emitted kind waits forever for an event that cannot arrive.
+            // Neither was asserted anywhere, so swapping the two assignments would have told every
+            // client that agentMessage arrives and that the five real kinds do not.
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agent/status");
+            var feed = (await Read(response)).GetProperty("feed");
+
+            var accepted = feed.GetProperty("acceptedKinds").EnumerateArray()
+                .Select(k => k.GetString()).ToList();
+            var emitted = feed.GetProperty("emittedKinds").EnumerateArray()
+                .Select(k => k.GetString()).ToList();
+
+            CollectionAssert.AreEquivalent(AgentEventKinds.Names.ToList(), accepted,
+                "acceptedKinds is what the kinds filter parses, and nothing else");
+            CollectionAssert.AreEquivalent(AgentEventKinds.Emitted.ToList(), emitted,
+                "emittedKinds is what this host can actually publish, and nothing else");
+
+            CollectionAssert.Contains(accepted, "agentMessage",
+                "the filter accepts it, which is why the difference has to be reported at all");
+            CollectionAssert.DoesNotContain(emitted, "agentMessage",
+                "nothing publishes one until the deferred conversation route lands");
+        }
+
         /// <summary>
         ///   Reads one SSE frame, skipping keep-alive comments, and returns its PARTS so a caller
         ///   asserts on the id and the event name rather than on a substring of the whole frame.

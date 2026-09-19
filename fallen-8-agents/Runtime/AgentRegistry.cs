@@ -364,7 +364,6 @@ namespace NoSQL.GraphDB.Agents.Runtime
             }
         }
 
-        /// <summary>The live children of one agent, for the cascade a cancel performs.</summary>
         /// <summary>
         ///   Every child of this agent that the registry still holds, live or finished, oldest
         ///   first.
@@ -387,6 +386,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
             }
         }
 
+        /// <summary>The children of this agent that are still live, which is what a cancel cascades
+        /// over.</summary>
         public IReadOnlyList<AgentRecord> LiveChildren(String parentId)
         {
             lock (_gate)
@@ -969,16 +970,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///     forgotten them, while <c>Evict</c> claimed the collector took them.
         ///   </para>
         ///   <para>
-        ///     <b>Latent rather than live, and the difference is worth stating.</b> No shipped path
-        ///     supplies a parent today: the spawn route refuses a caller-supplied <c>parentId</c>
-        ///     with a 400, and the orchestrator's swarm tool that will supply one is Phase 4. So
-        ///     <see cref="Parent" /> is null on every record a deployment currently holds and the
-        ///     retention cannot occur; only the registry's own tests build a chain. It is fixed
-        ///     ahead of the phase that makes it reachable rather than after, because an eviction
-        ///     contract that depends on an unrelated route's validation to be true is one route
-        ///     change away from being false. The reason previously given for keeping the link, that
-        ///     a spawn step is worth writing to an evicted parent anyway, was wrong on its own
-        ///     terms: no route can read that parent's trace.
+        ///     <b>Live, and the retention this guards is reachable.</b> One path supplies a parent:
+        ///     <see cref="SwarmTools" />'s <c>spawn_worker</c>, which admits a worker under the
+        ///     orchestrator that called it. The spawn route refuses a caller-supplied
+        ///     <c>parentId</c> with a 400, so every chain a deployment holds is one an orchestrator
+        ///     built. The eviction contract was fixed before that path existed rather than after,
+        ///     because a contract that depends on an unrelated route's validation to be true is one
+        ///     route change away from being false. The reason previously given for keeping the
+        ///     link, that a spawn step is worth writing to an evicted parent anyway, was wrong on
+        ///     its own terms: no route can read that parent's trace.
         ///     <see cref="AgentRecord.ParentId" /> is what survives, and it is what a summary
         ///     reports.
         ///   </para>

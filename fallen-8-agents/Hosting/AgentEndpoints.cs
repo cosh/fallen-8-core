@@ -476,8 +476,8 @@ namespace NoSQL.GraphDB.Agents.Hosting
         ///   <para>
         ///     Reported because the difference is otherwise invisible and costly: a subscriber
         ///     filtering on an accepted-but-never-emitted kind waits forever for an event that
-        ///     cannot arrive. Today <c>agentMessage</c> is the difference, because the only things
-        ///     that would publish one are a conversation and a swarm, and both are later phases.
+        ///     cannot arrive. Which kinds those are, and why, is
+        ///     <see cref="Runtime.AgentEventKinds.Emitted" />'s to say.
         ///   </para>
         /// </summary>
         [JsonPropertyName("emittedKinds")]

@@ -48,9 +48,9 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   Finished its turn and is waiting for the next user message. Live, and still holding its
         ///   session, so it counts against the concurrency cap.
         ///   <para>
-        ///     <b>Nothing in this phase reaches it.</b> The only thing that would park an agent here
-        ///     is a conversation, and the route for that is deferred (spec section 3.4a), so no run
-        ///     enters this state today. It is declared because the state machine in spec 3.2 is the
+        ///     <b>Nothing reaches it today.</b> The only thing that would park an agent here is a
+        ///     conversation, and that route is a recorded deferral (spec section 3.4a), so no run
+        ///     enters this state. It is declared because the state machine in spec 3.2 is the
         ///     contract and because the registry's live-versus-terminal rules have to be right for it
         ///     before anything can use it, not because a client will see it.
         ///   </para>

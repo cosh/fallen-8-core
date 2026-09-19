@@ -644,7 +644,7 @@ namespace NoSQL.GraphDB.Tests
             // A kind the filter accepts and nothing emits leaves a subscriber waiting forever for
             // an event that cannot arrive, which is the failure this feed's parser-not-compiler
             // stance prevents everywhere else. The difference is reported rather than refused,
-            // because refusing would break a client's filter the day the swarm lands.
+            // because refusing would break a client's filter the day the conversation route lands.
             var accepted = AgentEventKinds.Names;
             var emitted = AgentEventKinds.Emitted;
 
@@ -657,9 +657,9 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(6, accepted.Count);
             Assert.AreEqual(5, emitted.Count);
             Assert.IsFalse(emitted.Contains("agentMessage", StringComparer.OrdinalIgnoreCase),
-                "agentMessage is emitted by nothing until a conversation or a swarm exists; if that "
-                + "changed, add it to Emitted so the status route stops understating what a "
-                + "subscriber can receive");
+                "agentMessage is emitted by nothing until the deferred conversation route exists: "
+                + "the swarm shipped and publishes none. If that changed, add it to Emitted so the "
+                + "status route stops understating what a subscriber can receive");
         }
 
         [TestMethod]
@@ -668,7 +668,7 @@ namespace NoSQL.GraphDB.Tests
             // The test above was described, in a commit message and in findings.md, as failing when
             // the two lists stop matching the CODE. It observes no code: it checks a subset
             // relation between two hand-written lists and pins their counts. So the one drift
-            // direction that was explicitly worried about, the swarm phase starting to call
+            // direction that was explicitly worried about, something starting to call
             // AgentJournal.Message while Emitted still omits agentMessage, failed nothing, and
             // GET /agent/status would have told every client that agentMessage cannot arrive while
             // it was arriving.

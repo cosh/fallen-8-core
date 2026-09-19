@@ -114,9 +114,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   value and the state above.
         ///   <para>
         ///     Called ONCE, at startup. It is written to be callable again, and safely so, but
-        ///     nothing in this phase calls it again: an MCP server that comes up late needs this
-        ///     host restarted. The reconnect trigger spec section 3.2 describes arrives with the
-        ///     phase that adds a route to ask for it, so no message here promises one.
+        ///     nothing calls it again: an MCP server that comes up late needs this host restarted,
+        ///     which is why the compose service waits for that server to be healthy. The reconnect
+        ///     trigger spec section 3.2 describes is a recorded deferral waiting on a route to ask
+        ///     for it, so no message here promises one.
         ///   </para>
         /// </summary>
         public async Task<Boolean> ConnectAsync(CancellationToken cancellationToken = default)

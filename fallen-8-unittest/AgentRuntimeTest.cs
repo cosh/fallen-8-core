@@ -996,11 +996,9 @@ namespace NoSQL.GraphDB.Tests
             // its undisposed token source alive, transitively up the whole ancestry, while Evict's
             // own comment claimed the collector took them.
             //
-            // LATENT, not live, and the test says so because the claim was first written as though
-            // it were live: no shipped path supplies a parent today, since the spawn route refuses
-            // a caller-supplied parentId and the orchestrator's swarm tool is Phase 4. This test
-            // builds the chain itself, which is the point: it pins the registry's eviction contract
-            // rather than relying on another route's validation to keep it true.
+            // The chain is built here rather than through spawn_worker, which is the point: it
+            // pins the registry's eviction contract rather than relying on the swarm tool or on
+            // the spawn route's refusal of a caller-supplied parentId to keep it true.
             var clock = new StepClock(DateTimeOffset.Parse("2026-09-10T06:00:00Z"));
             var options = new AgentsOptions();
             options.Limits.MaxConcurrentAgents = 0;

@@ -274,7 +274,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void AFaultingGaugeSourceReportsNothingRatherThanThrowingAtTheCollector()
+        public void AFaultingGaugeSourceReportsZeroRatherThanThrowingAtTheCollector()
         {
             // The gauge's callback is the one an author is least likely to think about: it runs on
             // the COLLECTOR's thread, at a moment no agent chose, so a throw there is an exception

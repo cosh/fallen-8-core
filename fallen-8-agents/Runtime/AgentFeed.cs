@@ -366,18 +366,21 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   The kinds this host can actually EMIT today, which is not all of them.
         ///
         ///   <para>
-        ///     <c>agentMessage</c> is accepted by the filter and emitted by nothing: the only thing
-        ///     that would publish one is a message to or from an agent, and both the conversation
-        ///     route and the swarm are later phases. The kind and its journal method ship now because
-        ///     the swarm phase writes worker traffic through them, but a subscriber filtering on it
-        ///     today would wait forever for an event that cannot arrive, which is exactly what this
-        ///     feed's parser-not-compiler stance exists to prevent elsewhere.
+        ///     <c>agentMessage</c> is accepted by the filter and emitted by nothing. The swarm
+        ///     shipped and publishes none of them: a worker's spawn, its ending and its result are
+        ///     feed events and trace steps of their own, so nothing needed a message. The one thing
+        ///     left that would publish one is the deferred conversation route (spec 3.4a), which is
+        ///     why <see cref="AgentJournal.Message" /> ships with no caller. A subscriber filtering
+        ///     on the kind today would wait forever for an event that cannot arrive, which is
+        ///     exactly what this feed's parser-not-compiler stance exists to prevent elsewhere.
         ///   </para>
         ///   <para>
         ///     So it is REPORTED rather than refused. Refusing it would mean a client's filter
-        ///     breaking when the swarm lands, and silently accepting it would mean a client waiting
-        ///     on nothing; naming it on the status route and in the route's own documentation is the
-        ///     only option that is true both now and later.
+        ///     breaking the day that route lands, and silently accepting it would mean a client
+        ///     waiting on nothing; naming it on the status route and in the route's own
+        ///     documentation is the only option that is true both now and later. A test reads the
+        ///     product sources for a caller of that method and fails in BOTH directions, so this
+        ///     list cannot drift from the code again.
         ///   </para>
         /// </summary>
         public static IReadOnlyCollection<String> Emitted { get; } = new[]

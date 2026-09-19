@@ -34,9 +34,11 @@ namespace NoSQL.GraphDB.App.Security
 {
     /// <summary>
     ///   The capability an operator must have enabled for a request to a gated endpoint to proceed
-    ///   (feature api-security-boundary). Paired with <c>RequireAuthenticatedUser</c> in the
-    ///   policy, so a gated endpoint needs BOTH an authenticated caller (else 401) AND the operator to
-    ///   have flipped the capability on (else 403).
+    ///   (feature api-security-boundary). Every policy in <c>Program.cs</c> adds
+    ///   <c>RequireAuthenticatedUser</c> only when an API key is configured, so an unmet capability
+    ///   answers 403 on a keyed instance and 401 on a keyless one, and the per-capability notes
+    ///   below say 403 for the keyed case. <see cref="Controllers.AgentsController" /> is the one
+    ///   home for that rule.
     /// </summary>
     public sealed class DynamicCapabilityRequirement : IAuthorizationRequirement
     {
@@ -86,8 +88,9 @@ namespace NoSQL.GraphDB.App.Security
     /// <summary>
     ///   Succeeds the <see cref="DynamicCapabilityRequirement"/> only when the corresponding
     ///   <see cref="Fallen8SecurityOptions"/> / <see cref="Fallen8EmbeddingOptions"/> flag is enabled.
-    ///   When the flag is off the requirement is left unmet, so an authenticated caller is Forbidden
-    ///   (403) - the endpoint's DLL load / embedding-model use is never reached.
+    ///   When the flag is off the requirement is left unmet and the endpoint's DLL load /
+    ///   embedding-model use is never reached; which status that produces is on the requirement
+    ///   above.
     /// </summary>
     public sealed class DynamicCapabilityAuthorizationHandler : AuthorizationHandler<DynamicCapabilityRequirement>
     {

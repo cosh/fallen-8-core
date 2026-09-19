@@ -215,7 +215,7 @@ One command brings up the whole environment from the published images of the
 [latest release](https://github.com/cosh/fallen-8-core/releases/latest): engine, REST API,
 F8 Studio, the MCP server for agents, the integrations runtime, the model sidecar, and the
 observability stack, with
-every feature on, no authentication in the way, and nothing to build. An NVIDIA GPU is
+every feature on except the agent host, no authentication in the way, and nothing to build. An NVIDIA GPU is
 detected and used automatically; without one everything runs on the CPU (same on macOS,
 Linux, and Windows PowerShell):
 

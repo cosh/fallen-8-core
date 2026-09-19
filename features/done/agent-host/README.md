@@ -5,7 +5,8 @@ record and are not rewritten; [findings.md](./findings.md) is the measurement an
 user-facing page is <https://docs.fallen-8.com/agents/>, and that is where an operator should be
 sent rather than here.
 
-**Status:** phases 0 through 4 complete, phase 5 in progress, not merged.
+**Status:** implemented. Every phase, 0 through 5, is done on `feature/agent-host`, which is
+awaiting merge; the merge gate's findings are in [findings.md](./findings.md) section 14.
 
 ## What it is, in one paragraph
 
@@ -17,48 +18,20 @@ configuration and no provider credential**: every model call goes to the instanc
 
 ## Quickstart
 
-```bash
-# The sidecar plus the instance's own /agents routes.
-F8_AGENTS=true npm run env:up
-
-# Spawn. 202 with the id; nothing on this control plane waits for a model.
-curl -X POST http://localhost:8080/agents \
-  -H 'Content-Type: application/json' \
-  -d '{"task":"How many vertices are in the default namespace?"}'
-
-# Subscribe (SSE, the change feed's dialect; filters are ?agents= and ?kinds=).
-curl -N http://localhost:8080/agents/feed
-
-# Read it back.
-curl http://localhost:8080/agents/<id>        # summary, children, citations, trace tail
-curl http://localhost:8080/agents/<id>/trace  # the whole retained trace
-curl -X DELETE http://localhost:8080/agents/<id>   # cancel; cascades to live workers
-curl http://localhost:8080/agents/status      # why did my agent fail
-```
-
-Without the compose environment: run the host with `dotnet run --project fallen-8-agents`, point
-`Fallen8Target:BaseUrl` at an instance and `Agents:Mcp:Endpoint` at an MCP server, and set
-`Fallen8:Agents:Enabled=true` plus `Fallen8:Agents:Endpoint` on the instance so the proxy has
-something to reach.
+The enable-and-spawn walkthrough is on the
+[docs page](https://docs.fallen-8.com/agents/#running-one), which is where an operator should be
+sent. What is not there, because it is a contributor's path only: run the host outside compose with
+`dotnet run --project fallen-8-agents`, which binds loopback, and point it at an instance with
+`Fallen8Target__BaseUrl` and at an MCP server with `Agents__Mcp__Endpoint`. The instance still needs
+`Fallen8__Agents__Enabled=true` before its own `/agents/*` routes answer.
 
 ## Roles and allowlists
 
-| Role | Shipped allowlist | Spawnable by a caller |
-| --- | --- | --- |
-| `assistant` | empty, which means every tool the MCP server advertises | yes (the default) |
-| `orchestrator` | `f8_overview`, plus the two swarm tools appended after the filter | yes |
-| `worker` | empty, so every advertised tool | **no**: only an orchestrator's `spawn_worker` |
-
-An allowlist NARROWS and can never widen: it is applied to the tool list handed to the model, so a
-tool outside it is never seen rather than merely discouraged, and the MCP server's own tiers remain
-the outer bound. A configured `Agents:Roles:<role>:Tools` REPLACES the shipped list rather than
-adding to it, because the only reason to configure one is to say "exactly these"; an entry with no
-list, or one holding nothing but blanks, keeps the SHIPPED list rather than lifting it, so an empty
-`Tools` leaves the orchestrator on `f8_overview`. A lone `*` is the one value that widens a role to
-everything the server advertises, and `*` beside a tool name is refused at startup.
-
-The swarm tools are not in any allowlist. They are not MCP tools, `SwarmTools` implements them, and
-the runner appends them for the orchestrator role alone.
+The three roles, what each one sees and which of them a caller may spawn are on the
+[docs page](https://docs.fallen-8.com/agents/#roles). `Runtime/RoleCatalog.cs` is the one home for
+the contract behind them: what a role prompt may and may not be credited with, that an allowlist
+narrows and can never widen, what a configured `Agents:Roles:<role>:Tools` does to the shipped list
+and which single entry widens it, and why the swarm tools are in no allowlist at all.
 
 ## Where each thing lives
 
@@ -117,20 +90,13 @@ served each step; then the model itself.
 
 ## Security posture
 
-- **No host port on the container**, and the proxy at `/agents/*` is the authenticated way in from
-  outside the compose network. Inside it every service can reach this host and it authenticates none
-  of them, exactly as the integrations runtime ships; the one home for that boundary is
-  [Security](https://docs.fallen-8.com/security/).
-- **One REST family.** The host calls the `/chat` family and nothing else;
-  `CodeQualityTest.TheAgentHost_CallsTheChatGatewayAndNoOtherRestRoute` enforces it.
-- **The MCP tiers are the real boundary.** Leaving write and admin off is the recommended posture.
-- **Prompt injection is not solved here, and the honest version matters.** A graph's own content
-  becomes part of what a model reads, so a hostile property value can try to steer an agent. What
-  actually holds is enforced outside the model: the allowlist, the MCP tiers, and the four budgets.
-  The prompt is not a control.
-- **No caller text in telemetry**: no task and no caller-chosen name reaches a metric tag or a
-  span, because the framework is handed the ROLE. The agent id does travel, in the `invoke_agent`
-  span's name; the contract's home is `AgentsMetrics.SourceName`.
+What holds, and what does not, is on the
+[docs page](https://docs.fallen-8.com/agents/#security-posture): the one authenticated way in and
+who else can reach the host, one REST family, the MCP tiers as the real boundary, the bounds on a
+spawn's captures, prompt injection unsolved with the defences that work instead, and what does and
+does not reach telemetry. The contributor's half is the gate:
+`CodeQualityTest.TheAgentHost_CallsTheChatGatewayAndNoOtherRestRoute` fails the suite if this host
+grows a REST call outside the `/chat` family.
 
 ## Testing
 

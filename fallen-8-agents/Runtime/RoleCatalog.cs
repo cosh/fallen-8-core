@@ -98,8 +98,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///     <c>orchestrator</c> is narrowed on purpose. An orchestrator that can look but must
         ///     delegate decomposes better than one that can do everything itself, so it gets the
         ///     overview read and the swarm tools and nothing else. The swarm tools are not listed:
-        ///     they are not MCP tools, the registry implements them, and they are added after this
-        ///     filter runs.
+        ///     they are not MCP tools, <see cref="SwarmTools" /> implements them, and the runner
+        ///     appends them after this filter runs.
         ///   </para>
         /// </summary>
         private static readonly IReadOnlyDictionary<String, String[]> ShippedAllowlists =
@@ -141,20 +141,18 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
-        ///   Whether a CALLER may spawn this role over the control plane. Two roles exist that it may
-        ///   not, for different reasons, and both would otherwise produce an agent that cannot do
-        ///   what its prompt tells it to:
-        ///   <list type="bullet">
-        ///     <item><c>worker</c> answers to an orchestrator and reports a typed result to it. One
-        ///     spawned by a caller has nobody to answer, and its prompt tells it not to address the
-        ///     user (spec section 3.2).</item>
-        ///     <item><c>orchestrator</c> works by delegating, and the two tools it delegates with are
-        ///     not attached in this phase. One spawned now is an agent commanded to call tools it does
-        ///     not have.</item>
-        ///   </list>
-        ///   Both are still real roles with real prompts and real allowlists, because the registry
-        ///   and the runner serve them already; what is missing is the swarm, so the refusal names
-        ///   that rather than pretending the role does not exist.
+        ///   Whether a CALLER may spawn this role over the control plane. ONE role may not:
+        ///   <c>worker</c> answers to an orchestrator and reports a typed result to it, so one
+        ///   spawned by a caller has nobody to answer, and its prompt tells it not to address the
+        ///   user (spec section 3.2). The refusal names that rather than pretending the role does
+        ///   not exist, because it is a real role with a real prompt that an orchestrator's
+        ///   <c>spawn_worker</c> uses.
+        ///   <para>
+        ///     <c>orchestrator</c> IS spawnable. This said it was refused because the two tools it
+        ///     delegates with were not attached, while the body already returned true for it:
+        ///     <see cref="SwarmTools" /> ships them and the runner appends them for that role
+        ///     alone, so the agent has what its prompt tells it to delegate with.
+        ///   </para>
         /// </summary>
         public static Boolean IsSpawnableByACaller(String role, out String problem)
         {
@@ -168,11 +166,6 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 return false;
             }
 
-            // An orchestrator IS spawnable, as of the swarm phase: it has spawn_worker and
-            // await_workers, which the runner appends for that role alone. Before they existed it
-            // was refused rather than spawned, because an agent instructed to delegate with tools
-            // it does not have would have had to answer the whole task itself, from a prompt that
-            // tells it not to.
             return true;
         }
 

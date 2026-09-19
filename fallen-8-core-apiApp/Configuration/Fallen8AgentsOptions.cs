@@ -66,13 +66,15 @@ namespace NoSQL.GraphDB.App.Configuration
         public String Endpoint { get; set; } = String.Empty;
 
         /// <summary>
-        ///   Per-proxied-request timeout for the small control-plane routes.
+        ///   Per-proxied-request timeout for the small control-plane routes, and for the wait on
+        ///   the event feed's response HEADERS.
         ///
         ///   <para>Small on purpose, and it does not need to cover inference: nothing on the agent
         ///   host's control plane blocks on a model. A spawn answers 202 with an id and the run
         ///   happens on the host's own time, so 30 seconds is a generous budget for a listing. The
-        ///   event feed is a STREAM and takes no budget at all, which is why it is not this
-        ///   number.</para>
+        ///   feed's BODY takes none of it, because a stream stays open for as long as its
+        ///   subscriber wants it; <see cref="Agents.IAgentsClient.StreamAsync" /> is the one home
+        ///   for that split.</para>
         /// </summary>
         public Int32 TimeoutSeconds { get; set; } = 30;
     }
