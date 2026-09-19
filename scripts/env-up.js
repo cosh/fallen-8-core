@@ -238,7 +238,19 @@ function main() {
   // is a decision an operator makes rather than one a deployment inherits. F8_AGENTS=true brings
   // up the sidecar AND flips the instance's own Fallen8:Agents:Enabled (the fallen8 service reads
   // the same variable), because a sidecar nothing can reach is not a feature.
-  const agents = process.env.F8_AGENTS === 'true';
+  // Normalised, and REFUSED on anything else, exactly as F8_MODEL_PROVIDER above and for the same
+  // reason. The instance binds this very variable as a .NET Boolean, which parses case
+  // insensitively, so F8_AGENTS=True used to turn the instance's /agents routes ON while this
+  // script skipped the profile: the capability advertised, no sidecar behind it, and the line
+  // below telling the operator the routes refuse.
+  const agentsRaw = (process.env.F8_AGENTS || '').trim().toLowerCase();
+  if (agentsRaw !== '' && agentsRaw !== 'true' && agentsRaw !== 'false') {
+    console.error(
+      `F8_AGENTS='${(process.env.F8_AGENTS || '').trim()}' is not a boolean. Expected true or false.`
+    );
+    process.exit(1);
+  }
+  const agents = agentsRaw === 'true';
   if (agents) profiles.push('--profile', 'agents');
   console.log(
     agents
@@ -251,10 +263,23 @@ function main() {
   // The one thing that makes an agent useless rather than absent, stated at startup rather than
   // discovered on a run that answered "I cannot do that": an agent reaches the graph ONLY through
   // the MCP server, so with every tool tier off it has nothing to call.
-  if (agents && process.env.F8_MCP_ENABLE_WRITE !== 'true' && process.env.F8_MCP_ENABLE_ADMIN !== 'true') {
-    console.log('  Agents read the graph through f8-mcp, whose read tier is always on. Writes and admin');
-    console.log('  stay off unless F8_MCP_ENABLE_WRITE / F8_MCP_ENABLE_ADMIN are set, which is the');
-    console.log('  recommended posture: an agent that can only read cannot be talked into a write.');
+  // The CODE tier counts here too, and leaving it out made this reassurance false: it advertises
+  // plugin registration, which compiles submitted C# and runs it in the engine process with full
+  // trust, so it is a write path and then some. "Can only read" may only be printed when all
+  // three are off.
+  const beyondRead =
+    process.env.F8_MCP_ENABLE_WRITE === 'true' ||
+    process.env.F8_MCP_ENABLE_ADMIN === 'true' ||
+    process.env.F8_MCP_ENABLE_CODE === 'true';
+  if (agents && !beyondRead) {
+    console.log('  Agents read the graph through f8-mcp, whose read tier is always on. Writes, admin');
+    console.log('  and code stay off unless F8_MCP_ENABLE_WRITE / F8_MCP_ENABLE_ADMIN /');
+    console.log('  F8_MCP_ENABLE_CODE are set, which is the recommended posture: an agent that can');
+    console.log('  only read cannot be talked into a write.');
+  } else if (agents && process.env.F8_MCP_ENABLE_CODE === 'true') {
+    console.log('  F8_MCP_ENABLE_CODE is ON, so an agent can call plugin registration, which COMPILES');
+    console.log('  submitted C# and runs it inside the engine process. Whatever the write and admin');
+    console.log('  tiers say, these agents are not read-only.');
   }
 
   console.log(

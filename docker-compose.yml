@@ -173,8 +173,12 @@ services:
       - F8_EMBEDDINGS=${F8_EMBEDDINGS:-true}
       # The agent purpose's model (feature agent-host), pulled only when the agent host is coming
       # up. In the default configuration F8_PULL_ASSIST has already pulled phi4-mini, so this is a
-      # digest check; it matters on a hosted-chat deployment that still wants local agents, or when
-      # F8_AGENT_MODEL points elsewhere.
+      # digest check; it earns its place when F8_AGENT_MODEL names something else.
+      #
+      # What it does NOT do, which this comment claimed in three places until the merge gate
+      # measured it: put agents on a local model while chat runs hosted. ONE Fallen8:Chat:Backend
+      # serves BOTH purposes, so an instance whose chat is on OpenAI or Anthropic resolves the
+      # agent purpose on that provider and never asks this sidecar for what was pulled here.
       - F8_AGENTS=${F8_AGENTS:-false}
       - F8_AGENT_MODEL=${F8_AGENT_MODEL:-phi4-mini:latest}
     volumes:
@@ -416,6 +420,15 @@ services:
       - Agents__Identity__Instance__Name=${F8_INSTANCE_NAME:-Fallen-8 (compose)}
     depends_on:
       fallen8:
+        condition: service_healthy
+      # The MCP server too, because it is this host's ONLY route to a graph and the handshake
+      # happens ONCE, at startup, with nothing re-probing it while the container runs
+      # (Agents:Mcp:ConnectTimeoutSeconds). Without this edge compose starts both sidecars the
+      # moment the instance is healthy, and a host that wins that race spends its whole life with
+      # an empty toolset: every agent answers that it cannot reach the graph, and only a manual
+      # restart fixes it. It also makes compose recreate this host whenever that server is
+      # replaced, which is the same problem arriving by a different route.
+      f8-mcp:
         condition: service_healthy
     healthcheck:
       # GET /health, which is the route this host serves. The apiApp's proxy probes the same one to
