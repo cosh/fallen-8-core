@@ -79,10 +79,12 @@ namespace NoSQL.GraphDB.Agents.Configuration
         /// </summary>
         public Int32 TimeoutSeconds { get; set; } = 630;
 
-        /// <summary>The deadline actually in force, which is <see cref="TimeoutSeconds" /> with its
-        /// floor applied. It exists so the floor has one home: the startup line and the status route
-        /// both printed the raw setting, which said "no deadline" for a host that gives every call
-        /// one second.</summary>
-        public TimeSpan Deadline => TimeSpan.FromSeconds(Math.Max(1, TimeoutSeconds));
+        /// <summary>The deadline actually in force, which is <see cref="TimeoutSeconds" /> through
+        /// both bounds. It exists so those bounds have one home: the startup line and the status
+        /// route both printed the raw setting, which said "no deadline" for a host that gives every
+        /// call one second. <c>OptionBounds</c> is the one home for why there are two of them, the
+        /// ceiling included: a number past what <c>CancelAfter</c> can be armed with made every
+        /// model call throw an exception naming a parameter instead of the setting.</summary>
+        public TimeSpan Deadline => OptionBounds.Seconds(TimeoutSeconds);
     }
 }

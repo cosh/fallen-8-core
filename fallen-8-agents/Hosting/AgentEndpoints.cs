@@ -276,8 +276,11 @@ namespace NoSQL.GraphDB.Agents.Hosting
                             Name = name,
                             // What the role ACTUALLY got, not what was configured. An allowlist
                             // naming a tool the server does not advertise is silently narrower than
-                            // it looks, and this is where that shows.
-                            ToolCount = role.Filter(toolset.Tools).Count,
+                            // it looks, and this is where that shows. The swarm tools are part of
+                            // what a role got and are in no allowlist, so they are counted through
+                            // the same decision the runner makes rather than a second copy of it.
+                            ToolCount = role.Filter(toolset.Tools).Count
+                                + (SwarmTools.OfferedTo(role) ? SwarmTools.Names.Count : 0),
                             AllowedTools = role.AllowedTools.Count == 0 ? null : role.AllowedTools.ToList(),
                         };
                     })
@@ -301,8 +304,9 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 {
                     Subscribers = feed.SubscriberCount,
                     Published = feed.Published,
-                    KeepAliveSeconds = options.Feed.KeepAliveSeconds,
+                    KeepAliveSeconds = (Int32)options.Feed.KeepAlive.TotalSeconds,
                     MaxSubscribers = options.Feed.MaxSubscribers,
+                    MaxQueuedEvents = options.Feed.MaxQueuedEvents,
                     AcceptedKinds = AgentEventKinds.Names.ToList(),
                     EmittedKinds = AgentEventKinds.Emitted.ToList(),
                 },
@@ -457,6 +461,13 @@ namespace NoSQL.GraphDB.Agents.Hosting
 
         [JsonPropertyName("keepAliveSeconds")]
         public Int32 KeepAliveSeconds
+        {
+            get; set;
+        }
+
+        /// <summary>The queue one subscriber gets. It is the one feed cap that DROPS a subscriber,
+        /// so a client that was dropped can read the number it exceeded.</summary>
+        public Int32 MaxQueuedEvents
         {
             get; set;
         }

@@ -123,7 +123,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
             // where nothing is happening yet.
             await response.Body.FlushAsync(cancellation).ConfigureAwait(false);
 
-            var keepAlive = TimeSpan.FromSeconds(Math.Max(1, options.Feed.KeepAliveSeconds));
+            var keepAlive = options.Feed.KeepAlive;
 
             // ONE periodic timer per connection. A fresh Task.Delay per event would abandon a live
             // timer on every delivery, which is pure churn on a busy feed; the pending read

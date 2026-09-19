@@ -114,6 +114,29 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
+        ///   The swarm tools by name, in the order they are offered. The COUNT has a second reader:
+        ///   the status route reports what a role actually got, and these are in no allowlist.
+        /// </summary>
+        public static IReadOnlyList<String> Names { get; } = new[] { SpawnWorker, AwaitWorkers };
+
+        /// <summary>
+        ///   Whether a role is offered the swarm tools. One home for the decision, because the
+        ///   runner acts on it and the status route counts by it, and those two disagreeing is how
+        ///   a default host came to report one tool for a role it hands three.
+        ///
+        ///   <para>
+        ///     Only an orchestrator. A worker with <c>spawn_worker</c> is how a swarm becomes a
+        ///     tree nobody bounded, and an assistant with it would be an orchestrator that was
+        ///     never told the one-composer rule.
+        ///   </para>
+        /// </summary>
+        public static Boolean OfferedTo(AgentRole role)
+        {
+            return role != null
+                && String.Equals(role.Name, "orchestrator", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         ///   Every swarm tool is created HERE, and that is the point: each one can answer with a
         ///   <see cref="ToolRefusal" />, which only survives the trip to the invoker when the
         ///   factory's marshalling is bypassed. The default serializes a return value to JSON, so a

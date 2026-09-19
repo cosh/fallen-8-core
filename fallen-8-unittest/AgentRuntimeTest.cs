@@ -2175,6 +2175,76 @@ namespace NoSQL.GraphDB.Tests
                 "the worker itself is unaffected by a mistyped await");
         }
 
+        /// <summary>
+        ///   A step cap switched OFF is off. Leaving the framework's own iteration property alone
+        ///   left ITS default of 40 in force while the startup line printed "unlimited" and the
+        ///   status route reported 0, so a run stopped on the framework's ending rather than the
+        ///   host's named refusal. Driven past 40 tool calls, which is the only way to tell the two
+        ///   apart: at 40 exactly, both arrangements agree.
+        /// </summary>
+        [TestMethod]
+        public async Task AStepCapSwitchedOffDoesNotLeaveTheFrameworksOwnIterationCapInForce()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxStepsPerRun = 0;
+            options.Limits.MaxToolCallsPerRun = 0;
+
+            const Int32 calls = 45;
+            var tool = AIFunctionFactory.Create(() => "8",
+                new AIFunctionFactoryOptions { Name = "f8_query", Description = "Reads." });
+
+            var script = Script.Calls("c0", "f8_query");
+            for (var i = 1; i < calls; i++)
+            {
+                script = script.ThenCalls("c" + i.ToString(System.Globalization.CultureInfo.InvariantCulture), "f8_query");
+            }
+
+            using var harness = new Harness(script.Then("Eight, every time. [t:f8_query]"),
+                options: options, tools: new List<AITool> { tool });
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "count often"),
+                out var agent, out _));
+            await harness.Run(agent);
+
+            Assert.AreEqual(AgentState.Completed, agent.State,
+                "a cap that is off ended the run anyway: " + agent.Failure);
+            Assert.AreEqual(calls,
+                agent.Trace.Steps().Count(s => s.Kind == "toolCall"),
+                "the run stopped short of the calls the model made, so something still capped it");
+        }
+
+        /// <summary>
+        ///   The two configured durations clamp at BOTH ends, and the ceiling is the one that was
+        ///   missing. A very large value is how an operator asks for "no deadline", and the timers
+        ///   these feed refuse a delay past Int32.MaxValue milliseconds: every model call threw an
+        ///   exception naming a parameter rather than the setting, and so did every feed connection.
+        ///   Asserted through the APIs that threw, not just against the number.
+        /// </summary>
+        [TestMethod]
+        public void AnAbsurdDurationIsClampedToWhatATimerCanActuallyBeArmedWith()
+        {
+            var target = new NoSQL.GraphDB.Agents.Configuration.Fallen8TargetOptions
+            {
+                TimeoutSeconds = Int32.MaxValue,
+            };
+            using (var budget = new CancellationTokenSource())
+            {
+                budget.CancelAfter(target.Deadline);
+            }
+
+            var feed = new AgentsOptions.FeedOptions { KeepAliveSeconds = Int32.MaxValue };
+            using (var ticks = new PeriodicTimer(feed.KeepAlive))
+            {
+            }
+
+            // And the floor still holds at the other end, on both.
+            Assert.AreEqual(TimeSpan.FromSeconds(1),
+                new NoSQL.GraphDB.Agents.Configuration.Fallen8TargetOptions { TimeoutSeconds = 0 }
+                    .Deadline);
+            Assert.AreEqual(TimeSpan.FromSeconds(1),
+                new AgentsOptions.FeedOptions { KeepAliveSeconds = -5 }.KeepAlive);
+        }
+
         #endregion
 
         /// <summary>

@@ -1488,6 +1488,118 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   The same pin for the FEED block, derived from its options type for the same reason:
+        ///   the limits pin was written because a hand-picked list let caps go unreported, and the
+        ///   feed block then had the identical hole. The cap it was missing is the one that DROPS a
+        ///   subscriber, so a client that was dropped could not read the number it exceeded.
+        /// </summary>
+        [TestMethod]
+        public async Task EveryCapInTheFeedBlockIsReportedByTheStatusRouteWithTheValueItWasConfiguredWith()
+        {
+            var caps = typeof(NoSQL.GraphDB.Agents.Configuration.AgentsOptions.FeedOptions)
+                .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.GetIndexParameters().Length == 0 && p.GetMethod != null
+                    && p.PropertyType == typeof(Int32))
+                .ToList();
+            Assert.IsTrue(caps.Count >= 3,
+                "reflection found " + caps.Count + " caps on AgentsOptions.FeedOptions, so this pin "
+                + "is reading the wrong type");
+
+            // A DISTINCT value per cap, all well above the keep-alive floor so the floor cannot be
+            // confused with a misreported number.
+            var settings = new Dictionary<String, String>(StringComparer.Ordinal);
+            var expected = new Dictionary<String, Int32>(StringComparer.OrdinalIgnoreCase);
+            var configured = 101;
+            foreach (var cap in caps)
+            {
+                settings["Agents:Feed:" + cap.Name] =
+                    configured.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                expected[cap.Name] = configured;
+                configured++;
+            }
+
+            using var factory = new AgentHostFactory(settings: settings);
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agent/status");
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode);
+            var reported = (await Read(response)).GetProperty("feed").EnumerateObject()
+                .ToDictionary(p => p.Name, p => p.Value, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var cap in expected)
+            {
+                Assert.IsTrue(reported.TryGetValue(cap.Key, out var value),
+                    "Agents:Feed:" + cap.Key + " is a cap the status route does not report");
+                Assert.AreEqual(cap.Value, value.GetInt32(),
+                    "the status route reports something other than the configured Agents:Feed:"
+                    + cap.Key);
+            }
+
+            // The other direction, with the live counters and the two kind lists named so it keeps
+            // its teeth: anything else in that block is a number nothing configures.
+            var live = new HashSet<String>(StringComparer.OrdinalIgnoreCase)
+            {
+                "subscribers", "published", "acceptedKinds", "emittedKinds",
+            };
+            foreach (var name in reported.Keys)
+            {
+                Assert.IsTrue(live.Contains(name) || expected.ContainsKey(name),
+                    "the status route reports a feed field that is neither live state nor an "
+                    + "Agents:Feed cap: " + name);
+            }
+        }
+
+        /// <summary>
+        ///   A keep-alive of zero is floored at one second by the stream, so the route has to report
+        ///   one. It reported the zero, which reads as "this host sends no keep-alives" for a host
+        ///   sending one every second, and the status route is the first thing an operator reads
+        ///   when a stream is behaving oddly. Same defect the deadline had, one field along.
+        /// </summary>
+        [TestMethod]
+        public async Task AFlooredKeepAliveIsReportedAsTheIntervalInForceRatherThanTheRawSetting()
+        {
+            using var factory = new AgentHostFactory(settings: new Dictionary<String, String>(
+                StringComparer.Ordinal)
+            {
+                ["Agents:Feed:KeepAliveSeconds"] = "0",
+            });
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agent/status");
+            var feed = (await Read(response)).GetProperty("feed");
+            Assert.AreEqual(1, feed.GetProperty("keepAliveSeconds").GetInt32(),
+                "the route reported a keep-alive the stream does not use");
+        }
+
+        /// <summary>
+        ///   The orchestrator's tool count includes the swarm tools, because they are part of what
+        ///   that role is handed and they are in no allowlist. The field's own contract is "what the
+        ///   role ACTUALLY got", and it reported one for a role a default host hands three.
+        /// </summary>
+        [TestMethod]
+        public async Task TheOrchestratorsToolCountIncludesTheSwarmToolsItIsActuallyHanded()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/agent/status");
+            var roles = (await Read(response)).GetProperty("roles").EnumerateArray()
+                .ToDictionary(r => r.GetProperty("name").GetString(), r => r, StringComparer.Ordinal);
+
+            // No MCP server answers in this host, so the advertised list is empty and the swarm
+            // tools are the whole of the orchestrator's count. That is the arrangement that makes
+            // the assertion exact rather than off by whatever a live server advertises.
+            Assert.AreEqual(
+                NoSQL.GraphDB.Agents.Runtime.SwarmTools.Names.Count,
+                roles["orchestrator"].GetProperty("toolCount").GetInt32(),
+                "the orchestrator's count leaves out the swarm tools it is handed");
+            Assert.AreEqual(0, roles["assistant"].GetProperty("toolCount").GetInt32(),
+                "no other role is offered the swarm tools, so no other count may include them");
+            Assert.AreEqual(0, roles["worker"].GetProperty("toolCount").GetInt32(),
+                "a worker with spawn_worker is how a swarm becomes a tree nobody bounded");
+        }
+
+        /// <summary>
         ///   A narrowed role reports the list that narrows it; an unrestricted one OMITS the field,
         ///   which is the only thing on this route that says "nothing narrows this role". An empty
         ///   list there would read as "may use nothing", which is the opposite. Neither arm was

@@ -150,8 +150,14 @@ namespace NoSQL.GraphDB.Agents.Configuration
             /// <summary>How often an idle stream sends a keep-alive comment. It bounds
             /// dead-connection detection and defeats a proxy's idle timeout, which is why an idle
             /// feed is never silent and why a non-positive value is floored at 1 second rather than
-            /// sending none.</summary>
+            /// sending none. <see cref="KeepAlive" /> is what is in force.</summary>
             public Int32 KeepAliveSeconds { get; set; } = 15;
+
+            /// <summary>The interval actually in force, which is <see cref="KeepAliveSeconds" />
+            /// through both bounds. It exists for the reason the target host's deadline has the
+            /// same pair: the status route reported the raw setting, so a host sending a comment
+            /// every second reported that it sends none.</summary>
+            public TimeSpan KeepAlive => OptionBounds.Seconds(KeepAliveSeconds);
 
             /// <summary>
             ///   Concurrent feed subscribers. Bounded because each one holds a queue, and an

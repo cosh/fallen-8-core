@@ -206,10 +206,15 @@ namespace NoSQL.GraphDB.Agents.Runtime
                         // cannot disagree. The meter below it is still the enforcer, because this
                         // one bounds a request and the budget bounds a RUN, which is every request
                         // the loop makes plus every user message after it.
-                        if (limits.MaxStepsPerRun > 0)
-                        {
-                            invoking.MaximumIterationsPerRequest = limits.MaxStepsPerRun;
-                        }
+                        //
+                        // A non-positive step cap means OFF, which is what the startup line and the
+                        // docs say, so it has to be assigned too: leaving the property alone left
+                        // the framework's own default of 40 in force while everything printed
+                        // "unlimited", and the run then ended on the framework's ending rather than
+                        // the host's named refusal.
+                        invoking.MaximumIterationsPerRequest = limits.MaxStepsPerRun > 0
+                            ? limits.MaxStepsPerRun
+                            : Int32.MaxValue;
 
                         // A model that names a tool that does not EXIST ends the turn rather than
                         // being handed an error and asked again: a name nothing serves will not
@@ -523,7 +528,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
         private IReadOnlyList<AITool> Tools(AgentRecord agent, AgentRole role)
         {
             var allowed = role.Filter(_toolset.Tools);
-            if (!String.Equals(role.Name, "orchestrator", StringComparison.OrdinalIgnoreCase))
+            if (!SwarmTools.OfferedTo(role))
             {
                 return allowed;
             }
