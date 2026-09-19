@@ -308,34 +308,6 @@ namespace NoSQL.GraphDB.Tests
             }
         }
 
-        #region the framework's own telemetry
-
-        [TestMethod]
-        public void TheFrameworksOwnGenAiTelemetryNamesAreWhatTheExporterRegisters()
-        {
-            // MEASURED rather than assumed, because the wiring registers these names and a name
-            // taken from a library can move in a package bump. If this fails after an upgrade, the
-            // exporter is quietly dropping the framework's accounting for every run and the fix is
-            // in AgentsObservability, not here.
-            //
-            // Our own source name is what the runner hands the framework's wrapper, so the spans
-            // land on a source this host controls; the framework's METER name is its own and
-            // cannot be renamed by us.
-            Assert.AreEqual("NoSQL.GraphDB.Agents", AgentsMetrics.SourceName,
-                "the runner passes this to OpenTelemetryAgent and the tracing pipeline adds it");
-            Assert.AreEqual(AgentsMetrics.MeterName, AgentsMetrics.SourceName,
-                "one name for both, as the MCP server's diagnostics do it");
-
-            var framework = typeof(Microsoft.Agents.AI.ChatClientAgent).Assembly;
-            Assert.IsNotNull(framework);
-
-            // The name the wiring registers has to be the one the framework's own instrumentation
-            // publishes under. Asserted against the constant so the pair cannot drift silently.
-            Assert.AreEqual("Experimental.Microsoft.Extensions.AI", AgentsMetrics.FrameworkTelemetryName);
-        }
-
-        #endregion
-
         #region recording
 
         /// <summary>

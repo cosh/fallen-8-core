@@ -127,7 +127,9 @@ served each step; then the model itself.
   becomes part of what a model reads, so a hostile property value can try to steer an agent. What
   actually holds is enforced outside the model: the allowlist, the MCP tiers, and the four budgets.
   The prompt is not a control.
-- **No user text in a metric tag**: no task, no agent name, no agent id.
+- **No caller text in telemetry**: no task and no caller-chosen name reaches a metric tag or a
+  span, because the framework is handed the ROLE. The agent id does travel, in the `invoke_agent`
+  span's name; the contract's home is `AgentsMetrics.SourceName`.
 
 ## Testing
 

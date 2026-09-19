@@ -50,11 +50,10 @@ namespace NoSQL.GraphDB.Agents.Hosting
     ///     count would have nothing to say about the run that made an operator look.
     ///   </para>
     ///   <para>
-    ///     <b>The Agent Framework's own GenAI spans are in the trace pipeline, not reimplemented.</b>
-    ///     The framework emits the OpenTelemetry Semantic Conventions for Generative AI
-    ///     (<c>invoke_agent</c>, the chat span, and <c>execute_tool</c> per tool) from its own
-    ///     source, so this adds that source to the exporter rather than writing spans by hand. The
-    ///     runner is what wraps an agent to produce them, and it leaves the framework's
+    ///     <b>The Agent Framework's own GenAI telemetry is registered, not reimplemented.</b> The
+    ///     runner wraps an agent to produce it and hands the library this host's own source name,
+    ///     so one <c>AddSource</c> and one <c>AddMeter</c> of that name cover it; what it consists
+    ///     of is on <see cref="AgentsMetrics.SourceName" />. The runner also leaves the library's
     ///     <c>EnableSensitiveData</c> off, which is what keeps message content, tool arguments and
     ///     tool results out of telemetry: the tag-hygiene rule this feature is held to would
     ///     otherwise be broken by a library rather than by us.
@@ -113,12 +112,10 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()
+                // ONE registration, not two: Microsoft Agent Framework names its own Meter after
+                // the source name the runner gives it, which is this one, so the library's GenAI
+                // token and duration instruments arrive here too (AgentsMetrics.SourceName).
                 .AddMeter(AgentsMetrics.MeterName)
-                // The framework's own GenAI metrics, on ITS meter rather than ours. The name is
-                // the one its assembly carries, measured rather than assumed, and a test pins it:
-                // registering our meter alone would export the host's view of a run and drop the
-                // library's token accounting for the same run.
-                .AddMeter(AgentsMetrics.FrameworkTelemetryName)
                 .AddOtlpExporter(o => o.Endpoint = endpoint));
 
             otel.WithTracing(tracing => tracing
@@ -127,8 +124,7 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 // server, which is what makes a slow step attributable to the hop that was slow.
                 .AddHttpClientInstrumentation()
                 // OUR source name, because the runner hands it to the framework's OTel wrapper:
-                // the GenAI spans are the framework's, the source they land on is ours, so one
-                // registration covers invoke_agent, the chat span and execute_tool.
+                // the invoke_agent span is the framework's, the source it lands on is ours.
                 .AddSource(AgentsMetrics.SourceName)
                 .AddOtlpExporter(o => o.Endpoint = endpoint));
 

@@ -239,7 +239,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 var framework = new ChatClientAgent(pipeline, new ChatClientAgentOptions
                 {
                     Id = agent.Id,
-                    Name = agent.Name,
+                    // The ROLE, a closed set of three, and not the name a caller sent: the
+                    // framework builds its span's name from this, and AgentsMetrics.SourceName
+                    // says what it builds and why that matters. The caller's name stays on the
+                    // record, the listing and the feed.
+                    Name = role.Name,
                     Description = String.Format("A Fallen-8 {0} agent.", role.Name),
                     ChatOptions = new ChatOptions
                     {
@@ -251,14 +255,24 @@ namespace NoSQL.GraphDB.Agents.Runtime
                         Temperature = 0,
                     },
                     // The pipeline above is complete, including the tool-invoking client, so the
-                    // framework must not wrap another one around it: two tool loops over one
-                    // request would each invoke every call.
+                    // library must not add its default decorators over it. What that buys is that
+                    // THIS host's invoker is the whole tool loop: the step cap, the terminate on
+                    // an unknown call, the detailed errors and the journaling invoker are the
+                    // outermost ones rather than a default loop's, and the per-agent options the
+                    // library applies only to a stack it built itself (AllowConcurrentInvocation,
+                    // for one) cannot be silently in play.
+                    //
+                    // NOT what an earlier version of this comment claimed, which was measured and
+                    // is false: two loops do not each invoke every call. The inner one resolves
+                    // every call and returns final text, so the outer one finds nothing to do, and
+                    // setting this to false changes nothing any test in this repository can see.
+                    // It is set because being sure which loop is in charge is worth one line.
                     UseProvidedChatClientAsIs = true,
                 }, _loggers);
 
-                // The framework's own GenAI telemetry: invoke_agent, the chat span below the tool
-                // loop, and execute_tool per call, emitted on OUR source name so one registration
-                // in the exporter covers all three (spec 3.6).
+                // The framework's own GenAI telemetry, emitted on OUR source name: what it
+                // consists of, and why that name matters, is on AgentsMetrics.SourceName
+                // (spec 3.6).
                 //
                 // EnableSensitiveData stays FALSE, and it is set rather than left to a default
                 // because the whole tag-hygiene rule depends on it: with it on, the library writes

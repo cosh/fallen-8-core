@@ -25,6 +25,8 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,6 +36,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Agents.Configuration;
+using NoSQL.GraphDB.Agents.Diagnostics;
 using NoSQL.GraphDB.Agents.Runtime;
 
 namespace NoSQL.GraphDB.Tests
@@ -180,6 +183,148 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1L, Interlocked.Read(ref agent.Steps));
             Assert.AreEqual(0L, Interlocked.Read(ref agent.ToolCalls));
             Assert.IsNotNull(agent.FinishedUtc);
+        }
+
+        /// <summary>
+        ///   A model naming a tool that does not exist ends the TURN rather than being handed an
+        ///   error and asked again, and the run is recorded as having produced no answer.
+        ///   <para>
+        ///     This pins <c>TerminateOnUnknownCalls</c>, which nothing did: a name nothing serves
+        ///     will not become a name something serves, so a retry only spends budget. Flipping it
+        ///     fails this test.
+        ///   </para>
+        ///   <para>
+        ///     It does NOT pin <c>UseProvidedChatClientAsIs</c>, and that was worth measuring
+        ///     rather than assuming: setting that flag to false passes every test in this
+        ///     repository, including this one, because the library's outer loop finds every call
+        ///     already resolved by the inner one. The runner's comment there says so.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public async Task AToolNameNothingServesEndsTheTurnRatherThanBeingRetried()
+        {
+            // No tools at all, so the name the model asks for cannot resolve.
+            using var harness = new Harness(
+                Script.Calls("c1", "f8_a_tool_nothing_serves").Then("I answered anyway."));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "count them"),
+                out var agent, out _));
+
+            await harness.Run(agent);
+
+            Assert.AreEqual(AgentState.Failed, agent.State,
+                "the turn ended on the unknown call, so the run has no answer: " + agent.Failure);
+            StringAssert.Contains(agent.Failure, "without producing an answer", agent.Failure);
+            Assert.IsNull(agent.ResultText,
+                "the second scripted turn must never be reached: a retry would spend the budget "
+                + "of a host whose tool list cannot grow mid-run");
+            Assert.AreEqual(0, agent.Trace.Steps().Count(s => s.Kind == "toolCall"),
+                "nothing was invoked, so nothing belongs on the trace as a tool call");
+        }
+
+        /// <summary>
+        ///   What Microsoft Agent Framework actually emits for a run, MEASURED, because four other
+        ///   sites depend on two facts about it: which Meter the library publishes its GenAI
+        ///   instruments on, and what it puts in the name of the one span it emits.
+        ///   <para>
+        ///     The WHOLE runner is driven rather than a rebuilt copy of its pipeline, because what
+        ///     is under test is what the RUNNER hands the library: a test that rebuilt the pipeline
+        ///     could not fail when the runner changed, which is the defect shape this feature keeps
+        ///     producing. Both listeners are process-wide, hence DoNotParallelize.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        [DoNotParallelize]
+        public async Task TheFrameworksTelemetryLandsOnThisHostsMeterAndNamesTheRoleNotTheCaller()
+        {
+            const String CallerName = "NAME-MARKER-a-caller-chose-this";
+
+            var published = new List<String>();
+            var recorded = new List<String>();
+
+            using var meters = new MeterListener();
+            meters.InstrumentPublished = (instrument, listener) =>
+            {
+                // Start() replays every instrument alive in the process, so an unfiltered list
+                // would carry whatever an earlier test left behind.
+                if (!instrument.Name.StartsWith("gen_ai.", StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                published.Add(instrument.Meter.Name + "::" + instrument.Name);
+                listener.EnableMeasurementEvents(instrument);
+            };
+            meters.SetMeasurementEventCallback<Int32>(
+                (i, v, t, s) => recorded.Add(i.Meter.Name + "::" + i.Name));
+            meters.SetMeasurementEventCallback<Int64>(
+                (i, v, t, s) => recorded.Add(i.Meter.Name + "::" + i.Name));
+            meters.SetMeasurementEventCallback<Double>(
+                (i, v, t, s) => recorded.Add(i.Meter.Name + "::" + i.Name));
+            meters.Start();
+
+            var spans = new List<Activity>();
+            using var activities = new ActivityListener
+            {
+                ShouldListenTo = source => source.Name == AgentsMetrics.SourceName,
+                // AllDataAndRecorded, not a cheaper result: the library writes its gen_ai.* tags
+                // only while Activity.IsAllDataRequested is true, so PropagationData would give a
+                // span with a name and no tags.
+                Sample = (ref ActivityCreationOptions<ActivityContext> options)
+                    => ActivitySamplingResult.AllDataAndRecorded,
+                ActivityStopped = activity => spans.Add(activity),
+            };
+            ActivitySource.AddActivityListener(activities);
+
+            using var harness = new Harness(Script.Says("eight"));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("assistant", "count the vertices") { Name = CallerName },
+                out var agent, out _));
+
+            await harness.Run(agent);
+            Assert.AreEqual(AgentState.Completed, agent.State,
+                "a run that did not finish has no telemetry to inspect");
+
+            // THE METER. The library names its own Meter after the source name the runner gives
+            // it, so its instruments arrive on this host's meter and the exporter's single
+            // AddMeter of that name carries them.
+            CollectionAssert.Contains(published,
+                AgentsMetrics.MeterName + "::gen_ai.client.token.usage",
+                "the framework's token accounting has to arrive on the meter the exporter "
+                + "registers; published: " + String.Join(", ", published));
+            CollectionAssert.Contains(recorded,
+                AgentsMetrics.MeterName + "::gen_ai.client.operation.duration",
+                "and it has to be WRITTEN to that meter, not merely created on it; recorded: "
+                + String.Join(", ", recorded));
+            Assert.IsFalse(
+                published.Any(p => p.StartsWith("Experimental.", StringComparison.Ordinal)),
+                "nothing here publishes under a library default name, so registering one would "
+                + "be a no-op; published: " + String.Join(", ", published));
+
+            // THE SPAN, whose NAME is what a collector deriving metrics from spans keys a series
+            // on. One per run: the runner sets UseProvidedChatClientAsIs, so the library wires no
+            // second telemetry client below the tool loop.
+            var invoked = spans
+                .Where(s => s.DisplayName.StartsWith("invoke_agent", StringComparison.Ordinal))
+                .ToList();
+            Assert.AreEqual(1, invoked.Count,
+                "one framework span per run; seen: "
+                + String.Join(" | ", spans.Select(s => s.DisplayName)));
+
+            StringAssert.Contains(invoked[0].DisplayName, "assistant",
+                "the ROLE is what the runner hands the framework as the agent's name");
+            Assert.AreEqual("assistant", invoked[0].GetTagItem("gen_ai.agent.name") as String,
+                "the span's agent-name tag is the role too");
+            Assert.IsFalse(invoked[0].DisplayName.Contains("MARKER", StringComparison.Ordinal),
+                "no caller text may reach a span name: " + invoked[0].DisplayName);
+
+            // And what remains, stated rather than hoped for: the id is in the name whatever the
+            // name is, which is why the documented promise is about caller text and not about
+            // identifiers, and why the shipped collector bounds this name before deriving metrics
+            // from it.
+            StringAssert.Contains(invoked[0].DisplayName, agent.Id,
+                "the framework concatenates the agent id into the span name unconditionally");
+            Assert.AreEqual(agent.Id, invoked[0].GetTagItem("gen_ai.agent.id") as String);
         }
 
         [TestMethod]

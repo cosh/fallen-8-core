@@ -43,7 +43,8 @@ namespace NoSQL.GraphDB.Agents.Diagnostics
     ///     the instance named it, the tool name as the MCP server advertises it, and a success
     ///     flag. An agent ID is not tagged either, and that is deliberate rather than an oversight:
     ///     ids are unbounded over a host's lifetime, and per-agent detail is what the trace and the
-    ///     feed are for.
+    ///     feed are for. The library's own span is a separate matter, stated once on
+    ///     <see cref="SourceName" />.
     ///   </para>
     ///   <para>
     ///     <b>CONTAINMENT.</b> <c>Counter.Add</c> and <c>Histogram.Record</c> invoke listener
@@ -64,22 +65,36 @@ namespace NoSQL.GraphDB.Agents.Diagnostics
         public const String MeterName = "NoSQL.GraphDB.Agents";
 
         /// <summary>
-        ///   The activity source the framework's GenAI spans land on. The same string as the meter,
-        ///   as the MCP server's diagnostics do it: the runner hands this name to the framework's
-        ///   OpenTelemetry wrapper, so <c>invoke_agent</c>, the chat span and <c>execute_tool</c>
-        ///   are emitted on a source this host names rather than on a library default that could
-        ///   change under us.
+        ///   The activity source AND the meter name Microsoft Agent Framework's own GenAI
+        ///   telemetry lands on: the same string as <see cref="MeterName" />, as the MCP server's
+        ///   diagnostics do it.
+        ///
+        ///   <para>
+        ///     <b>The library's METER carries this name too.</b> The runner hands this string to
+        ///     <c>OpenTelemetryAgent</c>, which names both its <c>ActivitySource</c> and its
+        ///     <c>Meter</c> with it, so <c>gen_ai.client.token.usage</c> and
+        ///     <c>gen_ai.client.operation.duration</c> arrive on THIS meter. One registration in
+        ///     the exporter therefore carries the library's accounting as well as this host's, and
+        ///     a second registration of the library's default name would be a no-op.
+        ///   </para>
+        ///   <para>
+        ///     <b>ONE span per run</b>, named <c>invoke_agent {name}({id})</c>, and the agent id is
+        ///     in that name whatever the name is. That is why the runner gives the framework the
+        ///     ROLE rather than the name a caller sent: it removes the caller's text, and the id
+        ///     that remains is this host's own. There is no separate chat span and there are no
+        ///     <c>execute_tool</c> spans: the runner builds its own pipeline and sets
+        ///     <c>UseProvidedChatClientAsIs</c>, so the library wires no telemetry below the tool
+        ///     loop, and that loop takes its activity source from the client beneath it, which has
+        ///     none.
+        ///   </para>
+        ///   <para>
+        ///     All of the above is MEASURED, by
+        ///     <c>AgentRuntimeTest.TheFrameworksTelemetryLandsOnThisHostsMeterAndNamesTheRoleNotTheCaller</c>,
+        ///     which runs one agent under a <c>MeterListener</c> and an <c>ActivityListener</c>,
+        ///     because a library's telemetry shape moves in a package bump.
+        ///   </para>
         /// </summary>
         public const String SourceName = MeterName;
-
-        /// <summary>
-        ///   The framework's OWN meter, which is not ours and cannot be renamed by us: its GenAI
-        ///   token and duration instruments are published here whatever source name it is given.
-        ///   Registered beside <see cref="MeterName" /> so the library's accounting for a run is
-        ///   exported alongside this host's, and pinned by a test that observes both, because a
-        ///   name taken from a library's assembly is a name that can move in a package bump.
-        /// </summary>
-        public const String FrameworkTelemetryName = "Experimental.Microsoft.Extensions.AI";
 
         private readonly Meter _meter;
         private readonly Counter<Int64> _tokens;

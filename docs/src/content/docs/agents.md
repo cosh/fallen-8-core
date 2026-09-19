@@ -168,9 +168,13 @@ run it locally). The citation count is what makes a fabricating run visible when
   model reads, so a hostile value in a property can try to steer an agent. The defences that
   actually hold are the allowlist, the MCP tiers and the budgets, all enforced outside the model;
   the prompt is not one of them.
-- **No user text in telemetry.** No task, no agent name and no agent id reaches a metric tag: a
-  caller supplies the first two on every spawn, and tagging by them would let a caller fill your
-  monitoring backend with unbounded series.
+- **No caller text in telemetry.** The host's meter tags by closed sets only: role, token
+  direction, outcome, backend, tool name, success. No task and no name you sent reaches a tag or a
+  span, because the framework is given the agent's ROLE as its telemetry name. What does travel is
+  the agent id: Microsoft Agent Framework puts it in its `invoke_agent` span's name and in
+  `gen_ai.agent.id`, which is what ties a trace to a run. A collector that derives metrics from
+  span names would therefore see one series per run; the shipped one bounds that name before it
+  does.
 
 ## Configuration
 
