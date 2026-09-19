@@ -794,9 +794,13 @@ being right about the claim: F35 pointed at line 432 of a 357-line file, and the
 
 ## 15. What the gate's findings were fixed with (2026-09-19)
 
-Every finding in section 14 is closed. Eight commits, each one cluster, each mutation-checked: 46
-mutants applied and killed across them, and where a mutant survived that is recorded below rather
-than left out. The design for each cluster was written by a read-only reviewer per cluster and then
+Every finding in section 14 is closed. Eight commits, each one cluster, each mutation-checked:
+the six harnesses written for this round define 40 mutants, every one applied and killed, and four
+more were applied by hand on the Studio side, where there is no harness table to point at. Where a
+mutant survived, that is recorded below rather than left out. The count is of the harness tables,
+because those are preserved and the per-mutant run log is not: an earlier draft of this line said 46
+by counting three harnesses from the implementation phase, which predate the gate and checked other
+code. The design for each cluster was written by a read-only reviewer per cluster and then
 applied by hand, which is how the two measurements that changed a decision were caught.
 
 **Two designs were refuted by measurement before they were applied.** F18's suggested fix was to
@@ -845,11 +849,12 @@ default is gone.
 - **F18, F27 (telemetry).** See above. Verified end to end against the running collector: a span
   named `invoke_agent MARKERNAME(a1789-99)` yields one Prometheus series named `invoke_agent` with
   no caller text and no id, while a control span the transform does not match keeps its full name,
-  which is what makes that zero mean something. Tempo keeps the full name.
+  which is what makes that zero mean something. Tempo keeps the full name. Three mutants, one of
+  them the refuted role-only fix.
 - **F25, F29, F30, F31 (tests that could not fail).** The exact token split, the deserialized worker
   result with five distinct numbers, the three named instruments plus a test that drives the SHIPPED
   service graph, and a route-literal regex that tolerates a query string and self-tests against the
-  shapes that escaped it. Eight mutants.
+  shapes that escaped it. Seven mutants.
 - **F34, F35, F36 (posture).** The trust boundary has one code home and one published home, and
   every site that derived a conclusion from the false version points at them, including four in the
   integrations sibling carrying the same sentence. The startup line states its bind and warns on a
