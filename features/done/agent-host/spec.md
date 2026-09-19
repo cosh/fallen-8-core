@@ -1,6 +1,8 @@
 # Fallen-8 Agent Host: Specification
 
-> **Status:** IMPLEMENTED. Every phase, 0 through 5, is done on `feature/agent-host`, which is
+> **Status:** IMPLEMENTED, and the merge gate is CLOSED (findings.md sections 14 and 15: 38
+> candidates, 19 majors, all fixed and mutation-checked). Every phase, 0 through 5, is done on
+> `feature/agent-host`, which is
 > awaiting merge: the deployable, its image and compose service, the apiApp proxy, the chat-gateway
 > purposes, metrics, swarm mode, the Studio surface and the docs page all ship. One item is a
 > recorded deferral rather than an omission (the messages route, plan Phase 4). This line once said

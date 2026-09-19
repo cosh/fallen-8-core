@@ -791,3 +791,98 @@ reports its candidates in the wrong bucket: the script's `refuted` array held 38
 bill. Read the failure list before the result. Second, reviewers cite wrong line numbers while
 being right about the claim: F35 pointed at line 432 of a 357-line file, and the sentence was at
 213. Verify the claim, not the citation.
+
+## 15. What the gate's findings were fixed with (2026-09-19)
+
+Every finding in section 14 is closed. Eight commits, each one cluster, each mutation-checked: 46
+mutants applied and killed across them, and where a mutant survived that is recorded below rather
+than left out. The design for each cluster was written by a read-only reviewer per cluster and then
+applied by hand, which is how the two measurements that changed a decision were caught.
+
+**Two designs were refuted by measurement before they were applied.** F18's suggested fix was to
+hand the framework the ROLE instead of the caller's name, which bounds the span name. Probing all
+four shapes of (Id, Name) showed the library builds `invoke_agent {name}({id})` and generates a GUID
+when no id is supplied, so no choice bounds it: the id is in that name unconditionally. The fix
+therefore has two halves, one in the emitter and one in the shipped collector, and the published
+sentence says what still travels. And F27's claim that the second `AddMeter` prevented dropping the
+library's token accounting is backwards: all four of the library's GenAI instruments publish on the
+source name the runner passes, so the registration was a no-op and the constant naming the library
+default is gone.
+
+### The fixes, by finding
+
+- **F01, F02 (swarm lifecycle).** Every ending cascades to the live workers it orphans, Completed
+  included, because the orchestrator prompt says nobody else reads a worker's output. Admission
+  refuses a parent that has ended, in the same lock section that writes an ending, which is what
+  makes the cascade complete in one downward pass with no sweep. `Finish` is a facade over one
+  ending path, so the cancel path and every other path cannot drift apart again. Seven mutants.
+- **F03, F16, F28 (a refusal recorded as a success).** A typed `ToolRefusal`: the invoker journals
+  it as a failed call and hands its message to the framework as an ordinary result. Measured from
+  the pinned package: throwing would end the RUN on the fourth consecutive breach, because
+  `MaximumConsecutiveErrorsPerRequest` is 3 by default, so the four `success: false` claims stay
+  true and a breach still cannot end a run. The spawn tool needs an identity `MarshalResult` or the
+  refusal arrives as JSON and is recorded as work. Five mutants.
+- **F04, F33 (the await's own deadline).** A test with an orchestrator whose deadline fires while it
+  awaits a worker nothing will ever finish, which is the only arrangement where the await's token
+  decides the outcome. The cancel test's gate moved to the orchestrator's second model call, because
+  a worker is in the registry before `spawn_worker` returns.
+- **F05, F20, F26, F32, F38, F21, F22, F23, F24 (text).** Corrected at every site, including the one
+  in the published OpenAPI document (regenerated, one line). F32 moved the doc rather than the code,
+  because a sign check on a live count is unreachable and a gauge that publishes nothing reads like
+  a scrape failure. The feature README's three duplicated sections are pointers now.
+- **F06 to F11 (packaging).** One `depends_on` edge for the MCP server, whose handshake is one-shot;
+  the pull rationale corrected at three sites and the wrong backend key at one; `F8_AGENTS` parsed
+  the same way by all three consumers, with an unknown value refused; the code tier counted in the
+  read-only reassurance; the `-agents` image added to the published list.
+- **F12 to F15 (Studio).** A blank model is normalised to no model at the one funnel every reader
+  goes through, and the card trims too for version tolerance. The per-purpose rows have four tests.
+  Four mutants, including the partial fix that only catches the empty string.
+- **F17, F19, D1 (caps and allowlists).** The status route reports every cap on the options type,
+  pinned by reflection rather than a hand-picked list; the four floored keys are documented as
+  floored and the deadline in force is what is printed and reported; an allowlist can be widened on
+  purpose with `*` and no longer by a typo, because blank entries are dropped BEFORE the
+  was-anything-configured decision. Nine mutants.
+- **F18, F27 (telemetry).** See above. Verified end to end against the running collector: a span
+  named `invoke_agent MARKERNAME(a1789-99)` yields one Prometheus series named `invoke_agent` with
+  no caller text and no id, while a control span the transform does not match keeps its full name,
+  which is what makes that zero mean something. Tempo keeps the full name.
+- **F25, F29, F30, F31 (tests that could not fail).** The exact token split, the deserialized worker
+  result with five distinct numbers, the three named instruments plus a test that drives the SHIPPED
+  service graph, and a route-literal regex that tolerates a query string and self-tests against the
+  shapes that escaped it. Eight mutants.
+- **F34, F35, F36 (posture).** The trust boundary has one code home and one published home, and
+  every site that derived a conclusion from the false version points at them, including four in the
+  integrations sibling carrying the same sentence. The startup line states its bind and warns on a
+  non-loopback one. `POST /agents` carries the ordinary 1 MiB bound, the host bounds its own body
+  above the proxy's, and task, name and appendix are bounded per field. Nine mutants.
+
+### What was NOT fixed, and why
+
+- **F15** is fixed only in the two Studio cards it names. The unconditional-403 wording is a
+  repository-wide debt (dozens of sites listed in the cluster's design) and the gate itself recorded
+  it as not counted; sweeping it belongs to its own change.
+- **`UseProvidedChatClientAsIs` remains unpinned.** Setting it to false passes every test in the
+  repository, because the library's outer loop finds every call already resolved by the inner one.
+  The runner's comment claimed two loops would each invoke every call; that is measurably false and
+  the comment now says which part no test covers. The flag stays for the reason the library
+  documents.
+- **The host's Kestrel body bound is pinned as WIRING, not enforcement**, because the test server
+  has no request-body-size feature. The integrations sibling's identical bound is pinned by nothing
+  at all.
+- **`AddAgentsObservability` is still exercised by no test**, so the exporter's meter and source
+  registrations are argued rather than observed. The same gap exists for the apiApp and the MCP
+  server.
+- **Two eviction tests were rewritten rather than kept**, because the F01 cascade makes their
+  arrangement unreachable: an evicted parent can no longer have a surviving child, so the second arm
+  of `Evict`'s parent clearing is a guard rather than a live path and says so now.
+
+### One process failure worth the same space as a finding
+
+A mutation harness whose `restore` puts back every file it ever backed up will, run again later,
+put a stale backup over newer work. It did: one restore reverted two files to their state five
+commits earlier, wiping the typed-refusal contract and a byte-bound check out of the working tree.
+The build error named a missing method, which was luck; a comment-only revert would have committed
+silently. Each harness now restores only the named mutant's file, and the rule that caught it is
+worth keeping: after a mutation round, diff the tree against HEAD and account for every changed
+file, then run the FULL suite rather than a filter, because that is what proves no other cluster's
+work went with it.
