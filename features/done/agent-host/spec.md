@@ -1,7 +1,8 @@
 # Fallen-8 Agent Host: Specification
 
-> **Status:** IMPLEMENTED, and the merge gate is CLOSED (findings.md sections 14 and 15: 38
-> candidates, 19 majors, all fixed and mutation-checked). Every phase, 0 through 5, is done on
+> **Status:** IMPLEMENTED, and the merge gate is CLOSED on both halves of the council's rule
+> (findings.md sections 14, 15 and 16: 38 candidates and 19 majors fixed, then a review OF those
+> fixes that found 15 majors and 26 minors, also fixed). Every phase, 0 through 5, is done on
 > `feature/agent-host`, which is
 > awaiting merge: the deployable, its image and compose service, the apiApp proxy, the chat-gateway
 > purposes, metrics, swarm mode, the Studio surface and the docs page all ship. One item is a

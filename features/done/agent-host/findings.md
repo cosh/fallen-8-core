@@ -794,13 +794,15 @@ being right about the claim: F35 pointed at line 432 of a 357-line file, and the
 
 ## 15. What the gate's findings were fixed with (2026-09-19)
 
-Every finding in section 14 is closed. Eight commits, each one cluster, each mutation-checked:
-the six harnesses written for this round define 40 mutants, every one applied and killed, and four
+Every finding in section 14 is closed. Eleven commits, each one cluster, each mutation-checked:
+the seven harnesses written for this round define 44 mutants, every one applied and killed, and four
 more were applied by hand on the Studio side, where there is no harness table to point at. Where a
 mutant survived, that is recorded below rather than left out. The count is of the harness tables,
-because those are preserved and the per-mutant run log is not: an earlier draft of this line said 46
-by counting three harnesses from the implementation phase, which predate the gate and checked other
-code. The design for each cluster was written by a read-only reviewer per cluster and then
+because those are preserved and the per-mutant run log is not. This line has now been wrong twice:
+it said 46 by counting three harnesses from the implementation phase, which predate the gate, and
+then 40 by leaving out the harness for the F37 gate that a later commit in this same round added.
+The per-cluster numbers below add up to the total, which is the only reason a third error would be
+visible. The design for each cluster was written by a read-only reviewer per cluster and then
 applied by hand, which is how the two measurements that changed a decision were caught.
 
 **Two designs were refuted by measurement before they were applied.** F18's suggested fix was to
@@ -892,8 +894,12 @@ default is gone.
   registrations are argued rather than observed. The same gap exists for the apiApp and the MCP
   server.
 - **Two eviction tests were rewritten rather than kept**, because the F01 cascade makes their
-  arrangement unreachable: an evicted parent can no longer have a surviving child, so the second arm
-  of `Evict`'s parent clearing is a guard rather than a live path and says so now.
+  arrangement unreachable. The reasoning written around that was wrong, and section 16 records the
+  measurement: what is unreachable is a surviving LIVE child, because admission refuses a terminal
+  parent. An evicted parent with a surviving TERMINAL child is routine, since the cascade stamps an
+  orchestrator's ending before the workers it stops, so the orchestrator is the older finished
+  record and the trim takes it first. The second arm of `Evict`'s parent clearing is therefore a
+  live path, not a guard, and both it and this entry said otherwise.
 
 ### One process failure worth the same space as a finding
 
@@ -905,3 +911,84 @@ silently. Each harness now restores only the named mutant's file, and the rule t
 worth keeping: after a mutation round, diff the tree against HEAD and account for every changed
 file, then run the FULL suite rather than a filter, because that is what proves no other cluster's
 work went with it.
+
+## 16. The review of the fixes, and what it found (2026-09-19)
+
+The council's rule is that a branch merges when its findings are fixed AND the fixes are
+re-reviewed, so section 15 closed half of it. This is the other half: six reviewers over the eleven
+fix commits, one per lens, each told to refute its own suspicions and to say what it did to try.
+
+They returned **15 majors and 26 minors**, every one with a measurement behind it rather than a
+reading. That is a poor result for the fixes and a good one for the rule: three of the majors are
+the same defect the fixes were written to remove, surviving on a path the fix did not cover.
+
+### What the lenses were, and what each one cost the branch
+
+- **Swarm lifecycle.** The only lens that confirmed its subject. It drove 2000 rounds of a
+  grandchild spawn racing its grandparent's ending (the repo's own race test reaches depth 1 only)
+  and found no survivor, 2000 rounds of two threads ending one agent with exactly one event each
+  time, and a 50-worker cascade with every worker terminal. Four minors, all around the edges: the
+  failure text, the missing exception boundary, and two comments stating invariants the code does
+  not have.
+- **The typed refusal.** Two majors. An MCP tool reports failure IN its result, so every graph call
+  an agent makes was still recorded, published and counted as work, which is the exact defect F03
+  fixed one path over. And the citable set took any call with a tool name, so a run whose every
+  spawn was refused could cite those names and score fully grounded.
+- **Bounds, caps and allowlists.** Two majors. The feed reported a keep-alive the stream floors, and
+  a role key naming no role was ignored, so a misspelled role name left the role it was meant to
+  narrow holding every advertised tool.
+- **The tests.** Two majors. The body-bound pin named two proxy routes where there were three, and
+  the third shipped unbounded; the appendix byte bound had no test on either path.
+- **Text and claims.** Six majors. The claim this branch corrected in a dozen places survived in ten
+  more, the unconditional 403 in three more, and four sentences were simply false.
+- **Telemetry and packaging.** Three majors. A reboot could leave the host toolless for the life of
+  the process while reporting healthy; a hosted-chat overlay pulled a model nothing would ask for;
+  and the MCP tier checks were case-sensitive against values the server binds case insensitively.
+
+### What that means about the first round
+
+Two patterns, both worth naming rather than filing.
+
+**A fix applied at one site is not a fix.** The refusal work, the 403 wording and the trust-boundary
+sentence were each corrected where the gate pointed and left standing where it did not. The gate's
+own findings are samples, not inventories, and section 15 read them as inventories: its sentence
+"every site that derived a conclusion from the false version points at them" was false when written,
+by ten sites.
+
+**A number in prose drifts faster than anyone believes.** The mutant count in section 15 was wrong
+twice, and a doc count was wrong through two features. Both are now held by something: the per-
+cluster numbers add to the total, and a convention test pins the capability count against the enum.
+
+### What is fixed, and what is recorded instead
+
+Every major and every minor is closed, in ten commits, except these, which are recorded because
+they are judgements rather than omissions:
+
+- **The cascade's own exception boundary is a backstop no test reaches**, and its mutant survives on
+  purpose. Every throw site inside the publication is handled where it happens, so the outer catch
+  is unreachable today; it is kept because the failure it prevents is permanent and the cost is one
+  try block. The comment says exactly this, which is the difference between a guard and a claim.
+- **The compare-exchange that keeps four concurrent agents to one reconnect attempt is argued, not
+  pinned.** The test drives it sequentially, because a deterministic two-thread arrangement needs a
+  handshake seam this host does not have.
+- **`AddAgentsObservability` is still exercised by no test**, unchanged from section 15.
+- **The unconditional-403 wording is now corrected everywhere this branch touches**, which is not
+  the same as everywhere: the repository-wide debt recorded in section 14 is smaller but not gone.
+
+### Two process failures, both of which nearly landed
+
+**A per-file mutation backup goes stale.** Section 15 recorded a blanket `restore` putting old files
+over newer work, and the fix was to restore only the named mutant's file. That was not enough: the
+backup was still created once per FILE, on the first apply, so editing that file between rounds left
+a stale copy that the next restore put back. It silently removed a cancellation boundary and turned
+a surviving mutant into a killed one, which is the worst possible direction for that error. Backups
+are keyed per mutant and refreshed at every apply now, and the rule that caught it is the same one
+as last time: diff the tree against HEAD after a round and account for every changed file.
+
+**Editing a drafted patch broke two sentences.** Four of the text corrections were drafted by
+read-only reviewers and verified by independent ones, which caught two false claims before they
+landed. Then I edited the drafts myself, and two of my edits replaced text that spanned a line
+break, dropping the words "is the only" from one operator-facing message and "the compose" from
+another. Neither the verifier (it ran before my edit) nor the JavaScript parser (both were still
+valid strings) could see it. What found it was reading the diff of every line I had changed, which
+is now the last step before a commit rather than an optional one.
