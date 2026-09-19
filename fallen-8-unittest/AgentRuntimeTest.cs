@@ -438,7 +438,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void CancellingAnOrchestratorCascadesToItsLiveWorkersDeepestFirst()
+        public void CancellingAnOrchestratorStopsItsLiveWorkersAndLeavesTheFinishedOneAlone()
         {
             using var harness = new Harness(Script.Says("ok"));
 
@@ -456,8 +456,148 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(2, signalled, "the orchestrator and its ONE live worker");
             Assert.AreEqual(AgentState.Cancelled, boss.State);
             Assert.AreEqual(AgentState.Cancelled, one.State);
-            StringAssert.Contains(one.Failure, "orchestrator was cancelled");
+            StringAssert.Contains(one.Failure, "Its orchestrator ended (cancelled)",
+                "the worker's row has to name the ending that stopped it, because \"cancelled\" on "
+                + "its own reads as somebody having cancelled the worker: " + one.Failure);
             Assert.AreEqual(AgentState.Completed, two.State, "a finished worker keeps how it ended");
+        }
+
+        /// <summary>
+        ///   EVERY ending stops the workers it leaves behind, not just a cancel, and the reason on
+        ///   the worker's row names which ending stopped it.
+        ///   <para>
+        ///     Completed is the case in here on purpose, because it is the most debatable one and
+        ///     the one that made this a defect rather than a rough edge: an orchestrator that
+        ///     answers without awaiting is a real outcome, and the orchestrator prompt says nobody
+        ///     but it reads a worker's result. So a worker still running then is spending a budget
+        ///     and holding a slot for a reader the feature says does not exist. Three deep, because
+        ///     a walk that stops at the first level leaves a grandchild running.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public void EveryEndingStopsTheWorkersItLeavesBehindAndTheReasonNamesIt()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            // Off, so the tree can be three deep and the walk has to pass the first level.
+            options.Limits.MaxSwarmDepth = 0;
+            using var harness = new Harness(Script.Says("ok"), options: options);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "part one") { ParentId = boss.Id }, out var mid, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "part one, split") { ParentId = mid.Id }, out var leaf, out _));
+
+            Assert.IsTrue(harness.Registry.Finish(boss.Id, AgentState.Completed,
+                resultText: "answered"));
+
+            Assert.AreEqual(AgentState.Completed, boss.State,
+                "the ending that cascaded is itself unchanged");
+            Assert.AreEqual(AgentState.Cancelled, mid.State,
+                "an orchestrator that answered left this worker producing for nobody");
+            Assert.AreEqual(AgentState.Cancelled, leaf.State,
+                "the cascade stopped at the first level, so a grandchild ran on with nobody above it");
+            StringAssert.Contains(mid.Failure, "Its orchestrator ended (completed)", mid.Failure);
+            Assert.AreEqual(BudgetKind.None, mid.Budget, "nothing about a cascade is a budget breach");
+            Assert.IsNull(mid.ResultText);
+
+            // Signalled, not merely relabelled: the token is what stops a run that is in flight and
+            // the completion signal is what wakes an orchestrator sitting in await_workers.
+            Assert.IsTrue(mid.Cancellation.IsCancellationRequested);
+            Assert.IsTrue(leaf.Cancellation.IsCancellationRequested);
+            Assert.IsTrue(leaf.Finished.IsCompleted);
+
+            Assert.AreEqual(0, harness.Registry.ActiveCount,
+                "a cascaded ending releases the slot like any other");
+        }
+
+        /// <summary>
+        ///   Presence in the registry is not liveness: a finished orchestrator is readable for
+        ///   <c>RetainFinishedMinutes</c>, and a worker admitted under one would be a run no ending
+        ///   reaches. The refusal names the state it is in, and does not spend the orchestrator's
+        ///   worker allowance, which is what pins the gate as sitting before that counter.
+        /// </summary>
+        [TestMethod]
+        public void AFinishedOrchestratorCannotTakeAWorkerWhileItIsStillRetained()
+        {
+            using var harness = new Harness(Script.Says("ok"));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            Assert.IsTrue(harness.Registry.Finish(boss.Id, AgentState.Completed,
+                resultText: "answered"));
+
+            // The premise, asserted rather than assumed: the parent is still there to be found.
+            Assert.IsTrue(harness.Registry.TryGet(boss.Id, out _),
+                "the parent is still retained, which is the difference this gate exists for");
+
+            Assert.IsFalse(harness.Registry.TryAdmit(
+                    new AgentSpawn("worker", "a late part") { ParentId = boss.Id },
+                    out _, out var problem),
+                "a worker under an orchestrator that has already ended is a run nothing will "
+                + "collect and no cascade reaches");
+            StringAssert.Contains(problem, "already ended", problem);
+            StringAssert.Contains(problem, AgentStates.Wire(AgentState.Completed),
+                "the refusal has to name the state the parent is in: " + problem);
+            Assert.AreEqual(0, harness.Registry.Children(boss.Id).Count);
+            Assert.AreEqual(0, boss.WorkersSpawned,
+                "a refused spawn must not count against MaxWorkersPerOrchestrator");
+            Assert.AreEqual(0, harness.Registry.ActiveCount);
+        }
+
+        /// <summary>
+        ///   The invariant the gate and the downward walk exist to hold, over the race this class's
+        ///   own doc describes: a tool call already dispatched when an ending lands still runs, so a
+        ///   <c>spawn_worker</c> can arrive on either side of its orchestrator's ending.
+        ///   <para>
+        ///     Whichever order the lock serialises them in, only two outcomes are allowed: the spawn
+        ///     is refused, or the worker it admitted is terminal once both calls have returned. This
+        ///     cannot pass wrongly: the invariant holds in every interleaving, so a round that
+        ///     misses the interesting window proves less rather than passing falsely, and no
+        ///     assertion here waits on a timeout or spins.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public async Task ASpawnRacingItsOrchestratorsEndingNeverLeavesALiveWorkerBehind()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            using var harness = new Harness(Script.Says("ok"), options: options);
+
+            for (var round = 0; round < 64; round++)
+            {
+                Assert.IsTrue(harness.Registry.TryAdmit(
+                    new AgentSpawn("orchestrator", "plan " + round), out var boss, out _));
+
+                using var both = new Barrier(2);
+                AgentRecord worker = null;
+                var admitted = false;
+
+                var spawning = Task.Run(() =>
+                {
+                    both.SignalAndWait();
+                    admitted = harness.Registry.TryAdmit(
+                        new AgentSpawn("worker", "part") { ParentId = boss.Id }, out worker, out _);
+                });
+                var ending = Task.Run(() =>
+                {
+                    both.SignalAndWait();
+                    harness.Registry.Finish(boss.Id, AgentState.Completed, resultText: "answered");
+                });
+
+                await Task.WhenAll(spawning, ending);
+
+                if (admitted)
+                {
+                    Assert.IsTrue(AgentStates.IsTerminal(worker.State),
+                        "round " + round + ": a worker admitted around its orchestrator's ending is "
+                        + "still live, and nothing will ever reach it");
+                }
+            }
+
+            Assert.AreEqual(0, harness.Registry.ActiveCount, "no round left anything running");
         }
 
         [TestMethod]
@@ -1296,6 +1436,78 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(AgentStates.IsTerminal(worker.State),
                 "the worker outlived the orchestrator that was waiting for it, holding a "
                 + "concurrency slot for a swarm nobody is composing");
+        }
+
+        /// <summary>
+        ///   The scenario F01 says happens EVERY time, because a worker is admitted after its
+        ///   orchestrator and therefore always has the later deadline: an orchestrator awaiting a
+        ///   slow worker runs out of time first. Its ending has to stop the worker rather than leave
+        ///   it running to its own deadline, and the failure text is what says which of the two
+        ///   happened.
+        ///   <para>
+        ///     The only test in this file that puts a wall-clock cap on a swarm, so it also covers
+        ///     the half of <c>await_workers</c> that no test reached: that the orchestrator's own
+        ///     deadline ends the wait. The margins are ARRANGED rather than hoped for, and they are
+        ///     load-bearing: a one second tool read inside a three second cap puts the spawn about a
+        ///     second in, so the worker's own deadline lands a second AFTER the orchestrator's. That
+        ///     gap is what makes "the cascade stopped it" distinguishable from "it ran out of time
+        ///     by itself", which are different states carrying different text.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public async Task AnOrchestratorThatRunsOutOfTimeInsideAnAwaitStopsTheWorkerItWasWaitingFor()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.MaxRunSeconds = 3;
+
+            // f8_overview because that is the orchestrator's whole shipped allowlist, and slow
+            // because the delay before the spawn is what separates the two deadlines.
+            var slowRead = AIFunctionFactory.Create(
+                () =>
+                {
+                    Thread.Sleep(TimeSpan.FromMilliseconds(1000));
+                    return "the graph has eight vertices";
+                },
+                new AIFunctionFactoryOptions
+                {
+                    Name = "f8_overview",
+                    Description = "Describes the graph, slowly.",
+                });
+
+            using var harness = new Harness(
+                Script.Calls("c1", "f8_overview")
+                    .ThenCallsWith("c2", SwarmTools.SpawnWorker,
+                        new Dictionary<String, Object> { ["task"] = "the slow part" })
+                    .ThenCalls("c3", SwarmTools.AwaitWorkers)
+                    .Then("never reached"),
+                options: options,
+                tools: new List<AITool> { slowRead },
+                workerScript: Script.SaysAfter("eight", TimeSpan.FromSeconds(30)));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "how many?"),
+                out var boss, out _));
+
+            await harness.Run(boss);
+
+            var workers = harness.Registry.Children(boss.Id);
+            Assert.AreEqual(1, workers.Count,
+                "the orchestrator never got to spawn its worker: " + boss.Failure);
+            var worker = workers[0];
+
+            Assert.AreEqual(AgentState.BudgetExceeded, boss.State, boss.Failure);
+            Assert.AreEqual(BudgetKind.Time, boss.Budget,
+                "the orchestrator's deadline has to apply inside await_workers");
+            Assert.AreEqual(AgentState.Cancelled, worker.State,
+                "the worker outlived the orchestrator that was awaiting it, holding a slot and "
+                + "spending its budget for an answer nobody will compose");
+            // This text is what proves the CASCADE recorded the ending: the worker unwinding on its
+            // own would have written its own reason instead.
+            StringAssert.Contains(worker.Failure, "Its orchestrator ended (budgetExceeded)",
+                worker.Failure);
+            Assert.IsNull(worker.ResultText,
+                "the worker had not answered yet, which is what makes this the orphan case");
+            Assert.AreEqual(0, harness.Registry.ActiveCount);
         }
 
         [TestMethod]

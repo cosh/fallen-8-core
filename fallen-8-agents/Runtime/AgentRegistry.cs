@@ -189,6 +189,20 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     return false;
                 }
 
+                // PRESENCE is not liveness. A finished agent stays readable for
+                // RetainFinishedMinutes, so the lookup above finds an orchestrator that has
+                // already ended, and a worker admitted under one is a run no ending reaches: it
+                // holds a slot and spends a budget for a composer that is gone. Checked in the
+                // same lock section that writes an ending, which is what makes Finish's cascade
+                // complete rather than best effort.
+                if (parent != null && AgentStates.IsTerminal(parent.State))
+                {
+                    problem = String.Format(CultureInfo.InvariantCulture,
+                        "Agent '{0}' has already ended ({1}), so it cannot take a worker.",
+                        parent.Id, AgentStates.Wire(parent.State));
+                    return false;
+                }
+
                 // A caller's agent is depth 0; a worker is one deeper than whatever spawned it.
                 // Read off the PARENT's record rather than walked up the tree, so an evicted
                 // ancestor cannot make a deep agent look shallow.
@@ -413,9 +427,21 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
-        ///   Records how an agent ended and releases its slot. The FIRST ending wins: a cancel that
-        ///   arrives while a completion is being recorded finds an agent that already said how it
-        ///   ended, and leaves it alone. False means exactly that, and it is not an error.
+        ///   Records how an agent ended, releases its slot, and stops the live workers the ending
+        ///   leaves behind. The FIRST ending wins: a cancel that arrives while a completion is
+        ///   being recorded finds an agent that already said how it ended, and leaves it alone.
+        ///   False means exactly that, and it is not an error.
+        ///   <para>
+        ///     <b>Every ending cascades, not just a cancel.</b> A worker's only reader is the
+        ///     orchestrator that spawned it, which the orchestrator prompt states in as many words
+        ///     ("nobody reads your workers' output"), so one that completes, fails, is cancelled or
+        ///     runs out of budget otherwise leaves workers whose results nothing will compose,
+        ///     holding concurrency slots and spending their own budgets. They are ended as
+        ///     <see cref="AgentState.Cancelled" /> with a failure naming their orchestrator's
+        ///     ending. <see cref="CancelDescendants" /> performs the walk and says why it goes
+        ///     downwards; <see cref="TryAdmit" /> refusing a parent that has ended is the other
+        ///     half, and neither is sufficient alone.
+        ///   </para>
         ///   <para>
         ///     <c>citations</c> is the mechanical citation count, and only the runner can supply
         ///     one: it is the only caller that has both the final text and the trace. A cancel
@@ -427,17 +453,50 @@ namespace NoSQL.GraphDB.Agents.Runtime
             String? failure = null, BudgetKind budget = BudgetKind.None,
             CitationCounts? citations = null)
         {
+            return End(id, ending, resultText, failure, budget, citations) > 0;
+        }
+
+        /// <summary>
+        ///   One ending and its cascade, answering how many agents it moved: this one, plus every
+        ///   live descendant the ending orphaned. <see cref="Finish" /> is the public shape of it,
+        ///   and <see cref="TryCancel" /> is the caller that reports the count.
+        /// </summary>
+        private Int32 End(String id, AgentState ending, String? resultText, String? failure,
+            BudgetKind budget, CitationCounts? citations)
+        {
             if (!AgentStates.IsTerminal(ending))
             {
                 throw new ArgumentException("Finish records an ending; use Advance for a live state.",
                     nameof(ending));
             }
 
-            AgentRecord? finished = null;
+            if (!TryRecord(id, ending, resultText, failure, budget, out var finished))
+            {
+                return 0;
+            }
+
+            Publish(finished, citations);
+
+            // AFTER this agent's own ending is written and announced, which is what makes the walk
+            // complete rather than racy, and what keeps an orchestrator from being handed a
+            // vanished worker on its way out. See CancelDescendants.
+            return 1 + CancelDescendants(id, ending);
+        }
+
+        /// <summary>
+        ///   Writes one ending under the lock, and answers whether THIS call is the one that wrote
+        ///   it. Separate from <see cref="Publish" /> because the write is a single atomic step
+        ///   while everything that announces it happens outside the lock; <see cref="TryAdmit" />
+        ///   gives the three reasons for that placement.
+        /// </summary>
+        private Boolean TryRecord(String id, AgentState ending, String? resultText, String? failure,
+            BudgetKind budget, out AgentRecord finished)
+        {
             lock (_gate)
             {
                 if (!_agents.TryGetValue(id, out var agent) || AgentStates.IsTerminal(agent.State))
                 {
+                    finished = null!;
                     return false;
                 }
 
@@ -449,7 +508,14 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 agent.FinishedUtc = now;
                 agent.LastActivityUtc = now;
                 finished = agent;
+                return true;
             }
+        }
+
+        /// <summary>Announces an ending <see cref="TryRecord" /> has already written. Never called
+        /// with <c>_gate</c> held.</summary>
+        private void Publish(AgentRecord finished, CitationCounts? citations)
+        {
 
             // Journaled BEFORE the token is cancelled, so the ending is on the record before the
             // cancellation releases anything waiting on it, and outside the lock for the reasons
@@ -459,20 +525,21 @@ namespace NoSQL.GraphDB.Agents.Runtime
             // stating: a model call already in flight when a cancel arrives records its own step
             // when it returns, which lands after the ending, and the tool call that response asked
             // for can add another, because a call already sent to the graph is not undone.
-            // Preventing that would mean holding this lock across an inference call. So a trace can
-            // carry a short tail past its ending rather than exactly one step, and a reader
-            // comparing the last step's kind against the state should expect it. See TryAdmit for
-            // the bound.
+            // Preventing that would mean holding the registry's lock across an inference call. So
+            // a trace can carry a short tail past its ending rather than exactly one step, and a
+            // reader comparing the last step's kind against the state should expect it. See
+            // TryAdmit for the bound.
             _journal.Finished(finished, citations);
 
             // Also outside: cancelling the token runs continuations, and one of those is the
-            // runner's own finally, which calls back in here.
+            // runner's own finally, which calls back in here. That re-entrant call finds an agent
+            // that is already terminal, so it writes nothing and cascades nothing: the reentrancy
+            // is one level deep and no lock is held across it.
             finished.SignalCancellation();
 
             // AFTER the ending is journaled and the token is cancelled, so an orchestrator woken
             // by this reads a record that is already complete rather than one mid-transition.
             finished.SignalFinished();
-            return true;
         }
 
         /// <summary>
@@ -480,6 +547,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   steps and is passed into the chat call and the tool call in flight, so a tool call
         ///   already sent to the graph is not undone. The count is how many agents were signalled,
         ///   which for an orchestrator includes its workers.
+        ///   <para>
+        ///     The cascade is not this method's: every ending performs it, so a cancel is one
+        ///     ending like any other. See <see cref="Finish" />.
+        ///   </para>
         /// </summary>
         public Boolean TryCancel(String id, out Int32 signalled)
         {
@@ -496,18 +567,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 return true;
             }
 
-            foreach (var child in Descendants(id))
-            {
-                if (Finish(child.Id, AgentState.Cancelled, failure: "Its orchestrator was cancelled."))
-                {
-                    signalled++;
-                }
-            }
-
-            if (Finish(id, AgentState.Cancelled, failure: "Cancelled by request."))
-            {
-                signalled++;
-            }
+            signalled = End(id, AgentState.Cancelled, resultText: null,
+                failure: "Cancelled by request.", budget: BudgetKind.None, citations: null);
 
             _logger.LogInformation("Agent {AgentId} cancelled, {Signalled} agents signalled.", id, signalled);
             return true;
@@ -551,14 +612,41 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
-        ///   Every live agent below this one, deepest first, so a worker is cancelled before the
-        ///   orchestrator that would otherwise be told its worker vanished. Bounded by the agent
-        ///   count rather than by depth, because the tree is built by spawns this registry admitted
-        ///   and a cycle is therefore impossible; the visited set is belt and braces.
+        ///   Cancels every live agent below one that has just ended, and answers how many moved.
+        ///
+        ///   <para>
+        ///     <b>Downwards, and each node's children read only once that node is terminal.</b> A
+        ///     node's child list is final the moment it stops being live, because
+        ///     <see cref="TryAdmit" /> refuses a parent that has ended and writes under the same
+        ///     lock: a spawn still in flight is therefore either already in the list this reads or
+        ///     refused outright. Collecting the whole subtree up front instead, which is what a
+        ///     cancel used to do, left a window where a worker was admitted behind the walk and ran
+        ///     on with nobody above it. That is also why no sweep-until-empty is needed here: the
+        ///     set cannot grow once its parent is terminal.
+        ///   </para>
+        ///   <para>
+        ///     One loop, never recursion. An agent this ends is pushed onto this walk's frontier
+        ///     rather than cascading on its own. An agent that reached its own ending first is
+        ///     skipped, because THAT ending is cascading through its own children, and ending it
+        ///     here as well would be a second opinion about how it stopped. Bounded by the agent
+        ///     count rather than by depth, because the tree is built by spawns this registry
+        ///     admitted and a cycle is therefore impossible; the visited set is belt and braces.
+        ///   </para>
+        ///   <para>
+        ///     Nothing here runs under <c>_gate</c>: each read and each write takes it on its own,
+        ///     and the journal, the log and the signals stay outside it for the reasons on
+        ///     <see cref="TryAdmit" />.
+        ///   </para>
         /// </summary>
-        private IReadOnlyList<AgentRecord> Descendants(String rootId)
+        private Int32 CancelDescendants(String rootId, AgentState ending)
         {
-            var found = new List<AgentRecord>();
+            // What an operator reads on the worker's row. It names the orchestrator's ending,
+            // because "cancelled" on its own reads as somebody having cancelled the worker.
+            var failure = String.Format(CultureInfo.InvariantCulture,
+                "Its orchestrator ended ({0}) before this worker finished.",
+                AgentStates.Wire(ending));
+
+            var cancelled = 0;
             var seen = new HashSet<String>(StringComparer.Ordinal) { rootId };
             var frontier = new Queue<String>();
             frontier.Enqueue(rootId);
@@ -567,16 +655,24 @@ namespace NoSQL.GraphDB.Agents.Runtime
             {
                 foreach (var child in LiveChildren(frontier.Dequeue()))
                 {
-                    if (seen.Add(child.Id))
+                    if (!seen.Add(child.Id))
                     {
-                        found.Add(child);
-                        frontier.Enqueue(child.Id);
+                        continue;
                     }
+
+                    if (!TryRecord(child.Id, AgentState.Cancelled, resultText: null,
+                            failure: failure, budget: BudgetKind.None, out var stopped))
+                    {
+                        continue;
+                    }
+
+                    cancelled++;
+                    Publish(stopped, citations: null);
+                    frontier.Enqueue(child.Id);
                 }
             }
 
-            found.Reverse();
-            return found;
+            return cancelled;
         }
 
         /// <summary>
@@ -983,9 +1079,9 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   <para>
         ///     <c>RunContinuationsAsynchronously</c>, deliberately. Without it the thread that
         ///     finishes a worker would run the awaiting orchestrator's continuation inline, which
-        ///     on the cancel path is a thread already inside the registry's cascade cancel, walking a
-        ///     list of descendants. The registry's own rule about not running other people's work
-        ///     on its threads applies to this just as it does to the journal.
+        ///     on any ending's path is a thread already inside the registry's cascade, walking the
+        ///     descendants of the agent that just ended. The registry's own rule about not running
+        ///     other people's work on its threads applies to this just as it does to the journal.
         ///   </para>
         /// </summary>
         public Task Finished => _finished.Task;

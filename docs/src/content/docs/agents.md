@@ -108,8 +108,14 @@ bounds its own calls, not its workers', so a live-only count would let it spawn 
 await them, and spawn again without limit.
 
 A breached cap comes back to the model as a tool error it can act on (delegate less, compose what
-it has) and to you as a `toolCalled` event with `success: false`. Cancelling an orchestrator
-cancels its live workers too.
+it has) and to you as a `toolCalled` event with `success: false`.
+
+**A worker does not outlive its orchestrator.** However an orchestrator ends, whether it answers,
+fails, is cancelled or runs out of budget, its live workers are cancelled and each row says which
+ending stopped it. Only the orchestrator reads a worker's result, so a worker whose orchestrator has
+gone would spend its budget and hold a concurrency slot for an answer nobody will compose. The same
+rule refuses a late delegation: an orchestrator that has already ended cannot take a new worker, and
+`spawn_worker` says so.
 
 ## Exactly one composer
 

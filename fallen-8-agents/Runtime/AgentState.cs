@@ -63,8 +63,9 @@ namespace NoSQL.GraphDB.Agents.Runtime
         /// <summary>Ended on an error it could not work around. The message says which.</summary>
         Failed = 4,
 
-        /// <summary>Ended because it was cancelled, by a caller or by its orchestrator going
-        /// away.</summary>
+        /// <summary>Ended because it was cancelled: by a caller, or by its orchestrator reaching an
+        /// ending of any kind while this agent was still live. The failure text says which;
+        /// <see cref="AgentRegistry.Finish" /> owns that rule.</summary>
         Cancelled = 5,
 
         /// <summary>Ended because it hit one of the four caps. Which one is carried separately: an
