@@ -273,10 +273,16 @@ function main() {
   // plugin registration, which compiles submitted C# and runs it in the engine process with full
   // trust, so it is a write path and then some. "Can only read" may only be printed when all
   // three are off.
+  //
+  // Normalised the way the MCP server binds them, and for the reason F8_AGENTS above is: these
+  // reach that server as .NET Booleans, which parse case insensitively and tolerate surrounding
+  // space, so an exact comparison against 'true' read F8_MCP_ENABLE_CODE=True as OFF and printed
+  // that an agent can only read while the code tier was advertising plugin registration.
+  const tierOn = (value) => String(value ?? '').trim().toLowerCase() === 'true';
   const beyondRead =
-    process.env.F8_MCP_ENABLE_WRITE === 'true' ||
-    process.env.F8_MCP_ENABLE_ADMIN === 'true' ||
-    process.env.F8_MCP_ENABLE_CODE === 'true';
+    tierOn(process.env.F8_MCP_ENABLE_WRITE) ||
+    tierOn(process.env.F8_MCP_ENABLE_ADMIN) ||
+    tierOn(process.env.F8_MCP_ENABLE_CODE);
   if (agents && !beyondRead) {
     console.log('  Agents read the graph through f8-mcp, whose read tier is always on. Writes, admin');
     console.log('  and code stay off unless F8_MCP_ENABLE_WRITE / F8_MCP_ENABLE_ADMIN /');

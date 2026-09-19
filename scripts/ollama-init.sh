@@ -23,7 +23,10 @@ F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-1}"
 # which parses case insensitively: without this, F8_AGENTS=True opened the instance's /agents
 # routes while this script skipped the pull, so one switch had two answers.
 F8_AGENT_MODEL="${F8_AGENT_MODEL:-phi4-mini:latest}"
-F8_AGENTS_ON=$(printf '%s' "${F8_AGENTS:-false}" | tr '[:upper:]' '[:lower:]')
+# Trimmed as well as lowercased, because the instance's binder tolerates surrounding space and
+# this comparison does not: F8_AGENTS="true " opened the instance's routes while this script
+# skipped the pull, which is the same one-switch-two-answers problem the lowercasing fixed.
+F8_AGENTS_ON=$(printf '%s' "${F8_AGENTS:-false}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 # The embedding model the F8 API's provider is wired to in docker-compose.yml (feature
 # embedding-out-of-box); on by default, opted out together with the provider.
 F8_EMBEDDINGS="${F8_EMBEDDINGS:-true}"
@@ -194,8 +197,16 @@ esac
 # actually call tools names one that does in the RUNNING backend's key,
 # Fallen8__Chat__<Backend>__Models__Agent, which is the Ollama block whenever this sidecar is what
 # serves chat.
-if [ "$F8_AGENTS_ON" = "true" ]; then
+# Gated on BOTH: the agent host coming up, and this sidecar being what serves chat. The agent
+# purpose is answered by the instance's own chat gateway, so on a hosted-chat deployment the model
+# that answers it lives at the provider and a local pull is gigabytes nothing will ever ask for.
+# F8_PULL_ASSIST=0 is the signal for that, which is exactly what the openai and anthropic overlays
+# set, and the skip says which knob to flip for a deployment that wants a local agent model anyway.
+if [ "$F8_AGENTS_ON" = "true" ] && [ "$F8_PULL_ASSIST" != "0" ]; then
   ensure_base "$F8_AGENT_MODEL" || MISSING="$MISSING $F8_AGENT_MODEL"
+elif [ "$F8_AGENTS_ON" = "true" ]; then
+  log_info "F8_PULL_ASSIST=0, so chat is served elsewhere - skipping the agent model pull"
+  log_info "  (set F8_PULL_ASSIST=1 to pull $F8_AGENT_MODEL here anyway)"
 else
   log_info "F8_AGENTS is not true - skipping the agent model pull"
 fi
