@@ -459,5 +459,48 @@ namespace NoSQL.GraphDB.Tests
                 "fallen-8-agents calls only the chat gateway (/chat, /chat/models); every graph "
                 + "capability arrives as an MCP tool, whose server-side tiers are the bound");
         }
+
+        /// <summary>
+        /// The published security page is the one home for the capability posture, and it states a
+        /// COUNT of switches in prose. A capability added to the authorization layer without
+        /// touching that page leaves the number wrong, silently: it said four while the layer
+        /// enforced six, through two features. The count is the only part of that page a test can
+        /// hold, so this holds it.
+        /// </summary>
+        [TestMethod]
+        public void TheSecurityPage_CountsEveryCapabilitySwitchTheLayerEnforces()
+        {
+            var page = File.ReadAllText(Path.Combine(
+                TestRepo.Root(), "docs", "src", "content", "docs", "security.mdx"));
+            var written = Regex.Match(
+                page, @"one of (?<count>[a-z]+) operator \*\*capability\*\* switches");
+
+            // A regex that stopped matching would make this rule pass vacuously, which is the one
+            // way a convention test can be worse than no test. The sentence may be rewritten; it
+            // may not lose its count.
+            Assert.IsTrue(written.Success,
+                "docs/src/content/docs/security.mdx no longer says how many capability switches "
+                + "the authorization layer enforces. That sentence is what this test pins, so "
+                + "keep a count in it (\"one of six operator **capability** switches\") or move "
+                + "the pin to whatever replaced it.");
+
+            var numbers = new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["two"] = 2, ["three"] = 3, ["four"] = 4, ["five"] = 5, ["six"] = 6,
+                ["seven"] = 7, ["eight"] = 8, ["nine"] = 9, ["ten"] = 10,
+            };
+            var word = written.Groups["count"].Value;
+            Assert.IsTrue(numbers.TryGetValue(word, out var claimed),
+                "security.mdx spells the capability count as \"" + word + "\", which this test "
+                + "cannot read. Spell it as a word between two and ten.");
+
+            var enforced = Enum.GetValues<
+                NoSQL.GraphDB.App.Security.DynamicCapabilityRequirement.Capability>().Length;
+            Assert.AreEqual(enforced, claimed,
+                "The authorization layer enforces " + enforced + " capability switches and "
+                + "security.mdx says " + claimed + ". Update the count, the switch table and the "
+                + "per-capability row on that page: it is the one home for this posture, so a "
+                + "reader has nowhere else to find the right number.");
+        }
     }
 }

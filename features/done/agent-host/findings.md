@@ -843,7 +843,11 @@ default is gone.
   instance give, and carries a row for the integrations and agents switches. Checked against the
   code rather than the page it corrects: six policies take a capability requirement, five of the
   five flags behind them have no initializer and nothing in `appsettings.json` sets one, so a bare
-  run really does answer 401 for all five.
+  run really does answer 401 for all five. The count is the one part of that page a test can hold,
+  so a convention test now holds it: the page's number against the enum the authorization layer
+  switches on. Four mutants, killed. A seventh capability with the page left alone fails the suite,
+  and so does removing the count from the sentence, which is the way this gate could have been
+  worse than no gate.
 - **F06 to F11 (packaging).** One `depends_on` edge for the MCP server, whose handshake is one-shot;
   the pull rationale corrected at three sites and the wrong backend key at one; `F8_AGENTS` parsed
   the same way by all three consumers, with an unknown value refused; the code tier counted in the
