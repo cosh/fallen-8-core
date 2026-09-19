@@ -115,7 +115,10 @@ bounds its own calls, not its workers', so a live-only count would let it spawn 
 await them, and spawn again without limit.
 
 A breached cap comes back to the model as a tool error it can act on (delegate less, compose what
-it has) and to you as a `toolCalled` event with `success: false`.
+it has) and to you as a `toolCalled` event with `success: false` and the reason in `failure`, so
+the event names the cap rather than leaving you to find it on the trace. The same is true of a tool
+that fails for any other reason: a graph tool reports its failure in its result rather than by
+throwing, and that is recorded as the failed call it is.
 
 **A worker does not outlive its orchestrator.** However an orchestrator ends, whether it answers,
 fails, is cancelled or runs out of budget, its live workers are cancelled and each row says which
@@ -137,6 +140,11 @@ turn an agent into a confident liar.
 The role prompts require every figure, name or id in an answer to carry the tool call it came from,
 written `[t:<name>]`. The host then counts those citations against the calls the run actually made
 and records the pair on the trace and the ending event.
+
+**A call that failed does not count as a call that was made.** A refused spawn, or a graph read that
+answered 401, is work that did not happen, so citing its name is dangling rather than grounded. That
+is the case the count exists to expose: an answer whose every tool call failed cannot score as
+grounded evidence.
 
 It is a **count, never a judgement**, and the numbers are worth reading precisely:
 

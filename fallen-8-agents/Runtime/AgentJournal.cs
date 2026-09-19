@@ -284,6 +284,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
             called.ArgumentsBytes = argBytes;
             called.ResultBytes = resultBytes;
             called.Success = success;
+            // The reason travels with the event, on the field an ending already uses for one. The
+            // feed is the channel an operator watches, and without this it could say a call failed
+            // without saying which cap or which status said so: the reason was on the trace route
+            // alone, which that operator has no reason to be reading.
+            called.Failure = error;
             called.DurationMs = durationMs;
             _feed.Publish(called, at);
 

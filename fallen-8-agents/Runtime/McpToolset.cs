@@ -198,6 +198,86 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
+        ///   Whether a tool result is the MCP protocol's own way of saying the call FAILED, and the
+        ///   message if it is. This lives here because the shape belongs to the protocol this class
+        ///   is the one home for.
+        ///
+        ///   <para>
+        ///     An MCP tool does not throw to report a failure: it answers with a result whose
+        ///     <c>isError</c> is true and whose content carries the reason, so a 401 from the graph,
+        ///     a refused tier and a provider outage all arrive as ordinary returns. The invoker
+        ///     therefore cannot tell work from failure by catching, and every graph call an agent
+        ///     makes comes this way. Without this read, a run whose every tool call failed is
+        ///     recorded, published and counted as a run that worked.
+        ///   </para>
+        ///   <para>
+        ///     Read off the serialized result rather than a typed response, because that is what
+        ///     the function invocation hands back: the tool is an <c>AIFunction</c> over the client,
+        ///     and its return value arrives as a <c>JsonElement</c>. Both spellings of each property
+        ///     are accepted so a serializer-casing change cannot silently turn this off.
+        ///   </para>
+        /// </summary>
+        public static Boolean TryReadError(Object? result, out String message)
+        {
+            message = String.Empty;
+            if (result is not System.Text.Json.JsonElement element
+                || element.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                return false;
+            }
+
+            if (!(Property(element, "isError") is { } flag)
+                || flag.ValueKind != System.Text.Json.JsonValueKind.True)
+            {
+                return false;
+            }
+
+            var said = new List<String>();
+            if (Property(element, "content") is { } content
+                && content.ValueKind == System.Text.Json.JsonValueKind.Array)
+            {
+                foreach (var block in content.EnumerateArray())
+                {
+                    if (block.ValueKind == System.Text.Json.JsonValueKind.Object
+                        && Property(block, "text") is { } text
+                        && text.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var spoken = text.GetString();
+                        if (!String.IsNullOrWhiteSpace(spoken))
+                        {
+                            said.Add(spoken.Trim());
+                        }
+                    }
+                }
+            }
+
+            // A tool may report an error with no text at all; the flag is the finding, so say that
+            // rather than recording an empty reason.
+            message = said.Count > 0
+                ? String.Join(" ", said)
+                : "The tool reported an error and said nothing about it.";
+            return true;
+        }
+
+        /// <summary>
+        ///   One property under either casing. <c>JsonElement.TryGetProperty</c> is ordinal, and
+        ///   which casing arrives depends on the serializer the client was built with.
+        /// </summary>
+        private static System.Text.Json.JsonElement? Property(
+            System.Text.Json.JsonElement element, String name)
+        {
+            if (element.TryGetProperty(name, out var exact))
+            {
+                return exact;
+            }
+
+            var other = Char.IsUpper(name[0])
+                ? Char.ToLowerInvariant(name[0]) + name.Substring(1)
+                : Char.ToUpperInvariant(name[0]) + name.Substring(1);
+            return element.TryGetProperty(other, out var swapped) ? swapped : null;
+        }
+
+        /// <summary>
         ///   Closes the session, once. Idempotent because a container disposes a singleton it also
         ///   handed out, so this is called more than once in practice and the second call must be a
         ///   no-op rather than an <see cref="ObjectDisposedException" /> out of a shutdown path.

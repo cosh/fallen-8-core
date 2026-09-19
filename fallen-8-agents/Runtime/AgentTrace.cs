@@ -400,10 +400,16 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 step.At = at;
                 _steps.Enqueue(step);
 
-                if (step.Tool != null)
+                if (step.Tool != null && step.Success != false)
                 {
                     // Remembered outside the bound, so a citation to a call the buffer has since
                     // forgotten still counts as grounded.
+                    //
+                    // A FAILED call is not remembered, and that is the whole point of the set: a
+                    // refused or errored call is work that did not happen, so an answer citing its
+                    // name is exactly the fabrication the grounding count exists to expose. A run
+                    // whose every spawn was refused on a cap, or whose every graph read answered
+                    // 401, would otherwise score fully grounded.
                     _toolsCalled.Add(step.Tool);
                 }
 

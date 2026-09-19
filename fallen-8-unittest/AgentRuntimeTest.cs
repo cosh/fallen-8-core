@@ -2016,6 +2016,165 @@ namespace NoSQL.GraphDB.Tests
                 "a refused spawn was recorded as a call that worked");
         }
 
+        /// <summary>
+        ///   An MCP tool reports a failure IN its result: an ordinary return whose <c>isError</c>
+        ///   is true, never an exception. That is the path EVERY graph call takes, so a run whose
+        ///   every read answered 401 was recorded, published and counted as a run that worked, and
+        ///   an operator alerting on a failed call saw nothing. Both spellings are driven, because
+        ///   which casing arrives is the serializer's choice rather than ours.
+        /// </summary>
+        [DataTestMethod]
+        [DataRow("{\"content\":[{\"type\":\"text\",\"text\":\"401 Unauthorized: the graph refused it.\"}],\"isError\":true}", DisplayName = "camelCase")]
+        [DataRow("{\"Content\":[{\"Type\":\"text\",\"Text\":\"401 Unauthorized: the graph refused it.\"}],\"IsError\":true}", DisplayName = "PascalCase")]
+        public async Task AnMcpToolReportingAnErrorInItsResultIsRecordedAsTheFailedCallItIs(String shape)
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(shape);
+            var answer = document.RootElement.Clone();
+            var tool = AIFunctionFactory.Create(() => answer,
+                new AIFunctionFactoryOptions { Name = "f8_query", Description = "Reads the graph." });
+
+            using var harness = new Harness(
+                Script.Calls("c1", "f8_query").Then("The graph is unreachable, so I cannot say."),
+                tools: new List<AITool> { tool });
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("assistant", "how many?"),
+                out var agent, out _));
+            await harness.Run(agent);
+
+            var call = agent.Trace.Steps().Single(s => s.Kind == "toolCall");
+            Assert.AreEqual(false, call.Success,
+                "a tool that said isError was recorded as a call that worked");
+            StringAssert.Contains(call.Error, "401 Unauthorized",
+                "the reason the tool gave is the reason the record has to carry");
+
+            // The model still receives the result, because its text is what the model has to react
+            // to. Recording it as failed must not hide it from the turn.
+            var handed = harness.Client.LastMessages
+                .SelectMany(m => m.Contents)
+                .OfType<FunctionResultContent>()
+                .Single(r => r.CallId == "c1");
+            Assert.IsNull(handed.Exception, "an error result must not arrive as a framework error");
+            StringAssert.Contains(handed.Result?.ToString(), "401 Unauthorized",
+                "the model was told a call failed without being told what happened");
+        }
+
+        /// <summary>
+        ///   A call that FAILED is not citable. The grounding count exists to expose an answer that
+        ///   asserts figures nothing produced, so counting a refused or errored call would certify
+        ///   exactly that: every spawn refused on a cap, or every graph read answering 401, and an
+        ///   answer citing those names scored fully grounded.
+        /// </summary>
+        [TestMethod]
+        public async Task AnAnswerCitingACallThatFailedIsDanglingRatherThanGrounded()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 1;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker,
+                        new Dictionary<String, Object> { ["task"] = "one part" })
+                    .Then("Two turbines are offline [t:spawn_worker]."),
+                options: options);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "two parts"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            var refused = boss.Trace.Steps().Single(s => s.Kind == "toolCall");
+            Assert.AreEqual(false, refused.Success, "the arrangement stopped refusing the spawn");
+
+            var check = boss.Trace.Steps().SingleOrDefault(s => s.Kind == "citationCheck");
+            Assert.IsNotNull(check, "the citation check never reached the trace");
+            Assert.AreEqual(0, check.ValidCitations,
+                "a citation to a call that was refused was counted as grounded");
+            Assert.AreEqual(1, check.DanglingCitations,
+                "the dangling citation is the finding, so it has to be reported as one");
+        }
+
+        /// <summary>
+        ///   The feed event for a failed call carries the REASON, not just the flag. The feed is
+        ///   the channel the docs send an operator to; without the reason it could say a spawn
+        ///   failed and not say which cap, and the reason lived on the trace route alone.
+        /// </summary>
+        [TestMethod]
+        public async Task TheFeedEventForAFailedCallCarriesTheReasonAndNotJustTheFlag()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 1;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker,
+                        new Dictionary<String, Object> { ["task"] = "one part" })
+                    .Then("I did it myself."),
+                options: options);
+
+            Assert.IsTrue(harness.Feed.TrySubscribe(AgentFeedFilter.All, out var subscription, out _));
+            using (subscription)
+            {
+                Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "two parts"),
+                    out var boss, out _));
+                await harness.Run(boss);
+
+                using var budget = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                AgentEvent called = null;
+                while (called == null)
+                {
+                    var next = await subscription.ReadAsync(budget.Token);
+                    Assert.IsNotNull(next, "the feed ended before the tool call arrived");
+                    if (next.Kind == "toolCalled")
+                    {
+                        called = next;
+                    }
+                }
+
+                Assert.AreEqual(false, called.Success, "the event said the refused call worked");
+                StringAssert.Contains(called.Failure, "MaxConcurrentAgents",
+                    "the event says a call failed without saying what refused it");
+            }
+        }
+
+        /// <summary>
+        ///   Awaiting an id this orchestrator did not spawn is REFUSED rather than answered with an
+        ///   empty list. An empty success reads as "you have no workers", so a model that mistyped
+        ///   an id, or named somebody else's worker, could conclude its own workers found nothing.
+        ///   The second call proves the refusal is not sticky: the ordinary await still works.
+        /// </summary>
+        [TestMethod]
+        public async Task AwaitingAnIdThatIsNotYoursIsRefusedRatherThanAnsweredWithAnEmptyList()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker,
+                        new Dictionary<String, Object> { ["task"] = "count the vertices" })
+                    .ThenCallsWith("c2", SwarmTools.AwaitWorkers,
+                        new Dictionary<String, Object> { ["ids"] = new[] { "a0000-00" } })
+                    .ThenCalls("c3", SwarmTools.AwaitWorkers)
+                    .Then("Eight, per the worker. [t:await_workers]"),
+                options: options,
+                workerScript: Script.AlwaysSays("eight"));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "how many?"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            var awaits = boss.Trace.Steps()
+                .Where(s => s.Kind == "toolCall" && s.Tool == SwarmTools.AwaitWorkers)
+                .ToList();
+            Assert.AreEqual(2, awaits.Count, "both awaits belong on the trace");
+
+            Assert.AreEqual(false, awaits[0].Success,
+                "awaiting an id that is not yours was recorded as a call that worked");
+            StringAssert.Contains(awaits[0].Error, "not a worker you spawned",
+                "the refusal has to say what was wrong with the id");
+
+            Assert.AreEqual(true, awaits[1].Success,
+                "the ordinary await stopped working: " + awaits[1].Error);
+            Assert.AreEqual(1, harness.Registry.Children(boss.Id).Count,
+                "the worker itself is unaffected by a mistyped await");
+        }
+
         #endregion
 
         /// <summary>

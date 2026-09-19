@@ -101,27 +101,34 @@ namespace NoSQL.GraphDB.Agents.Runtime
         {
             return new AITool[]
             {
-                AIFunctionFactory.Create(Spawn, new AIFunctionFactoryOptions
-                {
-                    Name = SpawnWorker,
-                    Description = "Spawns a worker agent to do one separable part of your task, and "
-                        + "returns its id immediately. The worker runs on its own; call "
-                        + AwaitWorkers + " to collect what it found. Delegate only a part that is "
-                        + "genuinely independent.",
-                    // Handed over unmarshalled, because a refusal has to reach the runner's invoker
-                    // AS a refusal: the factory's default serializes a return value to JSON, and a
-                    // refusal that arrived as a JsonElement would be recorded as a call that
-                    // worked. See ToolRefusal, which owns this contract.
-                    MarshalResult = (result, _, _) => new ValueTask<Object?>(result),
-                }),
-                AIFunctionFactory.Create(Await, new AIFunctionFactoryOptions
-                {
-                    Name = AwaitWorkers,
-                    Description = "Waits for the workers you spawned and returns each one's typed "
-                        + "result: its state, its answer, its citation counts and what it spent. "
-                        + "Returns immediately for a worker that has already finished.",
-                }),
+                Tool(Spawn, SpawnWorker,
+                    "Spawns a worker agent to do one separable part of your task, and "
+                    + "returns its id immediately. The worker runs on its own; call "
+                    + AwaitWorkers + " to collect what it found. Delegate only a part that is "
+                    + "genuinely independent."),
+                Tool(Await, AwaitWorkers,
+                    "Waits for the workers you spawned and returns each one's typed "
+                    + "result: its state, its answer, its citation counts and what it spent. "
+                    + "Returns immediately for a worker that has already finished."),
             };
+        }
+
+        /// <summary>
+        ///   Every swarm tool is created HERE, and that is the point: each one can answer with a
+        ///   <see cref="ToolRefusal" />, which only survives the trip to the invoker when the
+        ///   factory's marshalling is bypassed. The default serializes a return value to JSON, so a
+        ///   refusal would arrive as a <c>JsonElement</c>, miss the invoker's recognition and be
+        ///   recorded as a call that worked. Structural rather than a note at each site, because a
+        ///   note is one forgotten line away from putting that defect back with nothing failing.
+        /// </summary>
+        private static AIFunction Tool(Delegate method, String name, String description)
+        {
+            return AIFunctionFactory.Create(method, new AIFunctionFactoryOptions
+            {
+                Name = name,
+                Description = description,
+                MarshalResult = (result, _, _) => new ValueTask<Object?>(result),
+            });
         }
 
         /// <summary>
@@ -178,12 +185,27 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///   worker that never finishes is bounded by the orchestrator's <c>MaxRunSeconds</c>,
         ///   which is the same bound its other tool calls are under.
         /// </param>
-        private async Task<IReadOnlyList<WorkerResult>> Await(
+        private async Task<Object> Await(
             [Description("The worker ids to wait for. Omit to wait for all of your workers.")]
             IEnumerable<String>? ids = null,
             CancellationToken cancellationToken = default)
         {
-            var wanted = Resolve(ids);
+            var mine = _registry.Children(_orchestrator.Id);
+            var wanted = Resolve(mine, ids, out var unknown);
+            if (unknown > 0)
+            {
+                // Refused rather than dropped. An empty success reads as "you have no workers", so
+                // a model that mistyped an id, or named somebody else's worker, would learn nothing
+                // from it and could conclude its own workers had found nothing.
+                return new ToolRefusal(String.Format(CultureInfo.InvariantCulture,
+                    "{0} of the ids you named {1} not a worker you spawned, so nothing was awaited. "
+                    + "{2} Omit the ids to wait for all of your own workers.",
+                    unknown, unknown == 1 ? "is" : "are",
+                    mine.Count == 0
+                        ? "You have spawned no workers yet."
+                        : "Your workers are: " + String.Join(", ", mine.Select(w => w.Id)) + "."));
+            }
+
             if (wanted.Count == 0)
             {
                 return Array.Empty<WorkerResult>();
@@ -198,14 +220,16 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
-        ///   Which workers a call means. An id that is not this orchestrator's own is dropped
-        ///   rather than awaited: a model that invents an id, or names another agent's worker,
-        ///   would otherwise wait on something it has no claim to, and on a busy host that is a
-        ///   wait for somebody else's work.
+        ///   Which workers a call means, and how many of the named ids are not this orchestrator's
+        ///   own. An id it does not own is never awaited: a model that invents an id, or names
+        ///   another agent's worker, would otherwise wait on something it has no claim to, and on a
+        ///   busy host that is a wait for somebody else's work. The COUNT comes back rather than
+        ///   the ids themselves, because those ids are model text and the refusal is recorded.
         /// </summary>
-        private IReadOnlyList<AgentRecord> Resolve(IEnumerable<String>? ids)
+        private static IReadOnlyList<AgentRecord> Resolve(IReadOnlyList<AgentRecord> mine,
+            IEnumerable<String>? ids, out Int32 unknown)
         {
-            var mine = _registry.Children(_orchestrator.Id);
+            unknown = 0;
             if (ids == null)
             {
                 return mine;
@@ -213,7 +237,14 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
             var named = new HashSet<String>(ids.Where(i => !String.IsNullOrWhiteSpace(i)),
                 StringComparer.Ordinal);
-            return named.Count == 0 ? mine : mine.Where(w => named.Contains(w.Id)).ToList();
+            if (named.Count == 0)
+            {
+                return mine;
+            }
+
+            var owned = new HashSet<String>(mine.Select(w => w.Id), StringComparer.Ordinal);
+            unknown = named.Count(i => !owned.Contains(i));
+            return mine.Where(w => named.Contains(w.Id)).ToList();
         }
 
         /// <summary>

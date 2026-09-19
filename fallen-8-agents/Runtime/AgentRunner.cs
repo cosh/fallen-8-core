@@ -399,6 +399,12 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///     consecutive-error cap and a model that keeps asking ends the run;
         ///     <see cref="ToolRefusal" /> is the one home for why.
         ///   </para>
+        ///   <para>
+        ///     <b>So is an MCP tool's own error result</b>, which arrives as an ordinary return with
+        ///     a flag set rather than as an exception. Catching is therefore not enough to tell work
+        ///     from failure on the path every graph call takes;
+        ///     <see cref="McpToolset.TryReadError" /> is the one home for that shape.
+        ///   </para>
         /// </summary>
         private async ValueTask<Object?> Invoke(AgentRecord agent, FunctionInvocationContext context,
             CancellationToken cancellationToken)
@@ -428,6 +434,17 @@ namespace NoSQL.GraphDB.Agents.Runtime
                         success: false, error: refused.Message,
                         durationMs: started.ElapsedMilliseconds);
                     return refused.Message;
+                }
+
+                // An MCP tool reports a failure IN its result rather than by throwing, so this is
+                // the only thing between "the graph answered 401 on every call" and a record that
+                // says the run worked. McpToolset owns the shape; the result still goes to the
+                // model unchanged, because its text is what the model has to react to.
+                if (McpToolset.TryReadError(result, out var reported))
+                {
+                    _journal.ToolCall(agent, call?.CallId, tool, arguments, Describe(result),
+                        success: false, error: reported, durationMs: started.ElapsedMilliseconds);
+                    return result;
                 }
 
                 _journal.ToolCall(agent, call?.CallId, tool, arguments, Describe(result),
