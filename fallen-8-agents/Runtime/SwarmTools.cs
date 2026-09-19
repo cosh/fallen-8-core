@@ -63,9 +63,10 @@ namespace NoSQL.GraphDB.Agents.Runtime
     ///   <para>
     ///     Caps are NOT checked here. <see cref="AgentRegistry.TryAdmit" /> enforces
     ///     <c>MaxConcurrentAgents</c>, <c>MaxSwarmDepth</c> and
-    ///     <c>MaxWorkersPerOrchestrator</c>, and a breach comes back as a refusal this class hands
-    ///     to the model as a tool error. Checking them here as well would be a second opinion that
-    ///     can disagree with the first.
+    ///     <c>MaxWorkersPerOrchestrator</c>, and a breach comes back as a
+    ///     <see cref="ToolRefusal" />, which the runner journals as a failed call and the model
+    ///     reads as text. Checking them here as well would be a second opinion that can disagree
+    ///     with the first.
     ///   </para>
     /// </summary>
     public sealed class SwarmTools
@@ -107,6 +108,11 @@ namespace NoSQL.GraphDB.Agents.Runtime
                         + "returns its id immediately. The worker runs on its own; call "
                         + AwaitWorkers + " to collect what it found. Delegate only a part that is "
                         + "genuinely independent.",
+                    // Handed over unmarshalled, because a refusal has to reach the runner's invoker
+                    // AS a refusal: the factory's default serializes a return value to JSON, and a
+                    // refusal that arrived as a JsonElement would be recorded as a call that
+                    // worked. See ToolRefusal, which owns this contract.
+                    MarshalResult = (result, _, _) => new ValueTask<Object?>(result),
                 }),
                 AIFunctionFactory.Create(Await, new AIFunctionFactoryOptions
                 {
@@ -119,14 +125,13 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>
-        ///   Spawns one worker. Returns its id, or the registry's refusal as TEXT rather than
-        ///   throwing: a cap the operator set is something the model can act on (delegate less,
-        ///   await what it has), and a thrown exception would end the orchestrator's turn instead.
-        ///   The framework surfaces the returned text to the model, and the trace records the call
-        ///   with <c>success</c> false via the runner's invoker.
+        ///   Spawns one worker: its id and how to collect it when one started, a
+        ///   <see cref="ToolRefusal" /> when none did. A refusal is a VALUE rather than a throw so
+        ///   that the model is told on this turn and the record still shows a call that did not
+        ///   happen; <see cref="ToolRefusal" /> is the one home for why that needs a type.
         /// </summary>
         [Description("Spawns a worker agent for one separable part of the task.")]
-        private String Spawn(
+        private Object Spawn(
             [Description("What this worker should find out. One self-contained part of your task.")]
             String task,
             [Description("An optional short name for the worker, for a human reading the listing.")]
@@ -134,7 +139,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
         {
             if (String.IsNullOrWhiteSpace(task))
             {
-                return "A worker needs a task: say what it should find out.";
+                return new ToolRefusal("A worker needs a task: say what it should find out.");
             }
 
             var spawn = new AgentSpawn("worker", task.Trim())
@@ -147,13 +152,13 @@ namespace NoSQL.GraphDB.Agents.Runtime
             {
                 // The operator's cap, in the operator's words, handed to the model. It is the one
                 // reader that can do something about it on this turn.
-                return problem;
+                return new ToolRefusal(problem);
             }
 
             if (!_roles.TryGet(worker.Role, out var role, out var roleProblem))
             {
                 _registry.Finish(worker.Id, AgentState.Failed, failure: roleProblem);
-                return roleProblem;
+                return new ToolRefusal(roleProblem);
             }
 
             _runner.Start(worker, role, systemPromptAppendix: null);

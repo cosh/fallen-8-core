@@ -379,6 +379,12 @@ namespace NoSQL.GraphDB.Agents.Runtime
         ///     the measured behaviour of the shipped agent model needs. Swallowing it here would
         ///     leave the loop believing the call succeeded and returned nothing.
         ///   </para>
+        ///   <para>
+        ///     <b>A <see cref="ToolRefusal" /> is recorded as a failure and NOT rethrown.</b> The
+        ///     framework has to see an ordinary result, or the refusal counts against its
+        ///     consecutive-error cap and a model that keeps asking ends the run;
+        ///     <see cref="ToolRefusal" /> is the one home for why.
+        ///   </para>
         /// </summary>
         private async ValueTask<Object?> Invoke(AgentRecord agent, FunctionInvocationContext context,
             CancellationToken cancellationToken)
@@ -398,6 +404,18 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     .ConfigureAwait(false);
 
                 started.Stop();
+
+                // A refusal is the failed call it is on the record, while the framework gets the
+                // message as an ordinary result, so the model reads it and the turn continues.
+                // ToolRefusal is the one home for why a refusal is a value rather than a throw.
+                if (result is ToolRefusal refused)
+                {
+                    _journal.ToolCall(agent, call?.CallId, tool, arguments, result: null,
+                        success: false, error: refused.Message,
+                        durationMs: started.ElapsedMilliseconds);
+                    return refused.Message;
+                }
+
                 _journal.ToolCall(agent, call?.CallId, tool, arguments, Describe(result),
                     success: true, error: null, durationMs: started.ElapsedMilliseconds);
                 return result;

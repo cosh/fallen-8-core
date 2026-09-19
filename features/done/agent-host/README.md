@@ -70,6 +70,7 @@ the runner appends them for the orchestrator role alone.
 | The bounded trace and the byte caps | `Runtime/AgentTrace.cs` |
 | The event feed and its filter grammar | `Runtime/AgentFeed.cs` |
 | The swarm's two tools | `Runtime/SwarmTools.cs` |
+| A tool call that was refused rather than performed | `Runtime/ToolRefusal.cs` |
 | The mechanical citation count | `Runtime/GroundingCheck.cs` |
 | Roles, prompts, allowlists | `Runtime/RoleCatalog.cs`, `Prompts/*.md` |
 | The meter | `Diagnostics/AgentsMetrics.cs` |

@@ -1390,13 +1390,22 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1, harness.Registry.Children(boss.Id).Count,
                 "the cap admitted a second worker");
 
-            // The refusal is IN the trace, as the result of the second call, naming the key.
-            var second = boss.Trace.Steps()
+            // The refusal is IN the trace as a FAILED call: the second spawn did not happen, so
+            // its step names the cap in error and carries no result. Journaled as a success, the
+            // step, the toolCalled event and f8a.agents.tool.calls would all report a breached cap
+            // as work that was done.
+            var spawns = boss.Trace.Steps()
                 .Where(s => s.Kind == "toolCall" && s.Tool == SwarmTools.SpawnWorker)
-                .Skip(1)
-                .Single();
-            StringAssert.Contains(second.Result, "MaxWorkersPerOrchestrator",
-                "the model was not told WHICH cap it hit: " + second.Result);
+                .ToList();
+            Assert.AreEqual(2, spawns.Count, "both spawn calls belong on the trace");
+            Assert.IsTrue(spawns[0].Success == true,
+                "the spawn that admitted a worker was not recorded as a success");
+            Assert.IsTrue(spawns[1].Success == false,
+                "the refused spawn was recorded as a call that worked");
+            StringAssert.Contains(spawns[1].Error, "MaxWorkersPerOrchestrator",
+                "the model was not told WHICH cap it hit: " + spawns[1].Error);
+            Assert.IsNull(spawns[1].Result,
+                "a refused call produced no result, so the reason belongs in error alone");
         }
 
         [TestMethod]
@@ -1577,10 +1586,68 @@ namespace NoSQL.GraphDB.Tests
 
             var call = boss.Trace.Steps()
                 .Single(s => s.Kind == "toolCall" && s.Tool == SwarmTools.SpawnWorker);
-            StringAssert.Contains(call.Result, "MaxConcurrentAgents",
-                "the model has to be told which cap it hit to act on it: " + call.Result);
+            Assert.IsTrue(call.Success == false,
+                "the refused spawn was recorded as a call that worked");
+            StringAssert.Contains(call.Error, "MaxConcurrentAgents",
+                "the model has to be told which cap it hit to act on it: " + call.Error);
+            Assert.IsNull(call.Result, "a refused call produced no result");
             Assert.AreEqual(AgentState.Completed, boss.State,
                 "a full host ended the orchestrator instead of letting it say so");
+
+            // And the framework saw a RESULT rather than an error, which is what keeps the turn
+            // going. The ending above cannot tell the two apart on its own, because one thrown call
+            // is still inside the framework's consecutive-error cap. Asserted on this test rather
+            // than the per-orchestrator one because no worker is ever admitted here, so the
+            // orchestrator's are the only calls the scripted client sees.
+            var handed = harness.Client.LastMessages
+                .SelectMany(m => m.Contents)
+                .OfType<FunctionResultContent>()
+                .Single(r => r.CallId == "c1");
+            Assert.IsNull(handed.Exception,
+                "the refusal reached the framework as an error, which is what ends a turn");
+            StringAssert.Contains(handed.Result?.ToString(), "MaxConcurrentAgents",
+                "the refusal never reached the model, so it cannot act on the cap");
+        }
+
+        /// <summary>
+        ///   Four refusals in a row, one more than the framework's
+        ///   <c>MaximumConsecutiveErrorsPerRequest</c> allows and the default this host leaves it
+        ///   at. A refusal that arrived as a thrown exception would be rethrown past the tool loop
+        ///   on the fourth and end the run as failed; it arrives as a value instead, so none of
+        ///   them is a framework error and the orchestrator still gets to say it could not
+        ///   delegate. This is the property the contract choice turns on, and no test reached more
+        ///   than one breach.
+        /// </summary>
+        [TestMethod]
+        public async Task RefusingEveryDelegationInARowStillLetsTheOrchestratorAnswer()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 1;
+
+            var arguments = new Dictionary<String, Object> { ["task"] = "one part" };
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker, arguments)
+                    .ThenCallsWith("c2", SwarmTools.SpawnWorker, arguments)
+                    .ThenCallsWith("c3", SwarmTools.SpawnWorker, arguments)
+                    .ThenCallsWith("c4", SwarmTools.SpawnWorker, arguments)
+                    .Then("This host is full, so I did all of it myself."),
+                options: options);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "four parts"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            Assert.AreEqual(AgentState.Completed, boss.State,
+                "consecutive cap breaches ended the run: " + boss.Failure);
+            Assert.AreEqual(0, harness.Registry.Children(boss.Id).Count,
+                "the orchestrator itself is the one live agent, so no worker had room");
+
+            var spawns = boss.Trace.Steps()
+                .Where(s => s.Kind == "toolCall" && s.Tool == SwarmTools.SpawnWorker)
+                .ToList();
+            Assert.AreEqual(4, spawns.Count, "every refused call belongs on the trace");
+            Assert.IsTrue(spawns.All(s => s.Success == false),
+                "a refused spawn was recorded as a call that worked");
         }
 
         #endregion

@@ -213,7 +213,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
         }
 
         /// <summary>Why the invocation failed. Present only when <see cref="Success" /> is false, and
-        /// it is the framework's own message, which is what the model was told too.</summary>
+        /// it is the message the model was told too: the framework's for a call that threw, the
+        /// tool's own for a <see cref="ToolRefusal" />.</summary>
         [JsonPropertyName("error")]
         public String? Error
         {
