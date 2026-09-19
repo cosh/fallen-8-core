@@ -834,6 +834,16 @@ default is gone.
   in the published OpenAPI document (regenerated, one line). F32 moved the doc rather than the code,
   because a sign check on a live count is unreachable and a gauge that publishes nothing reads like
   a scrape failure. The feature README's three duplicated sections are pointers now.
+- **F37 (the half that was missed).** Its code half landed with the cluster above: the capability
+  requirement's class doc no longer asserts that a gated endpoint needs an authenticated caller
+  unconditionally. Its published half did not, and nothing caught that until a pass over section
+  14's finding ids found F37 named nowhere in this section. `security.mdx` counted four capability
+  switches where the authorization layer enforces six, promised an unconditional 403, and listed
+  neither of the two the gate was about. It now counts six, says which refusal a keyed and a keyless
+  instance give, and carries a row for the integrations and agents switches. Checked against the
+  code rather than the page it corrects: six policies take a capability requirement, five of the
+  five flags behind them have no initializer and nothing in `appsettings.json` sets one, so a bare
+  run really does answer 401 for all five.
 - **F06 to F11 (packaging).** One `depends_on` edge for the MCP server, whose handshake is one-shot;
   the pull rationale corrected at three sites and the wrong backend key at one; `F8_AGENTS` parsed
   the same way by all three consumers, with an unknown value refused; the code tier counted in the
