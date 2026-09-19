@@ -5697,6 +5697,17 @@
               "application/json": { }
             }
           },
+          "413": {
+            "description": "The document is over the 1 MiB body bound",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
           "503": {
             "description": "No runtime is configured, or it did not answer",
             "content": {

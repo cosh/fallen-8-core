@@ -1374,6 +1374,45 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   The appendix is bounded too, and it is the capture that is BILLED: it joins the system
+        ///   prompt on every model call the run makes, so an unbounded one is spent at the
+        ///   operator's provider rather than merely held for an hour. Both other captures had a
+        ///   test on this path and this one had none, so deleting its branch failed nothing.
+        /// </summary>
+        [TestMethod]
+        public async Task ASpawnWhoseAppendixIsOverItsByteBoundIsRefusedLikeTheOtherTwoCaptures()
+        {
+            using var factory = new AgentHostFactory();
+            using var client = factory.CreateClient();
+
+            var oversized = new String('a', AgentSpawn.MaxAppendixBytes + 1);
+            using (var response = await client.PostAsync("/agent",
+                Json("{\"task\":\"count\",\"systemPromptAppendix\":\"" + oversized + "\"}")))
+            {
+                var detail = await Text(response);
+                Assert.AreEqual(HttpStatusCode.BadRequest, response.StatusCode, detail);
+                StringAssert.Contains(detail,
+                    AgentSpawn.MaxAppendixBytes.ToString(
+                        System.Globalization.CultureInfo.InvariantCulture),
+                    "a refusal that does not name the bound leaves a caller guessing");
+            }
+
+            using (var listing = await client.GetAsync("/agent"))
+            {
+                Assert.AreEqual(0, (await Read(listing)).GetArrayLength(),
+                    "a refused spawn must not be retained or returned by the listing");
+            }
+
+            // The control arm: exactly at the bound is accepted.
+            using (var response = await client.PostAsync("/agent",
+                Json("{\"task\":\"count\",\"systemPromptAppendix\":\""
+                    + new String('a', AgentSpawn.MaxAppendixBytes) + "\"}")))
+            {
+                Assert.AreEqual(HttpStatusCode.Accepted, response.StatusCode, await Text(response));
+            }
+        }
+
+        /// <summary>
         ///   The name is bounded too, and refused rather than cut: a listing reporting a name
         ///   nobody sent is worse than a refusal, and the name is the field that rides on every
         ///   feed event to every subscriber.

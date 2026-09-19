@@ -214,11 +214,36 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(nameProblem,
                 AgentSpawn.MaxNameBytes.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
-            Assert.AreEqual(1, harness.Registry.ActiveCount, "a refused worker took a slot");
-            Assert.AreEqual(0, harness.Registry.Children(boss.Id).Count);
-            Assert.AreEqual(0, boss.WorkersSpawned,
-                "a refused worker counted against MaxWorkersPerOrchestrator, which is charged over "
-                + "a whole life");
+            // The appendix, which is the capture that is BILLED: it goes into the system prompt on
+            // every model call the run makes, so an unbounded one is spent at the operator's
+            // provider rather than just held. It had no coverage on either path, so deleting its
+            // whole branch failed nothing.
+            Assert.IsFalse(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "part one")
+                {
+                    ParentId = boss.Id,
+                    SystemPromptAppendix = new String('a', AgentSpawn.MaxAppendixBytes + 1),
+                },
+                out _, out var appendixProblem));
+            StringAssert.Contains(appendixProblem,
+                AgentSpawn.MaxAppendixBytes.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "a refusal handed to a model has to name the bound: " + appendixProblem);
+
+            // And exactly at the bound is admitted, so the number is the bound rather than one
+            // less than it. This one spends the orchestrator's allowance, so it comes last.
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "part one")
+                {
+                    ParentId = boss.Id,
+                    SystemPromptAppendix = new String('a', AgentSpawn.MaxAppendixBytes),
+                },
+                out _, out var atTheBound), atTheBound);
+            Assert.AreEqual(1, harness.Registry.Children(boss.Id).Count);
+
+            Assert.AreEqual(2, harness.Registry.ActiveCount, "a refused worker took a slot");
+            Assert.AreEqual(1, boss.WorkersSpawned,
+                "only the admitted worker counts against MaxWorkersPerOrchestrator, which is "
+                + "charged over a whole life");
         }
 
         /// <summary>

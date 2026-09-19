@@ -581,8 +581,17 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <response code="401">No valid credential was supplied</response>
         /// <response code="403">Integrations are disabled (Fallen8:Integrations:Enabled)</response>
         /// <response code="409">The runtime reported a conflict</response>
+        /// <response code="413">The document is over the 1 MiB body bound</response>
         /// <response code="503">No runtime is configured, or it did not answer</response>
         [HttpPost("/integrations/snapshot/validate")]
+        // The ordinary 1 MiB, like every other JSON body here. It shipped with no bound at all,
+        // so it inherited the framework's 30 MB default while the security page stated the 1 MiB
+        // invariant with exactly two named exceptions, and this route is neither of them. It also
+        // buffers what it is given twice, binding a JsonElement and then rendering it back to text
+        // for the forward, so an unbounded body is two copies of itself in this process before the
+        // runtime sees any of it. A document that needs more than a mebibyte belongs in a job,
+        // which is the route with the larger bound and a streamed body.
+        [RequestSizeLimit(1_048_576)]
         [Consumes("application/json")]
         [Produces("application/json")]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -590,6 +599,7 @@ namespace NoSQL.GraphDB.App.Controllers
         [ProducesResponseType(StatusCodes.Status401Unauthorized)]
         [ProducesResponseType(StatusCodes.Status403Forbidden)]
         [ProducesResponseType(StatusCodes.Status409Conflict)]
+        [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
         [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
         public Task<IActionResult> ValidateSnapshot([FromBody] JsonElement definition,
             CancellationToken cancellationToken)

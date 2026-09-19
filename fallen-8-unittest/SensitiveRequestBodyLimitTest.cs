@@ -27,6 +27,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -81,20 +82,87 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        ///   The two routes that forward a body to a credential-holding sidecar carry a bound too.
-        ///   Both hand it to a container that authenticates nobody and holds this instance's key,
-        ///   so an unbounded body is retained or spooled THERE rather than here: the agent spawn
-        ///   shipped with no bound at all while the security page stated the invariant with exactly
-        ///   two named exceptions.
+        ///   EVERY route that forwards a body to a credential-holding sidecar carries a bound. Each
+        ///   hands it to a container that authenticates nobody and holds this instance's key, so an
+        ///   unbounded body is retained or spooled THERE rather than here.
+        ///
+        ///   <para>
+        ///     The list is DERIVED from the controllers rather than written out, for the reason the
+        ///     agent-host review found: this test named two routes, the proxies had three, and the
+        ///     third shipped with no bound at all. A hand-picked list cannot notice a route that
+        ///     was added after it was written, which is the only way this defect arrives.
+        ///   </para>
         /// </summary>
         [TestMethod]
-        public void TheSidecarProxyRoutesThatTakeABodyAreBoundToo()
+        public void EveryRouteThatForwardsABodyToASidecarCarriesABound()
         {
-            Assert.AreEqual(SensitiveBodyLimitBytes,
-                RequestSizeLimitOf(typeof(AgentsController), "Spawn"));
-            Assert.IsTrue(
-                RequestSizeLimitOf(typeof(IntegrationsController), "Job") > SensitiveBodyLimitBytes,
-                "the job route is the named exception: deliberately larger, and never unbounded");
+            // Deliberately larger, and named here so the exception is a decision rather than a
+            // hole: a job carries files and is streamed rather than buffered.
+            var larger = new HashSet<String>(StringComparer.Ordinal) { "Job" };
+
+            var found = 0;
+            foreach (var controller in new[] { typeof(AgentsController), typeof(IntegrationsController) })
+            {
+                foreach (var action in controller.GetMethods(
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                {
+                    var attributes = CustomAttributeData.GetCustomAttributes(action);
+                    if (!TakesABody(action, attributes))
+                    {
+                        continue;
+                    }
+
+                    found++;
+                    var named = controller.Name + "." + action.Name;
+                    var bound = attributes.SingleOrDefault(
+                        data => data.AttributeType == typeof(RequestSizeLimitAttribute));
+                    Assert.IsNotNull(bound, named + " forwards a body to a sidecar and carries no "
+                        + "[RequestSizeLimit], so it inherits the framework's 30 MB default while "
+                        + "the security page states 1 MiB with two named exceptions. Add the bound, "
+                        + "or add this action to the larger-by-design set in this test and say why.");
+
+                    var bytes = Convert.ToInt64(bound.ConstructorArguments[0].Value);
+                    if (larger.Contains(action.Name))
+                    {
+                        Assert.IsTrue(bytes > SensitiveBodyLimitBytes,
+                            named + " is in the larger-by-design set but is bounded at or below the "
+                            + "ordinary limit");
+                    }
+                    else
+                    {
+                        Assert.AreEqual(SensitiveBodyLimitBytes, bytes,
+                            named + " carries a bound that is neither the ordinary 1 MiB nor a "
+                            + "documented exception");
+                    }
+                }
+            }
+
+            // Sanity: reflection that matched nothing would make this rule pass vacuously, which is
+            // how the hand-picked version failed in the first place.
+            Assert.IsTrue(found >= 3,
+                "reflection found " + found + " body-forwarding proxy actions, so this pin is "
+                + "reading the wrong types or the body signals have changed");
+        }
+
+        /// <summary>
+        ///   Whether an action takes a request body, by every signal the two controllers use: a
+        ///   bound parameter, the declared content type, or the streamed-body filter that reads the
+        ///   body itself and therefore has no parameter to find.
+        /// </summary>
+        private static Boolean TakesABody(MethodInfo action,
+            IList<CustomAttributeData> attributes)
+        {
+            if (attributes.Any(data => data.AttributeType == typeof(ConsumesAttribute)
+                || data.AttributeType == typeof(NoSQL.GraphDB.App.Integrations.StreamedBodyAttribute)))
+            {
+                return true;
+            }
+
+            return action.GetParameters().Any(parameter =>
+                parameter.GetCustomAttributes(inherit: false).Any(
+                    attribute => attribute is FromBodyAttribute || attribute is FromFormAttribute)
+                || parameter.ParameterType == typeof(IFormFile)
+                || parameter.ParameterType == typeof(IFormFileCollection));
         }
 
         [TestMethod]
