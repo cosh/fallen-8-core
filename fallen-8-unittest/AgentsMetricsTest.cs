@@ -28,11 +28,13 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics.Metrics;
 using System.Linq;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Agents.Configuration;
 using NoSQL.GraphDB.Agents.Diagnostics;
+using NoSQL.GraphDB.Agents.Hosting;
 using NoSQL.GraphDB.Agents.Runtime;
 
 namespace NoSQL.GraphDB.Tests
@@ -160,7 +162,27 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(registry.Finish(agent.Id, AgentState.Completed, resultText: "eight"));
             recorded.Collect();
 
-            Assert.IsTrue(recorded.All.Count > 0, "this test proves nothing if nothing was recorded");
+            // The three instruments the JOURNAL writes, named, with the values these calls carry.
+            // The guard here was "something was recorded", which the f8a.agents.active gauge
+            // satisfies on its own: deleting every _metrics call from the journal left the test
+            // named for that wiring green.
+            var tokens = recorded.Of("f8a.agents.tokens");
+            Assert.AreEqual(2, tokens.Count, "one measurement per direction");
+            Assert.AreEqual(2, tokens.Single(m => m.Tag("direction") == "input").Value);
+            Assert.AreEqual(1, tokens.Single(m => m.Tag("direction") == "output").Value);
+            Assert.IsTrue(tokens.All(m => m.Tag("role") == "assistant"));
+
+            var duration = recorded.Of("f8a.agents.step.duration").Single();
+            Assert.AreEqual(7, duration.Value);
+            Assert.AreEqual("Nahil", duration.Tag("backend"));
+
+            var tool = recorded.Of("f8a.agents.tool.calls").Single();
+            Assert.AreEqual("count_vertices", tool.Tag("tool"));
+            Assert.AreEqual("True", tool.Tag("success"));
+
+            var completed = recorded.Of("f8a.agents.completed").Single();
+            Assert.AreEqual("completed", completed.Tag("outcome"));
+            Assert.AreEqual("assistant", completed.Tag("role"));
 
             foreach (var measurement in recorded.All)
             {
@@ -177,6 +199,43 @@ namespace NoSQL.GraphDB.Tests
                         + measurement.Instrument + ", and ids are unbounded over a host's lifetime");
                 }
             }
+        }
+
+        [TestMethod]
+        public void TheShippedServiceGraphHandsTheJournalAMeter()
+        {
+            // The half a journal test cannot see: whether the HOST's own service graph passes a
+            // meter to the journal it registers. Nothing fails without it, which is what makes it
+            // the wiring most likely to be lost, so the graph is built here and driven through the
+            // journal and the registry it resolves.
+            var services = new ServiceCollection();
+            services.AddLogging();
+            AgentsHost.AddFallen8Agents(services,
+                new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build());
+
+            using var provider = services.BuildServiceProvider();
+            var journal = provider.GetRequiredService<AgentJournal>();
+            var registry = provider.GetRequiredService<AgentRegistry>();
+
+            using var recorded = new Recorder();
+            recorded.Listen(AgentsMetrics.MeterName);
+
+            Assert.IsTrue(registry.TryAdmit(new AgentSpawn("assistant", "count"), out var agent, out _));
+            journal.ModelCall(agent, "Nahil", "some-model", durationMs: 9, inputTokens: 5,
+                outputTokens: 2, usageReported: true);
+            journal.ToolCall(agent, "call-1", "count_vertices", "{}", "8", success: true, error: null,
+                durationMs: 3);
+            Assert.IsTrue(registry.Finish(agent.Id, AgentState.Completed, resultText: "eight"));
+
+            // Collect() is deliberately NOT called: the observable gauge reports on collection and
+            // would satisfy a weaker check on its own, which is how this wiring stayed unpinned.
+            Assert.AreEqual(5, recorded.Of("f8a.agents.tokens")
+                .Single(m => m.Tag("direction") == "input").Value);
+            Assert.AreEqual(9, recorded.Of("f8a.agents.step.duration").Single().Value);
+            Assert.AreEqual("count_vertices",
+                recorded.Of("f8a.agents.tool.calls").Single().Tag("tool"));
+            Assert.AreEqual("completed",
+                recorded.Of("f8a.agents.completed").Single().Tag("outcome"));
         }
 
         [TestMethod]

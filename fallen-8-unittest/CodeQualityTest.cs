@@ -337,12 +337,14 @@ namespace NoSQL.GraphDB.Tests
         /// <summary>
         ///   The two ways a REST path is written in this repository, each anchored at both ends: a
         ///   complete string literal, and the leading segment of an interpolated one up to its first
-        ///   brace. See the remarks at the use site for why both anchors matter.
+        ///   brace. A query string is tolerated before the closing anchor and is NOT part of the
+        ///   captured value, so the value stays the path. See the remarks at the use site for why
+        ///   both anchors matter.
         /// </summary>
         private static readonly string[] RoutePatterns =
         {
-            "\"(?<value>[a-zA-Z0-9_./-]+)\"",
-            "\\$@?\"(?<value>[a-zA-Z0-9_./-]+)\\{",
+            "\"(?<value>[a-zA-Z0-9_./-]+)(\\?[^\"]*)?\"",
+            "\\$@?\"(?<value>[a-zA-Z0-9_./-]+)(\\?[^\"{]*)?\\{",
         };
 
         [TestMethod]
@@ -379,6 +381,23 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(families.Contains("chat"),
                 "the OpenAPI snapshot should list the chat gateway; got " + families.Count + " families");
 
+            // And the patterns themselves, against the shapes a graph call arrives in. The class
+            // excluded "?" and "=", so a route carrying a query string matched NEITHER pattern and
+            // passed the rule that the docs say it cannot escape.
+            foreach (var shape in new[]
+            {
+                "\"graph/vertices\"",
+                "\"graph/vertices?limit=10\"",
+                "$\"graphelement/{id}\"",
+                "$\"graph/scan?op=eq&value={v}\"",
+            })
+            {
+                Assert.IsTrue(
+                    RoutePatterns.Any(pattern => Regex.Matches(shape, pattern)
+                        .Any(m => m.Groups["value"].Value.StartsWith("graph", StringComparison.Ordinal))),
+                    "a graph route written as " + shape + " escapes this rule's own patterns");
+            }
+
             var allowed = new HashSet<string>(StringComparer.Ordinal) { "chat", "chat/models" };
             var violations = new List<string>();
 
@@ -406,6 +425,11 @@ namespace NoSQL.GraphDB.Tests
                     // opening quote alone matches the second fragment of any concatenated sentence,
                     // which flagged the word "delegates" in a refusal message and the prefix
                     // "status:" in a posture value. Neither is a route.
+                    //
+                    // The closing anchor allows a QUERY STRING, and that is the hole this rule had:
+                    // the path class excluded "?" and "=", so "graph/vertices?limit=10" matched
+                    // neither shape and passed. The capture stays the path, so a query string
+                    // cannot carry a second family past the family check either.
                     foreach (var pattern in RoutePatterns)
                     {
                         foreach (Match literal in Regex.Matches(line, pattern))
@@ -418,7 +442,13 @@ namespace NoSQL.GraphDB.Tests
 
                             if (families.Contains(value.Split('/')[0]))
                             {
-                                violations.Add(relative + ":" + lineNumber + ": " + value);
+                                // Both shapes now match an interpolated route that carries a query
+                                // string, and one line is one violation.
+                                var violation = relative + ":" + lineNumber + ": " + value;
+                                if (!violations.Contains(violation))
+                                {
+                                    violations.Add(violation);
+                                }
                             }
                         }
                     }

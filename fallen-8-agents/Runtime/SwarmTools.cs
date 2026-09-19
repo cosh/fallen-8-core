@@ -236,7 +236,8 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     State = AgentStates.Wire(worker.State),
                     Result = worker.ResultText,
                     Failure = worker.Failure ?? "This worker was evicted before its result was "
-                        + "collected (Agents:Limits:RetainFinishedMinutes).",
+                        + "collected (Agents:Limits:RetainFinishedMinutes, "
+                        + "Agents:Limits:MaxRetainedAgents).",
                 };
             }
 

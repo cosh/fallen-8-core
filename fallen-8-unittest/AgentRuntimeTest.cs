@@ -28,6 +28,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.AI;
@@ -1469,7 +1470,9 @@ namespace NoSQL.GraphDB.Tests
             // The whole phase in one test: the orchestrator's model calls spawn_worker, a real
             // worker agent is admitted and run, and await_workers returns its result as a TYPED
             // value rather than prose. Prose would have to be parsed by a model, which is where a
-            // swarm starts inventing.
+            // swarm starts inventing. What that value CONTAINS is asserted in
+            // AwaitWorkersReturnsTheResultShapeAnOrchestratorCanComposeFrom; this test is about
+            // the worker being a first-class agent and the await outlasting its run.
             var options = new AgentsOptions();
             options.Limits.MaxConcurrentAgents = 0;
 
@@ -1523,8 +1526,24 @@ namespace NoSQL.GraphDB.Tests
             // The typed result is the contract: state, answer, citation counts and cost. The
             // counts come off the worker's own trace through AgentTrace.Citations, the one home,
             // so an orchestrator and the detail route cannot disagree about the same run.
+            //
+            // DESERIALIZED rather than searched for substrings. "Contains the worker id and the
+            // word state" is satisfied by a result whose every value is absent or wrong: dropping
+            // the worker's answer left this green, and an orchestrator composing from an id and a
+            // state is the fabrication this whole feature guards against.
             var options = new AgentsOptions();
             options.Limits.MaxConcurrentAgents = 0;
+
+            // SLOW on purpose, in the TOOL rather than in the answer: with an instant worker, an
+            // await that waited for nothing would still find it finished, so every assertion below
+            // would pass on a broken await.
+            var counted = AIFunctionFactory.Create(
+                () => { Thread.Sleep(750); return "8"; },
+                new AIFunctionFactoryOptions
+                {
+                    Name = "count_vertices",
+                    Description = "Counts vertices.",
+                });
 
             using var harness = new Harness(
                 Script.CallsWith("c1", SwarmTools.SpawnWorker, new Dictionary<String, Object>
@@ -1532,7 +1551,12 @@ namespace NoSQL.GraphDB.Tests
                     .ThenCalls("c2", SwarmTools.AwaitWorkers)
                     .Then("done"),
                 options: options,
-                workerScript: Script.SaysAfter("eight", TimeSpan.FromMilliseconds(750)));
+                // The orchestrator's own allowlist keeps this from it; the worker's is empty, so
+                // the worker sees it. That is what makes the citation counts below the WORKER's.
+                tools: new List<AITool> { counted },
+                workerScript: Script.Calls("w1", "count_vertices")
+                    .Then("Eight. [t:count_vertices] Not [t:f8_write] and not [t:f8_admin].")
+                    .WithUsage(200, 100));
 
             Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "how many?"),
                 out var boss, out _));
@@ -1542,12 +1566,104 @@ namespace NoSQL.GraphDB.Tests
             var awaited = boss.Trace.Steps()
                 .Single(s => s.Kind == "toolCall" && s.Tool == SwarmTools.AwaitWorkers);
             Assert.IsNotNull(awaited.Result, "the await returned nothing for the trace to record");
+            Assert.IsNull(awaited.Truncated,
+                "one small worker result is nowhere near Agents:Trace:ResultBytes; a capped "
+                + "capture would not parse: " + awaited.Result);
 
             var worker = harness.Registry.Children(boss.Id).Single();
-            StringAssert.Contains(awaited.Result, worker.Id,
+            var results = JsonSerializer.Deserialize<List<WorkerResult>>(awaited.Result,
+                NoSQL.GraphDB.Rest.RestSeam.JsonOptions);
+
+            Assert.IsNotNull(results);
+            Assert.AreEqual(1, results.Count, "one worker was spawned: " + awaited.Result);
+
+            var reported = results[0];
+            Assert.AreEqual(worker.Id, reported.Id,
                 "a result an orchestrator cannot attribute to a worker is prose: " + awaited.Result);
-            StringAssert.Contains(awaited.Result, "state",
-                "the shape is typed, so the state is a field: " + awaited.Result);
+            Assert.AreEqual("completed", reported.State);
+            Assert.AreEqual("Eight. [t:count_vertices] Not [t:f8_write] and not [t:f8_admin].",
+                reported.Result,
+                "the worker's ANSWER is the whole point of awaiting it, and it is the one field an "
+                + "orchestrator cannot get anywhere else");
+            Assert.IsNull(reported.Failure, "it completed, so there is nothing to explain");
+
+            Assert.AreEqual<Int32?>(1, reported.ValidCitations,
+                "the worker cited the one tool it called");
+            Assert.AreEqual<Int32?>(2, reported.DanglingCitations,
+                "and two it did not, which is the number a reviewer acts on");
+
+            Assert.AreEqual(600L, reported.Tokens, "two worker turns at 200 and 100");
+            Assert.AreEqual(2L, reported.Steps);
+            Assert.AreEqual(1L, reported.ToolCalls);
+        }
+
+        [TestMethod]
+        public async Task AWorkerEvictedBeforeItsResultWasCollectedIsStillReported()
+        {
+            // Describe's other arm, which nothing reached: between the await returning and the
+            // summary being read, a worker can be gone. Reached through the retention CEILING
+            // rather than the clock, because the registry evicts on every read: two finished
+            // workers, room for one, and the first summary read takes the older one out. What is
+            // left is what the record still holds, which is more use to an orchestrator than
+            // nothing.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.RetainFinishedMinutes = 0; // the ceiling alone, as the retention test does
+            options.Limits.MaxRetainedAgents = 1;
+
+            using var harness = new Harness(
+                Script.CallsWith("c1", SwarmTools.SpawnWorker, new Dictionary<String, Object>
+                    { ["task"] = "one" })
+                    .ThenCallsWith("c2", SwarmTools.SpawnWorker, new Dictionary<String, Object>
+                        { ["task"] = "two" })
+                    .ThenCalls("c3", SwarmTools.AwaitWorkers)
+                    .Then("done"),
+                options: options,
+                // Repeating rather than a turn list: both workers draw on one call counter, so a
+                // turn list would hand the second worker the first one's second turn.
+                workerScript: Script.AlwaysSays("eight"));
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "two parts"),
+                out var boss, out _));
+            await harness.Run(boss);
+
+            var awaited = boss.Trace.Steps()
+                .Single(s => s.Kind == "toolCall" && s.Tool == SwarmTools.AwaitWorkers);
+            var results = JsonSerializer.Deserialize<List<WorkerResult>>(awaited.Result,
+                NoSQL.GraphDB.Rest.RestSeam.JsonOptions);
+
+            Assert.IsNotNull(results);
+            Assert.AreEqual(2, results.Count,
+                "an evicted worker is reported rather than dropped from the results: " + awaited.Result);
+
+            // The ids come off the ORCHESTRATOR's trace, because one of the two records is no
+            // longer in the registry to be listed.
+            var spawned = boss.Trace.Steps()
+                .Where(s => s.Kind == "spawn" && s.ChildId != null)
+                .Select(s => s.ChildId)
+                .ToList();
+            Assert.AreEqual(2, spawned.Count);
+            CollectionAssert.AreEquivalent(spawned.ToArray(), results.Select(r => r.Id).ToArray());
+
+            // Which of the two was evicted is whichever finished first, so the assertions are on
+            // the pair rather than on an order.
+            var evicted = results.Single(r => r.Failure != null);
+            Assert.AreEqual("completed", evicted.State,
+                "the state on the record this still holds, rather than a blank");
+            Assert.AreEqual("eight", evicted.Result,
+                "and its answer, so an evicted worker's work is not lost with its summary");
+            StringAssert.Contains(evicted.Failure, "evicted");
+            StringAssert.Contains(evicted.Failure, "MaxRetainedAgents",
+                "the message has to name the key that took it, and the ceiling is a different key "
+                + "from the retention window");
+            Assert.AreEqual(0L, evicted.Tokens, "no summary was read, so there is no cost to report");
+            Assert.IsNull(evicted.ValidCitations, "and none is not zero");
+
+            var summarized = results.Single(r => r.Failure == null);
+            Assert.AreEqual("completed", summarized.State);
+            Assert.AreEqual(15L, summarized.Tokens,
+                "the surviving worker went through the registry, so its cost is there");
+            Assert.AreEqual<Int32?>(0, summarized.ValidCitations);
         }
 
         [TestMethod]
@@ -1601,8 +1717,12 @@ namespace NoSQL.GraphDB.Tests
         public async Task CancellingAnOrchestratorCancelsTheWorkersItIsWaitingFor()
         {
             // Cascade cancel, through the swarm rather than through the registry's own API: the
-            // orchestrator is waiting inside await_workers when the cancel arrives, so this also
-            // pins that the await ends rather than holding a task nothing will complete.
+            // orchestrator is waiting inside await_workers when the cancel arrives. What this does
+            // NOT pin is the await's own cancellation arm: the cascade ends the worker, which
+            // completes the Task.WhenAll by itself, so removing the wait's own token would leave
+            // this green. The test below,
+            // AnOrchestratorsDeadlineEndsAnAwaitForAWorkerThatNeverFinishes, is the one that pins
+            // it.
             var options = new AgentsOptions();
             options.Limits.MaxConcurrentAgents = 0;
 
@@ -1620,8 +1740,13 @@ namespace NoSQL.GraphDB.Tests
                 out var boss, out _));
             var running = harness.Run(boss);
 
-            Assert.IsTrue(SpinWait.SpinUntil(() => harness.Registry.Children(boss.Id).Count == 1, 10_000),
-                "the worker was never spawned");
+            // Gated on the orchestrator's SECOND model call, not on the worker's admission: a
+            // worker is in the registry before spawn_worker has returned, so a cancel gated on
+            // that can land before the orchestrator has asked for await_workers at all, and this
+            // test would pass without the case it names ever happening. A second call means the
+            // spawn's result went back to the model and the await is what it asked for next.
+            Assert.IsTrue(SpinWait.SpinUntil(() => harness.Client.Calls >= 2, 10_000),
+                "the orchestrator never got as far as asking for await_workers");
             var worker = harness.Registry.Children(boss.Id).Single();
 
             Assert.IsTrue(harness.Registry.TryCancel(boss.Id, out var signalled));
@@ -1709,6 +1834,53 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
+        public async Task AnOrchestratorsDeadlineEndsAnAwaitForAWorkerThatNeverFinishes()
+        {
+            // The await's OWN bound, which nothing reached: await_workers hands the orchestrator's
+            // token to Task.WhenAll, so MaxRunSeconds applies INSIDE a tool call. The cancel test
+            // above cannot pin it, because the cascade ends the worker and completes the WhenAll
+            // by itself. Here the worker is admitted and never run, so nothing will ever complete
+            // it and only the deadline can end the wait.
+            //
+            // What becomes of the WORKER is a separate contract (whether an orchestrator's ending
+            // cascades to its live children). This asserts the ORCHESTRATOR's side, so it holds
+            // either way: with no cascade the worker stays pending until the harness is disposed,
+            // with one it is cancelled as the orchestrator ends.
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.MaxRunSeconds = 1;
+
+            using var harness = new Harness(
+                // The turn after the await never answers, so if the framework were to hand the
+                // cancelled tool call back to the model as an error instead of propagating it, the
+                // run still ends on its deadline rather than on a scripted answer.
+                Script.Calls("c1", SwarmTools.AwaitWorkers).ThenWaits(TimeSpan.FromMinutes(5)),
+                options: options);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "never runs") { ParentId = boss.Id }, out var worker, out _));
+
+            var running = harness.Run(boss);
+            var settled = await Task.WhenAny(running, Task.Delay(TimeSpan.FromSeconds(20)));
+
+            Assert.AreSame(running, settled,
+                "the orchestrator is still inside await_workers twenty seconds into a one second "
+                + "run cap, so its deadline does not reach the wait");
+            await running;
+
+            Assert.AreEqual(AgentState.BudgetExceeded, boss.State, boss.Failure);
+            Assert.AreEqual(BudgetKind.Time, boss.Budget);
+            StringAssert.Contains(boss.Failure, "Agents:Limits:MaxRunSeconds");
+            Assert.AreEqual(1L, Interlocked.Read(ref boss.Steps),
+                "one model call, the one that asked for await_workers: the deadline fired inside "
+                + "the tool rather than before the run got going");
+            Assert.AreEqual(0L, Interlocked.Read(ref worker.Steps),
+                "nothing ran this worker, which is what made the wait unending");
+        }
+
+        [TestMethod]
         public async Task AnOrchestratorsTokenBudgetBoundsItsOwnCallsAndNotItsWorkers()
         {
             // Spec 3.6: "Orchestrator budgets bound only their own calls; the global token cap is
@@ -1726,7 +1898,10 @@ namespace NoSQL.GraphDB.Tests
                     .ThenCalls("c2", SwarmTools.AwaitWorkers)
                     .Then("done"),
                 options: options,
-                workerScript: Script.Says("eight"));
+                // Its OWN figures, an order of magnitude off the orchestrator's, so a meter that
+                // charged one run to the other would be unmistakable rather than merely under a
+                // ceiling.
+                workerScript: Script.Says("eight").WithUsage(200, 100));
 
             Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "how many?"),
                 out var boss, out _));
@@ -1739,15 +1914,19 @@ namespace NoSQL.GraphDB.Tests
                 + "its orchestrator had left and a long orchestration would starve its own workers");
             Assert.AreEqual(5000, boss.TokenBudget);
 
-            // And the two meters are separate: what the worker spent is not charged to the
-            // orchestrator, so neither can exhaust the other.
-            Assert.IsTrue(Interlocked.Read(ref worker.InputTokens) > 0,
-                "the worker made a model call, so it spent something");
-            Assert.AreNotSame(boss, worker);
-            Assert.IsTrue(
-                Interlocked.Read(ref boss.InputTokens) + Interlocked.Read(ref boss.OutputTokens)
-                    < boss.TokenBudget,
-                "the orchestrator was charged for its worker's calls");
+            // The EXACT split. "Under its budget" was true either way: charging the worker's 300
+            // tokens to the orchestrator still leaves it far below 5000, so the separation this
+            // test is named for was not pinned at all. Three orchestrator turns (spawn, await, its
+            // answer) at 10 and 5, one worker turn at 200 and 100, and neither meter carries any
+            // of the other's.
+            Assert.AreEqual(3L, Interlocked.Read(ref boss.Steps),
+                "the orchestrator's turns are spawn, await and its answer");
+            Assert.AreEqual(30L, Interlocked.Read(ref boss.InputTokens));
+            Assert.AreEqual(15L, Interlocked.Read(ref boss.OutputTokens));
+
+            Assert.AreEqual(1L, Interlocked.Read(ref worker.Steps));
+            Assert.AreEqual(200L, Interlocked.Read(ref worker.InputTokens));
+            Assert.AreEqual(100L, Interlocked.Read(ref worker.OutputTokens));
         }
 
         [TestMethod]
@@ -1972,8 +2151,8 @@ namespace NoSQL.GraphDB.Tests
                 return Runner.RunAsync(agent, role, null);
             }
 
-            /// <summary>The usage/stat figures the scripted usage reports; the two scripts share
-            /// them, because a swarm's cost is the whole tree's.</summary>
+            /// <summary>The role catalogue this harness loaded, so a test can run an agent with a
+            /// role it resolved itself.</summary>
             public RoleCatalog Roles => _roles;
 
             public void Dispose()
@@ -2071,6 +2250,14 @@ namespace NoSQL.GraphDB.Tests
                 return this;
             }
 
+            /// <summary>Appends a turn that never answers, so a run whose token is already
+            /// cancelled ends at the next model call rather than on a scripted answer.</summary>
+            public Script ThenWaits(TimeSpan how)
+            {
+                Turns.Add(_ => ScriptedTurn.Wait(how));
+                return this;
+            }
+
             /// <summary>A model that never stops asking for a tool. Only a cap can end it, which is
             /// the whole point of the caps.</summary>
             public static Script AlwaysCalls(String name)
@@ -2087,6 +2274,16 @@ namespace NoSQL.GraphDB.Tests
                 var script = new Script();
                 script.Repeating = i => ScriptedTurn.Calls(
                     Enumerable.Range(0, howMany).Select(n => ("call-" + i + "-" + n, name)).ToList());
+                return script;
+            }
+
+            /// <summary>The same answer from EVERY agent that shares this script. Two workers run
+            /// on one call counter, so a script of turns hands the second worker the first one's
+            /// second turn and which worker says what becomes a race.</summary>
+            public static Script AlwaysSays(String text)
+            {
+                var script = new Script();
+                script.Repeating = _ => ScriptedTurn.Text(text);
                 return script;
             }
 
@@ -2320,12 +2517,16 @@ namespace NoSQL.GraphDB.Tests
                 return new ChatResponse(new ChatMessage(ChatRole.Assistant, contents))
                 {
                     ModelId = "scripted-agent-model",
-                    Usage = _script.PromptTokens == null && _script.CompletionTokens == null
+                    // The TURN's own script, not the field: a worker's turn came from the worker
+                    // script and its usage has to come from there too. Read off _script, a
+                    // WithUsage on a worker script did nothing at all, which is a figure a test
+                    // can set and never see.
+                    Usage = script.PromptTokens == null && script.CompletionTokens == null
                         ? null
                         : new UsageDetails
                         {
-                            InputTokenCount = _script.PromptTokens,
-                            OutputTokenCount = _script.CompletionTokens,
+                            InputTokenCount = script.PromptTokens,
+                            OutputTokenCount = script.CompletionTokens,
                         },
                 };
             }
