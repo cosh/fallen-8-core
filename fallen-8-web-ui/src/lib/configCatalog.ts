@@ -250,8 +250,9 @@ export interface SectionGroup {
  * completion whose purpose names none, which is a state an operator has to be able to see and fix
  * for every purpose that exists.
  *
- * Order is the order they are shown in, and `Assist` is first because it is the one an instance
- * has configured by default.
+ * Order is the order they are shown in, and `Assist` is first because it is the purpose a
+ * completion gets when it names none. Not because it is the one an instance has configured: the
+ * two Ollama-protocol backends default BOTH purposes and the two metered ones default neither.
  */
 export const CHAT_PURPOSES: readonly string[] = ["Assist", "Agent"];
 

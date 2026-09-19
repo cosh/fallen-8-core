@@ -189,5 +189,29 @@ namespace NoSQL.GraphDB.Tests
                 "model still means the assist model");
             Assert.AreEqual("fake-agent-model", chat.GetProperty("agentModel").GetString());
         }
+
+        /// <summary>
+        ///   A purpose whose model was EMPTIED rather than never set reports as no model, not as a
+        ///   blank name. The write surface accepts an empty string for a string key, so this is the
+        ///   state an operator leaves behind by clearing the row, and it is the one state the
+        ///   per-purpose report exists to reveal: published as a blank name it reached Studio as an
+        ///   empty cell while the refusal on the same instance named the key to set.
+        /// </summary>
+        [TestMethod]
+        public async Task AClearedPurpose_IsReportedAsNull_RatherThanAsAnEmptyName()
+        {
+            // Whitespace rather than empty, so a fix that only looked for "" would fail here.
+            using var factory = new ChatFactory(enabled: true, Returns("ok"), agentModel: "   ");
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/status");
+            var chat = JsonDocument.Parse(await response.Content.ReadAsStringAsync())
+                .RootElement.GetProperty("chat");
+
+            Assert.AreEqual(JsonValueKind.Null, chat.GetProperty("agentModel").ValueKind,
+                "a cleared row is no model, and the report has to say so");
+            Assert.AreEqual("fake-model", chat.GetProperty("model").GetString(),
+                "and only the cleared purpose is affected");
+        }
     }
 }

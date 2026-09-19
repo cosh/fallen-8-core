@@ -142,7 +142,8 @@ function EmbeddingCard({ embedding }: { embedding: EmbeddingProviderStatsREST | 
         </div>
       ) : (
         <p className="text-fg-faint mt-2 text-[11px]">
-          Off — text-in embedding and semantic search answer 403; bring-your-own-vector paths work.
+          Off. Text-in embedding and semantic search are refused: 401 on a keyless instance,
+          403 once an API key is configured. Bring-your-own-vector paths work.
         </p>
       )}
     </div>
@@ -164,9 +165,11 @@ function ChatCard({ chat }: { chat: ChatProviderStatsREST | null | undefined }) 
               an operator reading it would have no way to tell which. The agent row says "not set"
               rather than a dash when the backend names none: that is the shipped state for the two
               metered providers, and it is the difference between "nothing configured" and "agents
-              will be refused on this backend". */}
-          <Row label="model (assist)" value={chat.model ?? "not set"} />
-          <Row label="model (agent)" value={chat.agentModel ?? "not set"} />
+              will be refused on this backend". A BLANK name counts as none: the server normalises
+              it away (ChatBackendFactory.ModelFor owns that rule), and the trim below is what keeps
+              a cleared row honest on an instance that predates it. */}
+          <Row label="model (assist)" value={chat.model?.trim() || "not set"} />
+          <Row label="model (agent)" value={chat.agentModel?.trim() || "not set"} />
           {/* ONE residency row, not one per purpose. It is the probe's answer about the backend's
               loaded model, and the probe reports a single one; printing it twice would claim the
               two purposes were probed separately. */}
@@ -174,8 +177,9 @@ function ChatCard({ chat }: { chat: ChatProviderStatsREST | null | undefined }) 
         </div>
       ) : (
         <p className="text-fg-faint mt-2 text-[11px]">
-          Off — POST /chat answers 403. Enable it via the docker environment (F8_CHAT) or the
-          Fallen8:Chat config section.
+          Off. POST /chat is refused: 401 on a keyless instance, 403 once an API key is
+          configured. Enable it via the docker environment (F8_CHAT) or the Fallen8:Chat config
+          section.
         </p>
       )}
     </div>

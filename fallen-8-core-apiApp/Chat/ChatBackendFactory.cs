@@ -102,6 +102,15 @@ namespace NoSQL.GraphDB.App.Chat
         /// <summary>
         ///   The model a backend block serves for one purpose; <c>null</c> when the block or the
         ///   purpose is unset, which is what the validators turn into a message naming the key.
+        ///   <para>
+        ///     BLANK counts as unset, and this is the one place that decides it: the configuration
+        ///     write surface accepts an empty string for a string key, so an operator who empties
+        ///     the row leaves <c>""</c> behind rather than clearing it. Normalising here rather
+        ///     than at each reader is what makes the report and the refusal agree.
+        ///     <see cref="TryResolveModel" /> already read a blank value as no model, while
+        ///     <c>/status</c> and <c>/config</c> published the empty string, so the one state the
+        ///     per-purpose row exists to reveal reached Studio as an empty cell.
+        ///   </para>
         /// </summary>
         private static String ModelFor(Fallen8ChatOptions.ModelPurposes models, ChatPurpose purpose)
         {
@@ -110,7 +119,8 @@ namespace NoSQL.GraphDB.App.Chat
                 return null;
             }
 
-            return purpose == ChatPurpose.Agent ? models.Agent : models.Assist;
+            var model = purpose == ChatPurpose.Agent ? models.Agent : models.Assist;
+            return String.IsNullOrWhiteSpace(model) ? null : model;
         }
 
         /// <summary>

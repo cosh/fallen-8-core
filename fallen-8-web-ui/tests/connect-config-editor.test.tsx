@@ -334,6 +334,26 @@ describe("Configuration editor", () => {
     expect(screen.getByTestId("config-settings-error")).toHaveTextContent("refused");
   });
 
+  it("tells an empty pending value apart from no value at all", async () => {
+    const user = userEvent.setup();
+    // The write this list exists to disclose: a string row emptied rather than cleared. Only
+    // numeric blanks are held back before Save, so "" really is what the server stores and
+    // reports back, and "pending" followed by nothing is what the list used to render.
+    getConfigMock.mockResolvedValue(
+      config([setting({ value: "128", source: "override", restartPending: true })], {
+        pendingRestart: [
+          { key: "Fallen8:Chat:Nahil:Models:Agent", runningValue: null, pendingValue: "" },
+        ],
+      }),
+    );
+    renderPanel();
+
+    await openConfig(user);
+    const detail = await screen.findByTestId("config-pending-restart-detail");
+    expect(detail).toHaveTextContent("Fallen8:Chat:Nahil:Models:Agent");
+    expect(detail).toHaveTextContent("running unset, pending empty");
+  });
+
   it("counts the pending-restart set on the card and discloses the values in the surface", async () => {
     const user = userEvent.setup();
     getConfigMock.mockResolvedValue(

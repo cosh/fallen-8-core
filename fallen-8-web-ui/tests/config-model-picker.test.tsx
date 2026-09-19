@@ -137,8 +137,9 @@ function inventory(): SettingREST[] {
     setting(NAHIL_KEY, { value: "phi4-f8-mini:latest" }),
     setting(OPENAI_KEY, { value: "gpt-4o-mini" }),
     setting(ANTHROPIC_KEY, { value: "claude-sonnet-4" }),
-    // The agent purpose, shipped empty on the two metered providers, which is the state the server
-    // reports and the state an operator has to be able to fill in from this surface.
+    // The agent purpose. Unset is the shipped state of the two metered providers; the running
+    // backend's row is empty HERE because an empty row is the one that has to offer names, not
+    // because Nahil ships that way (it defaults to phi4-mini:latest, as the sidecar block does).
     setting(OLLAMA_AGENT_KEY, { value: "phi4-mini:latest" }),
     setting(NAHIL_AGENT_KEY, { value: "" }),
     setting(OPENAI_AGENT_KEY, { value: "" }),
@@ -322,8 +323,9 @@ describe("Chat model picker", () => {
       ),
     );
 
-    // The agent purpose is the one an operator is most likely to be filling in blind: it ships empty
-    // on this backend, and a completion naming a purpose with no model is refused.
+    // The agent purpose is the one an operator is most likely to be filling in blind: this fixture
+    // leaves it empty (the two metered providers ship that way, and any row can be cleared), and a
+    // completion naming a purpose with no model is refused.
     expect(row(NAHIL_AGENT_KEY)).toHaveValue("");
     expect(offered(NAHIL_AGENT_KEY)).toEqual(offered(NAHIL_KEY));
     expect(offered(NAHIL_AGENT_KEY).map((option) => option.value)).toEqual([

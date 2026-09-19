@@ -341,8 +341,8 @@ function SurfaceBody({
             {pendingRestart.map((entry) => (
               <li key={entry.key}>
                 <code className="text-[10px]">{entry.key}</code>: running{" "}
-                <span className="text-fg">{entry.runningValue ?? "unset"}</span>, pending{" "}
-                <span className="text-fg">{entry.pendingValue ?? "unset"}</span>
+                <span className="text-fg">{storedValueText(entry.runningValue)}</span>, pending{" "}
+                <span className="text-fg">{storedValueText(entry.pendingValue)}</span>
               </li>
             ))}
           </ul>
@@ -481,6 +481,20 @@ function SurfaceBody({
  * one catalog read is what answers for every purpose.
  */
 type RowPicker = { keys: readonly string[]; suggestions?: readonly SettingSuggestion[]; note?: string };
+
+/**
+ * A stored value as the pending list has to show it. An empty string is NOT the same fact as no
+ * value: the write surface accepts an empty string for a string key, so one is a key an operator
+ * set to nothing and the other a key nobody set, and this list exists to say which one a restart
+ * would apply. What the RESOLVED model does with a blank value is a different question, answered
+ * once in ChatBackendFactory.ModelFor.
+ */
+function storedValueText(value: string | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "unset";
+  }
+  return value.length === 0 ? "empty" : value;
+}
 
 /**
  * What is known about a catalogued model, shown beside its name: the backend's own class string

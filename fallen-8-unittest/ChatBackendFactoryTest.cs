@@ -278,6 +278,45 @@ namespace NoSQL.GraphDB.Tests
                 "a name this app does not have reports no model rather than a plausible one");
         }
 
+        /// <summary>
+        ///   A blank model is an UNSET model, in both readers. The config write surface accepts an
+        ///   empty string for a string key, so this arrives from an operator who emptied the row,
+        ///   and the two readers used to disagree about it: the refusal called it missing while the
+        ///   reported state published the blank name, which reached Studio as an empty cell.
+        /// </summary>
+        [TestMethod]
+        public void ABlankModel_IsUnsetEverywhere_SoTheReportAndTheRefusalAgree()
+        {
+            // Two blank SHAPES, because a fix that only looked for the empty string would leave the
+            // whitespace one behind, and the row an operator clears can hold either.
+            foreach (var blank in new[] { "", "   " })
+            {
+                var cleared = new Fallen8ChatOptions
+                {
+                    Backend = "Ollama",
+                    Ollama = new Fallen8ChatOptions.OllamaOptions
+                    {
+                        Models = new Fallen8ChatOptions.ModelPurposes
+                        {
+                            Assist = "phi4-f8-mini:latest",
+                            Agent = blank,
+                        },
+                    },
+                };
+
+                Assert.IsNull(ResolveModel(cleared, ChatPurpose.Agent),
+                    "the reported state must not publish a name nothing can serve: '" + blank + "'");
+                Assert.IsFalse(
+                    TryResolveModel(cleared, ChatPurpose.Agent, out var model, out var problem),
+                    "and the per-request check must refuse it: '" + blank + "'");
+                Assert.IsNull(model);
+                StringAssert.Contains(problem, "Fallen8:Chat:Ollama:Models:Agent",
+                    "naming the key to set: " + problem);
+                Assert.AreEqual("phi4-f8-mini:latest", ResolveModel(cleared, ChatPurpose.Assist),
+                    "and only the cleared purpose is affected");
+            }
+        }
+
         #region the seam
 
         /// <summary>The factory is internal (the repository adds no InternalsVisibleTo), so it is
@@ -363,6 +402,18 @@ namespace NoSQL.GraphDB.Tests
             ChatPurpose purpose = ChatPurpose.Assist)
         {
             return (String)Method("ResolveModel").Invoke(null, new Object[] { options, purpose });
+        }
+
+        /// <summary>The narrow per-request check, whose two out parameters come back through the
+        /// argument array reflection writes into.</summary>
+        private static Boolean TryResolveModel(Fallen8ChatOptions options, ChatPurpose purpose,
+            out String model, out String problem)
+        {
+            var args = new Object[] { options, purpose, null, null };
+            var resolved = (Boolean)Method("TryResolveModel").Invoke(null, args);
+            model = (String)args[2];
+            problem = (String)args[3];
+            return resolved;
         }
 
         private static RemoteModelTarget ResolveRemoteTarget(Fallen8ChatOptions options,
