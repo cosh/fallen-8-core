@@ -217,9 +217,9 @@ namespace NoSQL.GraphDB.Agents.Hosting
             {
                 logger.LogWarning(
                     "The bind address {BindAddress} is not loopback, so anything that can route to "
-                    + "port {Port} can spawn an agent at the tiers the MCP server allows. The "
-                    + "shipped container binds this deliberately and publishes no host port; "
-                    + "elsewhere, bind loopback or keep the port on a network you trust.",
+                    + "port {Port} can spawn an agent at the tiers the MCP server allows, and this "
+                    + "process cannot see what routes there. Bind loopback, or keep the port on a "
+                    + "network you trust.",
                     options.BindAddress, options.Port);
             }
 

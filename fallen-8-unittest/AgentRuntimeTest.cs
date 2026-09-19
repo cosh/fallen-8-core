@@ -324,6 +324,11 @@ namespace NoSQL.GraphDB.Tests
                 (i, v, t, s) => recorded.Add(i.Meter.Name + "::" + i.Name));
             meters.Start();
 
+            // Start() replays every instrument alive in the process, so what an EARLIER test left
+            // behind is in the list before this run begins. Snapshotted here, the stray check below
+            // can be about this run rather than about the order the suite happened to take.
+            var beforeRun = new HashSet<String>(published, StringComparer.Ordinal);
+
             var spans = new List<Activity>();
             using var activities = new ActivityListener
             {
@@ -357,10 +362,18 @@ namespace NoSQL.GraphDB.Tests
                 AgentsMetrics.MeterName + "::gen_ai.client.operation.duration",
                 "and it has to be WRITTEN to that meter, not merely created on it; recorded: "
                 + String.Join(", ", recorded));
-            Assert.IsFalse(
-                published.Any(p => p.StartsWith("Experimental.", StringComparison.Ordinal)),
-                "nothing here publishes under a library default name, so registering one would "
-                + "be a no-op; published: " + String.Join(", ", published));
+            // Every gen_ai instrument THIS RUN published arrived on the meter the exporter
+            // registers. That is the whole of what the deleted second registration was for: one on
+            // a meter of the library's own naming would be dropped, and the assertion that used to
+            // stand here could not see it, because the list it reads is filtered to gen_ai names
+            // and its message claimed something broader than that.
+            var strays = published
+                .Where(p => !beforeRun.Contains(p))
+                .Where(p => !p.StartsWith(AgentsMetrics.MeterName + "::", StringComparison.Ordinal))
+                .ToList();
+            Assert.AreEqual(0, strays.Count,
+                "a gen_ai instrument arrived on a meter the exporter does not register, so the "
+                + "host's single AddMeter drops it: " + String.Join(", ", strays));
 
             // THE SPAN, whose NAME is what a collector deriving metrics from spans keys a series
             // on. One per run: the runner sets UseProvidedChatClientAsIs, so the library wires no
@@ -386,6 +399,15 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(invoked[0].DisplayName, agent.Id,
                 "the framework concatenates the agent id into the span name unconditionally");
             Assert.AreEqual(agent.Id, invoked[0].GetTagItem("gen_ai.agent.id") as String);
+
+            // The FORMAT, not just the prefix: the shipped collector rewrites a span name matching
+            // "^invoke_agent " before deriving metrics from it, including that space. A library
+            // rendering the name as invoke_agent(assistant/id) would keep every assertion above
+            // green while the rewrite silently stopped matching and Prometheus went back to one
+            // series per agent run, which is the cardinality this bound exists to prevent.
+            Assert.AreEqual("invoke_agent assistant(" + agent.Id + ")", invoked[0].DisplayName,
+                "the span name's format changed; observability/otel-collector/config.yaml matches "
+                + "on \"^invoke_agent \" with the space, so update both together");
         }
 
         [TestMethod]
@@ -978,8 +1000,14 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void DepthIsStampedFromTheParentsRecordAndIsWhatTheSwarmCapCounts()
+        public void DepthCountsGenerationsAndIsWhatTheSwarmCapCompares()
         {
+            // The name once claimed the stamp's PROVENANCE, which this arrangement cannot tell
+            // apart: with every generation present and live, a walk up the parent chain produces
+            // the same numbers as a stamp taken at admission. The arm that could tell them apart
+            // needed an evicted ancestor, and the cascade makes that state unreachable, so the
+            // name says what is pinned instead of what was given up.
+
             // Depth is stamped at admission from the parent's own depth rather than walked up the
             // tree, and it is what MaxSwarmDepth compares against, so a tree cannot gain a level.
             //

@@ -493,7 +493,13 @@ function storedValueText(value: string | null | undefined): string {
   if (value === null || value === undefined) {
     return "unset";
   }
-  return value.length === 0 ? "empty" : value;
+  if (value.length === 0) {
+    return "empty";
+  }
+  // Whitespace is not nothing, and it is not a value either. Rendered verbatim it is an empty cell,
+  // which reads as "no value" and is the one distinction this list exists to make. Said in words,
+  // with the length, because an operator's next question is how much of it there is.
+  return value.trim().length === 0 ? "blank (" + value.length + " spaces)" : value;
 }
 
 /**

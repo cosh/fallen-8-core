@@ -384,18 +384,24 @@ namespace NoSQL.GraphDB.Tests
             // And the patterns themselves, against the shapes a graph call arrives in. The class
             // excluded "?" and "=", so a route carrying a query string matched NEITHER pattern and
             // passed the rule that the docs say it cannot escape.
-            foreach (var shape in new[]
+            foreach (var (shape, expected) in new[]
             {
-                "\"graph/vertices\"",
-                "\"graph/vertices?limit=10\"",
-                "$\"graphelement/{id}\"",
-                "$\"graph/scan?op=eq&value={v}\"",
+                ("\"graph/vertices\"", "graph/vertices"),
+                ("\"graph/vertices?limit=10\"", "graph/vertices"),
+                ("$\"graphelement/{id}\"", "graphelement/"),
+                ("$\"graph/scan?op=eq&value={v}\"", "graph/scan"),
             })
             {
+                // The captured VALUE, not a prefix of it: the doc above says the value stays the
+                // path, and a pattern that swallowed a query string into the capture would still
+                // start with "graph" and still split to the right family, so the boundary half of
+                // that claim was pinned by nothing.
                 Assert.IsTrue(
                     RoutePatterns.Any(pattern => Regex.Matches(shape, pattern)
-                        .Any(m => m.Groups["value"].Value.StartsWith("graph", StringComparison.Ordinal))),
-                    "a graph route written as " + shape + " escapes this rule's own patterns");
+                        .Any(m => String.Equals(m.Groups["value"].Value, expected,
+                            StringComparison.Ordinal))),
+                    "a graph route written as " + shape + " escapes this rule's own patterns, or "
+                    + "the capture no longer stops where the path does");
             }
 
             var allowed = new HashSet<string>(StringComparer.Ordinal) { "chat", "chat/models" };

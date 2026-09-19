@@ -678,6 +678,7 @@ namespace NoSQL.GraphDB.Tests
             // caller is exactly the question Emitted answers.
             var product = Path.Combine(TestRepo.Root(), "fallen-8-agents");
             var callers = new List<String>();
+            var control = new List<String>();
 
             foreach (var file in Directory.EnumerateFiles(product, "*.cs", SearchOption.AllDirectories))
             {
@@ -694,11 +695,30 @@ namespace NoSQL.GraphDB.Tests
 
                 var text = File.ReadAllText(file);
                 if (text.Contains("_journal.Message(", StringComparison.Ordinal)
-                    || text.Contains("Journal.Message(", StringComparison.Ordinal))
+                    || text.Contains("Journal.Message(", StringComparison.Ordinal)
+                    || text.Contains("journal.Message(", StringComparison.Ordinal))
                 {
+                    // Three spellings, because the field is not the only way a journal arrives: a
+                    // local or a parameter is spelled in lower case, which is how the chat client
+                    // receives one. A detector that misses the shape in use reports a zero that
+                    // reads as "nothing emits this" while it is being emitted.
                     callers.Add(Path.GetFileName(file));
                 }
+
+                // The positive control, on the same corpus and the same way: a method that DOES
+                // have callers. Without it a zero above means either "no caller" or "this detector
+                // stopped matching", and those are opposite findings.
+                if (text.Contains(".Finished(", StringComparison.Ordinal))
+                {
+                    control.Add(Path.GetFileName(file));
+                }
             }
+
+            // The control first: a zero from a detector that stopped matching is not a finding,
+            // it is a broken detector, and the two read identically.
+            Assert.IsTrue(control.Count > 0,
+                "the control found no caller of AgentJournal.Finished either, so this test is not "
+                + "reading the product sources it thinks it is");
 
             var emitsMessages = AgentEventKinds.Emitted
                 .Contains("agentMessage", StringComparer.OrdinalIgnoreCase);

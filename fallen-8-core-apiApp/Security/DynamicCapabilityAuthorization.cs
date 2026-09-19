@@ -62,9 +62,11 @@ namespace NoSQL.GraphDB.App.Security
 
             /// <summary>The integration runtime proxy (feature integrations,
             /// <c>Fallen8:Integrations:Enabled</c>) - default off: every <c>/integrations</c>
-            /// route answers 403 and no sidecar is contacted. This 403 is the whole opt-out
-            /// (<c>F8_INTEGRATIONS=false</c>), and it is what a client gates the feature on, so it
-            /// lives here rather than as a flag check in the controller.</summary>
+            /// route refuses before a sidecar is contacted, with 403 on a keyed instance and 401 on
+            /// a keyless one (<see cref="Controllers.AgentsController" /> is the one home for why).
+            /// That refusal is the whole opt-out (<c>F8_INTEGRATIONS=false</c>), so it lives here
+            /// rather than as a flag check in the controller; a client gating the feature on 403
+            /// alone misreads a keyless instance as having it.</summary>
             Integrations,
 
             /// <summary>The agent-host proxy (feature agent-host,

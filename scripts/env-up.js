@@ -209,15 +209,19 @@ function main() {
   // "integrations" profile, default ON like the rest of the environment. Standalone rather than
   // nested under ingestion (unlike nlp): an integration reads a live system on the user's own
   // network, which has nothing to do with document conversion. F8_INTEGRATIONS=false is a true
-  // opt-out - no sidecar, and the apiApp's /integrations routes answer 403 (the fallen8
-  // service reads the same variable).
+  // opt-out - no sidecar, and the apiApp's /integrations routes refuse (the fallen8 service reads
+  // the same variable): 401 on an instance with no API key, which is the default here, and 403 on
+  // one with a key.
   const integrations = process.env.F8_INTEGRATIONS !== 'false';
   if (integrations) profiles.push('--profile', 'integrations');
   console.log(
     integrations
-      ? 'Integrations are ON - the f8-integrations sidecar comes up. It is the one service with NO\n' +
-        'host port (jobs hand it third-party credentials), so the API proxy is the only way in.'
-      : 'F8_INTEGRATIONS=false - no integrations sidecar; the /integrations routes answer 403.'
+      ? 'Integrations are ON - the f8-integrations sidecar comes up. It publishes NO host port\n' +
+        '(jobs hand it third-party credentials), so from outside the compose network the API proxy\n' +
+        'is the only way in; inside that network every service can reach it and it\n' +
+        'authenticates nobody.'
+      : 'F8_INTEGRATIONS=false - no integrations sidecar; the /integrations routes refuse: 401 on\n' +
+        'an instance with no API key, which is the default here, and 403 on one with a key.'
   );
   // Both lists are configuration-only (never a job setting) and both default to empty, so the two
   // states worth knowing about at startup are stated here rather than discovered on a failed run.
@@ -255,8 +259,10 @@ function main() {
   console.log(
     agents
       ? 'Agents are ON - the f8-agents sidecar comes up. It has NO host port (an agent chooses its\n' +
-        'own tool calls), so the API proxy is the only way in, and it holds no model configuration:\n' +
-        'every model call goes to this instance\'s own POST /chat with purpose: agent.'
+        'own tool calls), so from outside the compose network the API proxy is the only way in;\n' +
+        'inside that network every service can reach it and it authenticates nobody. It holds no\n' +
+        'model configuration: every model call goes to this instance\'s own POST /chat with\n' +
+        'purpose: agent.'
       : 'F8_AGENTS is not true - no agent host; the /agents routes refuse. Set F8_AGENTS=true to\n' +
         'run agents against this instance.'
   );
@@ -289,7 +295,7 @@ function main() {
   );
 
   // The AI-agent MCP surface (feature mcp-server) starts with the rest of the environment on
-  // http://localhost:8090 — anonymous + read-only for local dev. Securing it for an off-box
+  // http://localhost:8090, anonymous and read-only for local dev. Securing it for an off-box
   // setup is env-var config on the f8-mcp service (F8_MCP_AUTH_MODE / F8_MCP_TOKEN / tier
   // flags); see docs/mcp-server.md.
   // --remove-orphans: if a previous run used a different set of compose files, drop any

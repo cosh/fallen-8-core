@@ -523,10 +523,13 @@ namespace NoSQL.GraphDB.App
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Ingestion));
                 });
 
-                // The integrations gate (feature integrations): same shape - off by default,
-                // orthogonal to auth, 403 when off. That 403 IS the opt-out (F8_INTEGRATIONS=false)
-                // and is what a client gates the feature on, so no /integrations action checks the
-                // flag itself.
+                // The integrations gate (feature integrations): same shape, off by default. The
+                // REFUSAL is the opt-out (F8_INTEGRATIONS=false), which is why no /integrations
+                // action checks the flag itself. Which refusal depends on the instance rather than
+                // on the flag: 403 where an API key is configured, 401 where none is, because the
+                // policy above adds RequireAuthenticatedUser only in the first case. A client
+                // gating the feature on 403 alone therefore reads a keyless instance as having the
+                // feature on. DynamicCapabilityRequirement is the one home for that rule.
                 o.AddPolicy(Fallen8IntegrationsOptions.IntegrationsPolicy, p =>
                 {
                     if (keyConfigured)

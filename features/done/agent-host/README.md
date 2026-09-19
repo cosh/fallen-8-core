@@ -23,7 +23,9 @@ The enable-and-spawn walkthrough is on the
 sent. What is not there, because it is a contributor's path only: run the host outside compose with
 `dotnet run --project fallen-8-agents`, which binds loopback, and point it at an instance with
 `Fallen8Target__BaseUrl` and at an MCP server with `Agents__Mcp__Endpoint`. The instance still needs
-`Fallen8__Agents__Enabled=true` before its own `/agents/*` routes answer.
+`Fallen8__Agents__Enabled=true` before its own `/agents/*` routes answer, and
+`Fallen8__Agents__Endpoint=http://localhost:8120` before they reach the host: that key defaults to
+empty.
 
 ## Roles and allowlists
 

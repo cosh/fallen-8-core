@@ -96,7 +96,9 @@ if (chatProvider === 'local') {
   );
 }
 // The API-side URL and deliberately no localhost URL for the runtime itself: the f8-integrations
-// sidecar publishes no host port (jobs hand it third-party credentials), so the API is the only way in.
+// sidecar publishes no host port (jobs hand it third-party credentials), so from outside the compose network the
+// API is the only way in. Inside the compose network every service can reach it directly, and it
+// authenticates nobody.
 console.log(`  Integrations:  http://localhost:${f8Port}/integrations/providers  (through the API; the sidecar has no host port of its own)`);
 console.log(`  Observability: http://localhost:${grafanaPort}  (Grafana; fleet + per-tenant dashboards, open on the trusted network)`);
 console.log('  OTLP ingest:   localhost:4317 (gRPC) / :4318 (HTTP)  (point external Fallen-8 instances here)');

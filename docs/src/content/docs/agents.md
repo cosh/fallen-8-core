@@ -72,7 +72,7 @@ client that treats only 403 as "this feature is absent" will misread a bare `dot
 ## Roles
 
 A spawn names a **role**, which is a prompt plus a tool allowlist. The allowlist narrows what the
-MCP server advertises and can never widen it, and it is applied to the tool list the model is
+MCP server advertises and can never reach past it, and it is applied to the tool list the model is
 handed, so a tool outside it is not merely discouraged: the model never sees it.
 
 | Role | Sees | For |
@@ -87,9 +87,11 @@ it its part of a task, so one started by hand would have nobody to report to.
 `Agents:Roles:<role>:Tools` **replaces** a role's shipped allowlist rather than adding to it:
 absent or empty keeps what the role ships with (so an empty list leaves `orchestrator` on the
 overview read), a list of tool names means exactly those, and a lone `*` means every tool the
-server advertises, which is the only value that widens. A list holding nothing but blanks counts as
-empty, and `*` beside a tool name is refused at startup rather than guessed at. The MCP tiers bound
-all of them.
+server advertises whatever the role ships with, which no list of names can say without enumerating
+them. What the server advertises is still the outer bound. A list holding nothing but blanks counts
+as empty, and `*` beside a tool name is refused at startup rather than guessed at. A key naming no
+role is refused there too, so a misspelled role name cannot leave the role it was meant to narrow
+holding everything. The MCP tiers bound all of them.
 
 ## Swarm mode
 

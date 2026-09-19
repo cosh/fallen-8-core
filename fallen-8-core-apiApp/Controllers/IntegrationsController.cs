@@ -86,10 +86,10 @@ namespace NoSQL.GraphDB.App.Controllers
         ///   deployable's configuration, so a key here would be a second number to keep in step with it
         ///   and a caller could not tell which one refused them. The consequence, stated rather than
         ///   hidden: this bound caps what raising <c>Integrations:MaxJobFileBytes</c> can achieve through
-        ///   this proxy, at about 767 MiB of files less their part framing, and the
-        ///   that proxy is the way in from outside the compose network because the runtime publishes no port. A caller does not have to
-        ///   work that out: <c>GET /integrations/limits</c> serves the reconciled numbers, which is
-        ///   where <c>Binding</c> below applies exactly this cap.</para>
+        ///   this proxy, at about 767 MiB of files less their part framing, and that proxy is the
+        ///   way in from outside the compose network because the runtime publishes no port.
+        ///   A caller does not have to work that out: <c>GET /integrations/limits</c> serves the
+        ///   reconciled numbers, which is where <c>Binding</c> below applies exactly this cap.</para>
         ///
         ///   <para>Two OTHER ceilings bound a job and are not this one, both the runtime's and both
         ///   reported by that route: <c>Integrations:MaxFileBytes</c> per file, and

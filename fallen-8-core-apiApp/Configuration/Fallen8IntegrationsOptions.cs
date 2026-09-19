@@ -29,8 +29,10 @@ namespace NoSQL.GraphDB.App.Configuration
 {
     /// <summary>
     ///   The integrations configuration (feature integrations), section
-    ///   <c>Fallen8:Integrations</c>. Default OFF: every <c>/integrations</c> route answers 403
-    ///   and no sidecar is contacted.
+    ///   <c>Fallen8:Integrations</c>. Default OFF: every <c>/integrations</c> route refuses before
+    ///   a sidecar is contacted, with 403 on a keyed instance and 401 on a keyless one
+    ///   (<c>AgentsController</c> is the one home for why, and a client that reads only 403 as
+    ///   "absent" breaks on the second kind).
     ///
     ///   <para>The integration runtime is a separate deployable (<c>fallen-8-integrations</c>) whose
     ///   container port is deliberately not published, because jobs hand it third-party credentials.

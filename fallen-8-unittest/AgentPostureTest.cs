@@ -383,8 +383,18 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(listening.Message, "8120");
             StringAssert.Contains(listening.Message, "authenticates no caller");
             Assert.IsFalse(
-                sink.Entries.Any(e => e.Message.Contains("published", StringComparison.Ordinal)),
+                sink.Entries.Any(e => e.Message.Contains("publish", StringComparison.Ordinal)),
                 "nothing this process can observe justifies the word: " + listening.Message);
+
+            // The other arm, which is where the claim actually lived: the assertion above runs on
+            // a loopback bind, so the non-loopback WARNING never fires and its own compose-file
+            // claim ("publishes no host port") went unpinned for a whole round of review.
+            using var warned = new TestLogSink();
+            Posture(warned, new AgentsOptions { BindAddress = "0.0.0.0" });
+            Assert.IsFalse(
+                warned.Entries.Any(e => e.Message.Contains("publish", StringComparison.Ordinal)),
+                "the warning claims a compose property this process cannot see: "
+                + String.Join(" | ", warned.Entries.Select(e => e.Message)));
         }
 
         /// <summary>

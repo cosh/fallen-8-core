@@ -70,12 +70,18 @@ namespace NoSQL.GraphDB.Agents.Diagnostics
         ///   diagnostics do it.
         ///
         ///   <para>
-        ///     <b>The library's METER carries this name too.</b> The runner hands this string to
-        ///     <c>OpenTelemetryAgent</c>, which names both its <c>ActivitySource</c> and its
-        ///     <c>Meter</c> with it, so <c>gen_ai.client.token.usage</c> and
-        ///     <c>gen_ai.client.operation.duration</c> arrive on THIS meter. One registration in
-        ///     the exporter therefore carries the library's accounting as well as this host's, and
-        ///     a second registration of the library's default name would be a no-op.
+        ///     <b>The library's METER carries this name too, from a second package.</b> The runner
+        ///     hands this string to <c>OpenTelemetryAgent</c> in <c>Microsoft.Agents.AI</c>, which
+        ///     names its <c>ActivitySource</c> with it and instruments the chat client with
+        ///     <c>OpenTelemetryChatClient</c> from <c>Microsoft.Extensions.AI</c>: that is where
+        ///     the <c>Meter</c> lives, and with it <c>gen_ai.client.token.usage</c> and
+        ///     <c>gen_ai.client.operation.duration</c>. The METER takes its name from that same
+        ///     string, so both instruments arrive on THIS meter, and
+        ///     <c>Microsoft.Agents.AI</c> carries no <c>Meter</c> at all. One
+        ///     registration in the exporter therefore carries the library's accounting as well as
+        ///     this host's, and a second registration of a library default name would be a no-op.
+        ///     The two packages version independently, so a <c>Microsoft.Extensions.AI</c> bump is
+        ///     the one that can move the metric half of this.
         ///   </para>
         ///   <para>
         ///     <b>ONE span per run</b>, named <c>invoke_agent {name}({id})</c>, and the agent id is

@@ -53,7 +53,10 @@ namespace NoSQL.GraphDB.Agents
             builder.WebHost.UseUrls($"http://{options.BindAddress}:{options.Port}");
 
             // Without this the framework's 30 MB default applies, so one spawn could hand this
-            // process 30 MB of task text to retain for an hour. See TransportBound.
+            // process 30 MB of body to read and deserialize before anything judged it. Retention is
+            // not what this buys: AgentSpawn.MaxTaskBytes bounds a task at 8192 bytes, asked in the
+            // endpoint and again in the registry, so 30 MB of task text never reaches retention.
+            // See TransportBound.
             builder.WebHost.ConfigureKestrel(kestrel =>
                 kestrel.Limits.MaxRequestBodySize = TransportBound);
 
@@ -78,9 +81,14 @@ namespace NoSQL.GraphDB.Agents
         /// <summary>
         ///   The bound on a request body reaching this host: 2 MiB, chosen only to sit ABOVE the
         ///   apiApp proxy's own fixed bound (1 MiB), which is the way in from outside the compose
-        ///   network, so an absurd body is refused at the front door where the 413 names a number a
-        ///   caller can read. Equal bounds would leave a body at the proxy's own limit refused here
-        ///   instead, with a bare 413 the proxy reports as a host that did not answer.
+        ///   network, so an absurd body is refused at the front door rather than midway through a
+        ///   forward. That 413 does not name a number, and it is worth not claiming it does:
+        ///   <c>POST /agents</c> carries a bare <c>[RequestSizeLimit]</c> and builds no body of its
+        ///   own, so the refusal is whatever the instance's error pipeline renders, where
+        ///   <c>POST /integrations/job</c> checks <c>Content-Length</c> itself and names both
+        ///   numbers. Equal bounds would leave a body at
+        ///   the proxy's own limit refused here instead, with a bare 413 the proxy reports as a host
+        ///   that did not answer.
         ///
         ///   <para>It is not a statement about how big a spawn may be. That is
         ///   <see cref="NoSQL.GraphDB.Agents.Runtime.AgentSpawn.MaxTaskBytes" /> per task,

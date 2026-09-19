@@ -56,7 +56,7 @@ services:
       - Fallen8__Durability__StorageDirectory=/data
       - Fallen8__Metadata__Directory=/data/metadata
       # Opt-in security posture; set a real key before exposing beyond localhost. (Dynamic code
-      # execution is always on — the "queries are C#" model — so there is no switch for it; set an
+      # execution is always on, the "queries are C#" model, so there is no switch for it; set an
       # API key before exposing the server, since the compile endpoints run in-process code.)
       - Fallen8__Security__ApiKey=${F8_API_KEY:-}
       # Text-in embeddings out of the box (feature embedding-out-of-box): the Ollama
@@ -237,7 +237,7 @@ services:
   # itself runs with no API key here). The container must bind 0.0.0.0 to be reachable, so
   # AcceptAnonymousRemote makes that an explicit, logged decision. For an OFF-BOX deployment do
   # NOT reuse this: set F8_MCP_AUTH_MODE=StaticToken + F8_MCP_TOKEN (or OAuth) and enable only
-  # the tiers you need — see docs/mcp-server.md.
+  # the tiers you need. See docs/mcp-server.md.
   f8-mcp:
     image: ghcr.io/cosh/fallen-8-core-mcp:${F8_IMAGE_TAG:-latest}
     build:
@@ -287,7 +287,8 @@ services:
   # saw, and writes that description into one namespace over REST. It loads no engine assemblies.
   # Rides the "integrations" profile, default ON like the rest of the environment;
   # F8_INTEGRATIONS=false skips the sidecar AND turns the capability off (the fallen8 service reads
-  # the same variable). The apiApp is the ONLY caller: see the no-ports note below.
+  # the same variable). From outside this network the apiApp is the only caller there can be, and
+  # inside it any service can reach the runtime: see the no-ports note below.
   f8-integrations:
     image: ghcr.io/cosh/fallen-8-core-integrations:${F8_IMAGE_TAG:-latest}
     build:
@@ -298,12 +299,14 @@ services:
     # A synchronous run writes the graph in several transactions, so a recreate must not kill one
     # between writes and leave a half-applied snapshot (compose's default grace is 10s).
     stop_grace_period: 120s
-    # NO ports: key at all, and this is the only first-party service with none. This container is
+    # NO ports: key at all, the same posture as f8-agents. This container is
     # handed third-party credentials, so nothing on the host's network may talk to it directly; the
-    # browser reaches it through the apiApp, which is already the authenticated front door, so the
-    # runtime needs no second auth story. Publishing 8110 "just to debug it" is the instinct this
-    # posture exists to rule out: it would hand the job route to anything on the host. The expose:
-    # key below documents the port for a reader without opening it to the host.
+    # browser reaches it through the apiApp, which is already the authenticated front door. Inside
+    # this network it is different, and deliberately so: every service on f8-net can reach 8110 and
+    # the runtime authenticates nobody, so the unpublished port is the whole boundary. Publishing
+    # 8110 "just to debug it" is the instinct this posture exists to rule out: it would hand the job
+    # route to anything on the host, and the boundary with it. The expose: key below documents the
+    # port for a reader without opening it to the host.
     expose: ["8110"]
     # A job runner keeps nothing between runs, so it needs no writable layer and no data volume. A
     # read-only filesystem makes a leftover write fail loudly instead of leaving an invisible
@@ -426,8 +429,11 @@ services:
       # (Agents:Mcp:ConnectTimeoutSeconds). Without this edge compose starts both sidecars the
       # moment the instance is healthy, and a host that wins that race spends its whole life with
       # an empty toolset: every agent answers that it cannot reach the graph, and only a manual
-      # restart fixes it. It also makes compose recreate this host whenever that server is
-      # replaced, which is the same problem arriving by a different route.
+      # restart fixes it. The edge orders startup and nothing more: compose leaves this host
+      # running when that server is replaced later, because recreating a dependent is the opt-in
+      # --always-recreate-deps and nothing here passes it (scripts/env-up.js runs `up -d` with
+      # --remove-orphans). The host keeps the session it already opened, and only a run that finds
+      # NO session reconnects, so a replaced MCP server still needs this host restarted by hand.
       f8-mcp:
         condition: service_healthy
     healthcheck:
