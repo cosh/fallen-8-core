@@ -613,3 +613,181 @@ fixes themselves, and three of those are a fix whose own comment or doc is now f
 earlier sections arrived at needs one addition: after fixing a false claim, grep the tree for the
 claim, not just the file. Two of the worst here (the retired key, the re-asserted gate mechanism)
 were a correct fix applied at one site while the same sentence lived on at three or four others.
+
+## 14. The merge gate (2026-09-19), and what it found
+
+**How it ran.** A council of eight read-only reviewers, one dimension each (swarm, metrics,
+packaging, Studio, published claims, regressions, test quality, security), over the whole branch at
+`dce4e70b` with the weight on the eight commits after `22d3a650` that no gate had seen. Six
+reviewers returned 38 candidates. The two others (metrics, regressions), the clerk that merges
+duplicates and all 64 verification agents died on the account's usage limit, so **every candidate
+below was verified by hand from the code at HEAD**, refute first, the way the panel was instructed
+to. The two lost dimensions were covered where their work is mechanical: the old-key sweep of the
+tree (clean, with a positive control), the container built from the repository root and run
+read-only with a `/tmp` tmpfs (up, `curl` present for the healthcheck, `/health` 200, an unreachable
+MCP server leaving the host up with zero tools and a status route that says so), and compose
+resolved with the `agents` profile (every variable bound, no `ports:`, `f8-mcp` in the base file).
+The metrics reviewer's ground was partly walked by the test-quality reviewer (F27, F29, F32) and the
+claims reviewer (F18).
+
+**Verdict: HOLD.** Nothing on its own is a blocker in the sense of data loss or an unauthenticated
+hole the sibling sidecars do not already have. But nineteen findings are real and rated major, and
+the council's rule is that a branch merges when its findings are fixed and the fixes re-reviewed.
+The shapes are the two every earlier section predicted: a claim stated somewhere other than the
+code, and a test whose assertion is satisfied by the failure it names.
+
+### Swarm correctness (major)
+
+- **F01. An orchestrator that ends any way but a cancel orphans its live workers.** Only
+  `TryCancel` cascades; `Finish` records the ending and touches no child. Workers are admitted after
+  their orchestrator, so their deadlines are later, and an orchestrator awaiting slow workers hits
+  `MaxRunSeconds` first, every time: it ends `budgetExceeded`, its workers run on for up to 1800 s
+  each, holding three of four slots and spending their budgets for a composer that is gone. Same
+  outcome when the model answers without awaiting, or trips its step or token budget after
+  spawning. `AgentState.Cancelled`'s doc ("by its orchestrator going away") promises the cascade the
+  code does not perform, and no record calls the orphan deliberate. Fix: cascade on every terminal
+  transition of an agent with live children, or record the orphan as a decision with its sizing
+  consequence; pin with an orchestrator at `MaxRunSeconds = 1` awaiting a 30 s worker.
+- **F02. A spawn racing a cancel creates a worker no cascade reaches.** `TryAdmit` checks that the
+  parent EXISTS, not that it is live, and a finished orchestrator is retained for an hour;
+  `TryCancel` snapshots `Descendants` once. This class's own doc says a tool call already
+  dispatched when a cancel lands still runs, so `spawn_worker` can admit a worker after the
+  snapshot, or after the orchestrator is already `Cancelled`, and it runs to its own ending with a
+  cancelled parent. Fix: refuse a parent that is not live, and sweep until `LiveChildren` is empty.
+- **F03 (with F16, F28). A refused `spawn_worker` is journaled as `success: true`.** `Spawn`
+  returns the cap refusal as ordinary text, and `AgentRunner.Invoke` records any normal return as a
+  success, so the trace step, the `toolCalled` event and `f8a.agents.tool.calls{success=true}` all
+  report a breached cap as a call that worked. agents.md, spec 3.5, plan.md and the `Spawn` doc
+  comment all say `success: false`; the test on the path never asserts `Success`. Decide the
+  contract once, correct every site, and assert the flag in both cap tests.
+
+### Packaging and deployment
+
+- **F06 (major). `f8-agents` waits for `fallen8` but not for `f8-mcp`.** Both sidecars start the
+  instant the instance is healthy; the host connects to the MCP server ONCE with a 15 s budget and
+  nothing re-probes it. A slow cold start leaves every agent for the life of the container with no
+  tools, and the fix is one `depends_on` line, since `f8-mcp` has a healthcheck.
+- **F07 (major). The agent-model pull is justified three times by a deployment that cannot
+  exist.** `docker-compose.yml`, `.env.example` and `ollama-init.sh` say the pull matters "on a
+  hosted-chat deployment that still wants local agents"; there is ONE `Fallen8:Chat:Backend` for
+  both purposes, so agents on an OpenAI or Anthropic instance are served by that provider. On those
+  overlays `F8_AGENTS=true` downloads a multi-gigabyte model nothing will ever request, and the
+  comment tells the operator their agents run locally while they are metered.
+- **F08 (major). `ollama-init.sh` names the Nahil key.** The Ollama sidecar's own script tells an
+  operator wanting a tool-capable agent model to set `Fallen8__Chat__Nahil__Models__Agent`; the
+  sidecar serves chat only when the backend is Ollama, whose key is the Ollama one. Following the
+  comment is a silent no-op.
+- **F09 (minor).** `env-up.js` prints "an agent that can only read cannot be talked into a write"
+  while checking only the write and admin tiers; the code tier alone compiles operator-supplied C#
+  into the engine process.
+- **F10 (minor).** `running.mdx`'s list of published images omits `-agents`.
+- **F11 (minor).** `F8_AGENTS` is compared case-sensitively by both scripts and case-insensitively by
+  the instance's Boolean binder, so `F8_AGENTS=True` opens the `/agents` routes with no sidecar while
+  `env:up` says they refuse.
+
+### Tests that cannot fail (major)
+
+- **F04 (with F33).** No swarm test sets `MaxRunSeconds`; the only cancel-inside-await case goes
+  through the cascade, which completes `Task.WhenAll` by itself. Delete `.WaitAsync(cancellationToken)`
+  from `Await` and the suite stays green while an orchestrator's deadline stops applying inside
+  `await_workers`.
+- **F13.** The per-purpose card rows and their "not set" state have no test at all: no fixture
+  carries `agentModel`, nothing asserts "model (agent)". Swap the two values and everything passes.
+- **F29.** The one test that drives `AgentsMetrics` through `AgentJournal` guards itself with
+  `recorded.All.Count > 0`, and the observable gauge satisfies that alone. Delete the three
+  `_metrics?.X(...)` calls in the journal and the test named for the wiring stays green.
+- **F30.** The budget-separation test asserts the orchestrator's tokens are `< 5000`; charging the
+  worker's 15 tokens to it gives 60, which is also `< 5000`. Only the worker's `TokenBudget` is
+  pinned. Assert the exact split.
+- **F31.** Neither typed-result test asserts that the worker's ANSWER reaches the orchestrator:
+  they check the id and the substring "state". Drop `Result = worker.ResultText` and the swarm tests
+  pass with an orchestrator composing from nothing.
+
+### Claims that are false at HEAD
+
+- **F17 (major).** agents.md: "Every non-positive value above switches its cap off". Four keys in
+  that table are floored at 1 instead (`Fallen8Target:TimeoutSeconds`, `Agents:Mcp:ConnectTimeoutSeconds`,
+  `Agents:Feed:KeepAliveSeconds`, `Agents:Feed:MaxQueuedEvents`), so an operator who sets the
+  target timeout to 0 for "no deadline" gives every model call one second and every agent fails on
+  its first step. The startup line prints the eight `Limits` values and none of the swarm, trace or
+  feed caps, so "the startup line says unlimited" does not hold for them either.
+- **F18 (major).** agents.md: "no agent name and no agent id reaches a metric tag". The host's own
+  meter honours it. The runner passes the caller's `name` (or the unbounded id) as the framework
+  agent's `Name`; the framework names its span `invoke_agent {name}`; `env:up` always applies the
+  observability overlay, whose spanmetrics connector keys series on `span.name`. Every run is a new
+  Prometheus series in the shipped stack. Pass the role, a closed set, to the framework and keep the
+  caller's name on the record and the feed.
+- **F19 (major).** agents.md, spec 3.8 and `AgentsOptions` say an empty `Agents:Roles:<role>:Tools`
+  means every advertised tool. `RoleCatalog.Load` falls back to the SHIPPED allowlist on empty, so
+  the orchestrator keeps `f8_overview` and nothing widens it short of listing every tool.
+- **F27 (major).** `TheFrameworksOwnGenAiTelemetryNamesAreWhatTheExporterRegisters` asserts a
+  constant equals its own literal and observes no framework telemetry; `AgentsMetrics.cs` and
+  `AgentsObservability.cs` say the name is "measured rather than assumed, and a test pins it".
+  Whether the second `AddMeter` does anything at all is settled by the observing test the fix has to
+  add, not by either comment.
+- **F34 with F35 (major).** The stated reason the host authenticates nobody is false. The Dockerfile
+  says "the only caller that can reach this listener is the apiApp on f8-net"; spec 3.7,
+  `AgentsController`, `Fallen8AgentsOptions` and `AgentsOptions` derive "no second auth story" from
+  it. Every member of `f8-net` can reach it (the instance, both sidecars, Ollama, and with their
+  profiles docling and the NLP sidecar, which process untrusted input), and it holds the instance's
+  key and the MCP bearer. The startup line then logs "This port is not published", a compose
+  property the process cannot see, and prints it unchanged under a bare `dotnet run` on `0.0.0.0`.
+  The posture itself is the integrations runtime's, so it is a house convention and not a new hole;
+  the CLAIMS about it are this branch's. Correct them everywhere, log only what the process knows,
+  and add the host to `security.mdx` beside the MCP paragraph as the second credential-holding
+  listener the API key does not close.
+- **F36 (major).** `POST /agents` is the one body-taking sensitive route with no `[RequestSizeLimit]`
+  on either hop, and `task` and `name` are the only captures in this feature with no byte cap: an
+  authenticated caller can retain 200 agents of 29 MB each for an hour, every `GET /agents` returns
+  all of it, and `name` rides on every feed frame. `security.mdx` states the 1 MiB invariant with two
+  named exceptions; this is an unnamed third.
+- **D1 (major, found before the council).** `GET /agents/status` reports neither `maxSwarmDepth` nor
+  `maxWorkersPerOrchestrator` in `limits`, while agents.md says it reports "the caps a run is held
+  to". The status test asserts a hand-picked field list, so it could not notice. This is the class
+  section 12 already fixed once for `maxTokenBudget`.
+- **F05 with F20 (major, textual).** Comments that describe the swarm as a future phase: the
+  `IsSpawnableByACaller` summary says the orchestrator is refused and the body returns true;
+  `RoleCatalog` line 88 says "the registry implements" the swarm tools (`SwarmTools` does);
+  `AgentRecord.Parent`'s doc says "No shipped path supplies a parent today" and calls the swarm tool
+  Phase 4; `Children()` carries two `<summary>` blocks, the first stale; `AgentEndpoints` and
+  `AgentFeed` still call the swarm a later phase that will emit `agentMessage`.
+- **F26 (minor).** agents.md and `Fallen8AgentsOptions` say the feed "takes none" of
+  `TimeoutSeconds`; `AgentsClient` applies it to the feed's headers phase and its interface doc
+  already corrected the sentence once. The section 13 rule, grep the tree for the claim, was not
+  applied.
+- **F12 (minor).** The card decides "not set" with `??`; the write validator accepts `""` for a
+  string key and `ResolveModel` passes it through, so the one state the row exists to reveal
+  renders as a blank cell, and the comment above it says otherwise.
+- **F32 (minor).** `AgentsMetrics.Observe`'s doc says a negative reading is never published and a
+  faulting source produces no sample; the code publishes any value and reports 0 on a fault, which
+  its own test asserts.
+- **F14 (minor).** Two comments in the picker test say Nahil ships the agent model empty. It does
+  not; only OpenAI and Anthropic do.
+- **F21, F22, F23 (minor).** The feature README's status line still says phase 5 in progress;
+  running.mdx and the root README still say "every feature is on" of an environment where this one
+  is off by default; semantic-traversal.mdx links the word "agent" in the tools section to the MCP
+  server page instead of `/agents/`.
+- **F37, F38 (minor).** `security.mdx`, the one home for the capability posture, counts four
+  switches and lists neither Integrations nor Agents, and states the unconditional 403 this branch
+  corrected elsewhere; `DynamicCapabilityAuthorization`'s class docs assert the same unconditional
+  pairing forty lines above the enum doc that corrects it.
+- **F24, F25 (minor).** The feature README narrates Quickstart, Roles and Security posture at the
+  same length as the docs page, and the two already disagree (README on roles versus agents.md 173);
+  the REST-family convention test's literal class excludes `?`, so a graph route written with a
+  query string escapes the pin the docs say cannot be escaped quietly.
+
+### Not counted
+
+- **F15.** The off-state cards' "answers 403" copy predates this branch (July) and is the
+  repository-wide 401/403 wording debt; worth fixing while `ConfigurationPanel.tsx` is open, not a
+  gate finding.
+- **F16, F28** are F03; **F33** is F04; **F20** is folded into F05.
+- The container runs as uid 0, as both sibling sidecars do: a house matter, recorded here and not
+  charged to this branch.
+
+**Two things about the gate itself worth keeping.** First, a workflow whose verification stage dies
+reports its candidates in the wrong bucket: the script's `refuted` array held 38 items marked
+`unverified` and its `confirmed` array was empty, which a reader in a hurry would take as a clean
+bill. Read the failure list before the result. Second, reviewers cite wrong line numbers while
+being right about the claim: F35 pointed at line 432 of a 357-line file, and the sentence was at
+213. Verify the claim, not the citation.
