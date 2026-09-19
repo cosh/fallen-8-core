@@ -203,9 +203,14 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 // PRESENCE is not liveness. A finished agent stays readable for
                 // RetainFinishedMinutes, so the lookup above finds an orchestrator that has
                 // already ended, and a worker admitted under one is a run no ending reaches: it
-                // holds a slot and spends a budget for a composer that is gone. Checked in the
-                // same lock section that writes an ending, which is what makes Finish's cascade
-                // complete rather than best effort.
+                // holds a slot and spends a budget for a composer that is gone.
+                //
+                // What makes the cascade complete rather than best effort is that THIS check and
+                // the dictionary write below are one atomic section over the same lock the ending
+                // is written under. A spawn therefore linearizes either before the ending, where
+                // the cascade's children read finds it, or after, where this refuses it. Moving
+                // that write out of this section, to journal a spawn earlier for instance, would
+                // reopen the window while this comment still read as satisfied.
                 if (parent != null && AgentStates.IsTerminal(parent.State))
                 {
                     problem = String.Format(CultureInfo.InvariantCulture,
@@ -541,13 +546,38 @@ namespace NoSQL.GraphDB.Agents.Runtime
             // a trace can carry a short tail past its ending rather than exactly one step, and a
             // reader comparing the last step's kind against the state should expect it. See
             // TryAdmit for the bound.
-            _journal.Finished(finished, citations);
+            // In a boundary of its own, because the two signals below are what release everything
+            // waiting on this agent and a record that failed to be written must not cost them. The
+            // journal reaches a log provider the host brought with it, which is the one thing here
+            // that a third party can make throw.
+            try
+            {
+                _journal.Finished(finished, citations);
+            }
+            catch (Exception failed) when (failed is not OperationCanceledException)
+            {
+                Report(failed, finished);
+            }
 
             // Also outside: cancelling the token runs continuations, and one of those is the
             // runner's own finally, which calls back in here. That re-entrant call finds an agent
             // that is already terminal, so it writes nothing and cascades nothing: the reentrancy
             // is one level deep and no lock is held across it.
-            finished.SignalCancellation();
+            //
+            // In its own boundary, because Cancel() runs every registered callback and hands back
+            // whatever they threw. The token is cancelled either way, so the run does stop; what a
+            // throw here would otherwise take with it is the signal below, which is what releases
+            // an orchestrator waiting on this agent. EVERY exception, cancellation included: a
+            // callback that throws OperationCanceledException is a misbehaving callback rather than
+            // this operation being cancelled.
+            try
+            {
+                finished.SignalCancellation();
+            }
+            catch (Exception failed)
+            {
+                Report(failed, finished);
+            }
 
             // AFTER the ending is journaled and the token is cancelled, so an orchestrator woken
             // by this reads a record that is already complete rather than one mid-transition.
@@ -652,20 +682,28 @@ namespace NoSQL.GraphDB.Agents.Runtime
         /// </summary>
         private Int32 CancelDescendants(String rootId, AgentState ending)
         {
-            // What an operator reads on the worker's row. It names the orchestrator's ending,
-            // because "cancelled" on its own reads as somebody having cancelled the worker.
-            var failure = String.Format(CultureInfo.InvariantCulture,
-                "Its orchestrator ended ({0}) before this worker finished.",
-                AgentStates.Wire(ending));
-
             var cancelled = 0;
             var seen = new HashSet<String>(StringComparer.Ordinal) { rootId };
-            var frontier = new Queue<String>();
-            frontier.Enqueue(rootId);
+
+            // The ending travels with the id, because the text is what an operator reads on the
+            // worker's row and it names the ending of that worker's OWN orchestrator. Taking the
+            // root's ending for every level told a grandchild that its orchestrator had completed
+            // when that orchestrator was cancelled by this same walk, which is an ending that
+            // appears nowhere in its lineage.
+            var frontier = new Queue<(String Id, AgentState Ending)>();
+            frontier.Enqueue((rootId, ending));
 
             while (frontier.Count > 0)
             {
-                foreach (var child in LiveChildren(frontier.Dequeue()))
+                var (parentId, parentEnding) = frontier.Dequeue();
+
+                // "cancelled" on its own reads as somebody having cancelled the worker, which is
+                // why the orchestrator's ending is named rather than implied.
+                var failure = String.Format(CultureInfo.InvariantCulture,
+                    "Its orchestrator ended ({0}) before this worker finished.",
+                    AgentStates.Wire(parentEnding));
+
+                foreach (var child in LiveChildren(parentId))
                 {
                     if (!seen.Add(child.Id))
                     {
@@ -679,12 +717,54 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     }
 
                     cancelled++;
-                    Publish(stopped, citations: null);
-                    frontier.Enqueue(child.Id);
+
+                    // One node's publication cannot end the walk. This is the only sweep there is
+                    // now: the old code re-polled the subtree on every cancel, so a partial failure
+                    // was transient, and here it would be permanent. Measured before it was fixed,
+                    // with a log provider that throws on the feed's drop warning: the throw landed
+                    // between the state write and the cancellation, leaving three of four slots
+                    // held for the life of the process and a second cancel refusing to help,
+                    // because the orchestrator was already terminal.
+                    //
+                    // A BACKSTOP, and honestly so: every throw site inside Publish is handled where
+                    // it happens, so no test reaches this catch and a mutation that deletes it
+                    // survives. It is kept because the failure it prevents is permanent and the
+                    // cost is one try block, which is the same trade the walk's visited set makes.
+                    try
+                    {
+                        Publish(stopped, citations: null);
+                    }
+                    catch (Exception failed) when (failed is not OperationCanceledException)
+                    {
+                        Report(failed, stopped);
+                    }
+
+                    frontier.Enqueue((child.Id, AgentState.Cancelled));
                 }
             }
 
             return cancelled;
+        }
+
+        /// <summary>
+        ///   Says that announcing an ending failed, and cannot itself be what fails. The suspect in
+        ///   the measured case IS the logger, so this attempt is allowed to fail too rather than
+        ///   propagating into the walk it exists to protect.
+        /// </summary>
+        private void Report(Exception failed, AgentRecord agent)
+        {
+            try
+            {
+                _logger.LogError(failed,
+                    "Agent {AgentId} ended and the announcement failed, so its trace, its event or "
+                    + "its metric may be missing. The ending itself is recorded, and the agents it "
+                    + "orchestrated are still being stopped.",
+                    agent.Id);
+            }
+            catch (Exception)
+            {
+                // Deliberately swallowed: see above.
+            }
         }
 
         /// <summary>
@@ -742,14 +822,16 @@ namespace NoSQL.GraphDB.Agents.Runtime
             {
                 if (survivor.Parent != null && gone.Contains(survivor.Parent.Id))
                 {
-                    // The other direction, which is a guard rather than a live path: a child
-                    // outliving its parent. Since every ending cascades and admission refuses a
-                    // parent that has ended, a child's ending is never later than its parent's, and
-                    // eviction takes the older one first, so this branch is not reachable through
-                    // the retention clock. It is kept for the same reason the walk keeps a visited
-                    // set: the cost is one reference comparison per eviction, and the failure it
-                    // would prevent is an ancestry of bounded traces retained by a record the
-                    // listing has forgotten. ParentId stays either way, so the lineage a summary
+                    // The other direction, and it is a LIVE path rather than a guard, for exactly
+                    // the reason the cascade exists: an orchestrator's ending is stamped before the
+                    // workers it stops, so the parent is the older finished record and eviction
+                    // takes the older one first. Measured: boss finished at .684712Z, its worker at
+                    // .687104Z, and the trim evicted boss and kept worker. On the shipped ceiling
+                    // of 200 it fires at every trim boundary that cuts through an orchestrator's
+                    // batch. What is unreachable is a SURVIVING LIVE child, since admission refuses
+                    // a terminal parent, so this only ever clears a terminal survivor's link.
+                    // Without it a record the listing has forgotten keeps a whole ancestry of
+                    // bounded traces alive. ParentId stays either way, so the lineage a summary
                     // reports is unchanged.
                     survivor.Parent = null;
                 }
@@ -959,7 +1041,9 @@ namespace NoSQL.GraphDB.Agents.Runtime
 
         /// <summary>
         ///   The agent that spawned this one, for the spawn step that belongs on ITS trace. Null for
-        ///   anything a caller spawned, and null again once the parent is evicted.
+        ///   anything a caller spawned, and null again once the parent is evicted, which happens
+        ///   while this agent is still readable and (since every ending cascades) never while it is
+        ///   still running.
         ///
         ///   <para>
         ///     A reference rather than an id looked up on demand, because the spawn step is written

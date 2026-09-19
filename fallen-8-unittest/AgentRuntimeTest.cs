@@ -1047,11 +1047,12 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreSame(grand, middle.Parent, "this test needs the chain it is about");
             Assert.AreSame(middle, leaf.Parent);
 
-            // The DESCENDANTS end and are evicted while their parent is still live, which is the
-            // direction that is reachable: a parent's ending cancels its live workers, so an
-            // evicted parent no longer has a surviving child, and this is the case the eviction
-            // leak was about anyway. A record that held its parent kept that parent's whole trace
-            // and token source alive after the listing had forgotten the holder.
+            // The DESCENDANTS end and are evicted while their parent is still live. This is the
+            // direction the eviction leak was about: a record that held its parent kept that
+            // parent's whole trace and token source alive after the listing had forgotten the
+            // holder. The OTHER direction is reachable too, which this test once claimed it was
+            // not: see AnEvictedParentClearsTheLinkOnTheChildThatOutlivedIt. What is unreachable is
+            // a surviving LIVE child, because admission refuses a terminal parent.
             Assert.IsTrue(harness.Registry.Finish(leaf.Id, AgentState.Completed, resultText: "done"));
             Assert.IsTrue(harness.Registry.Finish(middle.Id, AgentState.Completed, resultText: "done"));
 
@@ -1074,6 +1075,152 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(middle.Id, leaf.ParentId);
             Assert.AreEqual(grand.Id, middle.ParentId);
             Assert.AreEqual(AgentState.Pending, grand.State, "the live agent was not disturbed");
+        }
+
+        /// <summary>
+        ///   The other eviction direction, which the cascade made ROUTINE rather than unreachable:
+        ///   an orchestrator's ending is stamped before the workers it stops, so it is the older
+        ///   finished record and the trim takes it first, leaving a terminal child whose parent
+        ///   link has to be cleared. Both this registry's comment and the branch's own merge record
+        ///   called that branch dead, on the strength of an ordering that the cascade inverts.
+        /// </summary>
+        [TestMethod]
+        public void AnEvictedParentClearsTheLinkOnTheChildThatOutlivedIt()
+        {
+            var clock = new TickingClock(DateTimeOffset.Parse("2026-09-10T06:00:00Z"));
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+            options.Limits.RetainFinishedMinutes = 0;
+            options.Limits.MaxRetainedAgents = 1;
+
+            using var harness = new Harness(Script.Says("ok"), options: options, clock: clock);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "part one") { ParentId = boss.Id }, out var worker, out _));
+            Assert.AreSame(boss, worker.Parent, "this test needs the link it is about");
+
+            // One ending, which cascades: the orchestrator is stamped first and its worker second,
+            // so the orchestrator is the older finished record.
+            Assert.IsTrue(harness.Registry.Finish(boss.Id, AgentState.Completed, resultText: "done"));
+            Assert.IsTrue(AgentStates.IsTerminal(worker.State), "the cascade did not reach it");
+            Assert.IsTrue(boss.FinishedUtc < worker.FinishedUtc,
+                "the arrangement depends on the orchestrator ending first: " + boss.FinishedUtc
+                + " vs " + worker.FinishedUtc);
+
+            // Any read trims to the ceiling, oldest first, which takes the PARENT.
+            Assert.AreEqual(1, harness.Registry.All().Count);
+            Assert.IsFalse(harness.Registry.TryGet(boss.Id, out _), "the older record survived");
+            Assert.IsTrue(harness.Registry.TryGet(worker.Id, out _), "the newer one was taken");
+
+            Assert.IsNull(worker.Parent,
+                "the survivor kept its evicted parent, and with it that parent's trace and token "
+                + "source, after the listing had forgotten it");
+            Assert.AreEqual(boss.Id, worker.ParentId,
+                "the lineage a client reads is unchanged: only the reference goes");
+        }
+
+        /// <summary>
+        ///   A cascaded worker's row names the ending of ITS OWN orchestrator. The text was computed
+        ///   once from the ending that started the walk and stamped on every level, so a grandchild
+        ///   read "its orchestrator completed" while the orchestrator it actually had was cancelled
+        ///   by this same walk: an ending that appears nowhere in its lineage.
+        /// </summary>
+        [TestMethod]
+        public void ACascadedWorkerNamesTheEndingOfItsOwnOrchestratorRatherThanTheRootsEnding()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+
+            // Off because this needs three generations and the shipped cap of 2 refuses one.
+            options.Limits.MaxSwarmDepth = 0;
+
+            using var harness = new Harness(Script.Says("ok"), options: options);
+
+            Assert.IsTrue(harness.Registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("orchestrator", "sub-plan") { ParentId = boss.Id },
+                out var middle, out _));
+            Assert.IsTrue(harness.Registry.TryAdmit(
+                new AgentSpawn("worker", "leaf part") { ParentId = middle.Id }, out var leaf, out _));
+
+            Assert.IsTrue(harness.Registry.Finish(boss.Id, AgentState.Completed, resultText: "done"));
+
+            StringAssert.Contains(middle.Failure, "completed",
+                "the middle agent's orchestrator DID complete, so its row says so: " + middle.Failure);
+            StringAssert.Contains(leaf.Failure, "cancelled",
+                "the leaf's orchestrator was cancelled by this walk, so its row cannot claim an "
+                + "ending nothing in its lineage had: " + leaf.Failure);
+        }
+
+        /// <summary>
+        ///   An announcement that throws does not strand the rest of the swarm. The cascade is the
+        ///   only sweep there is now, where the old code re-polled the subtree on every cancel, so a
+        ///   partial failure went from transient to permanent: measured, a log provider throwing on
+        ///   the feed's drop warning left three of four slots held for the life of the process, with
+        ///   a second cancel refusing to help because the orchestrator was already terminal.
+        /// </summary>
+        [TestMethod]
+        public void AnAnnouncementThatThrowsStillStopsEveryWorkerAndReleasesEveryWaiter()
+        {
+            var options = new AgentsOptions();
+            options.Limits.MaxConcurrentAgents = 0;
+
+            // A queue of one, so the second event drops the subscriber and the dispatcher logs the
+            // warning this provider throws on.
+            options.Feed.MaxQueuedEvents = 1;
+            var wrapped = Options.Create(options);
+
+            var feed = new AgentFeedDispatcher(wrapped, new ThrowingLogger<AgentFeedDispatcher>());
+            var registry = new AgentRegistry(wrapped,
+                TestLoggerFactory.Create().CreateLogger<AgentRegistry>(),
+                new AgentJournal(feed, wrapped));
+
+            Assert.IsTrue(registry.TryAdmit(new AgentSpawn("orchestrator", "plan"),
+                out var boss, out _));
+            var workers = new List<AgentRecord>();
+            for (var i = 0; i < 3; i++)
+            {
+                Assert.IsTrue(registry.TryAdmit(
+                    new AgentSpawn("worker", "part " + i.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                    {
+                        ParentId = boss.Id,
+                    },
+                    out var worker, out _));
+                workers.Add(worker);
+            }
+
+            // And one worker whose cancellation callback throws, which is the OTHER way a
+            // publication fails: Cancel() runs every registered callback and hands back whatever
+            // they threw, so a throw there used to take the finished signal with it and leave an
+            // orchestrator awaiting that worker forever.
+            workers[0].Cancellation.Register(
+                () => throw new InvalidOperationException("this callback is broken"));
+
+            // Subscribed AFTER admission, so the arrangement is the cancel rather than the spawns.
+            Assert.IsTrue(feed.TrySubscribe(AgentFeedFilter.All, out var subscription, out _));
+            using (subscription)
+            {
+                Assert.IsTrue(registry.TryCancel(boss.Id, out var signalled));
+                Assert.AreEqual(4, signalled,
+                    "the walk stopped at the throw, so the rest of the swarm was never reached");
+            }
+
+            foreach (var worker in workers)
+            {
+                Assert.IsTrue(AgentStates.IsTerminal(worker.State),
+                    "a worker was left live under an orchestrator that has ended");
+                Assert.IsTrue(worker.Cancellation.IsCancellationRequested,
+                    "the state says cancelled and the token was never signalled, so the run itself "
+                    + "keeps going");
+                Assert.IsTrue(worker.Finished.IsCompleted,
+                    "an orchestrator awaiting this worker waits for a signal that never comes");
+            }
+
+            Assert.AreEqual(0, registry.ActiveCount,
+                "slots were held for the life of the process");
         }
 
         [TestMethod]
@@ -2937,6 +3084,41 @@ namespace NoSQL.GraphDB.Tests
         ///   A clock a test moves by hand. Retention is measured in minutes, and a test that slept
         ///   for them would be a test nobody runs.
         /// </summary>
+        /// <summary>A clock that advances one millisecond per read, so an ordering between two
+        /// stamps taken in sequence is deterministic rather than dependent on the machine.</summary>
+        private sealed class TickingClock : TimeProvider
+        {
+            private DateTimeOffset _now;
+
+            public TickingClock(DateTimeOffset start)
+            {
+                _now = start;
+            }
+
+            public override DateTimeOffset GetUtcNow()
+            {
+                _now = _now.AddMilliseconds(1);
+                return _now;
+            }
+        }
+
+        /// <summary>A log provider that throws, which is the case this class keeps its log calls
+        /// outside the lock for. A host brings its own providers and one of them misbehaving must
+        /// not be able to strand a swarm.</summary>
+        private sealed class ThrowingLogger<T> : ILogger<T>
+        {
+            public IDisposable BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public Boolean IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state,
+                Exception exception, Func<TState, Exception, String> formatter)
+            {
+                throw new InvalidOperationException("this log provider is broken");
+            }
+        }
+
         private sealed class StepClock : TimeProvider
         {
             private DateTimeOffset _now;
