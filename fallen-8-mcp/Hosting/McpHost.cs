@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // McpHost.cs
 //
@@ -84,10 +84,15 @@ namespace NoSQL.GraphDB.Mcp.Hosting
                 {
                     var target = sp.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value;
                     client.BaseAddress = new Uri(EnsureTrailingSlash(target.BaseUrl));
-                    // Stated, not inherited: the default would be 100s and untunable. Floored at
-                    // 1s because this delegate runs per CreateClient, so a non-positive config value
-                    // would otherwise throw on every bridged call rather than once at startup.
-                    client.Timeout = TimeSpan.FromSeconds(Math.Max(1, target.TimeoutSeconds));
+                    // Stated, not inherited: the default would be 100s and untunable. Bounded at
+                    // BOTH ends by OptionBounds, because this delegate runs per CreateClient, so a
+                    // value HttpClient.Timeout refuses throws on every bridged call rather than
+                    // once at startup - and it refuses two kinds. A non-positive one is floored.
+                    // A large one, which is how an operator asks for "effectively no deadline", is
+                    // clamped: past Int32.MaxValue MILLISECONDS the setter threw
+                    // ArgumentOutOfRangeException naming `value` rather than the setting, which is
+                    // the incident that put the ceiling in the shared seam.
+                    client.Timeout = target.Deadline;
                     if (!String.IsNullOrEmpty(target.ApiKey))
                     {
                         client.DefaultRequestHeaders.TryAddWithoutValidation(target.ApiKeyHeader, target.ApiKey);

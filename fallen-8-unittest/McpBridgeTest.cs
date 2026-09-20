@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // McpBridgeTest.cs
 //
@@ -41,6 +41,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Mcp.Bridge;
 using NoSQL.GraphDB.Mcp.Configuration;
 using NoSQL.GraphDB.Mcp.Tools;
+using NoSQL.GraphDB.Rest.Configuration;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -340,6 +341,34 @@ namespace NoSQL.GraphDB.Tests
 
                 var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(Fallen8RestClient.HttpClientName);
                 Assert.AreEqual(TimeSpan.FromSeconds(1), client.Timeout, "'{0}' must be floored, not thrown on", bad);
+            }
+        }
+
+        [TestMethod]
+        public void Bridge_HttpClient_ClampsAnEnormousTimeout_InsteadOfThrowingPerCall()
+        {
+            // The OTHER end of the same clamp, and the end this bridge did not have. A large value is
+            // how an operator asks for "effectively no deadline", and the floor's own comment invites it
+            // by explaining only the low end. HttpClient.Timeout refuses a span past Int32.MaxValue
+            // MILLISECONDS, so a large SECONDS value threw ArgumentOutOfRangeException naming `value`
+            // rather than the setting - and because this runs in the named client's configure delegate,
+            // it threw on every bridged tool call. Same incident as the agent host's OptionBounds
+            // ceiling, one API further along. Feature sidecar-shared-options, defect 1.
+            foreach (var enormous in new[] { Int32.MaxValue, OptionBounds.MaxSeconds + 1 })
+            {
+                var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<String, String>
+                {
+                    ["Fallen8Target:BaseUrl"] = "http://downstream.local",
+                    ["Fallen8Target:TimeoutSeconds"] = enormous.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                }).Build();
+
+                var services = new ServiceCollection();
+                McpHost.AddFallen8Mcp(services, config, stdio: true);
+                using var provider = services.BuildServiceProvider();
+
+                var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(Fallen8RestClient.HttpClientName);
+                Assert.AreEqual(TimeSpan.FromSeconds(OptionBounds.MaxSeconds), client.Timeout,
+                    "'{0}' must become the largest deadline the platform can arm, not an exception", enormous);
             }
         }
 

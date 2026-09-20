@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // IntegrationsWritePathTest.cs
 //
@@ -45,6 +45,7 @@ using NoSQL.GraphDB.Integrations.Graph;
 using NoSQL.GraphDB.Integrations.Identity;
 using NoSQL.GraphDB.Integrations.Run;
 using NoSQL.GraphDB.Integrations.Validation;
+using NoSQL.GraphDB.Rest.Configuration;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -1686,6 +1687,29 @@ namespace NoSQL.GraphDB.Tests
 
                 Assert.AreEqual(TimeSpan.FromSeconds(1), timeout,
                     "'" + bad.ToString(CultureInfo.InvariantCulture) + "' must be floored, not thrown on");
+            }
+        }
+
+        [TestMethod]
+        public void TheGraphClientClampsAnEnormousDeadline_RatherThanThrowingOnTheFirstCall()
+        {
+            // The OTHER end of the same clamp, and the end this runtime did not have. A large value is
+            // how an operator asks for "effectively no deadline", and the floor's own comment invites it
+            // by explaining only the low end. HttpClient.Timeout refuses a span past Int32.MaxValue
+            // MILLISECONDS, so a large SECONDS value threw ArgumentOutOfRangeException naming `value`
+            // rather than the setting - the same incident that put a ceiling in the agent host's
+            // OptionBounds, one API further along. Feature sidecar-shared-options, defect 1.
+            foreach (var enormous in new[] { Int32.MaxValue, OptionBounds.MaxSeconds + 1 })
+            {
+                var timeout = ClientDeadlineOf(new Fallen8TargetOptions
+                {
+                    BaseUrl = "http://graph.invalid:8080",
+                    TimeoutSeconds = enormous,
+                });
+
+                Assert.AreEqual(TimeSpan.FromSeconds(OptionBounds.MaxSeconds), timeout,
+                    "'" + enormous.ToString(CultureInfo.InvariantCulture)
+                    + "' must become the largest deadline the platform can arm, not an exception");
             }
         }
 
