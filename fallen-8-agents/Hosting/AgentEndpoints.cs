@@ -577,9 +577,11 @@ namespace NoSQL.GraphDB.Agents.Hosting
             get; set;
         }
 
-        /// <summary>The per-call deadline in FORCE, which is <see cref="Fallen8TargetOptions.Deadline" />
-        /// rather than the raw setting: a non-positive value is floored, and a route that exists to
-        /// answer "why did my agent fail" has to report what a call actually gets.</summary>
+        /// <summary>The per-call deadline in FORCE, which is
+        /// <see cref="NoSQL.GraphDB.Rest.Configuration.AFallen8TargetOptions.Deadline" /> rather
+        /// than the raw setting: a non-positive value is floored, a very large one is clamped, and a
+        /// route that exists to answer "why did my agent fail" has to report what a call actually
+        /// gets.</summary>
         [JsonPropertyName("timeoutSeconds")]
         public Int32 TimeoutSeconds
         {

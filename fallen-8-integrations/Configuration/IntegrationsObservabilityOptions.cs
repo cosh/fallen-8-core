@@ -24,33 +24,21 @@
 // SOFTWARE.
 
 using System;
+using NoSQL.GraphDB.Rest.Configuration;
 
 namespace NoSQL.GraphDB.Integrations.Configuration
 {
     /// <summary>
-    ///   OTLP push configuration, bound from <c>Integrations:Observability</c> - this runtime's mirror
-    ///   of <c>Fallen8:Observability</c> and <c>Mcp:Observability</c>. Off by default: with no endpoint
-    ///   the runtime registers zero OpenTelemetry code paths. Metrics, traces and logs go to the same
-    ///   collector as the Fallen-8 this runtime feeds, and log export runs BEHIND the credential
-    ///   redaction wrap, which is why that wrap is installed last in DI.
+    ///   OTLP push configuration, bound from <c>Integrations:Observability</c>. The shape and the
+    ///   off-by-default rule are <see cref="AFleetObservabilityOptions" />'.
+    ///
+    ///   <para>What is this runtime's own is the ORDER: log export runs BEHIND the credential
+    ///   redaction wrap, which is why that wrap is installed last in DI. See
+    ///   <see cref="Hosting.IntegrationsObservability" />.</para>
     /// </summary>
-    public sealed class IntegrationsObservabilityOptions
+    public sealed class IntegrationsObservabilityOptions : AFleetObservabilityOptions
     {
         /// <summary>The configuration section this binds from.</summary>
         public const String SectionName = "Integrations:Observability";
-
-        /// <summary>The OTLP push block.</summary>
-        public OtlpOptions Otlp { get; set; } = new OtlpOptions();
-
-        /// <summary>Whether an OTLP pipeline must be registered at all.</summary>
-        public Boolean OtlpEnabled => !String.IsNullOrWhiteSpace(Otlp?.Endpoint);
-
-        /// <summary>The OTLP endpoint block.</summary>
-        public sealed class OtlpOptions
-        {
-            /// <summary>OTLP endpoint URL (e.g. http://otel-collector:4317, gRPC). When set, an
-            /// exporter for metrics, traces AND logs is added. Default null (off).</summary>
-            public String? Endpoint { get; set; }
-        }
     }
 }

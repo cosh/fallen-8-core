@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using NoSQL.GraphDB.Rest.Configuration;
 
 namespace NoSQL.GraphDB.Agents.Configuration
 {
