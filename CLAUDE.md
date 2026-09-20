@@ -46,7 +46,7 @@ from the README and has a page on the docs site.
 
 ```bash
 dotnet build fallen-8-core.sln            # build everything (net10.0)
-dotnet test  fallen-8-core.sln            # run all tests (~90s)
+dotnet test  fallen-8-core.sln            # run all tests (~6 min, 2800+ of them)
 
 # Run a focused subset while iterating:
 dotnet test fallen-8-core.sln --filter "FullyQualifiedName~SubGraphTest"

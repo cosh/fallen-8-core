@@ -16,9 +16,13 @@ The `docker compose` environment is for running the whole thing together (integr
 "does it work end to end"). Its containers are Release builds with no debugger attached.
 For breakpoints, run the pieces **locally** and let VS Code attach its debuggers. The
 engine (`fallen-8-core`) runs in-process with the API, so one backend debugger covers both.
-The MCP server (`fallen-8-mcp`) is a fourth project and a separate process that no launch config
-covers; run it against your local API as described in
-[MCP server](/mcp-server/).
+Three more projects are separate processes that no launch config covers, and each is run against
+your local API on its own: the [MCP server](/mcp-server/) (`fallen-8-mcp`), the
+[integrations runtime](/integrations/) (`fallen-8-integrations`) and the
+[agent host](/agents/) (`fallen-8-agents`). Under compose, only the MCP server publishes a host
+port; the other two are reached through the API's authenticated proxy at `/integrations/*` and
+`/agents/*`, so debugging a request to either means driving it through the API rather than calling
+the sidecar directly.
 
 Prerequisites (all in the workspace's recommended extensions):
 - `ms-dotnettools.csharp`: the C# / `coreclr` debugger
@@ -228,3 +232,5 @@ attach configuration. For everything else, local debugging is faster.
 | Compose docling sidecar | `${F8_DOCLING_PORT}` (5001) | converts binary formats for ingestion |
 | Compose NLP sidecar | `${F8_NLP_PORT}` (8100) | entity and key-term enrichment |
 | Compose MCP server | `${F8_MCP_PORT}` (8090) | separate deployable, no launch config; defaults to targeting `:8080` |
+| Compose integrations runtime | 8110, **not published** | separate deployable on the `integrations` profile; reached only through the API's proxy at `/integrations/*` |
+| Compose agent host | 8120, **not published** | separate deployable on the `agents` profile, off by default; reached only through the API's proxy at `/agents/*` |

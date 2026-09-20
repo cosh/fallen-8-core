@@ -1,5 +1,21 @@
 # Cleanup report: dead code, inconsistencies, and spec divergence
 
+> **A POINT-IN-TIME REPORT FROM JULY 2026, NOT A CURRENT DEFECT LIST.** It describes the tree as it
+> stood on 2026-07-26 and it has not been revised since; findings here have been acted on, so read
+> it as history. Two of its confirmed dead-code items are gone (the Drawing and Web
+> `FastSerializationHelper` files it cites no longer exist), and A1 - `/path` swallowing every
+> runtime fault into an empty 200 - was fixed: that catch now returns a 500 ProblemDetails, as the
+> sibling `/subgraph` did. It stays at the repository root rather than moving under `features/done/`
+> because all 71 of its citations are paths relative to the root, and
+> [features/done/docs-site/spec.md](features/done/docs-site/spec.md) already recorded the decision
+> to leave it as-is.
+>
+> **For the current state, read the live records instead:**
+> [code-health-2026-08](features/done/code-health-2026-08/report.md),
+> [audit-defects](features/done/audit-defects/report.md) and
+> [consolidation-audit](features/done/consolidation-audit/report.md), each of which says what it
+> verified and when.
+
 Investigation of `fallen-8-core` after ~3 weeks of heavy feature churn (572 commits, 2026-07-11 to 2026-07-26). This is a report only. Nothing has been changed.
 
 ## How this was produced (honesty note)
@@ -215,10 +231,10 @@ For every item here git indicates the **code change was deliberate** and the doc
 - **Location:** [embedding-provider/spec.md:293](features/done/embedding-provider/spec.md) — the later `embedding-out-of-box` feature added the `/status` embedding block (commit 57fc5e5). Accurate in its own historical frame; stale as a current-state claim. **Action:** judgment call (pointer vs leave as historical record).
 
 ### F9. `docs/mcp-server.md` says "Nine" tools but lists/registers ten
-- **Location:** [docs/mcp-server.md:79](docs/mcp-server.md#L79) — the table (85-94) and `McpHost.cs:108-124` both have ten (f8_plugins was added by plugin-registration; the count word wasn't updated). **Action:** update.
+- **Location:** [docs/mcp-server.md:79](docs/src/content/docs/mcp-server.md#L79) — the table (85-94) and `McpHost.cs:108-124` both have ten (f8_plugins was added by plugin-registration; the count word wasn't updated). **Action:** update.
 
 ### F10. `docs/mcp-server.md` f8_mutate row omits the batch ops
-- **Location:** [docs/mcp-server.md:91](docs/mcp-server.md#L91) — lists 6 ops; `MutateTool` and mcp-followups added `create_vertices`/`create_edges`. **Action:** update.
+- **Location:** [docs/mcp-server.md:91](docs/src/content/docs/mcp-server.md#L91) — lists 6 ops; `MutateTool` and mcp-followups added `create_vertices`/`create_edges`. **Action:** update.
 
 ### F11. `observability` README states a tag-hygiene invariant the code no longer holds
 - **Location:** [observability/README.md:52-54](features/done/observability/README.md) — "no metric tag value originates from user input" is now false: the user-supplied namespace name is stamped as `fallen8.namespace.name` on the HTTP server metric. `fleet-observability` deliberately narrowed the wording (and lists this README as an update target); docs/observability.md and Fallen8Metrics.cs already carry the narrowed text, but the README wasn't updated. **Action:** update to the narrowed wording.
