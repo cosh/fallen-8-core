@@ -1,9 +1,19 @@
 # Sidecar shared options - Specification
 
-> **Status:** Open, spec and plan only at the time of writing. One branch,
-> `feature/sidecar-shared-options`, carrying three pieces of work that share no code but do share a
-> cause: the same thing written down in more than one place. Follow the feature workflow in
+> **Status:** IMPLEMENTED on `feature/sidecar-shared-options`, six commits, gate in progress. One
+> branch carrying three pieces of work that share no code but do share a cause: the same thing
+> written down in more than one place. Follow the feature workflow in
 > [CLAUDE.md](../../../CLAUDE.md).
+>
+> **Three defects fell out of the deduplication, and the third was found by the spec being wrong.**
+> Defect 1 (two hosts crashed on a large deadline) and defect 2 (the integrations runtime's
+> telemetry described a service its own logs did not) were visible from reading the three copies
+> side by side. Defect 3 was not: this spec's first version argued that the odd `service.name`
+> spelling should be left alone because nothing in the repository keyed on it. Something did - the
+> shipped Grafana dashboard - and section 5.1 now records both the finding and the reversal.
+>
+> **Every claim below that a test can hold is held by one**, and each new test was mutation-checked
+> with the result recorded: see section 6 and the commit messages.
 
 ## 1. Summary
 
@@ -234,6 +244,32 @@ Sorting the packages also stabilises the **derived** file: `sbomToGraph` assigns
 package position and its own comment says "packages keep their SBOM order for stable ids", which was
 true of the transform and false of its input.
 
+## 7.1 What the implementation changed about section 7
+
+Two of the bookkeeping items were **not** done as written, and both are corrections to the review
+that produced this branch rather than changes of mind about the goal.
+
+- **`platform-integrity-audit` stays under `features/open/`.** Its status line names W7, W8 and the
+  P1 remainder as pending, so `open/` is exactly right. The review called it drift and was wrong.
+- **`cleanup-report.md` stays at the repository root.** All 71 of its citations are paths relative
+  to the root, so moving it would break every one, and `features/done/docs-site/spec.md` had
+  already recorded the decision to leave it. What was actually wrong is that a July snapshot at
+  the root reads as a current defect list, so it now carries a banner saying what it is, naming
+  two findings since acted on and pointing at the three live records. Its two links to the
+  pre-Starlight docs path are repointed; its two links to files that no longer exist are left,
+  because the file being gone IS the disposition.
+
+## 7.2 The fourth copy, considered and deferred
+
+The apiApp has its own `Fallen8Identity`, which resolves the same four values with the same
+defaults and yields the same four resource attributes. It is a fourth instance of this concept and
+it is **deliberately not** folded into the seam: the apiApp is the server the three sidecars talk
+TO, and having it depend on their shared REST-client library would point the dependency the wrong
+way down the architecture. The seam's own `FleetIdentity` was written to mirror that class rather
+than to replace it, so the two agree in shape, and the new copy gate scopes itself to the four
+REST-only projects, which is why the pair does not trip it. Revisit if a third thing ever needs
+the same resolution, since two is a coincidence and three is a pattern.
+
 ## 8. Non-goals
 
 - **The OTLP wiring is not extracted.** Section 3 gives the reason: the seam's freedom from package
@@ -268,7 +304,7 @@ true of the transform and false of its input.
 | `observability` dashboards | **the per-tenant "Logs (Loki)" panel starts including the integrations runtime** (defect 3), and its `service.instance.id` stops churning across restarts (defect 2) | both are fixes to documented intent; the new service-name test derives its expectation from the dashboard itself |
 | `observability` docs page | names no service, so nothing there is stale | re-read to confirm; the renamed service is recorded on the integrations docs page instead |
 | Persisted recipes and stored queries | none | none |
-| `sample-graphs` feature | the committed SBOM and the derived `fallen8-deps.jsonl` become stable under an unchanged dependency set; the sample's content is unchanged | sample rebuild compared byte-for-byte against the committed copy |
+| `sample-graphs` feature | **a one-time renumbering landed**: every vertex id in `fallen8-deps.jsonl` moved once and the stored SBOM was sorted in place, after which repeated builds were verified byte-identical. The graph is unchanged - 1086 vertices, 1850 edges, `index.json` untouched | rebuilt, hashed twice, and the unchanged `index.json` is the check that no count moved |
 | CI | no workflow file changes; `refresh-sbom` commits only on a real change | reasoned in section 7 |
 
 ## 10. Verification
