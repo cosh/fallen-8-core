@@ -24,7 +24,9 @@
 // SOFTWARE.
 
 using System;
+using System.Collections.Generic;
 using System.Reflection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.App.Chat;
 using NoSQL.GraphDB.App.Configuration;
@@ -77,7 +79,12 @@ namespace NoSQL.GraphDB.Tests
                 new Fallen8ChatOptions
                 {
                     Backend = "Nahil",
-                    Nahil = new Fallen8ChatOptions.NahilOptions { Endpoint = null, Model = "m", ApiKey = "k" }
+                    Nahil = new Fallen8ChatOptions.NahilOptions
+                    {
+                        Endpoint = null,
+                        Models = new Fallen8ChatOptions.ModelPurposes { Assist = "m" },
+                        ApiKey = "k"
+                    }
                 }
             };
 
@@ -235,16 +242,127 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("phi4-f8-mini:latest", ResolveModel(new Fallen8ChatOptions { Backend = "Ollama" }));
             Assert.AreEqual("phi4-f8:latest", ResolveModel(new Fallen8ChatOptions
             {
-                Nahil = new Fallen8ChatOptions.NahilOptions { Model = "phi4-f8:latest", ApiKey = "k" }
+                Nahil = new Fallen8ChatOptions.NahilOptions
+                {
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = "phi4-f8:latest" },
+                    ApiKey = "k"
+                }
             }), "and it is really the Nahil block, not its neighbour that happens to match");
+
+            // And a purpose really selects: the same block serves a DIFFERENT model for the agent
+            // purpose, which is the whole point of purposes and would pass with a resolver that
+            // ignored the argument if both names matched.
+            var twoPurposes = new Fallen8ChatOptions
+            {
+                Nahil = new Fallen8ChatOptions.NahilOptions
+                {
+                    ApiKey = "k",
+                    Models = new Fallen8ChatOptions.ModelPurposes
+                    {
+                        Assist = "phi4-f8-mini:latest",
+                        Agent = "phi4-mini:latest",
+                    }
+                }
+            };
+            Assert.AreEqual("phi4-f8-mini:latest", ResolveModel(twoPurposes, ChatPurpose.Assist));
+            Assert.AreEqual("phi4-mini:latest", ResolveModel(twoPurposes, ChatPurpose.Agent));
+
+            // The shipped defaults give both purposes a model on both Ollama-protocol backends, and
+            // give the two metered providers neither, so a purpose nobody configured is reported as
+            // missing rather than guessed.
+            Assert.AreEqual("phi4-mini:latest", ResolveModel(new Fallen8ChatOptions(), ChatPurpose.Agent));
+            Assert.AreEqual("phi4-mini:latest",
+                ResolveModel(new Fallen8ChatOptions { Backend = "Ollama" }, ChatPurpose.Agent));
+            Assert.IsNull(ResolveModel(OpenAI("https://api.openai.com", null, "sk-key"), ChatPurpose.Agent));
             Assert.IsNull(ResolveModel(new Fallen8ChatOptions { Backend = "Nope" }),
                 "a name this app does not have reports no model rather than a plausible one");
+        }
+
+        /// <summary>
+        ///   A blank model is an UNSET model, in both readers. The config write surface accepts an
+        ///   empty string for a string key, so this arrives from an operator who emptied the row,
+        ///   and the two readers used to disagree about it: the refusal called it missing while the
+        ///   reported state published the blank name, which reached Studio as an empty cell.
+        /// </summary>
+        [TestMethod]
+        public void ABlankModel_IsUnsetEverywhere_SoTheReportAndTheRefusalAgree()
+        {
+            // Two blank SHAPES, because a fix that only looked for the empty string would leave the
+            // whitespace one behind, and the row an operator clears can hold either.
+            foreach (var blank in new[] { "", "   " })
+            {
+                var cleared = new Fallen8ChatOptions
+                {
+                    Backend = "Ollama",
+                    Ollama = new Fallen8ChatOptions.OllamaOptions
+                    {
+                        Models = new Fallen8ChatOptions.ModelPurposes
+                        {
+                            Assist = "phi4-f8-mini:latest",
+                            Agent = blank,
+                        },
+                    },
+                };
+
+                Assert.IsNull(ResolveModel(cleared, ChatPurpose.Agent),
+                    "the reported state must not publish a name nothing can serve: '" + blank + "'");
+                Assert.IsFalse(
+                    TryResolveModel(cleared, ChatPurpose.Agent, out var model, out var problem),
+                    "and the per-request check must refuse it: '" + blank + "'");
+                Assert.IsNull(model);
+                StringAssert.Contains(problem, "Fallen8:Chat:Ollama:Models:Agent",
+                    "naming the key to set: " + problem);
+                Assert.AreEqual("phi4-f8-mini:latest", ResolveModel(cleared, ChatPurpose.Assist),
+                    "and only the cleared purpose is affected");
+            }
         }
 
         #region the seam
 
         /// <summary>The factory is internal (the repository adds no InternalsVisibleTo), so it is
         /// reached the same way the embedding twin's tests reach theirs.</summary>
+        [TestMethod]
+        public void TheRenamedModelKeyIsRefusedByNameRatherThanQuietlyReplacedByADefault()
+        {
+            // Model was renamed to Models:Assist with no alias, and the spec promised an instance
+            // still carrying the old key "fails closed with a message naming the new one". Nothing
+            // kept that promise: configuration binding ignores a key no property claims, silently,
+            // and on the two backends whose Models:Assist carries a default the operator's model
+            // was replaced by a stock one on every request with nothing said. A fine-tuned assist
+            // model swapped for the sidecar's default is the worst version of a silent config
+            // fault, because the instance keeps answering.
+            foreach (var backend in new[] { "Nahil", "Ollama", "OpenAI", "Anthropic" })
+            {
+                var options = new Fallen8ChatOptions { Backend = backend };
+                var stale = Config((("Fallen8:Chat:" + backend + ":Model"), "phi4-f8-mini:latest"));
+
+                var problem = Validate(options, configuration: stale);
+                Assert.IsNotNull(problem, backend + ": a stale model key was not refused at all");
+                StringAssert.Contains(problem, "Fallen8:Chat:" + backend + ":Model is no longer read",
+                    backend + ": the refusal has to name the key the operator actually set");
+                StringAssert.Contains(problem, "Fallen8:Chat:" + backend + ":Models:Assist",
+                    backend + ": and the key they should set instead, or the sweep is guesswork");
+            }
+
+            // Only the SELECTED block, because that is what a request depends on. A stale key in a
+            // block nobody selected refuses the day it is selected, not before.
+            var elsewhere = Validate(
+                OpenAI("https://api.openai.com", OpenAIModel, "sk-key"),
+                configuration: Config(("Fallen8:Chat:Nahil:Model", "something")));
+            Assert.IsNull(elsewhere,
+                "a stale key in an unselected block refused a working deployment");
+
+            // Models and Model are different sections, so the key this looks for the absence of
+            // cannot be what satisfies it.
+            var current = Validate(
+                OpenAI("https://api.openai.com", OpenAIModel, "sk-key"),
+                configuration: Config(("Fallen8:Chat:OpenAI:Models:Assist", OpenAIModel)));
+            Assert.IsNull(current, "the NEW key was read as the old one");
+
+            // A caller with no raw configuration still gets the rest of the answer.
+            Assert.IsNull(Validate(OpenAI("https://api.openai.com", OpenAIModel, "sk-key")));
+        }
+
         private static MethodInfo Method(String name)
         {
             var factory = typeof(OllamaChatBackend).Assembly
@@ -255,19 +373,54 @@ namespace NoSQL.GraphDB.Tests
             return method;
         }
 
-        private static String Validate(Fallen8ChatOptions options)
+        // Defaulted the way the production signatures default them, so a call that names neither
+        // still exercises the assist path a request without a purpose takes. Every parameter is
+        // passed explicitly, because reflection applies no default values: a new optional parameter
+        // on the production method turns a short argument array into a runtime failure, not a
+        // compile one.
+        private static String Validate(Fallen8ChatOptions options,
+            ChatPurpose purpose = ChatPurpose.Assist, IConfiguration configuration = null)
         {
-            return (String)Method("Validate").Invoke(null, new Object[] { options });
+            return (String)Method("Validate")
+                .Invoke(null, new Object[] { options, purpose, configuration });
         }
 
-        private static String ResolveModel(Fallen8ChatOptions options)
+        /// <summary>Configuration holding exactly the keys given, as the raw root a stale-key check
+        /// reads.</summary>
+        private static IConfiguration Config(params (String Key, String Value)[] keys)
         {
-            return (String)Method("ResolveModel").Invoke(null, new Object[] { options });
+            var pairs = new Dictionary<String, String>(StringComparer.Ordinal);
+            foreach (var (key, value) in keys)
+            {
+                pairs[key] = value;
+            }
+
+            return new ConfigurationBuilder().AddInMemoryCollection(pairs).Build();
         }
 
-        private static RemoteModelTarget ResolveRemoteTarget(Fallen8ChatOptions options)
+        private static String ResolveModel(Fallen8ChatOptions options,
+            ChatPurpose purpose = ChatPurpose.Assist)
         {
-            return (RemoteModelTarget)Method("ResolveRemoteTarget").Invoke(null, new Object[] { options });
+            return (String)Method("ResolveModel").Invoke(null, new Object[] { options, purpose });
+        }
+
+        /// <summary>The narrow per-request check, whose two out parameters come back through the
+        /// argument array reflection writes into.</summary>
+        private static Boolean TryResolveModel(Fallen8ChatOptions options, ChatPurpose purpose,
+            out String model, out String problem)
+        {
+            var args = new Object[] { options, purpose, null, null };
+            var resolved = (Boolean)Method("TryResolveModel").Invoke(null, args);
+            model = (String)args[2];
+            problem = (String)args[3];
+            return resolved;
+        }
+
+        private static RemoteModelTarget ResolveRemoteTarget(Fallen8ChatOptions options,
+            ChatPurpose purpose = ChatPurpose.Assist)
+        {
+            return (RemoteModelTarget)Method("ResolveRemoteTarget")
+                .Invoke(null, new Object[] { options, purpose });
         }
 
         /// <summary>The built backend as the resource it is: every implementation owns an
@@ -282,7 +435,8 @@ namespace NoSQL.GraphDB.Tests
         {
             try
             {
-                return (IChatBackend)Method("Create").Invoke(null, new Object[] { options, null });
+                return (IChatBackend)Method("Create")
+                    .Invoke(null, new Object[] { options, null, null });
             }
             catch (TargetInvocationException ex)
             {
@@ -305,7 +459,7 @@ namespace NoSQL.GraphDB.Tests
                 OpenAI = new Fallen8ChatOptions.OpenAIOptions
                 {
                     Endpoint = endpoint,
-                    Model = model,
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = model },
                     ApiKey = apiKey
                 }
             };
@@ -319,7 +473,7 @@ namespace NoSQL.GraphDB.Tests
                 Anthropic = new Fallen8ChatOptions.AnthropicOptions
                 {
                     Endpoint = endpoint,
-                    Model = model,
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = model },
                     ApiKey = apiKey
                 }
             };

@@ -36,7 +36,10 @@ services:
       - Fallen8__Chat__Backend=OpenAI
       - Fallen8__Chat__OpenAI__Endpoint=${F8_OPENAI_URL:-https://api.openai.com}
       - Fallen8__Chat__OpenAI__ApiKey=${F8_OPENAI_API_KEY:?set F8_OPENAI_API_KEY}
-      - Fallen8__Chat__OpenAI__Model=${F8_OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      - Fallen8__Chat__OpenAI__Models__Assist=${F8_OPENAI_CHAT_MODEL:-gpt-4o-mini}
+      # Both purposes on one model here, unlike the local and Nahil profiles: this is a general
+      # model that calls tools, so there is no fine-tune to keep the two apart.
+      - Fallen8__Chat__OpenAI__Models__Agent=${F8_OPENAI_AGENT_MODEL:-gpt-4o-mini}
       # The shipped 120s, and deliberately not the Nahil overlay's 600: a hosted API has no cold
       # model to pull onto a worker, so there is nothing to wait out and a request that has not
       # answered in two minutes is not about to.

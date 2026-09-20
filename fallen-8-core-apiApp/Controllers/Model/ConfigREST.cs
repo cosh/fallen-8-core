@@ -50,6 +50,7 @@ namespace NoSQL.GraphDB.App.Controllers.Model
                 Enabled = provider.IsEnabled,
                 Backend = provider.Backend,
                 Model = provider.Model,
+                AgentModel = provider.AgentModel,
                 Loaded = provider.IsLoaded
             };
         }
@@ -68,9 +69,17 @@ namespace NoSQL.GraphDB.App.Controllers.Model
             get; set;
         }
 
-        /// <summary>The server-owned model.</summary>
+        /// <summary>The server-owned model for the default purpose (<c>assist</c>).</summary>
         [JsonPropertyName("model")]
         public String Model
+        {
+            get; set;
+        }
+
+        /// <summary>The server-owned model for <c>purpose: agent</c>; null when the selected backend
+        /// names none, which is the shipped state for OpenAI and Anthropic.</summary>
+        [JsonPropertyName("agentModel")]
+        public String AgentModel
         {
             get; set;
         }

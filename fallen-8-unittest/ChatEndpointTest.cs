@@ -48,7 +48,7 @@ namespace NoSQL.GraphDB.Tests
     ///   (the same seam the embedding tests use for their generator), so no real model is loaded.
     /// </summary>
     [TestClass]
-    public class ChatEndpointTest
+    public partial class ChatEndpointTest
     {
         private sealed class FakeChatBackend : IChatBackend
         {
@@ -64,6 +64,51 @@ namespace NoSQL.GraphDB.Tests
                 CancellationToken cancellationToken) => _chat(messages, options, cancellationToken);
         }
 
+        [TestMethod]
+        public async Task AStaleModelKeyRefusesTheChatRoutesThroughTheRealWiring()
+        {
+            // The guard itself is unit-tested by calling Validate directly with an in-memory
+            // configuration, which can only prove the pure function refuses. It cannot see whether
+            // PRODUCTION hands one in: de-wire the `configuration:` argument at any of the three
+            // call sites and that test stays green while the boot warning and both 503s silently
+            // disappear, putting an operator's fine-tuned model back to being replaced by a stock
+            // one with nothing said. This goes through the hosted app, so the wiring is the subject.
+            //
+            // Both models are configured correctly here. The ONLY fault is the retired key still
+            // being present, which is exactly the instance the rename's promise is about.
+            using var factory = new ChatFactory(enabled: true, backend: Returns("never reached"),
+                staleModelKey: "phi4-f8-mini:latest");
+            using var client = factory.CreateClient();
+
+            // The route is Fallen-8-level: the action carries an absolute template, so the
+            // versioned path is not where it lives. A first version of this test asked for
+            // /api/v0.1/chat/models and read the 200 that answered as the guard being skipped.
+            using (var response = await client.GetAsync("/chat/models"))
+            {
+                Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode,
+                    "a stale model key has to reach the caller as a refusal, not be skipped");
+                var detail = await response.Content.ReadAsStringAsync();
+                StringAssert.Contains(detail, "Fallen8:Chat:Ollama:Model is no longer read",
+                    "the refusal must name the key the operator actually set: " + detail);
+                StringAssert.Contains(detail, "Models:Assist",
+                    "and the key to set instead, or the sweep is guesswork: " + detail);
+            }
+
+            // The control arm, and it discriminates on the REASON rather than the status: with no
+            // real Ollama to answer its catalog read, a correctly configured instance answers 503
+            // too. What it must not say is that a key is no longer read, which is what proves the
+            // refusal above came from the key and not from the harness.
+            using var clean = new ChatFactory(enabled: true, backend: Returns("ok"));
+            using var cleanClient = clean.CreateClient();
+
+            using (var response = await cleanClient.GetAsync("/chat/models"))
+            {
+                var detail = await response.Content.ReadAsStringAsync();
+                Assert.IsFalse(detail.Contains("no longer read", StringComparison.Ordinal),
+                    "an instance carrying no stale key was refused for one: " + detail);
+            }
+        }
+
         private const String ApiKey = "chat-test-key";
 
         private sealed class ChatFactory : VolatileAppFactory
@@ -74,9 +119,18 @@ namespace NoSQL.GraphDB.Tests
             private readonly Boolean _withApiKey;
             private readonly String _otlpEndpoint;
 
+            private readonly String _agentModel;
+
+            /// <summary>A value for the key the purposes rename retired, so a test can stand in for
+            /// an instance an operator upgraded without sweeping it.</summary>
+            private readonly String _staleModelKey;
+
             public ChatFactory(Boolean enabled, IChatBackend backend = null, Int32 timeoutSeconds = 120,
-                Boolean withApiKey = false, String otlpEndpoint = null)
+                Boolean withApiKey = false, String otlpEndpoint = null, String agentModel = "fake-agent-model",
+                String staleModelKey = null)
             {
+                _staleModelKey = staleModelKey;
+                _agentModel = agentModel;
                 _enabled = enabled;
                 _backend = backend;
                 _timeoutSeconds = timeoutSeconds;
@@ -89,7 +143,14 @@ namespace NoSQL.GraphDB.Tests
                 base.ConfigureWebHost(builder);
                 builder.UseSetting("Fallen8:Chat:Enabled", _enabled ? "true" : "false");
                 builder.UseSetting("Fallen8:Chat:Backend", "Ollama"); // never constructed: the fake replaces it
-                builder.UseSetting("Fallen8:Chat:Ollama:Model", "fake-model");
+                builder.UseSetting("Fallen8:Chat:Ollama:Models:Assist", "fake-model");
+                // Empty means "this deployment configured no agent model", which is a real state -
+                // the two metered providers ship that way - and has its own refusal.
+                builder.UseSetting("Fallen8:Chat:Ollama:Models:Agent", _agentModel ?? String.Empty);
+                if (_staleModelKey != null)
+                {
+                    builder.UseSetting("Fallen8:Chat:Ollama:Model", _staleModelKey);
+                }
                 builder.UseSetting("Fallen8:Chat:TimeoutSeconds", _timeoutSeconds.ToString());
                 if (_withApiKey)
                 {
@@ -123,12 +184,12 @@ namespace NoSQL.GraphDB.Tests
                 builder.UseSetting("Fallen8:Chat:Enabled", "true");
                 builder.UseSetting("Fallen8:Chat:Backend", "OpenAI");
                 builder.UseSetting("Fallen8:Chat:OpenAI:ApiKey", RemoteKey);
-                builder.UseSetting("Fallen8:Chat:OpenAI:Model", "gpt-4o-mini");
+                builder.UseSetting("Fallen8:Chat:OpenAI:Models:Assist", "gpt-4o-mini");
                 // Both left set on purpose: an unselected provider's credential is configured on
                 // plenty of real deployments, and an earlier selector's model must not be what gets
                 // reported once the selector moved.
                 builder.UseSetting("Fallen8:Chat:Anthropic:ApiKey", OtherRemoteKey);
-                builder.UseSetting("Fallen8:Chat:Ollama:Model", "fake-model");
+                builder.UseSetting("Fallen8:Chat:Ollama:Models:Assist", "fake-model");
             }
         }
 

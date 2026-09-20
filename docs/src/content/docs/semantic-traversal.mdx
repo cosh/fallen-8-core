@@ -259,7 +259,7 @@ same model backend so a client reaches an SLM/LLM *through* the instance. It is 
 NL-assist transport in [F8 Studio](/studio/), also apiApp-only and capability-gated, and the
 model is server-owned. Configure it under `Fallen8:Chat` (off unless `Enabled` /
 `F8_CHAT`): `Backend` (`Ollama`, `Nahil`, `OpenAI` or `Anthropic`, see
-[model providers](/model-providers/)), `Ollama.{Endpoint,Model}` (default `phi4-f8-mini:latest`),
+[model providers](/model-providers/)), `Ollama.Endpoint`, one model per purpose (below), and
 `TimeoutSeconds` (the single deadline on a completion; exceeded calls answer `504`). Both
 providers' state, plus whether the backend runs on GPU when Ollama reports it, is shown
 on Studio's Connect **Configuration** card (`GET /config`), and their keys sit in the Embedding
@@ -274,6 +274,66 @@ other "backend not usable right now". It is the smaller of the two: the chat bud
 that capability's default backend may spend it waiting for a cold model to be pulled. On a CPU-only host both defaults are generous and still may not be
 enough: see [NL assist spins on "generating"](/troubleshooting/#nl-assist-spins-on-generating-then-gives-up-504)
 for what CPU inference actually costs.
+
+### One model per purpose
+
+A completion can say what it is **for**, and the server picks the model for that job. The request
+carries `purpose`, either `assist` (the default) or `agent`, and each backend block names one model
+per purpose:
+
+```
+Fallen8__Chat__Ollama__Models__Assist=phi4-f8-mini:latest
+Fallen8__Chat__Ollama__Models__Agent=phi4-mini:latest
+```
+
+The reason is that the two jobs want opposite models. NL assist wants the fine-tune that emits a
+single C# fragment and nothing else; an agent wants a general model that calls tools and holds a
+conversation. One setting pointed at both means one of them is wrong.
+
+A purpose names a **job, never a model**, so no client chooses what runs: it selects a name the
+instance owns. Omit the field and nothing changes, which is why this was an addition rather than a
+break. A value that is neither name is refused with `400` listing both, rather than quietly serving
+the assist model to an agent. A purpose whose model nobody configured answers `503` naming the key
+to set, and the other purpose keeps working. `GET /config` and `GET /status` report both models,
+with `model` still meaning the assist one.
+
+The two metered providers ship with **neither** model set, because a model nobody named is a model
+nobody agreed to pay for. The local sidecar and Nahil default both purposes to models the shipped
+environment already pulls.
+
+### Tool calling
+
+`POST /chat` can offer the model **tools**, which is what an
+[agent](/agents/) run needs. Send `tools` alongside the messages, each with a name, a sentence
+saying when to use it, and a JSON Schema for its arguments:
+
+```json
+{
+  "purpose": "agent",
+  "messages": [{ "role": "user", "content": "how many vertices?" }],
+  "tools": [{
+    "name": "count_vertices",
+    "description": "Count the vertices in one namespace.",
+    "parameters": { "type": "object", "properties": { "namespace": { "type": "string" } } }
+  }]
+}
+```
+
+The model answers with `toolCalls` instead of text, each carrying an `id`, a `name` and the
+`arguments` it produced. **You run them.** Fallen-8 executes nothing, remembers nothing and holds no
+conversation state: send the results back on the next request as `tool` messages carrying the
+matching `toolCallId`, alongside the `assistant` message that made the calls. That assistant message
+has no `content`, which is legal precisely because it is how a tool-calling turn looks.
+
+Three things worth knowing before you build on it:
+
+- **Whether the model can call tools at all is the model's property**, not the field's. The assist
+  fine-tune cannot, which is what the `agent` purpose exists for.
+- **A request carrying tools is not streamed**, on any backend. That is a client-library
+  constraint rather than a wire one, and it affects nothing else.
+- **The schema reaches the provider as written.** Nothing validates it, and nothing validates the
+  arguments a model produces against it either, because you run the tool and are the only party
+  that knows what its arguments mean.
 
 Weights are **never downloaded by Fallen-8**: paths point at operator-provided files.
 

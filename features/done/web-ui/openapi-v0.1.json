@@ -11,6 +11,560 @@
     }
   ],
   "paths": {
+    "/agents": {
+      "post": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Spawns one agent on a task (feature agent-host)",
+        "description": "Answers 202 with the agent's id and initial state; the run happens on the host's own\r\n    time and is read back from the listing. Nothing on this control plane blocks on inference,\r\n    because one model call against a remote provider was measured at up to 41 seconds.\r\n    There is deliberately no model field. The agent asks this instance's chat gateway\r\n    with purpose: agent, so the model is Fallen8:Chat:&lt;Backend&gt;:Models:Agent and\r\n    a caller cannot choose it. role selects a prompt and a tool allowlist;\r\n    systemPromptAppendix is APPENDED to that prompt and can never replace it, because the\r\n    role prompt carries the rules that keep an agent honest about what it actually\r\n    called.\r\n    The request and response bodies are the HOST's own contract and are deliberately untyped\r\n    here, so there is exactly one definition of them: see https://docs.fallen-8.com/agents/.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "Aborts the proxied call when the request is cancelled",
+          "content": {
+            "application/json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            },
+            "application/*+json; ver=0.1": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted; the body carries the agent's id and state",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "400": {
+            "description": "The host refused the request, its own message saying why (no task, an unknown role)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "429": {
+            "description": "The host is already running as many agents as it may (Agents:Limits:MaxConcurrentAgents)",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Lists every agent this host knows about (feature agent-host)",
+        "description": "Newest first, live and retained together: id, name, role, state, task, parentId, the\r\n    token counters, steps, toolCalls, durationMs, budget and the timestamps.\r\n    An empty list never means \"nothing ever ran\": the host keeps nothing durable, a restart\r\n    ends and forgets everything, and a finished agent is retained for a bounded time. Every entry\r\n    carries the hostInstanceId that produced it so two listings can be told apart.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agents, as the host describes them",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/agents/feed": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Streams what every agent is doing, as Server-Sent Events (feature agent-host)",
+        "description": "The same frame conventions as this instance's change feed, so a client that reads one reads\r\n    the other: `id:`, `event:` and `data:` per event, with keep-alive comments while idle.\r\n    Every event carries the four counters, so a subscriber renders live cost without polling.\r\n    There is NO catch-up. A subscriber that connects late, or that is dropped for falling behind\r\n    the host's queue bound, has missed what it missed, and GET /agents/{id}/trace is how it finds\r\n    out what. Last-Event-ID is deliberately not honoured, because pretending to resume from a\r\n    position the host cannot replay would be worse than plainly not resuming.\r\n    A tool call's arguments and result travel as capped SUMMARIES, never full payloads. The trace\r\n    holds more, and past its own caps the graph is where the data is.",
+        "parameters": [
+          {
+            "name": "agents",
+            "in": "query",
+            "description": "Only these agent ids, comma-separated or repeated. An id also matches the workers it spawned, so subscribing to an orchestrator shows its swarm. Omitted means every agent",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "kinds",
+            "in": "query",
+            "description": "Only these event kinds: agentSpawned, agentStateChanged, agentMessage, toolCalled, agentCompleted, agentFailed. An unknown kind is a 400 naming the set, never a silently empty stream. NOTE that agentMessage is accepted but not yet EMITTED by any code path, because the only route that would publish one is the deferred conversation route; GET /agents/status reports acceptedKinds and emittedKinds so a client need not guess",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The SSE stream (text/event-stream); it stays open until the client disconnects",
+            "content": {
+              "text/event-stream": { }
+            }
+          },
+          "400": {
+            "description": "An unknown filter value, the host's own message naming the accepted set",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "text/event-stream; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/event-stream": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, it did not answer, or it has as many subscribers as it may",
+            "content": {
+              "text/event-stream": { }
+            }
+          }
+        }
+      }
+    },
+    "/agents/status": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Reports the agent host's posture (feature agent-host)",
+        "description": "The first thing to read when an agent fails: whether the host COULD reach this\r\n    instance's chat gateway when it started and when that was, what backend and model last served\r\n    a step, whether the MCP server answered and\r\n    how many tools it advertises, what each role actually ended up with, the caps a run is held to,\r\n    and how many agents are active and retained.\r\n    The model is reported as LAST SEEN rather than as configuration, and that is not a\r\n    limitation: the host holds no model configuration at all, so before a step has run there is no\r\n    name to report. Which model served a step is the instance's answer, per step.\r\n    Reachability is ONE STARTUP PROBE and nothing refreshes it, which is why it carries the\r\n    moment it ran. A host that started before the instance answered says unreachable for the\r\n    life of the container while every agent runs fine, so read it against that timestamp and against\r\n    the last-seen model: a completion can only have been served by a gateway that answered.",
+        "parameters": [
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The host's posture, as it reports it",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Reads one agent (feature agent-host)",
+        "description": "The same fields the listing carries, plus the ids of the workers this agent spawned.\r\n    A 404 does not distinguish \"never existed\" from \"finished and evicted\", and the host's own\r\n    message says so: retention is bounded, so an agent worth reviewing is worth reading soon.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The agent id a spawn returned",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The agent, as the host describes it",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No such agent on this host",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Cancels one agent and its live workers (feature agent-host)",
+        "description": "Answers 202, and the honesty is deliberate: cancellation is cooperative. The token is\r\n    observed between steps and passed into the model call and tool call in flight, so a tool call\r\n    already sent to the graph is not undone and nothing is rolled back. Cancelling an orchestrator\r\n    cascades to its live workers, and the body says how many agents were signalled.\r\n    Cancelling an agent that has already finished is not an error: it asked for a state the\r\n    agent already has.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The agent id a spawn returned",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Accepted; the body carries the agent's final state and how many were signalled",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No such agent on this host",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
+    "/agents/{id}/trace": {
+      "get": {
+        "tags": [
+          "Agents"
+        ],
+        "summary": "Reads one agent's whole retained trace (feature agent-host)",
+        "description": "Every step the host still holds: each model call with the backend and model that served it\r\n    and the duration the HOST measured, each tool call with capped captures of what went in and came\r\n    back, the state changes, and the citation check. This is the catch-up mechanism for the event feed.\r\n    The trace is BOUNDED (Agents:Trace:MaxSteps) and drops the oldest steps, so\r\n    dropped being non-zero means this is not the whole run. It is never silent about that: a\r\n    dropped marker step sits where the missing steps were, and the sequence numbers do not\r\n    restart, so a gap is itself evidence.\r\n    Provenance is per STEP rather than per host, which is the point: a deployment that switches\r\n    backend mid-day shows it here.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The agent id a spawn returned",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "api-version",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Version",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The trace, as the host holds it",
+            "content": {
+              "application/json": { }
+            }
+          },
+          "401": {
+            "description": "No valid credential was supplied, or agents are off on an instance with no API key",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "403": {
+            "description": "Agents are disabled (Fallen8:Agents:Enabled) on a credentialed instance",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "404": {
+            "description": "No such agent on this host",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "503": {
+            "description": "No host is configured, or it did not answer",
+            "content": {
+              "application/json": { }
+            }
+          }
+        }
+      }
+    },
     "/analytics/algorithms": {
       "get": {
         "tags": [
@@ -861,7 +1415,7 @@
           "Chat"
         ],
         "summary": "Lists the models the instance's configured chat backend catalogues",
-        "description": "For the RUNNING backend (feature chat-model-catalog), so a client can offer real\r\n    names for the server-owned model instead of a blank field; choosing one is still a\r\n    configuration write (Fallen8:Chat:&lt;Backend&gt;:Model), not a per-request field. A\r\n    pending-restart backend switch is not previewed. The list is not necessarily the whole\r\n    RESOLVABLE set - a backend can resolve a name it does not catalogue - so free-text entry\r\n    stays valid. Capability, availability and class are null wherever the backend does not\r\n    report them; filtering is the client's job.",
+        "description": "For the RUNNING backend (feature chat-model-catalog), so a client can offer real\r\n    names for the server-owned model instead of a blank field; choosing one is still a\r\n    configuration write, into the purpose key the model is for\r\n    (Fallen8:Chat:&lt;Backend&gt;:Models:Assist or :Models:Agent), not a per-request field.\r\n    This named Fallen8:Chat:&lt;Backend&gt;:Model, which the purposes rename retired and an\r\n    instance carrying it is now refused for, so following this instruction took chat down on\r\n    the next restart. A\r\n    pending-restart backend switch is not previewed. The list is not necessarily the whole\r\n    RESOLVABLE set - a backend can resolve a name it does not catalogue - so free-text entry\r\n    stays valid. Capability, availability and class are null wherever the backend does not\r\n    report them; filtering is the client's job.",
         "parameters": [
           {
             "name": "api-version",
@@ -5134,6 +5688,17 @@
           },
           "409": {
             "description": "The runtime reported a conflict",
+            "content": {
+              "application/json; ver=0.1": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": { }
+            }
+          },
+          "413": {
+            "description": "The document is over the 1 MiB body bound",
             "content": {
               "application/json; ver=0.1": {
                 "schema": {
@@ -18255,9 +18820,6 @@
         "description": "Top-N names by count plus the distinct total. Sampling honestly UNDERCOUNTS\r\n    distinct values: when sampled=true, distinctTotal is distinct-within-the-sample - the\r\n    DTO documents that rather than pretending to estimate."
       },
       "ChatMessageSpecification": {
-        "required": [
-          "content"
-        ],
         "type": "object",
         "properties": {
           "role": {
@@ -18273,8 +18835,26 @@
               "null",
               "string"
             ],
-            "description": "The message content.",
+            "description": "The message content. Required on every role EXCEPT an `assistant` turn that\r\ncarries `toolCalls`: a model that decided to call a tool said nothing else, and\r\nthat turn still has to be replayed or the next turn answers a call nobody can see.",
             "example": "Draft a vertex filter for label person"
+          },
+          "toolCalls": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChatToolCallREST"
+            },
+            "description": "On an `assistant` turn, the calls that turn made, replayed so the model sees its\r\nown decision. Ignored on any other role."
+          },
+          "toolCallId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "On a `tool` turn, which call this result answers, taken from the\r\n`toolCalls` the assistant produced. Required on that role: all three providers\r\ndemand it, and a result nobody can match is a result the model cannot use.",
+            "example": "call_1"
           }
         },
         "description": "One chat turn."
@@ -18287,7 +18867,7 @@
               "null",
               "string"
             ],
-            "description": "The name VERBATIM, as the backend spells it (tag included): the value that goes\r\n    back into `Fallen8:Chat:&lt;Backend&gt;:Model`.",
+            "description": "The name VERBATIM, as the backend spells it (tag included): the value that goes\r\n    back into the purpose key it is for, `Fallen8:Chat:&lt;Backend&gt;:Models:Assist` or\r\n    `:Models:Agent`. Not `Fallen8:Chat:&lt;Backend&gt;:Model`, which the purposes\r\n    rename retired.",
             "example": "phi4-f8-mini:latest"
           },
           "capability": {
@@ -18391,7 +18971,14 @@
               "null",
               "string"
             ],
-            "description": "The server-owned model."
+            "description": "The server-owned model for the default purpose (`assist`)."
+          },
+          "agentModel": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The server-owned model for `purpose: agent`; null when the selected backend\r\n    names none, which is the shipped state for OpenAI and Anthropic."
           },
           "loaded": {
             "type": "boolean",
@@ -18422,7 +19009,17 @@
               "null",
               "string"
             ],
-            "description": "The assistant message content."
+            "description": "The assistant message content. EMPTY when the model answered with tool calls\r\n    instead of text, which is the ordinary shape of a tool-calling turn."
+          },
+          "toolCalls": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChatToolCallREST"
+            },
+            "description": "The calls the model wants made, in the order it asked. ABSENT rather than null when it\r\njust answered, so a caller that never offered tools sees the response it always saw.\r\nRun them, then send the results back as `tool` messages carrying the matching\r\n`toolCallId` - the server ran nothing and remembers nothing."
           },
           "model": {
             "type": [
@@ -18466,6 +19063,24 @@
           "options": {
             "description": "Optional generation knobs.",
             "$ref": "#/components/schemas/ChatOptionsSpecification"
+          },
+          "purpose": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "      What the completion is FOR, which is how the server picks the model that serves it:\r\n      `assist` (the default) or `agent`. It names a JOB and never a model, so the\r\n      server still owns every model name and no client can choose one.\r\n      Omit it and nothing changes: the request behaves exactly as it did before purposes\r\nexisted. A value that is neither name is refused with a 400 listing both, rather than\r\nfalling back to assist - answering a tool-calling agent with the model trained\r\nto emit one C# fragment would look like an answer and be useless.",
+            "example": "assist"
+          },
+          "tools": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ChatToolSpecification"
+            },
+            "description": "      The tools the model may call on this request. Omit them and the request is a plain\r\n      completion, which is what every caller before agents sent.\r\n      Offering a tool does not run it. The model answers with toolCalls, the CALLER\r\nruns them and sends the results back as tool messages carrying\r\ntoolCallId; the server holds no conversation state and executes nothing.\r\nWhether the configured model can call tools at all is the model's property, not\r\nthis field's - the assist fine-tune cannot, which is what the agent purpose\r\nexists for."
           }
         },
         "description": "A chat completion request proxied to the instance's model backend (feature\r\n    instance-config). The model is SERVER-owned (the selected backend's own `Model`\r\n    setting); there is no client model field.",
@@ -18523,6 +19138,76 @@
           }
         },
         "description": "Generation stats forwarded from the backend."
+      },
+      "ChatToolCallREST": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The id this call is matched by. Send it back as `toolCallId` on the\r\n    `tool` message carrying the result.",
+            "example": "call_1"
+          },
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The tool the model chose.",
+            "example": "count_vertices"
+          },
+          "arguments": {
+            "description": "The arguments the model produced, as it produced them.",
+            "examples": [
+              {
+                "namespace": "default"
+              }
+            ],
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "description": "One call to a tool, in either direction: what the model wants run, and on a later\r\n    turn what it already asked for."
+      },
+      "ChatToolSpecification": {
+        "required": [
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "The tool's name, which the model repeats back in a call.",
+            "example": "count_vertices"
+          },
+          "description": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "What the tool does and when to use it. This is the whole of what the model\r\n    knows about it, so a vague sentence is a tool that gets called wrongly.",
+            "example": "Count the vertices in one namespace."
+          },
+          "parameters": {
+            "description": "A JSON Schema object describing the arguments. Passed to the provider as given:\r\nnothing here validates it, and nothing validates the arguments a model produces\r\nagainst it either, because the caller runs the tool and is the only party that knows\r\nwhat its arguments mean.",
+            "examples": [
+              {
+                "type": "object",
+                "properties": {
+                  "namespace": {
+                    "type": "string"
+                  }
+                }
+              }
+            ],
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "description": "One tool offered to the model: a name, a sentence saying when to use it, and a\r\n    JSON Schema for its arguments."
       },
       "ChunkHitREST": {
         "type": "object",
@@ -24093,6 +24778,9 @@
   "tags": [
     {
       "name": "Admin"
+    },
+    {
+      "name": "Agents"
     },
     {
       "name": "Analytics"

@@ -9,7 +9,7 @@ grant-store design below is kept as a historical reference only; if per-caller a
 needed it will be re-specced from scratch on top of namespaces (revisit trigger: an untrusted caller
 or tenant appears). Original relations: [api-security-boundary](../api-security-boundary/),
 [hosted-durability-lifecycle](../hosted-durability-lifecycle/), [studio-embeddable](../../done/studio-embeddable/),
-[agent-host](../../open/agent-host/), [mcp-server](../mcp-server/).
+[agent-host](../agent-host/), [mcp-server](../mcp-server/).
 
 ## Vision
 

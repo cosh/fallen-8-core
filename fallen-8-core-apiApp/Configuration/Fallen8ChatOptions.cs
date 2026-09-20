@@ -118,6 +118,44 @@ namespace NoSQL.GraphDB.App.Configuration
         /// <summary>Anthropic settings; used only when <see cref="Backend" /> is <c>Anthropic</c>.</summary>
         public AnthropicOptions Anthropic { get; set; } = new AnthropicOptions();
 
+        /// <summary>
+        ///   One server-owned model name per <see cref="Chat.ChatPurpose" />, carried by every
+        ///   backend block. A purpose is a JOB, not a model: the request says which job it is
+        ///   (<c>purpose</c>) and the server says which model does that job, so no client ever
+        ///   names a model and instance-config decision D8 stands.
+        ///   <para>
+        ///     It exists because the two jobs want opposite models and always will. NL assist wants
+        ///     a task-specialised fine-tune that emits one C# fragment and nothing else; an agent
+        ///     wants a general model that calls tools and holds a conversation. Pointing one setting
+        ///     at both means one of them is wrong. Keeping a purpose stable while the model behind it
+        ///     moves is also what lets a fine-tune be swapped in by configuration, version tag and
+        ///     all, without a line of code or a client knowing.
+        ///   </para>
+        ///   <para>
+        ///     A purpose is a model name and NOTHING else. Prompts, sampling and stop sequences stay
+        ///     the caller's, because the assist path and the agent host each own their prompt
+        ///     contract. The moment a purpose would need server-side behaviour of its own it has
+        ///     stopped being a purpose and become a capability.
+        ///   </para>
+        /// </summary>
+        public sealed class ModelPurposes
+        {
+            /// <summary>The model for <c>purpose: assist</c>, the default: Studio's NL assist and
+            /// anything else that asks for a completion without saying why.</summary>
+            public String Assist
+            {
+                get; set;
+            }
+
+            /// <summary>The model for <c>purpose: agent</c>: a tool-calling conversation driven by
+            /// the agent host. It must be a model that can call tools, which the assist fine-tune
+            /// deliberately is not.</summary>
+            public String Agent
+            {
+                get; set;
+            }
+        }
+
         public sealed class OllamaOptions
         {
             /// <summary>The Ollama endpoint (the compose-shipped container by default). Using this
@@ -125,12 +163,14 @@ namespace NoSQL.GraphDB.App.Configuration
             /// answers 503 while everything else keeps running.</summary>
             public String Endpoint { get; set; } = "http://localhost:11434";
 
-            /// <summary>The chat model to invoke (pull a model, e.g. the fine-tuned phi4-f8-mini
-            /// default, a stock phi4-mini, or any Ollama chat model). Server-owned: clients cannot
-            /// override it on the default path. Reaches the request body VERBATIM - nothing here
-            /// strips, appends or normalizes a <c>:tag</c> - so the tag is explicit rather than
-            /// left to whatever default each end assumes.</summary>
-            public String Model { get; set; } = "phi4-f8-mini:latest";
+            /// <summary>The model this backend serves for each purpose. Both defaults are models
+            /// the shipped sidecar pulls, so a local deployment needs no model configuration at
+            /// all.</summary>
+            public ModelPurposes Models { get; set; } = new ModelPurposes
+            {
+                Assist = "phi4-f8-mini:latest",
+                Agent = "phi4-mini:latest",
+            };
         }
 
         /// <summary>
@@ -163,13 +203,17 @@ namespace NoSQL.GraphDB.App.Configuration
                 get; set;
             }
 
-            /// <summary>The chat model to invoke, as Nahil's catalog names it (the published
-            /// registry name, which may differ from a locally tagged copy of the same weights).
-            /// Reaches the request body verbatim. Defaulted to the same fine-tune the sidecar block
-            /// names, because it is the same model wherever it runs; a deployment whose catalog
-            /// spells it differently sets this, which is one environment variable and nothing
-            /// more.</summary>
-            public String Model { get; set; } = "phi4-f8-mini:latest";
+            /// <summary>The model this backend serves for each purpose, as NAHIL's catalog names
+            /// it (the published registry name, which may differ from a locally tagged copy of the
+            /// same weights). Both defaults name the same models the sidecar block does, because
+            /// they are the same models wherever they run and Nahil catalogues both; a deployment
+            /// whose catalog spells one differently sets that one, which is an environment variable
+            /// and nothing more.</summary>
+            public ModelPurposes Models { get; set; } = new ModelPurposes
+            {
+                Assist = "phi4-f8-mini:latest",
+                Agent = "phi4-mini:latest",
+            };
         }
 
         /// <summary>
@@ -191,12 +235,10 @@ namespace NoSQL.GraphDB.App.Configuration
                 get; set;
             }
 
-            /// <summary>The chat model to invoke, as OpenAI's catalog names it. Reaches the request
-            /// body verbatim.</summary>
-            public String Model
-            {
-                get; set;
-            }
+            /// <summary>The model this backend serves for each purpose, as OpenAI's catalog names
+            /// it. No defaults: this provider is metered, so a model nobody named is a model nobody
+            /// agreed to pay for.</summary>
+            public ModelPurposes Models { get; set; } = new ModelPurposes();
         }
 
         /// <summary>
@@ -222,12 +264,9 @@ namespace NoSQL.GraphDB.App.Configuration
                 get; set;
             }
 
-            /// <summary>The chat model to invoke, as Anthropic's catalog names it. Reaches the
-            /// request body verbatim.</summary>
-            public String Model
-            {
-                get; set;
-            }
+            /// <summary>The model this backend serves for each purpose, as Anthropic's catalog
+            /// names it. No defaults, for the same reason as OpenAI's.</summary>
+            public ModelPurposes Models { get; set; } = new ModelPurposes();
 
             /// <summary>The output ceiling for one completion. It exists because the Messages API
             /// requires the field on every request, which is why no other provider carries the

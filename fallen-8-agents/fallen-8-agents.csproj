@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>NoSQL.GraphDB.Agents</RootNamespace>
+    <AssemblyName>fallen-8-agents</AssemblyName>
+    <!-- Only the engine (fallen-8-core) ships as a NuGet package; this host is a deployable. -->
+    <IsPackable>false</IsPackable>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);1591</NoWarn>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The REST-client seam shared with fallen-8-mcp and fallen-8-integrations. It references
+         neither the engine nor the API app, so consuming it keeps this deployable's REST-only rule
+         intact - and this host's REST surface is narrower still: the chat gateway and nothing else,
+         which CodeQualityTest pins. Everything about the GRAPH arrives as an MCP tool.
+
+         Used for the one thing all three deployables need and each got wrong alone: telling an
+         answer that never came apart from a caller who went away. Here that distinction decides
+         whether an agent reports itself as failed or as cancelled. -->
+    <ProjectReference Include="..\fallen-8-rest-client\fallen-8-rest-client.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The agentic loop, tool invocation and (later) the swarm primitives. MIT, and the merged
+         successor of AutoGen and Semantic Kernel's agent work; Microsoft.Agents.AI.Abstractions
+         arrives with it and carries AIAgent/AgentResponse. -->
+    <PackageReference Include="Microsoft.Agents.AI" Version="1.20.0" />
+    <!-- The model seam the framework runs on. NO provider SDK is referenced here, deliberately:
+         this host asks its Fallen-8 instance for every completion and the instance owns the
+         provider, the credential and the model (feature agent-host, decision "route B"). -->
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.9.0" />
+    <!-- The MCP client. Pinned to the version fallen-8-mcp serves, so one protocol revision is in
+         play across the two halves of the agent channel. -->
+    <PackageReference Include="ModelContextProtocol" Version="1.4.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- OpenTelemetry (feature fleet-observability): the same core pin as the apiApp, the MCP
+         server and the integrations runtime; exact-version gate, no floating ranges. -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.17.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.17.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The role prompts are EMBEDDED rather than mounted, and that is a safety property rather
+         than packaging taste: a prompt carries the honesty properties a reviewer depends on (never
+         invent a result, cite the call a figure came from), so a deployment that could edit or lose
+         one could silently turn an agent into a liar. Deliberately NOT "a prompt is what makes a
+         small model call a tool": spec 3.2a's amendment reversed that for the shipped model. See
+         RoleCatalog, which is the one home for the measurement. -->
+    <EmbeddedResource Include="Prompts\*.md" />
+  </ItemGroup>
+
+</Project>

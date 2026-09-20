@@ -1,4 +1,4 @@
-﻿// MIT License
+// MIT License
 //
 // CodeQualityTest.cs
 //
@@ -41,8 +41,8 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class CodeQualityTest
     {
-        private static readonly string[] _allProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client", "fallen-8-unittest" };
-        private static readonly string[] _productProjects = { "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client" };
+        private static readonly string[] _allProjects = { "fallen-8-agents", "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client", "fallen-8-unittest" };
+        private static readonly string[] _productProjects = { "fallen-8-agents", "fallen-8-core", "fallen-8-core-apiApp", "fallen-8-integrations", "fallen-8-mcp", "fallen-8-rest-client" };
 
         private static IEnumerable<string> SourceFiles(params string[] projects)
         {
@@ -300,16 +300,17 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void TheRestOnlyDeployables_ReferenceNeitherTheEngineNorTheApiApp()
         {
-            // fallen-8-mcp and fallen-8-integrations reach a graph over the public REST contract ONLY: one
-            // is handed somebody's network-admin credential, both must version independently against a
-            // boundary a project reference would widen to the whole engine surface. That rule is what makes
+            // fallen-8-mcp, fallen-8-integrations and fallen-8-agents reach a graph over the public REST
+            // contract ONLY: one is handed somebody's network-admin credential, one runs a model that
+            // decides for itself what to call, and all must version independently against a boundary a
+            // project reference would widen to the whole engine surface. That rule is what makes
             // fallen-8-rest-client (the seam they share) legal, so the seam is held to it as well - a
-            // reference added THERE would reach both consumers transitively and nothing else would notice.
+            // reference added THERE would reach every consumer transitively and nothing else would notice.
             var root = TestRepo.Root();
             var forbidden = new[] { "fallen-8-core.csproj", "fallen-8-core-apiApp.csproj" };
             var violations = new List<string>();
 
-            foreach (var project in new[] { "fallen-8-mcp", "fallen-8-integrations", "fallen-8-rest-client" })
+            foreach (var project in new[] { "fallen-8-mcp", "fallen-8-integrations", "fallen-8-agents", "fallen-8-rest-client" })
             {
                 var csproj = Path.Combine(root, project, project + ".csproj");
                 foreach (var line in File.ReadLines(csproj))
@@ -331,6 +332,181 @@ namespace NoSQL.GraphDB.Tests
 
             AssertNoViolations(violations,
                 "the REST-only deployables and the seam they share reference neither fallen-8-core nor fallen-8-core-apiApp");
+        }
+
+        /// <summary>
+        ///   The two ways a REST path is written in this repository, each anchored at both ends: a
+        ///   complete string literal, and the leading segment of an interpolated one up to its first
+        ///   brace. A query string is tolerated before the closing anchor and is NOT part of the
+        ///   captured value, so the value stays the path. See the remarks at the use site for why
+        ///   both anchors matter.
+        /// </summary>
+        private static readonly string[] RoutePatterns =
+        {
+            "\"(?<value>[a-zA-Z0-9_./-]+)(\\?[^\"]*)?\"",
+            "\\$@?\"(?<value>[a-zA-Z0-9_./-]+)(\\?[^\"{]*)?\\{",
+        };
+
+        [TestMethod]
+        public void TheAgentHost_CallsTheChatGatewayAndNoOtherRestRoute()
+        {
+            // Feature agent-host, spec section 3.7. fallen-8-agents' REST surface is narrower than
+            // its two sibling sidecars': the chat gateway, and nothing else. Everything about the
+            // GRAPH arrives as an MCP tool, so the MCP server's read/write/admin tiers are the
+            // whole of what an agent can reach - enforced server-side, where an agent cannot argue
+            // with it. A graph call made directly from the host would route around those tiers
+            // silently, which is why this is a test rather than a note.
+            //
+            // Pinned against the OpenAPI snapshot rather than a hand-written list, so a route
+            // family added to the instance is covered the moment the snapshot is regenerated. The
+            // check is on the FIRST path segment, which is what identifies a family: a literal
+            // whose first segment is a known family and which is not the chat gateway is a
+            // violation, and a literal that resembles no family at all is not this rule's business.
+            var root = TestRepo.Root();
+            var snapshot = File.ReadAllText(
+                Path.Combine(root, "features", "done", "web-ui", "openapi-v0.1.json"));
+
+            var families = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match path in Regex.Matches(snapshot, "\"/(?<path>[a-zA-Z0-9_./{}-]*)\"\\s*:"))
+            {
+                var segments = path.Groups["path"].Value.Split('/');
+                if (segments.Length > 0 && segments[0].Length > 0 && !segments[0].StartsWith("{", StringComparison.Ordinal))
+                {
+                    families.Add(segments[0]);
+                }
+            }
+
+            // Sanity: a regex that matched nothing would make this rule pass vacuously, which is
+            // the one way a convention test can be worse than no test.
+            Assert.IsTrue(families.Contains("chat"),
+                "the OpenAPI snapshot should list the chat gateway; got " + families.Count + " families");
+
+            // And the patterns themselves, against the shapes a graph call arrives in. The class
+            // excluded "?" and "=", so a route carrying a query string matched NEITHER pattern and
+            // passed the rule that the docs say it cannot escape.
+            foreach (var (shape, expected) in new[]
+            {
+                ("\"graph/vertices\"", "graph/vertices"),
+                ("\"graph/vertices?limit=10\"", "graph/vertices"),
+                ("$\"graphelement/{id}\"", "graphelement/"),
+                ("$\"graph/scan?op=eq&value={v}\"", "graph/scan"),
+            })
+            {
+                // The captured VALUE, not a prefix of it: the doc above says the value stays the
+                // path, and a pattern that swallowed a query string into the capture would still
+                // start with "graph" and still split to the right family, so the boundary half of
+                // that claim was pinned by nothing.
+                Assert.IsTrue(
+                    RoutePatterns.Any(pattern => Regex.Matches(shape, pattern)
+                        .Any(m => String.Equals(m.Groups["value"].Value, expected,
+                            StringComparison.Ordinal))),
+                    "a graph route written as " + shape + " escapes this rule's own patterns, or "
+                    + "the capture no longer stops where the path does");
+            }
+
+            var allowed = new HashSet<string>(StringComparer.Ordinal) { "chat", "chat/models" };
+            var violations = new List<string>();
+
+            foreach (var file in SourceFiles("fallen-8-agents"))
+            {
+                var relative = Path.GetRelativePath(root, file);
+                var lineNumber = 0;
+                foreach (var line in File.ReadLines(file))
+                {
+                    lineNumber++;
+                    var code = line.TrimStart();
+                    if (code.StartsWith("//", StringComparison.Ordinal) || code.StartsWith("///", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    // TWO shapes, because a graph call is written in whichever one fits, and both
+                    // have to be anchored at BOTH ends. A path that is a whole literal is
+                    // "graph/vertex"; one with a route value in it is $"graphelement/{id}", where the
+                    // brace is the anchor. fallen-8-mcp writes every one of its graph calls the
+                    // second way, so a pin that saw only the first would miss the shape a graph call
+                    // actually arrives in.
+                    //
+                    // Anchoring at both ends is what keeps this a pin rather than a word search: an
+                    // opening quote alone matches the second fragment of any concatenated sentence,
+                    // which flagged the word "delegates" in a refusal message and the prefix
+                    // "status:" in a posture value. Neither is a route.
+                    //
+                    // The closing anchor allows a QUERY STRING, and that is the hole this rule had:
+                    // the path class excluded "?" and "=", so "graph/vertices?limit=10" matched
+                    // neither shape and passed. The capture stays the path, so a query string
+                    // cannot carry a second family past the family check either.
+                    foreach (var pattern in RoutePatterns)
+                    {
+                        foreach (Match literal in Regex.Matches(line, pattern))
+                        {
+                            var value = literal.Groups["value"].Value.Trim('/');
+                            if (value.Length == 0 || allowed.Contains(value))
+                            {
+                                continue;
+                            }
+
+                            if (families.Contains(value.Split('/')[0]))
+                            {
+                                // Both shapes now match an interpolated route that carries a query
+                                // string, and one line is one violation.
+                                var violation = relative + ":" + lineNumber + ": " + value;
+                                if (!violations.Contains(violation))
+                                {
+                                    violations.Add(violation);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            AssertNoViolations(violations,
+                "fallen-8-agents calls only the chat gateway (/chat, /chat/models); every graph "
+                + "capability arrives as an MCP tool, whose server-side tiers are the bound");
+        }
+
+        /// <summary>
+        /// The published security page is the one home for the capability posture, and it states a
+        /// COUNT of switches in prose. A capability added to the authorization layer without
+        /// touching that page leaves the number wrong, silently: it said four while the layer
+        /// enforced six, through two features. The count is the only part of that page a test can
+        /// hold, so this holds it.
+        /// </summary>
+        [TestMethod]
+        public void TheSecurityPage_CountsEveryCapabilitySwitchTheLayerEnforces()
+        {
+            var page = File.ReadAllText(Path.Combine(
+                TestRepo.Root(), "docs", "src", "content", "docs", "security.mdx"));
+            var written = Regex.Match(
+                page, @"one of (?<count>[a-z]+) operator \*\*capability\*\* switches");
+
+            // A regex that stopped matching would make this rule pass vacuously, which is the one
+            // way a convention test can be worse than no test. The sentence may be rewritten; it
+            // may not lose its count.
+            Assert.IsTrue(written.Success,
+                "docs/src/content/docs/security.mdx no longer says how many capability switches "
+                + "the authorization layer enforces. That sentence is what this test pins, so "
+                + "keep a count in it (\"one of six operator **capability** switches\") or move "
+                + "the pin to whatever replaced it.");
+
+            var numbers = new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["two"] = 2, ["three"] = 3, ["four"] = 4, ["five"] = 5, ["six"] = 6,
+                ["seven"] = 7, ["eight"] = 8, ["nine"] = 9, ["ten"] = 10,
+            };
+            var word = written.Groups["count"].Value;
+            Assert.IsTrue(numbers.TryGetValue(word, out var claimed),
+                "security.mdx spells the capability count as \"" + word + "\", which this test "
+                + "cannot read. Spell it as a word between two and ten.");
+
+            var enforced = Enum.GetValues<
+                NoSQL.GraphDB.App.Security.DynamicCapabilityRequirement.Capability>().Length;
+            Assert.AreEqual(enforced, claimed,
+                "The authorization layer enforces " + enforced + " capability switches and "
+                + "security.mdx says " + claimed + ". Update the count, the switch table and the "
+                + "per-capability row on that page: it is the one home for this posture, so a "
+                + "reader has nowhere else to find the right number.");
         }
     }
 }

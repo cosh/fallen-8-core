@@ -86,11 +86,13 @@ namespace NoSQL.GraphDB.Integrations
 
         /// <summary>
         ///   The bound on a request body reaching this runtime: 832 MiB, chosen only to sit ABOVE the
-        ///   apiApp proxy's own fixed bound (768 MiB), which is the only way in because this container
-        ///   publishes no port. It is not a statement about how big a file may be - that is
-        ///   <c>Integrations:MaxFileBytes</c> per file, <c>Integrations:MaxJobFileBytes</c> for their total
-        ///   and <c>Integrations:MaxJobFiles</c> for how many, the first two enforced on the decoded bytes,
-        ///   all three with messages naming their own numbers.
+        ///   apiApp proxy's own fixed bound (768 MiB), which is the only way in from OUTSIDE the compose
+        ///   network, because this container publishes no host port. A service on that network reaches
+        ///   this port directly, and then this bound is the one its body meets. It is not a statement
+        ///   about how big a file may be - that is <c>Integrations:MaxFileBytes</c> per file,
+        ///   <c>Integrations:MaxJobFileBytes</c> for their total and <c>Integrations:MaxJobFiles</c> for
+        ///   how many, the first two enforced on the decoded bytes, all three with messages naming
+        ///   their own numbers.
         ///
         ///   <para>It grew with multi-file input: one request still carries a whole run, so a job carrying
         ///   a vehicle's worth of extracts is one body. The headroom over the proxy's bound covers a

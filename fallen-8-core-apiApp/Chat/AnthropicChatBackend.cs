@@ -123,9 +123,17 @@ namespace NoSQL.GraphDB.App.Chat
         public async Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages,
             ChatBackendOptions options, CancellationToken cancellationToken)
         {
-            var parameters = BuildParameters(messages, options);
+            // Resolved ONCE so the request and the echoed result cannot name different models.
+            var model = ChatBackendOptions.ModelOr(options, _model);
+            var parameters = BuildParameters(messages, options, model);
+
+            // Tools mean no streaming, for the reason stated once on ChatBackendOptions.Tools. Here
+            // it also keeps the reply in one shape: a tool_use block is read off a whole message
+            // rather than reassembled from content-block deltas.
+            var stream = _stream && (options?.Tools == null || options.Tools.Count == 0);
 
             var content = new StringBuilder();
+            List<ChatToolCall> toolCalls = null;
             Int64? promptTokens = null;
             Int64? completionTokens = null;
             String refusal = null;
@@ -137,7 +145,7 @@ namespace NoSQL.GraphDB.App.Chat
 
             try
             {
-                if (_stream)
+                if (stream)
                 {
                     await foreach (var streamEvent in _client.Messages.CreateStreaming(parameters, cancellationToken))
                     {
@@ -180,6 +188,7 @@ namespace NoSQL.GraphDB.App.Chat
                     Message response = await _client.Messages.Create(parameters, cancellationToken);
                     content.Append(String.Join(String.Empty,
                         response.Content.Select(block => block.Value).OfType<TextBlock>().Select(t => t.Text)));
+                    toolCalls = ToolCallsOf(response);
                     promptTokens = response.Usage.InputTokens;
                     completionTokens = response.Usage.OutputTokens;
                     refusal = RefusalOf(response.StopDetails);
@@ -247,7 +256,8 @@ namespace NoSQL.GraphDB.App.Chat
             return new ChatBackendResult
             {
                 Content = content.ToString(),
-                Model = _model,
+                ToolCalls = toolCalls,
+                Model = model,
                 // Absent stays absent: a stream that ended before its usage frame reports no counts,
                 // and a 0 there would read as "it generated nothing" rather than "it did not say".
                 PromptTokens = promptTokens,
@@ -264,7 +274,155 @@ namespace NoSQL.GraphDB.App.Chat
         ///   caller did not ask for. System turns are hoisted out of the message list because this API
         ///   takes them as their own top-level field rather than as a turn.
         /// </summary>
-        private MessageCreateParams BuildParameters(IReadOnlyList<ChatTurn> messages, ChatBackendOptions options)
+        /// <summary>
+        ///   One turn in this provider's shape. Text is a plain string, but a turn that carries
+        ///   tool calls or a tool result has to become CONTENT BLOCKS, which is this provider's
+        ///   whole model: a tool_use block for what the assistant asked, a tool_result block for
+        ///   what came back. An assistant turn that both spoke and called keeps its text as a
+        ///   block in front of the calls, in the order the model produced it.
+        /// </summary>
+        private static MessageParam ToMessageParam(ChatTurn turn)
+        {
+            if (turn.ToolCalls is { Count: > 0 } calls)
+            {
+                var blocks = new List<ContentBlockParam>();
+                if (!String.IsNullOrEmpty(turn.Content))
+                {
+                    blocks.Add(new TextBlockParam { Text = turn.Content });
+                }
+
+                foreach (var call in calls)
+                {
+                    blocks.Add(new ToolUseBlockParam
+                    {
+                        ID = call.Id,
+                        Name = call.Name,
+                        Input = InputOf(call.Arguments),
+                    });
+                }
+
+                return new MessageParam { Role = RoleOf(turn.Role), Content = blocks };
+            }
+
+            if (!String.IsNullOrEmpty(turn.ToolCallId))
+            {
+                // A tool result is a USER turn in this protocol, not a role of its own: the result
+                // is something the conversation hands back to the assistant.
+                return new MessageParam
+                {
+                    Role = RoleOf("user"),
+                    Content = new List<ContentBlockParam>
+                    {
+                        new ToolResultBlockParam
+                        {
+                            ToolUseID = turn.ToolCallId,
+                            Content = turn.Content ?? String.Empty,
+                        },
+                    },
+                };
+            }
+
+            return new MessageParam { Role = RoleOf(turn.Role), Content = turn.Content };
+        }
+
+        /// <summary>
+        ///   The offered tools in this provider's envelope. The caller's JSON Schema is carried
+        ///   through as the schema object's own members rather than mapped onto
+        ///   <see cref="InputSchema" />'s typed properties, so nothing the caller wrote is dropped
+        ///   by a shape that models only part of JSON Schema.
+        /// </summary>
+        private static List<ToolUnion> ToolsFor(ChatBackendOptions options)
+        {
+            if (options?.Tools == null || options.Tools.Count == 0)
+            {
+                return null;
+            }
+
+            var tools = new List<ToolUnion>(options.Tools.Count);
+            foreach (var tool in options.Tools)
+            {
+                tools.Add(new Tool
+                {
+                    Name = tool.Name,
+                    Description = tool.Description ?? String.Empty,
+                    InputSchema = new InputSchema(SchemaOf(tool.Parameters)),
+                });
+            }
+
+            return tools;
+        }
+
+        /// <summary>
+        ///   A schema object's members, or the empty object schema when a tool declares none. A
+        ///   tool that takes no arguments still needs a schema: this provider rejects a missing one,
+        ///   and "no arguments" is a schema rather than an absence.
+        /// </summary>
+        private static Dictionary<String, JsonElement> SchemaOf(JsonElement parameters)
+        {
+            var schema = new Dictionary<String, JsonElement>(StringComparer.Ordinal);
+            if (parameters.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var member in parameters.EnumerateObject())
+                {
+                    schema[member.Name] = member.Value;
+                }
+            }
+
+            if (!schema.ContainsKey("type"))
+            {
+                using var obj = JsonDocument.Parse("\"object\"");
+                schema["type"] = obj.RootElement.Clone();
+            }
+
+            return schema;
+        }
+
+        /// <summary>The model's arguments as this provider's input map.</summary>
+        private static Dictionary<String, JsonElement> InputOf(JsonElement arguments)
+        {
+            var input = new Dictionary<String, JsonElement>(StringComparer.Ordinal);
+            if (arguments.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var member in arguments.EnumerateObject())
+                {
+                    input[member.Name] = member.Value;
+                }
+            }
+
+            return input;
+        }
+
+        /// <summary>The calls a reply asked for, read off its content blocks.</summary>
+        private static List<ChatToolCall> ToolCallsOf(Message response)
+        {
+            var uses = response.Content
+                .Select(block => block.Value)
+                .OfType<ToolUseBlock>()
+                .ToList();
+            if (uses.Count == 0)
+            {
+                return null;
+            }
+
+            var mapped = new List<ChatToolCall>(uses.Count);
+            for (var i = 0; i < uses.Count; i++)
+            {
+                mapped.Add(new ChatToolCall
+                {
+                    Id = String.IsNullOrEmpty(uses[i].ID)
+                        ? "call_" + i.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : uses[i].ID,
+                    Name = uses[i].Name,
+                    Arguments = JsonSerializer.SerializeToElement(uses[i].Input
+                        ?? new Dictionary<String, JsonElement>()),
+                });
+            }
+
+            return mapped;
+        }
+
+        private MessageCreateParams BuildParameters(IReadOnlyList<ChatTurn> messages, ChatBackendOptions options,
+            String model)
         {
             var system = String.Join("\n\n", messages
                 .Where(IsSystem)
@@ -272,8 +430,10 @@ namespace NoSQL.GraphDB.App.Chat
 
             var turns = messages
                 .Where(turn => !IsSystem(turn))
-                .Select(turn => new MessageParam { Role = RoleOf(turn.Role), Content = turn.Content })
+                .Select(ToMessageParam)
                 .ToList();
+
+            var tools = ToolsFor(options);
 
             // Absent rather than empty, in both cases: neither an empty system prompt nor an empty
             // stop list is something the caller asked for. A null StopSequences is left out of the
@@ -284,17 +444,19 @@ namespace NoSQL.GraphDB.App.Chat
             return system.Length == 0
                 ? new MessageCreateParams
                 {
-                    Model = _model,
-                    MaxTokens = _maxTokens,
-                    Messages = turns,
-                    StopSequences = stop
-                }
-                : new MessageCreateParams
-                {
-                    Model = _model,
+                    Model = model,
                     MaxTokens = _maxTokens,
                     Messages = turns,
                     StopSequences = stop,
+                    Tools = tools
+                }
+                : new MessageCreateParams
+                {
+                    Model = model,
+                    MaxTokens = _maxTokens,
+                    Messages = turns,
+                    StopSequences = stop,
+                    Tools = tools,
                     System = system
                 };
         }

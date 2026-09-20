@@ -38,6 +38,7 @@ import type {
   SettingREST,
 } from "../api/types";
 import {
+  CHAT_PURPOSES,
   CONFIG_FILTERS,
   CONFIG_GROUPS,
   CONFIG_SECTIONS,
@@ -201,29 +202,38 @@ function SurfaceBody({
   // catalog carrying the operator's credential, so it happens only where the answer is actionable:
   // chat is on, this instance accepts writes, and the row is one this operator could actually change
   // and can see. Merely opening this surface fetches nothing.
-  const modelKey =
-    chat?.enabled === true && chat.backend ? `Fallen8:Chat:${chat.backend}:Model` : null;
-  // The row as the pane on screen actually RENDERS it, filter chip included, and not just as the
-  // descriptor the instance published: with "not writable" selected the Chat pane shows only rows a
+  //
+  // EVERY purpose's row, not just the assist one (feature agent-host): the two are the same kind of
+  // value, chosen from the same catalog, and one read answers for both. Offering names at one of
+  // them and a bare text field at the other would say the agent model is a different kind of
+  // setting, and the one an operator is most likely to be typing blind is the new one.
+  const modelKeys =
+    chat?.enabled === true && chat.backend
+      ? CHAT_PURPOSES.map((purpose) => `Fallen8:Chat:${chat.backend}:Models:${purpose}`)
+      : [];
+  // The rows as the pane on screen actually RENDERS them, filter chip included, and not just as the
+  // descriptors the instance published: with "not writable" selected the Chat pane shows only rows a
   // rule excludes, and a credentialed read whose answer nothing on screen could consume is precisely
   // the fan-out FR-4 forbids.
+  //
+  // Checked per row rather than once for the pair: the reasons a row cannot be typed into are
+  // per-key (the environment can lock one purpose and leave the other writable), so a pair treated
+  // as one would either put a list beside a dead control or withhold it from a live one.
   const chatPane = panes.find((entry) => entry.section.id === "chat");
-  const modelRow =
-    modelKey === null
-      ? undefined
-      : chatPane?.settings.find((entry) => entry.key === modelKey && matchesFilter(entry, filter));
-  // Null when there is no row to offer anything to. Every reason a row cannot be typed into is
-  // checked, because a list of names beside a dead control is worse than no list.
-  const pickerKey =
-    modelRow !== undefined &&
-    modelRow.kind === "string" &&
-    modelRow.tier !== "notWritable" &&
-    !isEnvironmentLocked(modelRow) &&
-    writesAllowed &&
-    editable &&
-    !isRowDisabled(modelRow.key)
-      ? modelRow.key
-      : null;
+  const pickerKeys = modelKeys.filter((key) => {
+    const row = chatPane?.settings.find(
+      (entry) => entry.key === key && matchesFilter(entry, filter),
+    );
+    return (
+      row !== undefined &&
+      row.kind === "string" &&
+      row.tier !== "notWritable" &&
+      !isEnvironmentLocked(row) &&
+      writesAllowed &&
+      editable &&
+      !isRowDisabled(row.key)
+    );
+  });
 
   // One refusal per visit, per backend. An errored query holds no data, so react-query counts it
   // stale whatever staleTime says and fetches again the moment `enabled` flips back to true: without
@@ -242,7 +252,7 @@ function SurfaceBody({
     // ("d", typed at the Durability keys) puts the Chat pane on screen with no chat intent behind it.
     // Only the FETCH waits for that; names already in hand stay on offer while a search narrows the
     // pane, because offering them costs nothing.
-    enabled: instance !== null && pickerKey !== null && !searching && refused !== catalogKey,
+    enabled: instance !== null && pickerKeys.length > 0 && !searching && refused !== catalogKey,
     // At most once per visit: staleTime keeps coming back to the section off the wire, and retry: 0
     // stops a refused read fanning out a second time (the client default retries once).
     retry: 0,
@@ -255,12 +265,18 @@ function SurfaceBody({
     }
   }, [catalog.isError, catalogKey]);
 
+  // The keys BY VALUE, because the memo below has to be stable across a keystroke in any other row
+  // and `pickerKeys` is a fresh array on every render. Config keys hold no space, so this joins and
+  // splits losslessly.
+  const pickerKeysId = pickerKeys.join(" ");
+
   const picker = useMemo<RowPicker | null>(() => {
-    if (pickerKey === null) {
+    const keys = pickerKeysId === "" ? [] : pickerKeysId.split(" ");
+    if (keys.length === 0) {
       return null;
     }
     if (catalog.isError) {
-      return { key: pickerKey, note: catalogUnavailable(catalog.error) };
+      return { keys, note: catalogUnavailable(catalog.error) };
     }
     // Reached by SEARCH and never navigated to, so the fetch above was deliberately withheld. Say so
     // rather than rendering a bare field: search is the affordance for an operator who does NOT know
@@ -271,7 +287,7 @@ function SurfaceBody({
     // and a search typed during that window would otherwise tell an operator who is already in the
     // Chat section to open the Chat section.
     if (catalog.data === undefined && searching && !catalog.isFetching) {
-      return { key: pickerKey, note: "Open the Chat section to load catalogued names; or type one." };
+      return { keys, note: "Open the Chat section to load catalogued names; or type one." };
     }
     // Studio filters, the route does not (decision 8): an embedding model written here is a refusal
     // at the first completion. An UNKNOWN capability stays, because "the backend did not say" is not
@@ -279,8 +295,8 @@ function SurfaceBody({
     const offered = (catalog.data?.models ?? [])
       .filter((model) => model.capability !== "embedding")
       .map((model) => ({ value: model.name, label: modelOptionLabel(model) }));
-    return offered.length > 0 ? { key: pickerKey, suggestions: offered } : null;
-  }, [pickerKey, catalog.data, catalog.isError, catalog.error, catalog.isFetching, searching]);
+    return offered.length > 0 ? { keys, suggestions: offered } : null;
+  }, [pickerKeysId, catalog.data, catalog.isError, catalog.error, catalog.isFetching, searching]);
 
   return (
     <>
@@ -325,8 +341,8 @@ function SurfaceBody({
             {pendingRestart.map((entry) => (
               <li key={entry.key}>
                 <code className="text-[10px]">{entry.key}</code>: running{" "}
-                <span className="text-fg">{entry.runningValue ?? "unset"}</span>, pending{" "}
-                <span className="text-fg">{entry.pendingValue ?? "unset"}</span>
+                <span className="text-fg">{storedValueText(entry.runningValue)}</span>, pending{" "}
+                <span className="text-fg">{storedValueText(entry.pendingValue)}</span>
               </li>
             ))}
           </ul>
@@ -459,11 +475,32 @@ function SurfaceBody({
 }
 
 /**
- * What the model picker adds to exactly ONE row: the names to offer, or the one line saying why there
- * are none. ONE object, because SettingRow is memoised and both halves have to be stable references
- * across a keystroke in any other row.
+ * What the model picker adds to the rows it covers, one per chat purpose: the names to offer, or the
+ * one line saying why there are none. ONE object for all of them, because SettingRow is memoised and
+ * every part of this has to be a stable reference across a keystroke in any other row, and because
+ * one catalog read is what answers for every purpose.
  */
-type RowPicker = { key: string; suggestions?: readonly SettingSuggestion[]; note?: string };
+type RowPicker = { keys: readonly string[]; suggestions?: readonly SettingSuggestion[]; note?: string };
+
+/**
+ * A stored value as the pending list has to show it. An empty string is NOT the same fact as no
+ * value: the write surface accepts an empty string for a string key, so one is a key an operator
+ * set to nothing and the other a key nobody set, and this list exists to say which one a restart
+ * would apply. What the RESOLVED model does with a blank value is a different question, answered
+ * once in ChatBackendFactory.ModelFor.
+ */
+function storedValueText(value: string | null | undefined): string {
+  if (value === null || value === undefined) {
+    return "unset";
+  }
+  if (value.length === 0) {
+    return "empty";
+  }
+  // Whitespace is not nothing, and it is not a value either. Rendered verbatim it is an empty cell,
+  // which reads as "no value" and is the one distinction this list exists to make. Said in words,
+  // with the length, because an operator's next question is how much of it there is.
+  return value.trim().length === 0 ? "blank (" + value.length + " spaces)" : value;
+}
 
 /**
  * What is known about a catalogued model, shown beside its name: the backend's own class string
@@ -635,8 +672,8 @@ function SectionPane({
                 disabled={isRowDisabled(setting.key)}
                 onChange={onChange}
                 onClear={onClear}
-                suggestions={picker?.key === setting.key ? picker.suggestions : undefined}
-                note={picker?.key === setting.key ? picker.note : undefined}
+                suggestions={picker?.keys.includes(setting.key) === true ? picker.suggestions : undefined}
+                note={picker?.keys.includes(setting.key) === true ? picker.note : undefined}
               />
             ))}
           </div>

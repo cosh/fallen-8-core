@@ -290,22 +290,29 @@ namespace NoSQL.GraphDB.App.Configuration
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:Ollama:Endpoint", Fallen8SettingKind.String, "R4",
                 "This is a URL the server dials, so a written value turns the chat gateway into a "
                 + "request forwarder onto the operator's own network."));
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Ollama:Model", Fallen8SettingKind.String));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Ollama:Models:Assist", Fallen8SettingKind.String));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Ollama:Models:Agent", Fallen8SettingKind.String));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:Nahil:Endpoint", Fallen8SettingKind.String, "R4",
                 ProviderEndpointReason));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:Nahil:ApiKey", Fallen8SettingKind.String, "R8",
                 ProviderCredentialReason));
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Nahil:Model", Fallen8SettingKind.String));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Nahil:Models:Assist", Fallen8SettingKind.String));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Nahil:Models:Agent", Fallen8SettingKind.String));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:OpenAI:Endpoint", Fallen8SettingKind.String, "R4",
                 ProviderEndpointReason));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:OpenAI:ApiKey", Fallen8SettingKind.String, "R8",
                 ProviderCredentialReason));
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:OpenAI:Model", Fallen8SettingKind.String));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:OpenAI:Models:Assist", Fallen8SettingKind.String));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:OpenAI:Models:Agent", Fallen8SettingKind.String));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:Anthropic:Endpoint", Fallen8SettingKind.String, "R4",
                 ProviderEndpointReason));
             entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Chat:Anthropic:ApiKey", Fallen8SettingKind.String, "R8",
                 ProviderCredentialReason));
-            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Anthropic:Model", Fallen8SettingKind.String));
+            // One model per PURPOSE per backend (feature agent-host): a purpose names a job and the
+            // server names the model that does it, so no client ever chooses a model. Restart tier
+            // like the single Model key these replaced - a backend client is built once.
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Anthropic:Models:Assist", Fallen8SettingKind.String));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Anthropic:Models:Agent", Fallen8SettingKind.String));
             // The Messages API requires the field on every request, which is why only this backend
             // carries the knob. The ceiling is the largest output any current Claude model offers.
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Chat:Anthropic:MaxTokens",
@@ -462,6 +469,20 @@ namespace NoSQL.GraphDB.App.Configuration
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Ingestion:Docling:TableMode",
                 Fallen8SettingKind.Enum, allowedValues: new[] { "fast", "accurate" }));
             entries.Add(Fallen8SettingEntry.Restart("Fallen8:Ingestion:Docling:OcrEngine", Fallen8SettingKind.String));
+
+            #endregion
+
+            #region Fallen8:Agents
+
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Agents:Enabled", Fallen8SettingKind.Bool, "R5",
+                "The agent host is a capability the operator opted out of, and lifting it opens a "
+                + "proxy that spawns agents which decide for themselves which tools to call."));
+            entries.Add(Fallen8SettingEntry.NotWritable("Fallen8:Agents:Endpoint", Fallen8SettingKind.String, "R4",
+                "It is the base address of an authenticated pass-through proxy that forwards status, "
+                + "body and content type unchanged, so writable it becomes an arbitrary-URL proxy "
+                + "onto the operator's own network."));
+            entries.Add(Fallen8SettingEntry.Restart("Fallen8:Agents:TimeoutSeconds",
+                Fallen8SettingKind.Int, minimum: 1, maximum: MaxSeconds));
 
             #endregion
 

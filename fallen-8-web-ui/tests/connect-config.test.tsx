@@ -24,11 +24,11 @@
 // SOFTWARE.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { InstanceConfig } from "../src/instances/types";
-import type { ConfigREST, SettingREST } from "../src/api/types";
+import type { ChatProviderStatsREST, ConfigREST, SettingREST } from "../src/api/types";
 
 /**
  * Connect · Configuration card (features instance-config and configuration-surface): the read-only
@@ -93,6 +93,24 @@ function config(overrides: Partial<ConfigREST> = {}): ConfigREST {
     apiKeyRequired: false,
     ...overrides,
   };
+}
+
+/**
+ * The default config with ONE chat block swapped in, so a case about the chat card does not have to
+ * restate the embedding provider it says nothing about.
+ */
+function configWithChat(chat: ChatProviderStatsREST | null): ConfigREST {
+  const base = config();
+  return { ...base, semantic: { ...base.semantic, chat } };
+}
+
+/**
+ * The VALUE cell of one labelled row in a provider card. Scoped to the ROW rather than to the card
+ * because the two per-purpose model rows carry sibling names from one backend: a case asserting
+ * against the card's whole text would pass with the two values swapped.
+ */
+function rowValue(card: HTMLElement, label: string): string {
+  return within(card).getByText(label).nextElementSibling?.textContent ?? "";
 }
 
 function renderPanel(portalContainer?: HTMLElement) {
@@ -244,6 +262,10 @@ describe("Connect Configuration card", () => {
 
     const embedding = await screen.findByTestId("config-embedding");
     expect(embedding).toHaveTextContent("Off");
+    // A keyless instance answers 401, so a client keying only on 403 misreads a bare dotnet run.
+    expect(embedding).toHaveTextContent(
+      "401 on a keyless instance, 403 once an API key is configured",
+    );
     const chat = screen.getByTestId("config-chat");
     expect(chat).not.toHaveTextContent("GPU");
     expect(chat).not.toHaveTextContent("CPU"); // residency unknown → no device shown
@@ -289,6 +311,78 @@ describe("Connect Configuration card", () => {
     expect(chat).not.toHaveTextContent("GPU");
     expect(chat).not.toHaveTextContent("CPU");
     expect(chat).toHaveTextContent("not called yet");
+  });
+
+  it("names the model of each purpose on its own row", async () => {
+    // The two rows exist because the two models are configured by different people, so the case has
+    // to be about WHICH row carries WHICH value: sibling names from one backend make a card-wide
+    // assertion pass with the two swapped.
+    getConfigMock.mockResolvedValue(
+      configWithChat({
+        enabled: true,
+        backend: "Nahil",
+        model: "phi4-f8-mini:latest",
+        agentModel: "phi4-mini:latest",
+        loaded: false,
+      }),
+    );
+    renderPanel();
+
+    const chat = await screen.findByTestId("config-chat");
+    expect(rowValue(chat, "model (assist)")).toBe("phi4-f8-mini:latest");
+    expect(rowValue(chat, "model (agent)")).toBe("phi4-mini:latest");
+  });
+
+  it("says not set on the purpose the backend names no model for, and leaves the other one alone", async () => {
+    // The shipped state of the two metered providers: an assist model and no agent model. "not set"
+    // rather than a dash is the difference between nothing configured and agents being refused.
+    getConfigMock.mockResolvedValue(
+      configWithChat({
+        enabled: true,
+        backend: "Anthropic",
+        model: "claude-opus-5",
+        agentModel: null,
+        loaded: false,
+      }),
+    );
+    renderPanel();
+
+    const chat = await screen.findByTestId("config-chat");
+    expect(rowValue(chat, "model (agent)")).toBe("not set");
+    expect(rowValue(chat, "model (assist)")).toBe("claude-opus-5");
+  });
+
+  it("reads a cleared model as not set, rather than as the blank cell it used to render", async () => {
+    // What emptying the row leaves behind: the config write validator accepts an empty string for a
+    // string key, so the server stored it and published it. It normalises it away now
+    // (ChatBackendFactory.ModelFor); this is the card's own guard for an instance that predates
+    // that. A DIFFERENT blank shape per row on purpose: one shape would leave a partial fix green.
+    getConfigMock.mockResolvedValue(
+      configWithChat({
+        enabled: true,
+        backend: "Ollama",
+        model: "",
+        agentModel: "   ",
+        loaded: false,
+      }),
+    );
+    renderPanel();
+
+    const chat = await screen.findByTestId("config-chat");
+    expect(rowValue(chat, "model (assist)")).toBe("not set");
+    expect(rowValue(chat, "model (agent)")).toBe("not set");
+  });
+
+  it("names both statuses a refused capability answers, because a keyless instance answers 401", async () => {
+    getConfigMock.mockResolvedValue(
+      configWithChat({ enabled: false, backend: null, model: null, loaded: false }),
+    );
+    renderPanel();
+
+    const chat = await screen.findByTestId("config-chat");
+    expect(chat).toHaveTextContent("401 on a keyless instance, 403 once an API key is configured");
+    // The off branch replaces the rows, so there is no purpose row left to misread.
+    expect(within(chat).queryByText("model (agent)")).toBeNull();
   });
 
   it("re-checks on demand via the Refresh button", async () => {

@@ -259,7 +259,7 @@ namespace NoSQL.GraphDB.Tests
 
             var expected = new[]
             {
-                "Fallen8:Analytics", "Fallen8:BulkIO", "Fallen8:ChangeFeed", "Fallen8:Chat",
+                "Fallen8:Agents", "Fallen8:Analytics", "Fallen8:BulkIO", "Fallen8:ChangeFeed", "Fallen8:Chat",
                 "Fallen8:Durability", "Fallen8:Embedding", "Fallen8:Identity", "Fallen8:Ingestion",
                 "Fallen8:Integrations", "Fallen8:Metadata", "Fallen8:Namespaces", "Fallen8:Nlp",
                 "Fallen8:Observability", "Fallen8:Plugins", "Fallen8:Security", "Fallen8:StoredQueries"

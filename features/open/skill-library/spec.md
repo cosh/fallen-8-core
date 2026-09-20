@@ -163,6 +163,25 @@ Three findings, recorded rather than worked around:
    verifier the authority and these skills the pointer to it, and why the verifier's own negative
    fixtures matter more than the skills' prose.
 
+### 3.2c Operating the agent host (revision 2026-09-16)
+
+The landed [agent-host](../../done/agent-host/spec.md) feature adds a deployable an operator has to
+run, so it extends **`fallen8-operations`** rather than becoming a skill: a second operations skill
+would fork the entry that already teaches compose deployment and the security flags.
+
+| Skill | Gains | Grounded in |
+|-------|-------|-------------|
+| `fallen8-operations` **(extended)** | Turning the host on at BOTH ends (`F8_AGENTS=true` for the sidecar, `Fallen8:Agents:Enabled` for the instance's `/agents/*` proxy), that it is the one capability off by default and why, the model living on the INSTANCE as one model per purpose rather than in the host, the MCP tiers being the real boundary on what an agent can do, budgets enforced in the host, and traces and feeds being in-memory per host instance so nothing survives a restart. | [agent-host](../../done/agent-host/spec.md), [agents](../../../docs/src/content/docs/agents.md) |
+
+**Two content rules, because they are what an agent operating this will get wrong:**
+
+1. **A capability-gated route answers `401` on a keyless instance and `403` only once a key is
+   configured.** A runbook that treats `403` as "this feature is absent" misreads a bare
+   `dotnet run`, and this applies to every capability gate, not just this one.
+2. **The host holds no model configuration and no provider credential.** A skill that tells anyone
+   to set a model on the agent host is teaching a setting that does not exist; the instance's
+   `Fallen8:Chat:<Backend>:Models:Agent` is the one place.
+
 ### 3.3 CI enforcement (`SkillLibraryTest`, fallen-8-unittest)
 
 1. **Frontmatter contract:** every `skills/*/SKILL.md` parses (the frontmatter is a flat

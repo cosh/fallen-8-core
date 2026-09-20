@@ -53,6 +53,7 @@ namespace NoSQL.GraphDB.App.Configuration
                 [Fallen8EmbeddingOptions.SectionName] = typeof(Fallen8EmbeddingOptions),
                 [Fallen8IdentityOptions.SectionName] = typeof(Fallen8IdentityOptions),
                 [Fallen8IngestionOptions.SectionName] = typeof(Fallen8IngestionOptions),
+                [Fallen8AgentsOptions.SectionName] = typeof(Fallen8AgentsOptions),
                 [Fallen8IntegrationsOptions.SectionName] = typeof(Fallen8IntegrationsOptions),
                 [Fallen8MetadataOptions.SectionName] = typeof(Fallen8MetadataOptions),
                 [Fallen8NamespacesOptions.SectionName] = typeof(Fallen8NamespacesOptions),

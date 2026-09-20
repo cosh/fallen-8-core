@@ -9,7 +9,8 @@ One command brings up the whole thing: engine, REST API, [F8 Studio](/studio/), 
 sidecar behind [semantic traversal](/semantic-traversal/) and Studio's natural-language
 assist, the document and NLP sidecars behind the [semantic layer](/unstructured-ingestion/),
 the [MCP server](/mcp-server/) that AI agents connect to, and the full
-[observability](/observability/) stack. Every feature is on and nothing asks for
+[observability](/observability/) stack. Every feature is on except the
+[agent host](/agents/), which is off by default at both ends, and nothing asks for
 authentication. That is the default and it just works. This doc then covers every other way to run it
 and every knob you can turn.
 
@@ -62,8 +63,8 @@ npm run env:status   # health of the whole environment
 ### From the published images
 
 `env:up` builds the first-party images locally. Every release tag also publishes them to
-GHCR (`ghcr.io/cosh/fallen-8-core` plus `-api`, `-studio`, `-mcp`, `-integrations`, `-ollama`,
-`-nlp`), so the same environment runs without building anything:
+GHCR (`ghcr.io/cosh/fallen-8-core` plus `-api`, `-studio`, `-mcp`, `-integrations`, `-agents`,
+`-ollama`, `-nlp`), so the same environment runs without building anything:
 
 ```bash
 npm run env:up:published              # newest release (latest)
@@ -182,6 +183,8 @@ to `.env` and uncomment what you need.
 | `F8_INTEGRATIONS`                                          | `true`                           | The [integrations](/integrations/) runtime, on its own profile and with no host port. `false` skips the sidecar and the `/integrations/*` routes then refuse the capability |
 | `F8_INTEGRATIONS_ALLOWED_HOSTS`                            | _(unset)_                        | Comma-separated hosts a run **holding a credential** may contact, enforced as the request leaves. Unset means no restriction, and `env:up` says so: a source address arrives in a job from whoever can reach the API |
 | `F8_INTEGRATIONS_SELF_SIGNED_HOSTS`                        | _(unset)_                        | Comma-separated hosts whose TLS certificate is not validated. The one place this feature reduces trust, and what a UniFi console or Fronius inverter on a private address needs to be reachable at all |
+| `F8_AGENTS`                                                | `false`                          | The [agent host](/agents/), on its own profile and with no host port. The one capability here that is OFF by default, at both ends: this brings up the sidecar AND opens the instance's `/agents/*` routes, and an agent can do whatever the MCP tiers allow |
+| `F8_AGENT_MODEL`                                           | `phi4-mini:latest`               | The model the sidecar pulls for the agent purpose, pulled only when `F8_AGENTS=true` and `F8_PULL_ASSIST` is not `0`. The second condition is what keeps a hosted-chat overlay from downloading a model nothing there will ask for, since the instance answers the agent purpose at its provider; set `F8_PULL_ASSIST=1` to pull it locally anyway. It is the INSTANCE that resolves the model, so this only has to name the same one `Fallen8__Chat__Ollama__Models__Agent` does |
 | `F8_GPU`                                                   | _(auto)_                         | `1` forces the NVIDIA GPU, `0` forces CPU-only; unset auto-detects                                                                                        |
 | `F8_IMAGE_TAG`                                             | `latest`                         | Which published image version `env:up:published` runs (mirrors the release tags, e.g. `0.0.28`); ignored by the building `env:up`                          |
 | `F8_PULL_PHI4F8`                                           | `1`                              | Also pulls the larger GPU-only `phi4-f8` assist model (~9 GB); set `0` to skip it (CPU-only / disk-constrained hosts)                                     |

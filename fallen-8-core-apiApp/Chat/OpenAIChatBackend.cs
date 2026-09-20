@@ -25,16 +25,20 @@
 
 using System;
 using System.ClientModel;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.App.Helper;
 using OpenAI.Chat;
+using OpenAITool = OpenAI.Chat.ChatTool;
+using OpenAIToolCall = OpenAI.Chat.ChatToolCall;
 
 namespace NoSQL.GraphDB.App.Chat
 {
@@ -60,10 +64,26 @@ namespace NoSQL.GraphDB.App.Chat
     public sealed class OpenAIChatBackend : IChatBackend, IDisposable
     {
         private readonly HttpClient _http;
-        private readonly ChatClient _client;
         private readonly String _providerName;
         private readonly String _model;
         private readonly Boolean _stream;
+
+        /// <summary>
+        ///   One SDK client per model, because this SDK binds the model at CONSTRUCTION where the
+        ///   other two take it per request. The alternative was a whole backend per purpose, which
+        ///   would mean a second transport, a second retry handler and a second connection pool to
+        ///   the same host for the sake of one string.
+        ///   <para>
+        ///     Cheap by construction: every entry shares the one <see cref="HttpClient" /> and the
+        ///     one options object built in the constructor, so a client here is a thin wrapper and
+        ///     not a connection. Bounded in practice by the number of purposes, since the models
+        ///     come from configuration and a caller cannot name one.
+        ///   </para>
+        /// </summary>
+        private readonly ConcurrentDictionary<String, ChatClient> _clients =
+            new ConcurrentDictionary<String, ChatClient>(StringComparer.Ordinal);
+
+        private readonly Func<String, ChatClient> _newClient;
 
         /// <param name="target">The endpoint, model and credential. Already validated by the factory.</param>
         /// <param name="stream">Whether to ask the backend to stream (<c>Fallen8:Chat:Stream</c>).</param>
@@ -80,11 +100,17 @@ namespace NoSQL.GraphDB.App.Chat
                     RemoteModelHttpClient.OpenAIRetryable),
                 handler);
 
-            _client = new ChatClient(target.Model, new ApiKeyCredential(target.ApiKey),
-                RemoteModelHttpClient.OpenAIOptions(target, _http));
+            // Built once and closed over, so every per-model client shares this transport and
+            // these options rather than composing its own (and a second copy of the settings is
+            // how one of them quietly keeps an SDK default - see RemoteModelHttpClient).
+            var credential = new ApiKeyCredential(target.ApiKey);
+            var clientOptions = RemoteModelHttpClient.OpenAIOptions(target, _http);
+            _newClient = model => new ChatClient(model, credential, clientOptions);
+
             _providerName = target.ProviderName;
             _model = target.Model;
             _stream = stream;
+            _clients[_model] = _newClient(_model);
         }
 
         /// <summary>Releases the owned transport. Neither the SDK's client nor its pipeline transport
@@ -98,10 +124,20 @@ namespace NoSQL.GraphDB.App.Chat
         public async Task<ChatBackendResult> ChatAsync(IReadOnlyList<ChatTurn> messages,
             ChatBackendOptions options, CancellationToken cancellationToken)
         {
+            // Resolved ONCE so the client, the request and the echoed result all name one model.
+            var model = ChatBackendOptions.ModelOr(options, _model);
+            var client = _clients.GetOrAdd(model, _newClient);
+
             var turns = messages.Select(ToMessage).ToList();
             var request = BuildOptions(options);
 
+            // Tools mean no streaming, for the reason stated once on ChatBackendOptions.Tools. This
+            // SDK's own version of it: streamed calls arrive as ToolCallUpdates that have to be
+            // reassembled from fragments.
+            var stream = _stream && (options?.Tools == null || options.Tools.Count == 0);
+
             var content = new StringBuilder();
+            List<ChatToolCall> toolCalls = null;
             ChatFinishReason? finish = null;
             ChatTokenUsage usage = null;
 
@@ -110,9 +146,9 @@ namespace NoSQL.GraphDB.App.Chat
 
             try
             {
-                if (_stream)
+                if (stream)
                 {
-                    await foreach (var update in _client.CompleteChatStreamingAsync(turns, request, cancellationToken))
+                    await foreach (var update in client.CompleteChatStreamingAsync(turns, request, cancellationToken))
                     {
                         Append(content, update.ContentUpdate);
 
@@ -131,7 +167,8 @@ namespace NoSQL.GraphDB.App.Chat
                 }
                 else
                 {
-                    ChatCompletion completion = await _client.CompleteChatAsync(turns, request, cancellationToken);
+                    ChatCompletion completion = await client.CompleteChatAsync(turns, request, cancellationToken);
+                    toolCalls = ToolCallsOf(completion);
                     Append(content, completion.Content);
                     finish = completion.FinishReason;
                     usage = completion.Usage;
@@ -209,7 +246,8 @@ namespace NoSQL.GraphDB.App.Chat
             return new ChatBackendResult
             {
                 Content = content.ToString(),
-                Model = _model,
+                ToolCalls = toolCalls,
+                Model = model,
                 // Absent stays absent: this provider omits `usage` on some responses, and a 0 there
                 // would read as "it generated nothing" rather than "it did not say".
                 PromptTokens = usage?.InputTokenCount,
@@ -253,6 +291,16 @@ namespace NoSQL.GraphDB.App.Chat
                 }
             }
 
+            // Added rather than assigned: the SDK exposes Tools as a read-only collection property.
+            if (options?.Tools is { Count: > 0 } tools)
+            {
+                foreach (var tool in tools)
+                {
+                    request.Tools.Add(OpenAITool.CreateFunctionTool(
+                        tool.Name, tool.Description, SchemaOf(tool.Parameters)));
+                }
+            }
+
             return request;
         }
 
@@ -268,9 +316,90 @@ namespace NoSQL.GraphDB.App.Chat
                 case "system":
                     return ChatMessage.CreateSystemMessage(turn.Content);
                 case "assistant":
-                    return ChatMessage.CreateAssistantMessage(turn.Content);
+                    // A turn that called tools is replayed AS those calls: this SDK's assistant
+                    // message is either text or calls, and the calls are what the next turn
+                    // answers, so they are the half that must survive.
+                    return turn.ToolCalls is { Count: > 0 } calls
+                        ? ChatMessage.CreateAssistantMessage(calls.Select(ToToolCall).ToList())
+                        : ChatMessage.CreateAssistantMessage(turn.Content);
+                case "tool":
+                    return ChatMessage.CreateToolMessage(turn.ToolCallId, turn.Content);
                 default:
                     return ChatMessage.CreateUserMessage(turn.Content);
+            }
+        }
+
+        /// <summary>One replayed call in this SDK's shape. Arguments travel as the bytes the model
+        /// produced, which is also how the SDK hands them back.</summary>
+        private static OpenAIToolCall ToToolCall(ChatToolCall call)
+        {
+            return OpenAIToolCall.CreateFunctionToolCall(call.Id, call.Name,
+                BinaryData.FromString(ArgumentsText(call.Arguments)));
+        }
+
+        /// <summary>
+        ///   The tool's argument schema as this SDK wants it, carried verbatim so nothing the caller
+        ///   wrote is dropped. A tool declaring none still gets the empty object schema: providers
+        ///   reject a missing one, and "no arguments" is a schema rather than an absence.
+        /// </summary>
+        private static BinaryData SchemaOf(JsonElement parameters)
+        {
+            return BinaryData.FromString(parameters.ValueKind == JsonValueKind.Object
+                ? parameters.GetRawText()
+                : "{\"type\":\"object\",\"properties\":{}}");
+        }
+
+        private static String ArgumentsText(JsonElement arguments)
+        {
+            return arguments.ValueKind == JsonValueKind.Object ? arguments.GetRawText() : "{}";
+        }
+
+        /// <summary>The calls a completion asked for, in the seam's shape.</summary>
+        private static List<ChatToolCall> ToolCallsOf(ChatCompletion completion)
+        {
+            if (completion?.ToolCalls == null || completion.ToolCalls.Count == 0)
+            {
+                return null;
+            }
+
+            var mapped = new List<ChatToolCall>(completion.ToolCalls.Count);
+            for (var i = 0; i < completion.ToolCalls.Count; i++)
+            {
+                var call = completion.ToolCalls[i];
+                mapped.Add(new ChatToolCall
+                {
+                    Id = String.IsNullOrEmpty(call.Id)
+                        ? "call_" + i.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        : call.Id,
+                    Name = call.FunctionName,
+                    Arguments = Parsed(call.FunctionArguments),
+                });
+            }
+
+            return mapped;
+        }
+
+        /// <summary>
+        ///   The model's arguments as JSON, or an empty object when they are absent or unparseable.
+        ///   A model can emit malformed JSON here, and this layer does not get to decide that a
+        ///   whole completion failed because of it: the caller sees a call with no arguments and
+        ///   can refuse it, which is a better failure than a 502 that names nothing.
+        /// </summary>
+        private static JsonElement Parsed(BinaryData arguments)
+        {
+            if (arguments == null)
+            {
+                return default;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(arguments.ToMemory());
+                return document.RootElement.Clone();
+            }
+            catch (JsonException)
+            {
+                return default;
             }
         }
 

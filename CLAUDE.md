@@ -13,12 +13,14 @@ Fallen-8 is an in-memory graph database written in C# (.NET 10). Namespaces are 
   OpenAPI via `Microsoft.AspNetCore.OpenApi`; interactive docs via Scalar.
 - **`fallen-8-unittest`** covers every project in the solution (MSTest).
 
-Two more are **separate deployables** that reach the graph over the public REST API only, never in
-process, and reference neither the engine nor the apiApp: **`fallen-8-mcp`** (the agent channel) and
-**`fallen-8-integrations`** (the job runner that reads a system on the operator's own network). Both
-have an architecture note below. They share one small library, **`fallen-8-rest-client`**
-(`NoSQL.GraphDB.Rest`): the REST-client seam, which is held to the same rule and references
-neither the engine nor the apiApp either. **`fallen-8-bench`** is the throughput harness and does
+Three more are **separate deployables** that never touch the engine in process and reference neither
+it nor the apiApp: **`fallen-8-mcp`** (the agent channel) and **`fallen-8-integrations`** (the job
+runner that reads a system on the operator's own network), both of which reach the graph over the
+public REST API, and **`fallen-8-agents`** (the agent host, which RUNS agents rather than exposing
+tools to somebody else's), which reaches the graph through NO REST route at all: it calls the
+instance's `/chat` and reads the graph only as a client of the MCP server. Each has an architecture note below. They share one small library,
+**`fallen-8-rest-client`** (`NoSQL.GraphDB.Rest`): the REST-client seam, which is held to the same
+rule and references neither the engine nor the apiApp either. **`fallen-8-bench`** is the throughput harness and does
 reference the engine, because it measures it in process.
 
 **User-facing documentation is a [Starlight](https://starlight.astro.build/) site rooted at
@@ -139,6 +141,25 @@ dotnet run --project fallen-8-core-apiApp
   [`docs/src/content/docs/mcp-server.md`](docs/src/content/docs/mcp-server.md) (published at
   <https://docs.fallen-8.com/mcp-server/>); the feature record is under
   `features/*/mcp-server/`.
+
+- **Agents RUN on the instance's own model through the agent host, a separate deployable.**
+  `fallen-8-agents` is the other side of `fallen-8-mcp`: where MCP exposes this graph's tools to
+  somebody else's agent, the host runs agents here, and it reaches the graph only as an MCP CLIENT
+  of that server. It holds **no model configuration and no provider credential**: it asks the
+  instance's own `POST /chat` with `purpose: agent`, so the operator configures a model once and
+  the host inherits it. Its REST surface is narrower than the shared REST-only rule, and a
+  convention test pins it: the host calls the chat gateway and no other REST route. A run leaves a
+  **bounded trace** (dropping the oldest and saying so) and an SSE **event feed** in the change
+  feed's dialect; both are in-memory, so nothing survives a restart, which is why every trace
+  carries the host instance that produced it. Its container port is never published; the browser
+  reaches it through the apiApp's authenticated proxy at `/agents/*`, behind an `Agents`
+  capability. Roles bound what an agent may call (a prompt plus an allowlist that can only narrow
+  what the MCP server advertises), and budgets are enforced in the host rather than asked of the
+  model. It ships **off by default** at both ends, alone among the capabilities here, because an
+  agent decides for itself which tools to call and the MCP tiers are therefore the real boundary.
+  Living doc: [`docs/src/content/docs/agents.md`](docs/src/content/docs/agents.md) (published at
+  <https://docs.fallen-8.com/agents/>); the feature record is
+  [features/done/agent-host/](features/done/agent-host/).
 
 ## Quality gates (enforced, feature code-quality)
 

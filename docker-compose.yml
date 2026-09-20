@@ -56,7 +56,7 @@ services:
       - Fallen8__Durability__StorageDirectory=/data
       - Fallen8__Metadata__Directory=/data/metadata
       # Opt-in security posture; set a real key before exposing beyond localhost. (Dynamic code
-      # execution is always on — the "queries are C#" model — so there is no switch for it; set an
+      # execution is always on, the "queries are C#" model, so there is no switch for it; set an
       # API key before exposing the server, since the compile endpoints run in-process code.)
       - Fallen8__Security__ApiKey=${F8_API_KEY:-}
       # Text-in embeddings out of the box (feature embedding-out-of-box): the Ollama
@@ -87,7 +87,12 @@ services:
       # own model names its own backend; that is the whole rule, and this file brings one.
       - Fallen8__Chat__Backend=Ollama
       - Fallen8__Chat__Ollama__Endpoint=http://ollama:11434
-      - Fallen8__Chat__Ollama__Model=phi4-f8-mini:latest
+      # One model per PURPOSE (feature agent-host): the request says which job it is and the
+      # server says which model does that job. Assist is the fine-tune that emits one C#
+      # fragment; agent is a stock tool-calling model, because the fine-tune cannot call tools.
+      # Both are models ollama-init.sh already pulls, so this needs no extra weights.
+      - Fallen8__Chat__Ollama__Models__Assist=phi4-f8-mini:latest
+      - Fallen8__Chat__Ollama__Models__Agent=phi4-mini:latest
       # Documents in, graph out (feature unstructured-ingestion): binary formats convert in
       # the docling sidecar below; txt/md ingest without it. F8_INGESTION=false opts out as
       # one unit: the document endpoints answer 403 AND env:up skips the sidecar (compose
@@ -106,6 +111,15 @@ services:
       # has no host port.
       - Fallen8__Integrations__Enabled=${F8_INTEGRATIONS:-true}
       - Fallen8__Integrations__Endpoint=http://f8-integrations:8110
+      # Agents (feature agent-host): the f8-agents sidecar below RUNS agents against this instance,
+      # asking its own POST /chat for every model call. Off by default, unlike its two siblings,
+      # for a sharper reason than taste: an agent decides for itself which tools to call, so
+      # turning this on is a decision an operator makes rather than one a deployment inherits.
+      # F8_AGENTS=false makes the /agents routes refuse AND (via env:up) skips the sidecar
+      # (compose profile "agents"). The endpoint is in-network only: that container has no host
+      # port.
+      - Fallen8__Agents__Enabled=${F8_AGENTS:-false}
+      - Fallen8__Agents__Endpoint=http://f8-agents:8120
       # Fleet observability (feature fleet-observability): push metrics + traces + logs to the
       # in-network collector and declare this instance's fleet identity. Always on with env:up;
       # override the identity per deployment (F8_TENANT_ID / F8_INSTANCE_ID / ...).
@@ -157,6 +171,16 @@ services:
       # Keep in sync with the fallen8 service's embedding block: when embeddings are on
       # (the default), the sidecar also pulls the bge-m3 embedding model (~1.2 GB once).
       - F8_EMBEDDINGS=${F8_EMBEDDINGS:-true}
+      # The agent purpose's model (feature agent-host), pulled only when the agent host is coming
+      # up. In the default configuration F8_PULL_ASSIST has already pulled phi4-mini, so this is a
+      # digest check; it earns its place when F8_AGENT_MODEL names something else.
+      #
+      # What it does NOT do, which this comment claimed in three places until the merge gate
+      # measured it: put agents on a local model while chat runs hosted. ONE Fallen8:Chat:Backend
+      # serves BOTH purposes, so an instance whose chat is on OpenAI or Anthropic resolves the
+      # agent purpose on that provider and never asks this sidecar for what was pulled here.
+      - F8_AGENTS=${F8_AGENTS:-false}
+      - F8_AGENT_MODEL=${F8_AGENT_MODEL:-phi4-mini:latest}
     volumes:
       - ollama-models:/root/.ollama
     healthcheck:
@@ -213,7 +237,7 @@ services:
   # itself runs with no API key here). The container must bind 0.0.0.0 to be reachable, so
   # AcceptAnonymousRemote makes that an explicit, logged decision. For an OFF-BOX deployment do
   # NOT reuse this: set F8_MCP_AUTH_MODE=StaticToken + F8_MCP_TOKEN (or OAuth) and enable only
-  # the tiers you need — see docs/mcp-server.md.
+  # the tiers you need. See docs/mcp-server.md.
   f8-mcp:
     image: ghcr.io/cosh/fallen-8-core-mcp:${F8_IMAGE_TAG:-latest}
     build:
@@ -263,7 +287,8 @@ services:
   # saw, and writes that description into one namespace over REST. It loads no engine assemblies.
   # Rides the "integrations" profile, default ON like the rest of the environment;
   # F8_INTEGRATIONS=false skips the sidecar AND turns the capability off (the fallen8 service reads
-  # the same variable). The apiApp is the ONLY caller: see the no-ports note below.
+  # the same variable). From outside this network the apiApp is the only caller there can be, and
+  # inside it any service can reach the runtime: see the no-ports note below.
   f8-integrations:
     image: ghcr.io/cosh/fallen-8-core-integrations:${F8_IMAGE_TAG:-latest}
     build:
@@ -274,12 +299,14 @@ services:
     # A synchronous run writes the graph in several transactions, so a recreate must not kill one
     # between writes and leave a half-applied snapshot (compose's default grace is 10s).
     stop_grace_period: 120s
-    # NO ports: key at all, and this is the only first-party service with none. This container is
+    # NO ports: key at all, the same posture as f8-agents. This container is
     # handed third-party credentials, so nothing on the host's network may talk to it directly; the
-    # browser reaches it through the apiApp, which is already the authenticated front door, so the
-    # runtime needs no second auth story. Publishing 8110 "just to debug it" is the instinct this
-    # posture exists to rule out: it would hand the job route to anything on the host. The expose:
-    # key below documents the port for a reader without opening it to the host.
+    # browser reaches it through the apiApp, which is already the authenticated front door. Inside
+    # this network it is different, and deliberately so: every service on f8-net can reach 8110 and
+    # the runtime authenticates nobody, so the unpublished port is the whole boundary. Publishing
+    # 8110 "just to debug it" is the instinct this posture exists to rule out: it would hand the job
+    # route to anything on the host, and the boundary with it. The expose: key below documents the
+    # port for a reader without opening it to the host.
     expose: ["8110"]
     # A job runner keeps nothing between runs, so it needs no writable layer and no data volume. A
     # read-only filesystem makes a leftover write fail loudly instead of leaving an invisible
@@ -339,6 +366,80 @@ services:
       # GET /health, NOT /healthz: that is the route this runtime serves, and copying the f8-mcp
       # line verbatim gives a permanently unhealthy container.
       test: ["CMD", "curl", "-sf", "http://localhost:8110/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - f8-net
+
+  f8-agents:
+    image: ghcr.io/cosh/fallen-8-core-agents:${F8_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: fallen-8-agents/Dockerfile
+    restart: unless-stopped
+    profiles: ["agents"]
+    # A run is bounded by Agents:Limits:MaxRunSeconds (1800 by default) and a recreate cancels it
+    # cooperatively, so the grace period only has to cover the current step: one model call against
+    # a remote provider was measured at up to 41 seconds. Nothing here is durable in any case - a
+    # restart ends every agent and forgets every finished one - so a longer grace buys nothing.
+    stop_grace_period: 60s
+    # NO ports: key, the same posture as f8-integrations and for a reason of its own. An agent
+    # chooses which tools to call, so a published port would hand "spawn an agent" to anything on
+    # the host; the browser reaches it through the apiApp, which is already the authenticated front
+    # door. The expose: key documents the port for a reader without opening it to the host.
+    expose: ["8120"]
+    # Nothing is durable and nothing is stored: no trace, no result and no agent survives a
+    # restart, which the host says out loud at startup. So there is no volume and no writable layer
+    # is needed; a read-only filesystem makes a leftover write fail loudly instead of leaving an
+    # invisible container-layer file. /tmp is the one scratch path.
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      # The instance this host runs agents against, and its credential, reusing the existing
+      # F8_API_KEY exactly as the other two sidecars do so a secured instance needs no second key.
+      # Every model call goes to THIS target's /chat.
+      - Fallen8Target__BaseUrl=http://fallen8:8080
+      - Fallen8Target__ApiKey=${F8_API_KEY:-}
+      # DELIBERATELY NO MODEL SETTING. The agent purpose's model is the instance's
+      # Fallen8:Chat:<Backend>:Models:Agent; a key here would be a second place to configure one
+      # thing and the one that could disagree with the gateway actually serving the call.
+      #
+      # The MCP server is how an agent reaches the graph: it is a CLIENT of the sidecar below, so
+      # the tools an agent gets are exactly the tools that server advertises, at the tiers the
+      # operator enabled there. An agent host pointed at an MCP server with writes on can write.
+      - Agents__Mcp__Endpoint=http://f8-mcp:8090
+      - Agents__Mcp__BearerToken=${F8_MCP_TOKEN:-}
+      # Fleet observability (feature fleet-observability): push agent telemetry to the same
+      # collector, declaring the SAME identity as the fallen8 instance it runs against, so the
+      # fleet dashboards resolve its panels under that instance rather than as an unrelated
+      # service.
+      - Agents__Observability__Otlp__Endpoint=http://otel-collector:4317
+      - Agents__Identity__Tenant__Id=${F8_TENANT_ID:-local}
+      - Agents__Identity__Tenant__Name=${F8_TENANT_NAME:-Local}
+      - Agents__Identity__Instance__Id=${F8_INSTANCE_ID:-f8-local}
+      - Agents__Identity__Instance__Name=${F8_INSTANCE_NAME:-Fallen-8 (compose)}
+    depends_on:
+      fallen8:
+        condition: service_healthy
+      # The MCP server too, because it is this host's ONLY route to a graph and the handshake
+      # happens ONCE, at startup, with nothing re-probing it while the container runs
+      # (Agents:Mcp:ConnectTimeoutSeconds). Without this edge compose starts both sidecars the
+      # moment the instance is healthy, and a host that wins that race spends its whole life with
+      # an empty toolset: every agent answers that it cannot reach the graph, and only a manual
+      # restart fixes it. The edge orders startup and nothing more: compose leaves this host
+      # running when that server is replaced later, because recreating a dependent is the opt-in
+      # --always-recreate-deps and nothing here passes it (scripts/env-up.js runs `up -d` with
+      # --remove-orphans). The host keeps the session it already opened, and only a run that finds
+      # NO session reconnects, so a replaced MCP server still needs this host restarted by hand.
+      f8-mcp:
+        condition: service_healthy
+    healthcheck:
+      # GET /health, which is the route this host serves. The apiApp's proxy probes the same one to
+      # tell "no host configured" from "a host that did not answer".
+      test: ["CMD", "curl", "-sf", "http://localhost:8120/health"]
       interval: 10s
       timeout: 5s
       retries: 12

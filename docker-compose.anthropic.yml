@@ -33,7 +33,9 @@ services:
       - Fallen8__Chat__Backend=Anthropic
       - Fallen8__Chat__Anthropic__Endpoint=${F8_ANTHROPIC_URL:-https://api.anthropic.com}
       - Fallen8__Chat__Anthropic__ApiKey=${F8_ANTHROPIC_API_KEY:?set F8_ANTHROPIC_API_KEY}
-      - Fallen8__Chat__Anthropic__Model=${F8_ANTHROPIC_CHAT_MODEL:-claude-opus-5}
+      - Fallen8__Chat__Anthropic__Models__Assist=${F8_ANTHROPIC_CHAT_MODEL:-claude-opus-5}
+      # One model for both purposes, for the same reason as the OpenAI profile.
+      - Fallen8__Chat__Anthropic__Models__Agent=${F8_ANTHROPIC_AGENT_MODEL:-claude-opus-5}
       # The Messages API requires max_tokens on every request, which is why this knob exists here
       # and on no other provider. It bounds one answer, not a budget.
       - Fallen8__Chat__Anthropic__MaxTokens=${F8_ANTHROPIC_MAX_TOKENS:-4096}

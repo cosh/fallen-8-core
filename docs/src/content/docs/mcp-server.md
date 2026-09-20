@@ -13,6 +13,13 @@ container image. It never loads the engine; it bridges to a reachable Fallen-8 o
 existing REST API, so one MCP server can front a local scratch graph or a shared instance on
 another host. A bug in the agent surface cannot take the database down.
 
+:::tip[Running agents, rather than serving them]
+This page is about agents that live in **somebody else's client**. If you want agents that run
+against your graph, with budgets, a trace per run and an event feed, that is the
+[agent host](/agents/), and it reaches the graph as a client of this server: the tiers you enable
+here are exactly what those agents can do.
+:::
+
 ## Running it
 
 **With the compose environment (the default).** The MCP server comes up with the rest of the

@@ -26,6 +26,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
@@ -34,6 +35,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
 using NoSQL.GraphDB.App.Chat;
+using Microsoft.Extensions.Configuration;
 using NoSQL.GraphDB.App.Configuration;
 using NoSQL.GraphDB.App.Controllers.Model;
 using NoSQL.GraphDB.App.Helper;
@@ -68,11 +70,17 @@ namespace NoSQL.GraphDB.App.Controllers
         /// backend factory the way the residency probe does, and the provider exposes no
         /// Ollama-protocol-independent target to resolve it from.</summary>
         private readonly Fallen8ChatOptions _options;
+        private readonly IConfiguration _configuration;
 
-        public ChatController(Fallen8ChatProvider provider, IOptions<Fallen8ChatOptions> options)
+        public ChatController(Fallen8ChatProvider provider, IOptions<Fallen8ChatOptions> options,
+            IConfiguration configuration)
         {
             _provider = provider;
             _options = options.Value;
+
+            // The raw configuration, for the one fault the bound options cannot show: a block still
+            // carrying the model key the rename replaced. See ChatBackendFactory.StaleModelKey.
+            _configuration = configuration;
         }
 
         /// <summary>Maps chat provider faults to problem+json: timeout → 504, backend down → 503,
@@ -128,32 +136,64 @@ namespace NoSQL.GraphDB.App.Controllers
                 return ProblemResults.BadRequest("A non-empty messages list is required.");
             }
 
+            if (!ChatPurposes.TryParse(definition.Purpose, out var purpose))
+            {
+                return ProblemResults.BadRequest(String.Format(
+                    "'{0}' is not a chat purpose. Expected one of: {1}.",
+                    definition.Purpose, String.Join(", ", ChatPurposes.Accepted)));
+            }
+
             var turns = new List<ChatTurn>(definition.Messages.Count);
             foreach (var message in definition.Messages)
             {
-                if (String.IsNullOrEmpty(message?.Content))
+                var calls = ToolCallsFrom(message?.ToolCalls);
+                var isToolResult = String.Equals(message?.Role?.Trim(), "tool",
+                    StringComparison.OrdinalIgnoreCase);
+
+                // Content is required EXCEPT on an assistant turn that carries tool calls: a model
+                // that decided to call a tool said nothing else, and dropping that turn would leave
+                // the next one answering a call the model cannot see it made.
+                if (String.IsNullOrEmpty(message?.Content) && calls == null)
                 {
-                    return ProblemResults.BadRequest("Every message requires non-empty content.");
+                    return ProblemResults.BadRequest(
+                        "Every message requires non-empty content, unless it is an assistant "
+                        + "message carrying toolCalls.");
                 }
 
-                turns.Add(new ChatTurn(message.Role, message.Content));
+                // A tool result nobody can match is a result the model cannot use, and all three
+                // providers demand the id, so this is refused here rather than sent and rejected.
+                if (isToolResult && String.IsNullOrEmpty(message.ToolCallId))
+                {
+                    return ProblemResults.BadRequest(
+                        "A tool message requires toolCallId, naming the call it answers.");
+                }
+
+                turns.Add(new ChatTurn(message.Role, message.Content, calls, message.ToolCallId));
+            }
+
+            var tools = ToolsFrom(definition.Tools, out var toolProblem);
+            if (toolProblem != null)
+            {
+                return ProblemResults.BadRequest(toolProblem);
             }
 
             // Both knobs travel together or not at all: a request naming stop sequences must not lose
             // its temperature on the way, which is why this is one object rather than two ternaries.
             var stop = definition.Options?.Stop?.Where(s => !String.IsNullOrEmpty(s)).ToList();
-            var options = definition.Options?.Temperature is Double temperature || stop is { Count: > 0 }
+            var options = definition.Options?.Temperature is Double temperature
+                || stop is { Count: > 0 } || tools != null
                 ? new ChatBackendOptions
                 {
                     Temperature = definition.Options?.Temperature,
-                    Stop = stop is { Count: > 0 } ? stop : null
+                    Stop = stop is { Count: > 0 } ? stop : null,
+                    Tools = tools
                 }
                 : null;
 
             ChatBackendResult result;
             try
             {
-                result = await _provider.ChatAsync(turns, options, cancellationToken);
+                result = await _provider.ChatAsync(turns, options, cancellationToken, purpose);
             }
             catch (Exception ex) when (ex is ChatProviderUnavailableException
                 || ex is ChatProviderTimeoutException || ex is ChatProviderOutputException)
@@ -164,6 +204,7 @@ namespace NoSQL.GraphDB.App.Controllers
             return Ok(new ChatResultREST
             {
                 Content = result.Content,
+                ToolCalls = ToolCallsOf(result),
                 Model = result.Model,
                 // The selector belongs to the provider: a backend that could name itself here could
                 // name one it is not.
@@ -184,7 +225,11 @@ namespace NoSQL.GraphDB.App.Controllers
         /// <param name="cancellationToken">Aborts the outbound catalog read when the caller goes away</param>
         /// <remarks>For the RUNNING backend (feature chat-model-catalog), so a client can offer real
         /// names for the server-owned model instead of a blank field; choosing one is still a
-        /// configuration write (Fallen8:Chat:&lt;Backend&gt;:Model), not a per-request field. A
+        /// configuration write, into the purpose key the model is for
+        /// (Fallen8:Chat:&lt;Backend&gt;:Models:Assist or :Models:Agent), not a per-request field.
+        /// This named Fallen8:Chat:&lt;Backend&gt;:Model, which the purposes rename retired and an
+        /// instance carrying it is now refused for, so following this instruction took chat down on
+        /// the next restart. A
         /// pending-restart backend switch is not previewed. The list is not necessarily the whole
         /// RESOLVABLE set - a backend can resolve a name it does not catalogue - so free-text entry
         /// stays valid. Capability, availability and class are null wherever the backend does not
@@ -205,7 +250,7 @@ namespace NoSQL.GraphDB.App.Controllers
         public async Task<IActionResult> ChatModels(CancellationToken cancellationToken)
         {
             // The same reason the boot warning and the chat 503 give, from the same one home.
-            if (ChatBackendFactory.Validate(_options) is { } problem)
+            if (ChatBackendFactory.Validate(_options, configuration: _configuration) is { } problem)
             {
                 return ProblemResults.Create(StatusCodes.Status503ServiceUnavailable,
                     "Chat provider unavailable", problem);
@@ -226,6 +271,106 @@ namespace NoSQL.GraphDB.App.Controllers
 
             // The selector belongs to the provider, for the reason stated on the completion above.
             return Ok(ChatModelsREST.From(_provider.Backend, models));
+        }
+
+        /// <summary>
+        ///   The wire's tools as the backends' shape, or a refusal. Null when the request offered
+        ///   none, which is what keeps a tools field off the wire entirely for every caller that
+        ///   sent no tools.
+        /// </summary>
+        private static List<ChatTool> ToolsFrom(List<ChatToolSpecification> offered, out String problem)
+        {
+            problem = null;
+            if (offered == null || offered.Count == 0)
+            {
+                return null;
+            }
+
+            var tools = new List<ChatTool>(offered.Count);
+            var names = new HashSet<String>(StringComparer.Ordinal);
+            foreach (var tool in offered)
+            {
+                if (String.IsNullOrWhiteSpace(tool?.Name))
+                {
+                    problem = "Every tool requires a name.";
+                    return null;
+                }
+
+                // Two tools under one name is a call the caller cannot route, and providers differ
+                // on which of the two they would pick. Refused rather than resolved.
+                if (!names.Add(tool.Name))
+                {
+                    problem = String.Format("Tool '{0}' is offered more than once.", tool.Name);
+                    return null;
+                }
+
+                // A schema that is not an object is not a schema this can describe arguments with,
+                // and the failure it causes otherwise arrives from the provider as a 400 about a
+                // request the caller cannot see.
+                if (tool.Parameters.ValueKind != JsonValueKind.Undefined
+                    && tool.Parameters.ValueKind != JsonValueKind.Null
+                    && tool.Parameters.ValueKind != JsonValueKind.Object)
+                {
+                    problem = String.Format(
+                        "Tool '{0}' has parameters of type {1}; a JSON Schema object is required.",
+                        tool.Name, tool.Parameters.ValueKind);
+                    return null;
+                }
+
+                tools.Add(new ChatTool
+                {
+                    Name = tool.Name,
+                    Description = tool.Description,
+                    Parameters = tool.Parameters,
+                });
+            }
+
+            return tools;
+        }
+
+        /// <summary>An assistant turn's replayed calls in the backends' shape; null when it made
+        /// none, so the distinction between "no calls" and "an empty list" survives.</summary>
+        private static List<ChatToolCall> ToolCallsFrom(List<ChatToolCallREST> calls)
+        {
+            if (calls == null || calls.Count == 0)
+            {
+                return null;
+            }
+
+            var mapped = new List<ChatToolCall>(calls.Count);
+            foreach (var call in calls)
+            {
+                mapped.Add(new ChatToolCall
+                {
+                    Id = call?.Id,
+                    Name = call?.Name,
+                    Arguments = call?.Arguments ?? default,
+                });
+            }
+
+            return mapped;
+        }
+
+        /// <summary>The same in reverse, for the calls a completion asks for.</summary>
+        private static List<ChatToolCallREST> ToolCallsOf(ChatBackendResult result)
+        {
+            if (result.ToolCalls == null || result.ToolCalls.Count == 0)
+            {
+                return null;
+            }
+
+            var mapped = new List<ChatToolCallREST>(result.ToolCalls.Count);
+            foreach (var call in result.ToolCalls)
+            {
+                mapped.Add(new ChatToolCallREST
+                {
+                    Id = call.Id,
+                    Name = call.Name,
+                    Arguments = call.Arguments,
+                });
+            }
+
+            return mapped;
         }
     }
 }

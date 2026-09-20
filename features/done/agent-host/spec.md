@@ -1,6 +1,15 @@
 # Fallen-8 Agent Host: Specification
 
-> **Status:** Draft, spec only (no implementation yet). Follow the feature workflow in the
+> **Status:** IMPLEMENTED, and the merge gate is CLOSED on both halves of the council's rule
+> (findings.md sections 14, 15 and 16: 38 candidates and 19 majors fixed, then a review OF those
+> fixes that found 15 majors and 26 minors, also fixed). Every phase, 0 through 5, is done on
+> `feature/agent-host`, which is
+> awaiting merge: the deployable, its image and compose service, the apiApp proxy, the chat-gateway
+> purposes, metrics, swarm mode, the Studio surface and the docs page all ship. One item is a
+> recorded deferral rather than an omission (the messages route, plan Phase 4). This line once said
+> "spec only (no implementation yet)" while a whole deployable had landed, which is the one line a
+> reader checks to place the feature. Per-phase state and dates are
+> in [plan.md](./plan.md). Follow the feature workflow in the
 > repository root `CLAUDE.md`. Feature branch: `feature/agent-host` (branch-only workflow:
 > no GitHub issue or PR).
 >
@@ -277,19 +286,32 @@ Rules, each with its reason:
 - **`Model` is renamed to `Models:Assist`, with no alias** (operator decision, 2026-09-09). Two
   spellings for one setting is the duplication this repository refuses, and the fine-tune itself
   was renamed the same way. An instance still carrying the old key fails closed with a message
-  naming the new one, exactly as an incomplete block always has; the one-time sweep the rename
-  costs is listed in section 7. The compose variables an operator sets (`F8_NAHIL_CHAT_MODEL` and
-  its siblings) keep their names; only the instance keys they map to change.
+  naming the new one; the one-time sweep the rename costs is listed in section 7. The compose
+  variables an operator sets (`F8_NAHIL_CHAT_MODEL` and its siblings) keep their names; only the
+  instance keys they map to change.
+  - **That fail-closed took code, and the first version of this bullet claimed it for free**
+    (review finding, fixed). It said the stale key fails closed "exactly as an incomplete block
+    always has", and nothing did it: configuration binding ignores a key no property claims,
+    silently, so on Ollama and Nahil, whose `Models:Assist` carries a default, the operator's
+    model was REPLACED by a stock one on every request with nothing said. A fine-tuned assist
+    model swapped for the sidecar's default is the worst shape a configuration fault can take,
+    because the instance keeps answering. `ChatBackendFactory.StaleModelKey` now reads the RAW
+    configuration, which is the only way to see a key that binds to nothing, and refuses the
+    SELECTED backend's block by name through the same `Validate` the boot warning and the 503
+    share. A stale key in a block nobody selected refuses the day it is selected.
 - **Tools are mapped per backend with the SDK's native types**, for the reason the backends are
   native today: they forward generation stats the generic abstraction does not expose. If mapping
   four ways proves heavier than expected, the implementer may compose the generic clients from
   the SDKs inside the backends and read stats from the raw representation; the wire contract
   above does not change either way.
-- **Streaming stays as configured** (`Fallen8:Chat:Stream`), with no exception for tools. Phase 0
-  measured parsed tool calls on Nahil both streamed and non-streamed, and the streamed shape was
-  the cleaner of the two (one call rather than one real call plus a malformed sibling). An earlier
-  draft of this section carried a `stream=false`-when-tools fallback; it is dropped as unnecessary,
-  which also keeps the tool path on the same wire shape as every other completion.
+- **A request carrying tools is not streamed** (`Fallen8:Chat:Stream` is otherwise untouched), and
+  this sentence has been wrong twice, so it is worth being exact. Phase 0 measured parsed tool
+  calls on Nahil both streamed and non-streamed, which is a fact about the WIRE, and this section
+  concluded from it that no fallback was needed. Implementing it showed the constraint lives one
+  layer up, in the client libraries: OllamaSharp documents its tools field as requiring a
+  non-streamed request, and the OpenAI SDK delivers streamed calls as fragments to reassemble. So
+  the fallback is back, as a rule stated once on `ChatBackendOptions.Tools` and obeyed by all three
+  backends. No request without tools is affected.
 - **The gates are the existing ones.** The Chat capability must be on; the sensitive rate-limit
   policy applies, so a swarm counts against `Fallen8:Security:SensitiveRateLimitPermitPerWindow`
   and that existing knob is the one to raise; the per-request deadline is
@@ -303,13 +325,14 @@ Rules, each with its reason:
 - **Roles:** `assistant` (default: one agent, one task or conversation), `orchestrator`
   (additionally gets the swarm tools) and `worker` (assistant-shaped, spawned only by an
   orchestrator, answers to it with a typed result). Each role has a prompt file and a **tool
-  allowlist** (`Agents:Roles:<role>:Tools`, MCP tool names; empty means every tool the server
-  advertises). The allowlist is applied to the tool list the runner hands the agent, so a tool
-  outside it is not merely discouraged by the prompt: the model never sees it. Defaults:
+  allowlist** (`Agents:Roles:<role>:Tools`, MCP tool names that REPLACE the role's shipped list:
+  absent or empty keeps that list, and a lone `*` is the one entry that widens, meaning every tool
+  the server advertises). The allowlist is applied to the tool list the runner hands the agent, so a
+  tool outside it is not merely discouraged by the prompt: the model never sees it. Defaults:
   `assistant` and `worker` see every advertised tool; `orchestrator` sees `f8_overview` and the
   swarm tools, because an orchestrator that can look but must delegate decomposes better than one
   that can do everything itself. The MCP server's tiers remain the server-side bound; the
-  allowlist can only narrow.
+  allowlist can only narrow what that server advertises.
 - **States:** `pending -> running <-> waitingForUser -> completed | failed | cancelled |
   budgetExceeded`. `budgetExceeded` carries which budget: `tokens`, `steps`, `toolCalls` or
   `time`. Every transition is a feed event and a trace step.
@@ -331,8 +354,12 @@ Rules, each with its reason:
 - **Trace:** every step is recorded: `modelCall` (duration as the host measured it, `backend` and
   `model` as the instance reported them, usage delta, or an `unreportedUsage` marker),
   `toolCall` (tool-call id, tool name, arguments capped at `Agents:Trace:ArgsBytes`, result capped
-  at `Agents:Trace:ResultBytes`, `truncated`, total bytes, duration, success), `message`
-  (direction, `messageId`, `inReplyTo`), `spawn`, `citationCheck` and state changes. The buffer is
+  at `Agents:Trace:ResultBytes`, `truncated`, total bytes, duration, success, and `error` when it
+  failed, which is the framework's own message and is what the model was told too), `message`
+  (direction, `messageId`, `inReplyTo`, `text` capped like a result), `spawn`, `citationCheck` and
+  state changes. Every field in these lists exists; `error` and `text` are here because they
+  shipped while the lists omitted them, so a consumer written from this section dropped the one
+  field that says WHY a tool call failed. The buffer is
   bounded (`Agents:Trace:MaxSteps`, oldest dropped with a marker step): review needs recency, not
   an unbounded archive. Provenance is therefore **per step**, not per host: a deployment that
   switches backend mid-day shows it in the trace.
@@ -345,12 +372,24 @@ Rules, each with its reason:
 - **Retention.** Finished agents stay listed and reviewable for `Agents:Limits:RetainFinishedMinutes`,
   bounded by `MaxRetainedAgents` (oldest finished evicted first). A host restart ends everything;
   the first trace step of every agent says which host instance ran it.
-- **Posture check at startup.** The host calls `GET /chat/models` once, bounded and best-effort,
+- **Posture check at startup.** The host calls `GET /chat/models` ONCE, bounded and best-effort,
   and logs the outcome: reachable and how many models the instance's backend catalogues, or a
   401/403 that means the Chat capability is off or the key is wrong, or unreachable. It never
   gates and it never learns the agent purpose's model name that way: the model is server-owned
   and is revealed per step by the instance's answer, which `GET /agents/status` then reports as
   `lastSeen { backend, model }`.
+  - **Once means once, and the status route now says WHEN** (review finding, fixed). Nothing
+    re-probes and no failed completion downgrades the word, so in the case this design itself calls
+    ordinary, compose starting the host before the instance answers, it reported `unreachable` for
+    the life of the container while every agent ran fine. It is reported beside a `probedAt`, and
+    the route that calls it the first thing to read when an agent fails now says what it is: a
+    startup probe, to be read against that timestamp and against `lastSeen`, which only a
+    completion that actually happened can set. Refreshing it from the adapter was rejected, because
+    the probe and the last completion are two different facts and this type's own doc says
+    conflating them would let a host that has never run an agent report a model.
+  - The caps that row reports include `maxTokenBudget`, which it omitted: it CLAMPS a caller's own
+    `tokenBudget` rather than refusing it, so the one cap that silently rewrites a request was the
+    one cap the posture surface hid, and there was no pre-flight way to learn it.
 
 ### 3.2a The role prompts are load-bearing, and why
 
@@ -364,7 +403,8 @@ So each role prompt in `Prompts/` must, as a contract rather than a style prefer
 
 1. state that tools exist and that a question needing data is answered by calling one,
 2. forbid inventing, guessing or predicting a tool's result,
-3. require the `[t:<id>]` citation the grounding check counts (3.2),
+3. require the `[t:<name>]` citation the grounding check counts (3.2; see the amendment below
+   for why it is the tool's NAME and not a tool-call id),
 4. and for `orchestrator` and `worker`, state the one-composer rule (3.5).
 
 Two consequences follow. The prompts ship **embedded and are refused when empty at startup**, so a
@@ -372,24 +412,60 @@ missing prompt cannot degrade silently into a fabricating agent. And a prompt ch
 behaviour change: each prompt is covered by a test asserting these four properties are present, so
 an edit that drops one fails the suite rather than the next agent run.
 
+> **Amendment (2026-09-10, Phase 1b): against the shipped agent model this section's premise is
+> reversed, and the prompts ship anyway.**
+>
+> Phase 1b measured the same question again, this time through the whole shipped path and with the
+> role prompts as written. On `phi4-mini:latest`, the only tool-capable model the configured
+> platform serves, **any** instruction text stops the model emitting a real tool call: with a bare
+> user turn it calls the tool 4/4, and with a system prompt - the shipped one, a terse one, a
+> persona-only one, or one that never mentions tools - it writes the call as prose or invents a
+> figure, 4/4 in every arm. Moving the instructions into the user turn does not help, streaming does
+> not help, and sending the same bodies straight to the platform with Fallen-8 out of the picture
+> behaves identically, which is what rules out our own gateway.
+>
+> So the four properties above remain the right contract for a model that can follow one, and the
+> prompts ship unchanged (decision 2026-09-10). What this section may no longer claim is that they
+> make tool calling work: on the default deployment they are what stops it. That is a model
+> limitation with a named revisit trigger rather than something to code around, and the full table,
+> the fabrication samples and the nine other model names that do not resolve are in
+> [findings.md](./findings.md) section 1.
+>
+> One correction of detail, from the same measurement: property 3 asked for a `[t:<id>]` citation
+> using the tool-call id. **No backend shows a tool-call id to a model** - it travels on the
+> protocol, not in the result the model reads - so asking for one asked the model to invent one, in
+> the prompt whose job is to stop invention. The marker is now `[t:<name>]`, the tool's own name.
+
 ### 3.3 Control-plane API
 
 The host serves its routes under `/agent/*` on an unpublished port; the apiApp proxies them as
-`/agents/*`, Fallen-8-level, gated by a new `Agents` capability (403 when `Fallen8:Agents:Enabled`
-is off, credentialed when the instance has an API key, anonymous only on a keyless instance:
-the integrations proxy's posture, and its client base). The proxy invents exactly one status, a
+`/agents/*`, Fallen-8-level, gated by a new `Agents` capability: the integrations proxy's posture,
+and its client base. **With the capability off the answer depends on whether the instance has a
+key**, and this sentence used to say 403 unconditionally: a keyed instance answers **403**, a
+keyless one (a bare `dotnet run`) answers **401**. Both are pinned by test, because a client that
+reads only 403 as "the feature is absent" shows a broken screen on exactly the second instance.
+WHY the keyless one is a challenge rather than a forbid is on `AgentsController`, which is the one
+home for it; the first version of this paragraph gave the mechanism the same commit was deleting
+from four code sites as false, and gave it in a form that contradicts itself, since a caller
+challenged before the capability is read would make the KEYED instance answer 401 too. The proxy invents exactly one status, a
 503 for an unconfigured or unreachable host; everything the host answered passes through.
+
+The routes are **unversioned and Fallen-8-level**, like the integrations proxy: the controller's
+actions carry absolute templates, which by ASP.NET's routing rules discard the class-level
+`api/v{version}/[controller]`. This table spelled every row `/api/v0.1/agents...` while the
+regenerated OpenAPI snapshot carried `/agents...`, so seven of its eight rows were unreachable as
+written and it contradicted its own prose four lines above.
 
 | Method and route (apiApp) | Purpose |
 |---|---|
-| `POST /api/v0.1/agents` | Spawn; 202 with the agent id and initial state |
-| `GET /api/v0.1/agents` | All agents: id, name, role, state, task, parentId, tokens {input, output, total}, steps, toolCalls, durationMs, budget, createdAt, lastActivityAt |
-| `GET /api/v0.1/agents/{id}` | One agent, incl. children ids, citations and the last N trace steps |
-| `GET /api/v0.1/agents/{id}/trace` | The full retained trace |
-| `POST /api/v0.1/agents/{id}/messages` | User to agent message; 202 with a `messageId`; 409 unless the agent can accept one (running/waitingForUser) |
-| `DELETE /api/v0.1/agents/{id}` | Cancel; cascades to live descendants |
-| `GET /api/v0.1/agents/status` | Host posture: chat gateway reachability, `lastSeen { backend, model }`, MCP target, tiers seen and tool count, caps, active and retained counts |
-| `GET /api/v0.1/agents/feed` | SSE stream (3.4), streamed through the proxy |
+| `POST /agents` | Spawn; 202 with the agent id and initial state |
+| `GET /agents` | All agents: id, name, role, state, task, parentId, tokens {input, output, total}, steps, toolCalls, durationMs, budget, createdAt, lastActivityAt |
+| `GET /agents/{id}` | One agent, incl. children ids, citations and the last N trace steps |
+| `GET /agents/{id}/trace` | The full retained trace |
+| `POST /agents/{id}/messages` | User to agent message; 202 with a `messageId`; 409 unless the agent can accept one (running/waitingForUser). **Deferred, 2026-09-10; see 3.4a**, so it is in no snapshot and answers 404 |
+| `DELETE /agents/{id}` | Cancel; cascades to live descendants |
+| `GET /agents/status` | Host posture: chat gateway reachability with the moment it was probed, `lastSeen { backend, model }` (absent until a step has been served), MCP target, tiers seen and tool count, the caps INCLUDING `maxTokenBudget`, active and retained counts, and the event kinds this host EMITS beside the ones its filter ACCEPTS |
+| `GET /agents/feed` | SSE stream (3.4), streamed through the proxy |
 
 The reply to a user message arrives on the feed (and in the trace) as an `agentMessage` event
 carrying `inReplyTo: <messageId>`; the POST returns 202 immediately, because a step on a remote
@@ -408,15 +484,55 @@ kinds:
 
 `agentSpawned, agentStateChanged, agentMessage, toolCalled, agentCompleted, agentFailed`
 
-Every event carries `{ seq, ts, agentId, parentId?, kind, ... }`. `agentMessage` carries the text,
+Every event carries `{ seq, ts, agentId, parentId?, kind, role, name, state, tokens, ... }`: the
+role, the name and the state are on EVERY kind rather than only on a state change, because a
+subscriber rendering a list should not have to join against the listing to label a row. `agentMessage` carries the text,
 direction and `messageId`/`inReplyTo`; `toolCalled` carries the tool-call id, tool name, the
 capped argument and result summaries with `truncated` and total bytes (never full payloads; the
-trace is the place to re-fetch); `agentStateChanged` carries the four counters so a subscriber can
-render live cost without polling; `agentCompleted` carries the result text, the counters and the
-citation counts. The proxy forwards the stream with response-headers-read semantics and flushes
+trace is the place to re-fetch); `agentStateChanged` carries the counters so a subscriber can
+render live cost without polling, and so does every other kind, for the same reason; `agentCompleted`
+and `agentFailed` carry the result text (capped, with `truncated`), `failure`, `durationMs`, and the
+citation counts when a check ran. The counters are `input`, `output`, `total`, `steps` and
+`toolCalls`, plus `unreportedUsage`: this said "the four counters" and there are five and a flag,
+and the flag is the one that distinguishes a backend reporting zero from a backend reporting
+nothing. The proxy forwards the stream with response-headers-read semantics and flushes
 per event; this streaming forward is the one new arm on the shared proxy client base. No catch-up
 buffer in v1 (`GET .../trace` is the catch-up mechanism); *revisit trigger:* a UI that must survive
 reconnects without re-fetching traces.
+
+### 3.4a The conversation route is deferred, and what it would actually have added
+
+**Decided 2026-09-10 (Phase 2).** `POST .../messages` is not implemented, and the reason is that
+almost nothing about it is this host's business.
+
+Microsoft Agent Framework owns how an agent interacts. `AgentSession` holds the history and another
+turn is `RunAsync(message, session)` on the same session; Phase 0 confirmed a session carries
+multiple turns. So multi-turn is a capability this host already has, not one it has to design.
+
+What the route would add is not the conversation. It is three pieces of host bookkeeping the
+framework has no opinion on, and each is a decision rather than an implementation:
+
+1. **Does a parked agent keep its concurrency slot?** It is alive and can take another message, so
+   it does; and `MaxConcurrentAgents` defaults to 4, so four parked agents block the host. That is
+   the same shape as the wedge Phase 1b fixed, arriving by design instead of by accident.
+2. **What wall clock applies between turns?** `MaxRunSeconds` is per RUN and its deadline currently
+   spans one turn. Spanning the agent instead is a different meaning for the same key.
+3. **What makes a parked agent `completed`?** Nothing does. An agent that can always take another
+   message never reaches an ending on its own, so retention never starts and `agentCompleted` never
+   fires. An idle cap would answer it, and an idle cap is exactly the kind of bespoke lifecycle this
+   host should not be inventing on the framework's behalf.
+
+None of the three has a caller yet: no UI, no CLI and no test needs a second turn. Answering them
+without one would be guessing, and each guess is visible in configuration forever. So the route
+waits for the phase that has a real consumer, which is the Studio work in Phase 5; the framework
+side of it needs no further proof.
+
+What ships instead is the observability the same phase was for: the trace, the event feed and the
+grounding check. An agent answers its task and completes, which frees its slot at once and fires
+`agentCompleted` with its citation counts, and that is a whole interaction.
+
+*Revisit trigger:* a client that needs a second turn. At that point the three questions above are
+what to decide, in that order.
 
 ### 3.5 Swarm mode
 
@@ -435,8 +551,21 @@ reconnects without re-fetching traces.
   `MaxWorkersPerOrchestrator`. A breached cap is a tool error the orchestrator sees and a
   `toolCalled(success=false)` event the user sees.
 - Cancelling an orchestrator cancels its live descendants; a worker finishing feeds its result to
-  the awaiting orchestrator via Agent Framework's primitives (handoff/concurrent patterns), no
-  bespoke scheduler.
+  the awaiting orchestrator, and no bespoke scheduler is written for it.
+  - **The "via Agent Framework's handoff/concurrent patterns" clause was withdrawn in Phase 4,
+    because it contradicts the two tools above.** Measured against
+    `Microsoft.Agents.AI.Workflows` 1.20.0, which is a real package and pairs with the pinned
+    `Microsoft.Agents.AI`: those patterns fix their participants when the workflow is BUILT. The
+    concurrent builder broadcasts the same messages to every participant; the Magentic builder puts
+    its own LLM manager in charge of a set given up front. Neither expresses
+    `spawn_worker(task)`, where the orchestrator's own model decides mid-run how many workers there
+    are and what each one's task is, which is what this section specifies and what the role prompts
+    are written for. So the tools are the contract and the clause was an assumption about how to
+    build them.
+  - What "no bespoke scheduler" still means, and is still honoured: there is no queue, no
+    dispatcher and no priority. The framework runs every agent's loop, including each worker's;
+    `await_workers` is one `Task.WhenAll` over completion signals the registry raises at an ending
+    anyway.
 
 ### 3.6 Tokens, counters and observability
 
@@ -462,9 +591,15 @@ reconnects without re-fetching traces.
 ### 3.7 Security posture
 
 - **No published port.** The host binds loopback by default (`dotnet run`), `0.0.0.0` in the
-  container, and the compose service publishes nothing; the apiApp's proxy is the only way in, so
-  the host needs no second auth story. Publishing the port "to debug it" is the instinct this
-  posture rules out.
+  container, and the compose service publishes nothing, so the apiApp's proxy is the way in from
+  outside the compose network. Publishing the port "to debug it" is the instinct this posture rules
+  out. **Corrected after the merge gate:** "the only way in" was false as written and "no second
+  auth story" rested on it. Every service on `f8-net` can reach this listener and it authenticates
+  none of them, while it holds the instance's API key and the MCP bearer. The posture stands,
+  because it is the integrations runtime's and therefore a house convention for these sidecars, but
+  it stands as a convention rather than as an observed impossibility. `AgentsOptions.BindAddress`
+  and the security page are its two homes, and the startup line now states the bind and warns on a
+  non-loopback one instead of claiming a compose property the process cannot see.
 - **Two credentials, both the operator's, both configuration, neither a provider's:** the
   instance's API key (`Fallen8Target:ApiKey`, reusing `F8_API_KEY` exactly as the other two
   sidecars do, presented on the chat gateway only) and the MCP bearer (`Agents:Mcp:BearerToken`).
@@ -490,17 +625,21 @@ Host (`Agents:*` for this process, `Fallen8Target:*` for the instance it asks):
 | `Fallen8Target:BaseUrl` / `ApiKey` / `ApiKeyHeader` | `http://localhost:8080` / none / `X-Api-Key` | the same spelling the other two sidecars use |
 | `Fallen8Target:TimeoutSeconds` | `630` | above the largest chat budget a shipped profile sets (600 on Nahil), for the two-deadlines reason |
 | `Agents:Mcp:Endpoint` / `BearerToken` | `http://localhost:8090` / none | |
-| `Agents:Roles:<role>:Tools` | see 3.2 | MCP tool names; empty = all advertised |
-| `Agents:Limits:DefaultTokenBudget` | `100000` | |
+| `Agents:Mcp:ConnectTimeoutSeconds` | `15` | the startup handshake only; an unreachable server leaves the toolset empty with a reason rather than failing the host |
+| `Agents:Roles:<role>:Tools` | see 3.2 | MCP tool names, which replace the role's shipped list; absent or empty keeps it, and a lone `*` means all advertised |
+| `Agents:Limits:DefaultTokenBudget` | `100000` | what a spawn naming no budget gets; a non-positive value means no token cap at all |
+| `Agents:Limits:MaxTokenBudget` | `400000` | the CEILING on a caller's own `tokenBudget`, which it clamps rather than refuses. Added by the Phase 1b review and missing from this table until the Phase 3 reconciliation; reported on `GET /agents/status`, because a cap that silently rewrites a request is one a client has to be able to read |
 | `Agents:Limits:MaxStepsPerRun` | `24` | |
 | `Agents:Limits:MaxToolCallsPerRun` | `48` | |
 | `Agents:Limits:MaxRunSeconds` | `1800` | a cap, not a target; see section 5 |
 | `Agents:Limits:MaxConcurrentAgents` | `4` | Nahil's hourly quota, the step latency and the instance's rate-limit window all argue for few |
-| `Agents:Limits:MaxSwarmDepth` | `2` | |
-| `Agents:Limits:MaxWorkersPerOrchestrator` | `4` | |
+| `Agents:Limits:MaxSwarmDepth` | `2` | a caller's agent is depth 0, so 2 means "delegate once": an orchestrator may spawn workers and they may not orchestrate in turn. Enforced at admission from the parent's recorded depth |
+| `Agents:Limits:MaxWorkersPerOrchestrator` | `4` | over an orchestrator's whole LIFE, not at once: its token budget bounds its own calls and not its workers', so a live-only count would bound nothing |
 | `Agents:Limits:RetainFinishedMinutes` / `MaxRetainedAgents` | `60` / `200` | |
 | `Agents:Trace:MaxSteps` / `ArgsBytes` / `ResultBytes` | `1000` / `2048` / `8192` | |
-| `Agents:Feed:KeepAliveSeconds` | `15` | |
+| `Agents:Feed:KeepAliveSeconds` | `15` | an idle feed is never silent, or a proxy in between closes it |
+| `Agents:Feed:MaxSubscribers` | `16` | a refusal names the limit, and it is a 503 rather than a 400: a full table is transient and worth retrying |
+| `Agents:Feed:MaxQueuedEvents` | `512` | past this a subscriber is DROPPED rather than thinned, and its stream ends; the trace is how it finds out what it missed |
 | `Agents:Observability:Otlp:Endpoint`, `Agents:Identity:*` | as the other sidecars | |
 
 Instance:
@@ -509,9 +648,22 @@ Instance:
 |---|---|---|
 | `Fallen8:Chat:<Backend>:Models:Assist` | Ollama `phi4-f8-mini:latest`, others none | the renamed `Model`; Restart tier, catalogued |
 | `Fallen8:Chat:<Backend>:Models:Agent` | Ollama `phi4-mini:latest`, others none | required for `purpose: agent` on that backend; the overlays set it |
-| `Fallen8:Agents:Enabled` | `false` | the `/agents/*` routes answer 403 |
+| `Fallen8:Agents:Enabled` | `false` | the `/agents/*` routes refuse before the sidecar is contacted: 403 on a keyed instance, 401 on a keyless one (see 3.3) |
 | `Fallen8:Agents:Endpoint` | empty | the proxy answers 503 rather than timing out |
 | `Fallen8:Agents:TimeoutSeconds` | `30` | the small routes; the feed is a stream and takes none |
+
+**Reconciled against the Phase 0 measurements, 2026-09-16 (Phase 3).** Every default above was
+compared to what the code binds and to section 5's numbers. **None of them moved**, and the
+arithmetic is worth writing down rather than re-deriving: a warm step measured between 0.3 s and
+41 s, so `MaxStepsPerRun` of 24 puts the worst plausible run at about sixteen minutes, which is
+what makes `MaxRunSeconds` of 1800 a cap rather than a target. `Fallen8Target:TimeoutSeconds` of
+630 stays above the largest chat budget a shipped profile sets, which is the two-deadlines rule.
+
+What the reconciliation DID find was four shipped settings this table did not mention
+(`MaxTokenBudget`, `Mcp:ConnectTimeoutSeconds`, `Feed:MaxSubscribers`, `Feed:MaxQueuedEvents`) and
+two it mentioned that no code binds, both Phase 4's. All six rows are now honest about which they
+are. A configuration table that lists a key nothing reads and omits one that clamps a caller's
+request is worse than no table, because it is the document an operator tunes from.
 
 Compose: `F8_AGENTS=true` activates the `agents` profile, sets the two instance keys and makes the
 sidecar pull the agent model. The base file and the overlays map their existing chat-model
@@ -564,7 +716,9 @@ carries no model setting at all.
 - **Purposes are the only model selector.** `Models:Assist` serves NL assist under its new name,
   `Models:Agent` serves agents, no other key names a model, and the old `Model` key is refused
   with a message naming the new one.
-- **Conversation.** A `waitingForUser` agent accepts `POST .../messages`, the POST returns a
+- **Conversation.** *(Deferred 2026-09-10, see 3.4a: the framework already supports a second turn;
+  what is undecided is slot, clock and ending, and no client needs it yet.)* A `waitingForUser`
+  agent accepts `POST .../messages`, the POST returns a
   `messageId`, and the reply arrives as an `agentMessage` feed event with `inReplyTo` on the same
   conversation.
 - **Counters are real.** Token counters equal the sum of instance-reported usage exactly, with an
@@ -657,17 +811,18 @@ instance hop is not in these numbers), plus a framework probe built and run on n
 |---|---|
 | The engine (`fallen-8-core`) | **No change.** |
 | The chat gateway (`fallen-8-core-apiApp`, `/chat`) | **Additions only on the wire** (3.1a): `purpose`, `tools`, `toolCalls`, `toolCallId`; tool shapes on `IChatBackend` and its three types; native tool mapping in the Ollama-protocol, OpenAI and Anthropic backends; `Models:Assist` (renamed from `Model`, no alias) and `Models:Agent` on the four backend blocks, four catalog entries renamed and four added; `ChatBackendFactory.ResolveModel(options, purpose)`; the startup posture line, the config view and the residency probe report per purpose. NL assist and Studio send neither new field and see no change. |
-| The `Model` rename | **One-time sweep, no alias, in one phase:** `Fallen8ChatOptions`, `ChatBackendFactory`, `ChatModelCatalog` and the residency probe, `Fallen8SettingCatalog`; `docker-compose.yml` and the `nahil`, `openai` and `anthropic` overlays (the `F8_*_CHAT_MODEL` variables keep their names, only the keys they map to change), `.env.example`; Studio's picker key in `ConfigurationSurface.tsx`; the docs pages that spell the key (`nahil.md`, `model-providers.md`, `running.mdx`, `nl-assist.md` where it does); the Configuration screenshots; every test that spells it. An instance still carrying the old key fails closed at startup naming the new one. The fine-tune fixtures and `RETRAIN-LOG.md` do not spell the key. |
-| The proxy (`fallen-8-core-apiApp`, `/agents/*`) | **Eight proxied routes, one options class, one capability arm.** `AgentsController` (Fallen-8-level, `Fallen8.Agents` policy) on the shared sidecar-proxy client base, which gains one streaming-forward arm for the feed; `Fallen8AgentsOptions`; an `Agents` arm in `DynamicCapabilityAuthorization.Capability`. `Microsoft.Extensions.AI.Abstractions` moves to 10.9.0 with OllamaSharp following. |
-| The pinned OpenAPI snapshot | regenerated with `scripts/update-openapi-snapshot.ps1`, additions only: the eight operations and the new chat fields. |
-| `NamespaceEndpointTest` | eight entries in the Fallen-8-level set, or `/agents` becomes a prefix rule as `/savegames` is. |
-| The MCP coverage gate (`McpRestCoverageTest`) | `POST /chat` stays deferred, unchanged. **One new deferral rule, with its reason,** for all eight `/agents/*` routes: agents compose agents through the orchestrator role's swarm tools, inside the host's caps; bridging spawn to the MCP server would put agent creation behind the graph's tool tiers, where none of those caps apply. *Revisit when an agent outside the host needs to delegate to hosted agents.* |
+| The `Model` rename | **One-time sweep, no alias, in one phase:** `Fallen8ChatOptions`, `ChatBackendFactory`, `ChatModelCatalog` and the residency probe, `Fallen8SettingCatalog`; `docker-compose.yml` and the `nahil`, `openai` and `anthropic` overlays (the `F8_*_CHAT_MODEL` variables keep their names, only the keys they map to change), `.env.example`; Studio's picker key in `ConfigurationSurface.tsx`; the docs pages that spell the key (`nahil.md`, `model-providers.md`, `running.mdx`, `nl-assist.md` where it does); the Configuration screenshots; every test that spells it. An instance still carrying the old key fails closed naming the new one: a boot WARNING and a 503 on the chat routes, from the one `Validate` both read, because the boot line is deliberately not a startup failure (a chat misconfiguration must not take a graph database down). That took `ChatBackendFactory.StaleModelKey` reading the raw configuration; see 3.8, where the first version of the promise is corrected. The fine-tune fixtures and `RETRAIN-LOG.md` do not spell the key. |
+| The proxy (`fallen-8-core-apiApp`, `/agents/*`) | **Seven proxied operations over five paths, one options class, one capability arm.** Seven, not the eight this row claimed in four places: `POST /agents/{id}/messages` was deferred in the same commit that added 3.4a, and 3.3's table was updated while this row was not. A reviewer reconciling the snapshot against this table counts seven and cannot tell a deferral from a route dropped in a rebase, which is the one thing the sweep exists to make visible. `AgentsController` (Fallen-8-level, `Fallen8.Agents` policy) on the shared sidecar-proxy client base, which gains one streaming-forward arm for the feed; `Fallen8AgentsOptions`; an `Agents` arm in `DynamicCapabilityAuthorization.Capability`. `Microsoft.Extensions.AI.Abstractions` moves to 10.9.0 with OllamaSharp following. |
+| The pinned OpenAPI snapshot | regenerated with `scripts/update-openapi-snapshot.ps1`, additions only: the seven operations (`/agents` GET and POST, `/agents/feed`, `/agents/status`, `/agents/{id}` GET and DELETE, `/agents/{id}/trace`) and the new chat fields. Phase 1a's removals are the one exception, and plan.md's two Phase 1a snapshot rows are what enumerate them (the `content` requirement, now conditional by design, plus rewordings). This row said "six" and pointed at findings.md, which records the same bare count and enumerates nothing, so the number was sourced nowhere. |
+| `NamespaceEndpointTest` | the implementation chose the PREFIX rule, as `/savegames` has: one `path.StartsWith("/agents")` entry rather than one per route, so a route added later needs no gate change. This row offered both and named the per-route count first, which is not what shipped. |
+| The MCP coverage gate (`McpRestCoverageTest`) | `POST /chat` stays deferred, unchanged. **One new deferral rule, with its reason,** for the `/agents/*` family: agents compose agents through the orchestrator role's swarm tools, inside the host's caps; bridging spawn to the MCP server would put agent creation behind the graph's tool tiers, where none of those caps apply. *Revisit when an agent outside the host needs to delegate to hosted agents.* |
 | `CodeQualityTest` and the standing gates | `fallen-8-agents` joins `_allProjects`, `_productProjects` and the REST-only rule (`TheRestOnlyDeployables_ReferenceNeitherTheEngineNorTheApiApp`); a new test pins its REST route family to the chat gateway; warnings stay errors. The test project gains the project reference. |
 | `fallen-8-mcp` | **No change.** It gains its first in-repo client; its docs page gains a pointer. |
 | F8 Studio (`fallen-8-web-ui`) | **No agent UI in v1** (non-goal). The Configuration surface renders `/config`, so the purpose keys appear without code; the catalog picker binds one key today (`ConfigurationSurface.tsx`, the `Fallen8:Chat:<Backend>:Model` line) and becomes one picker per purpose fed by the same `GET /chat/models` catalog, with the card showing model and residency per purpose. The Configuration screenshots are recaptured. |
 | The docs site (`docs/`) | **One new page** `docs/src/content/docs/agents.md` in the *AI agents* sidebar group (what an agent run is, spawning and reviewing, the feed, budgets and caps, roles and allowlists, swarm mode, the security posture and the prompt-injection honesty note, configuration). `nl-assist.md` and `rest-api.mdx` gain the `purpose` and tools fields where they describe the chat body; `model-providers.md` states that each backend now carries one server-owned model per purpose and what a purpose is; `nahil.md`'s settings block spells both purpose keys and gains a sentence on quotas as agents see them; `running.mdx` where it spells the key; `mcp-server.md` gains a pointer. The README "Key features" list gains a one-line entry linking `https://docs.fallen-8.com/agents/`. The link-checked build must stay green. |
 | The architecture diagrams | **Both change, in the same PR:** a new deployable and a new channel. In the root `README.md` diagram a node on the internal side (no host port) reaching the MCP server and the instance's chat gateway, and **not** the model provider, because it never does; in `docs/src/content/docs/architecture.md` the same node plus its OTLP push and the apiApp proxy edge. Colours stay the fixed dark surfaces with the `#E2001A` accent. |
-| The compose environment | **One service, one profile, the model variables on the instance.** `f8-agents` on the `agents` profile (opt-in via `F8_AGENTS=true`), unpublished with `expose:` documenting the port, `read_only` with a `/tmp` tmpfs, no volume; `Fallen8Target__BaseUrl=http://fallen8:8080` and `Fallen8Target__ApiKey=${F8_API_KEY:-}` exactly as the other two sidecars; `Agents__Mcp__Endpoint=http://f8-mcp:8090` and the MCP token variable reused. The `fallen8` service gains `Fallen8__Agents__Enabled` and `Fallen8__Agents__Endpoint`. The base file and the `nahil`, `openai` and `anthropic` overlays map their chat-model variables to `Fallen8__Chat__<Backend>__Models__Assist` and set `Models__Agent` on the `fallen8` service. `scripts/ollama-init.sh` pulls the agent model when `F8_AGENTS=true`; `scripts/env-up.js` pushes the profile; `env:down`/`env:logs`/`env:status` pass it; `.env.example` documents `F8_AGENTS` and `F8_NAHIL_AGENT_MODEL`; `.github/workflows/release.yml` gains the image to the multi-arch matrix. |
+| The compose environment | **One service, one profile, the model variables on the instance.** `f8-agents` on the `agents` profile (opt-in via `F8_AGENTS=true`), unpublished with `expose:` documenting the port, `read_only` with a `/tmp` tmpfs, no volume; `Fallen8Target__BaseUrl=http://fallen8:8080` and `Fallen8Target__ApiKey=${F8_API_KEY:-}` exactly as the other two sidecars; `Agents__Mcp__Endpoint=http://f8-mcp:8090` and the MCP token variable reused. The `fallen8` service gains `Fallen8__Agents__Enabled` and `Fallen8__Agents__Endpoint`. The base file and the `nahil`, `openai` and `anthropic` overlays map their chat-model variables to `Fallen8__Chat__<Backend>__Models__Assist` and set `Models__Agent` on the `fallen8` service. `scripts/ollama-init.sh` pulls the agent model when `F8_AGENTS=true` AND `F8_PULL_ASSIST` is not `0`, the second condition added by the review of the fixes: the instance answers the agent purpose at its own backend, so a hosted-chat overlay was downloading a model nothing there would ask for; `scripts/env-up.js` pushes the profile; `env:down`/`env:logs`/`env:status` pass it; `.env.example` documents `F8_AGENTS` and `F8_NAHIL_AGENT_MODEL`; `.github/workflows/release.yml` gains the image to the multi-arch matrix. |
 | NL assist (`nl-assist-finetune`) | **No impact, no retrain entry.** Its calls carry no `purpose` and keep the assist model, now under `Models:Assist`; agents never use the fine-tune; no delegate surface changes. |
 | Skill library (`features/open/skill-library`) | a note that its catalog wants an "operate the agent host" skill once this lands; recorded there, not here. |
+| The integrations runtime (`fallen-8-integrations`) | **No code change, and a documentation sweep this feature owns.** The trust-boundary sentence corrected here was carried verbatim by the sibling sidecar, which has the same posture for the same reason, so the correction landed in its Dockerfile, its endpoint code, its options doc, its spec row, two of its tests and the published integrations page. One real defect came with it, found by the review of the fixes: `POST /integrations/snapshot/validate` binds a JSON body and forwards it with no size bound, so it carried the framework's 30 MB default while the security page stated 1 MiB with two named exceptions. It carries the ordinary bound now, and the pin that should have caught it derives its list from the controllers instead of naming two routes. |
 | Sample graphs, stored queries, provider descriptors, browser probe | **No change.** Nothing here touches the engine, persistence or an index, so the browser probe is not implicated. |

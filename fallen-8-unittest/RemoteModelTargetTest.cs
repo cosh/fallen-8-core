@@ -130,12 +130,24 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public void AMissingModel_IsRefusedNamingTheModelKey()
         {
+            // The EMBEDDING block, which is what relies on the defaulted "{section}:Model" key.
+            // This read Fallen8:Chat:OpenAI, a spelling the purposes rename replaced with
+            // Models:Assist, so the test documented a refusal production can no longer produce and
+            // a reader would take it for the live chat contract. The chat factory passes its own
+            // key explicitly (ChatBackendFactory.ModelKeyFor).
             foreach (var model in new String[] { null, "", " ", "\t" })
             {
-                Assert.IsFalse(RemoteModelTarget.OpenAI("Fallen8:Chat:OpenAI", "https://api.openai.com", model, "k")
+                Assert.IsFalse(RemoteModelTarget
+                    .OpenAI("Fallen8:Embedding:OpenAI", "https://api.openai.com", model, "k")
                     .IsValid(out var problem), "'" + model + "' is not a model");
-                Assert.AreEqual("Fallen8:Chat:OpenAI:Model is required.", problem);
+                Assert.AreEqual("Fallen8:Embedding:OpenAI:Model is required.", problem);
             }
+
+            // And the chat block names the purpose, because one block now holds two models.
+            Assert.IsFalse(RemoteModelTarget.OpenAI("Fallen8:Chat:OpenAI", "https://api.openai.com",
+                null, "k", "Fallen8:Chat:OpenAI:Models:Assist").IsValid(out var chat));
+            Assert.AreEqual("Fallen8:Chat:OpenAI:Models:Assist is required.", chat,
+                "told only the block, an operator cannot see which of the two models is missing");
         }
 
         /// <summary>

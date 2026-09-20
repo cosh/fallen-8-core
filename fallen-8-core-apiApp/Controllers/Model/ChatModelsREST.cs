@@ -85,7 +85,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
     public sealed class ChatModelREST
     {
         /// <summary>The name VERBATIM, as the backend spells it (tag included): the value that goes
-        /// back into <c>Fallen8:Chat:&lt;Backend&gt;:Model</c>.</summary>
+        /// back into the purpose key it is for, <c>Fallen8:Chat:&lt;Backend&gt;:Models:Assist</c> or
+        /// <c>:Models:Agent</c>. Not <c>Fallen8:Chat:&lt;Backend&gt;:Model</c>, which the purposes
+        /// rename retired.</summary>
         /// <example>phi4-f8-mini:latest</example>
         [JsonPropertyName("name")]
         public String Name

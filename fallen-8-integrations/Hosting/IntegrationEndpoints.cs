@@ -38,9 +38,9 @@ namespace NoSQL.GraphDB.Integrations.Hosting
 {
     /// <summary>
     ///   The runtime's whole HTTP surface: a health probe and the eight routes the apiApp proxies. Nothing here is
-    ///   authenticated, and nothing needs to be: the container's port is not published, so the only way in is
-    ///   through the apiApp, which is already the authenticated front door. A second auth story on this container
-    ///   would be a second thing to get wrong.
+    ///   authenticated: the container's port is not published, so the apiApp is the way in from outside the compose
+    ///   network, and inside it every service can reach this listener. That is a house convention for these
+    ///   sidecars rather than an impossibility, and https://docs.fallen-8.com/security/ is the one home for it.
     /// </summary>
     public static class IntegrationEndpoints
     {

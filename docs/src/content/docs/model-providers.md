@@ -105,19 +105,25 @@ Fallen8__Chat__Enabled=true
 Fallen8__Chat__Backend=OpenAI                          # or Anthropic, Nahil, Ollama
 Fallen8__Chat__OpenAI__Endpoint=https://api.openai.com
 Fallen8__Chat__OpenAI__ApiKey=...
-Fallen8__Chat__OpenAI__Model=gpt-4o-mini
+Fallen8__Chat__OpenAI__Models__Assist=gpt-4o-mini
+Fallen8__Chat__OpenAI__Models__Agent=gpt-4o-mini      # the agent purpose; see below
 Fallen8__Chat__TimeoutSeconds=120                      # this provider's overlay value; the default is 600
 Fallen8__Chat__Stream=true                             # the default; listed so the profile is complete
 
 Fallen8__Chat__Anthropic__Endpoint=https://api.anthropic.com
 Fallen8__Chat__Anthropic__ApiKey=...
-Fallen8__Chat__Anthropic__Model=claude-opus-5
+Fallen8__Chat__Anthropic__Models__Assist=claude-opus-5
+Fallen8__Chat__Anthropic__Models__Agent=claude-opus-5
 Fallen8__Chat__Anthropic__MaxTokens=4096
 
 Fallen8__Embedding__OpenAI__Endpoint=https://api.openai.com
 Fallen8__Embedding__OpenAI__ApiKey=...
 Fallen8__Embedding__OpenAI__Model=text-embedding-3-small
 ```
+
+A backend names one model per **purpose**, which is what the two `Models` entries are:
+[one model per purpose](/semantic-traversal/#one-model-per-purpose) is where that contract lives,
+including what an unconfigured purpose answers and which backends ship with one set.
 
 `MaxTokens` exists because the Messages API requires a bound on every request; no other provider
 has the knob. A `temperature` a caller sends with `POST /chat` reaches OpenAI and is **ignored on
@@ -210,8 +216,10 @@ provider.
 Because the chat model is the writable one, it is also the one you can pick from a list instead of
 remembering. An instance will tell you what its backend catalogues, in two places:
 
-- **F8 Studio**, on the [configuration](/configuration/) surface: with the Chat section open and
-  the active backend's model row editable, that row suggests catalogued names as you type.
+- **F8 Studio**, on the [configuration](/configuration/) surface: with the Chat section open, every
+  editable model row of the active backend suggests catalogued names as you type, one row per
+  purpose. A row the environment declares, or that a rule pinned, stays a plain field: it cannot be
+  typed into, so a list beside it would be a dead control.
 - **`GET /chat/models`** over REST, which answers with the running backend's name and its models.
   It is gated exactly like `POST /chat` - a `403` while chat is off, a key when the instance has
   one - and carries the same [rate limit](/security/#other-perimeter-controls), because one read can

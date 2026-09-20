@@ -279,9 +279,12 @@ instance you submit through. A refusal names what it saw and the ceiling it brok
   set can satisfy both of them and still ask the runtime for an unreasonable number of entries.
 
 Above them sits a fixed 768 MiB bound on the request body itself, at the API's proxy, which is
-deliberately not configurable and is the only way in. It is what caps the job ceiling: raising
+deliberately not configurable. From outside the compose network that proxy is the only way in, so
+in the shipped deployment the bound is what caps the job ceiling: raising
 `Integrations:MaxJobFileBytes` past what the bound leaves for files has no effect beyond turning a
-named refusal into a bare 413 from the proxy.
+named refusal into a bare 413 from the proxy. A service on the compose network posts to the runtime
+directly, and for it the ceiling is live up to the runtime's own transport bound, which is one more
+reason to keep that network to services you run ([security](/security/)).
 
 **Ask the instance rather than assuming.** `GET /integrations/limits` answers the three numbers as
 they actually bind for you - the proxy reconciles its own bound with the runtime's configuration, so

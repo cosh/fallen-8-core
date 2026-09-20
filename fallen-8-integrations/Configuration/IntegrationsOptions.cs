@@ -65,8 +65,10 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   of megabytes, so a ceiling picked for document upload refused the ordinary case.</para>
         ///
         ///   <para>Zero or less switches the ceiling OFF rather than refusing every file, and the runtime
-        ///   warns at startup when it is. Raising it past about 144 MiB has no effect in the shipped
-        ///   deployment: the apiApp's proxy is the only way in and carries its own fixed body bound.</para>
+        ///   warns at startup when it is. Raising it past what the apiApp's proxy accepts has no effect
+        ///   on a caller arriving through it, and that proxy is the only way in from outside the compose
+        ///   network, because this container publishes no host port. A service on that network posts here
+        ///   directly, and for it this ceiling is live up to the runtime's own transport bound.</para>
         ///
         ///   <para>A file this big is not free, and the cost is not hidden: it arrives as raw bytes in its
         ///   own multipart part, is held whole, and is decoded to TEXT for the provider - two bytes per
@@ -96,9 +98,11 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   vehicle's extracts arrive together, and a job declaring no scope has to carry the whole set,
         ///   because its snapshot is complete over what it was given and a later job carrying less
         ///   withdraws the difference. So the ceiling is as high as the TRANSPORT allows and not a byte
-        ///   higher: every request reaches this runtime through the apiApp's fixed 768 MiB bound, and a
-        ///   ceiling above what that leaves for files would have this runtime accept jobs the proxy refuses
-        ///   with a bare 413 - the confusable refusal <c>integration-file-transport</c> existed to remove.
+        ///   higher: a request from OUTSIDE the compose network reaches this runtime through the apiApp's
+        ///   fixed 768 MiB bound, and a ceiling above what that leaves for files would have this runtime
+        ///   accept jobs the proxy refuses with a bare 413 - the confusable refusal
+        ///   <c>integration-file-transport</c> existed to remove. A service on that network posts here
+        ///   directly and meets this runtime's own transport bound instead.
         ///   What the bound leaves is itself less the envelope (a mebibyte for the job document and the
         ///   parts' own headers) and less each part's framing, so 760 MiB clears it with room and 768 would
         ///   not. <c>TheJobCeilingStaysDeliverableThroughTheProxy</c> pins it.</para>
@@ -108,7 +112,8 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   third. Dropping that arm is what let the ceiling reach the bound.</para>
         ///
         ///   <para>Zero or less switches it OFF. Raising it past what the apiApp's proxy accepts has no
-        ///   effect in the shipped deployment, exactly as with the per-file ceiling.</para>
+        ///   effect for a caller that comes through that proxy, which is every caller from outside the
+        ///   compose network, exactly as with the per-file ceiling.</para>
         /// </summary>
         public Int64 MaxJobFileBytes { get; set; } = 796_917_760;
 

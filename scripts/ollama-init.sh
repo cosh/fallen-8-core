@@ -18,6 +18,15 @@
 F8_DELEGATE_REPO="${F8_DELEGATE_REPO:-stoic_hellman_728/phi4-f8-mini:v0.0.35}"  # -> phi4-f8-mini
 F8_PHI4F8_REPO="${F8_PHI4F8_REPO:-stoic_hellman_728/phi4-f8:v0.0.35}"           # -> phi4-f8
 F8_PULL_PHI4F8="${F8_PULL_PHI4F8:-1}"
+# The agent purpose's model. Pulled only when the agent host is coming up; see the pull near the
+# end. F8_AGENTS is lowercased because the INSTANCE binds the same variable as a .NET Boolean,
+# which parses case insensitively: without this, F8_AGENTS=True opened the instance's /agents
+# routes while this script skipped the pull, so one switch had two answers.
+F8_AGENT_MODEL="${F8_AGENT_MODEL:-phi4-mini:latest}"
+# Trimmed as well as lowercased, because the instance's binder tolerates surrounding space and
+# this comparison does not: F8_AGENTS="true " opened the instance's routes while this script
+# skipped the pull, which is the same one-switch-two-answers problem the lowercasing fixed.
+F8_AGENTS_ON=$(printf '%s' "${F8_AGENTS:-false}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
 # The embedding model the F8 API's provider is wired to in docker-compose.yml (feature
 # embedding-out-of-box); on by default, opted out together with the provider.
 F8_EMBEDDINGS="${F8_EMBEDDINGS:-true}"
@@ -164,6 +173,43 @@ case "$F8_PULL_PHI4F8" in
     ensure_finetune "$F8_PHI4F8_REPO" "phi4-f8" || MISSING="$MISSING phi4-f8"
     ;;
 esac
+
+# The agent purpose's model (feature agent-host), pulled only when the agent host is coming up.
+# Off by default like the host itself, and skipped rather than failed when it is off: a deployment
+# that runs no agents should not spend a pull on a model nothing will ask for.
+#
+# A STOCK base model, not a fine-tune: the assist purpose points at the delegate fine-tune and the
+# agent purpose at a general model, which is the whole reason the two purposes exist. So ensure_base
+# rather than ensure_finetune, and no local retagging.
+#
+# In the DEFAULT configuration this pull finds the model already there, because F8_PULL_ASSIST
+# pulls phi4-mini above and ensure_base skips what is present. It earns its place when
+# F8_AGENT_MODEL names something else.
+#
+# It does NOT make agents run on a local model while chat runs hosted, which this comment claimed
+# until the merge gate measured it: ONE Fallen8:Chat:Backend serves both purposes, so an instance
+# whose chat is on OpenAI or Anthropic resolves the agent purpose there and never asks this sidecar
+# for the model pulled here.
+#
+# Measured and worth knowing before choosing it: the shipped default emits no parsed tool call when
+# ANY instruction text is present (findings.md section 1). It is the stock tool-capable MIT model
+# the sidecar can pull, so it is what the default names; a deployment that wants agents that
+# actually call tools names one that does in the RUNNING backend's key,
+# Fallen8__Chat__<Backend>__Models__Agent, which is the Ollama block whenever this sidecar is what
+# serves chat.
+# Gated on BOTH: the agent host coming up, and this sidecar being what serves chat. The agent
+# purpose is answered by the instance's own chat gateway, so on a hosted-chat deployment the model
+# that answers it lives at the provider and a local pull is gigabytes nothing will ever ask for.
+# F8_PULL_ASSIST=0 is the signal for that, which is exactly what the openai and anthropic overlays
+# set, and the skip says which knob to flip for a deployment that wants a local agent model anyway.
+if [ "$F8_AGENTS_ON" = "true" ] && [ "$F8_PULL_ASSIST" != "0" ]; then
+  ensure_base "$F8_AGENT_MODEL" || MISSING="$MISSING $F8_AGENT_MODEL"
+elif [ "$F8_AGENTS_ON" = "true" ]; then
+  log_info "F8_PULL_ASSIST=0, so chat is served elsewhere - skipping the agent model pull"
+  log_info "  (set F8_PULL_ASSIST=1 to pull $F8_AGENT_MODEL here anyway)"
+else
+  log_info "F8_AGENTS is not true - skipping the agent model pull"
+fi
 
 if [ -n "$MISSING" ]; then
   log_error "Some models are missing:$MISSING"

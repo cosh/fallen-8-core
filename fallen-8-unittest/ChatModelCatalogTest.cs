@@ -72,7 +72,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     Endpoint = NahilHost,
                     ApiKey = NahilKey,
-                    Model = Model
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = Model }
                 }
             };
         }
@@ -86,7 +86,7 @@ namespace NoSQL.GraphDB.Tests
                 Ollama = new Fallen8ChatOptions.OllamaOptions
                 {
                     Endpoint = SidecarHost,
-                    Model = Model
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = Model }
                 }
             };
         }
@@ -101,7 +101,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     Endpoint = RemoteModelWire.OpenAIHost,
                     ApiKey = RemoteModelWire.OpenAIKey,
-                    Model = RemoteModelWire.OpenAIModel
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = RemoteModelWire.OpenAIModel }
                 }
             };
         }
@@ -116,7 +116,7 @@ namespace NoSQL.GraphDB.Tests
                 {
                     Endpoint = RemoteModelWire.AnthropicHost,
                     ApiKey = RemoteModelWire.AnthropicKey,
-                    Model = RemoteModelWire.AnthropicModel
+                    Models = new Fallen8ChatOptions.ModelPurposes { Assist = RemoteModelWire.AnthropicModel }
                 }
             };
         }
@@ -1092,8 +1092,8 @@ namespace NoSQL.GraphDB.Tests
             {
                 { "Fallen8:Chat:Enabled", enabled ? "true" : "false" },
                 { "Fallen8:Chat:Backend", backend },
-                { "Fallen8:Chat:Ollama:Model", Model },
-                { "Fallen8:Chat:Nahil:Model", Model }
+                { "Fallen8:Chat:Ollama:Models:Assist", Model },
+                { "Fallen8:Chat:Nahil:Models:Assist", Model }
             };
 
             if (endpoint != null)

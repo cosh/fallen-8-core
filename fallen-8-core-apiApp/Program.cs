@@ -523,10 +523,13 @@ namespace NoSQL.GraphDB.App
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Ingestion));
                 });
 
-                // The integrations gate (feature integrations): same shape - off by default,
-                // orthogonal to auth, 403 when off. That 403 IS the opt-out (F8_INTEGRATIONS=false)
-                // and is what a client gates the feature on, so no /integrations action checks the
-                // flag itself.
+                // The integrations gate (feature integrations): same shape, off by default. The
+                // REFUSAL is the opt-out (F8_INTEGRATIONS=false), which is why no /integrations
+                // action checks the flag itself. Which refusal depends on the instance rather than
+                // on the flag: 403 where an API key is configured, 401 where none is, because the
+                // policy above adds RequireAuthenticatedUser only in the first case. A client
+                // gating the feature on 403 alone therefore reads a keyless instance as having the
+                // feature on. DynamicCapabilityRequirement is the one home for that rule.
                 o.AddPolicy(Fallen8IntegrationsOptions.IntegrationsPolicy, p =>
                 {
                     if (keyConfigured)
@@ -534,6 +537,25 @@ namespace NoSQL.GraphDB.App
                         p.RequireAuthenticatedUser();
                     }
                     p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Integrations));
+                });
+
+                // The agents gate (feature agent-host): same shape, off by default. Off for a
+                // sharper reason than its siblings: an agent decides for itself which tools to
+                // call, so this is a decision an operator makes rather than one a deployment
+                // inherits.
+                //
+                // NOT orthogonal to auth, and not a plain 403: which status "off" produces depends
+                // on whether a key is configured, because that is what decides whether the
+                // middleware challenges or forbids. AgentsController is the one home for that, and
+                // this comment used to assert the 403 alone, in the branch whose plan says the
+                // repo's docs widely get exactly this wrong.
+                o.AddPolicy(Fallen8AgentsOptions.AgentsPolicy, p =>
+                {
+                    if (keyConfigured)
+                    {
+                        p.RequireAuthenticatedUser();
+                    }
+                    p.AddRequirements(new DynamicCapabilityRequirement(DynamicCapabilityRequirement.Capability.Agents));
                 });
             });
 
@@ -558,7 +580,8 @@ namespace NoSQL.GraphDB.App
                 builder.Configuration.GetSection(Fallen8ChatOptions.SectionName));
             builder.Services.AddSingleton<IChatBackend>(sp =>
                 ChatBackendFactory.Create(sp.GetRequiredService<IOptions<Fallen8ChatOptions>>().Value,
-                    sp.GetRequiredService<ILoggerFactory>()));
+                    sp.GetRequiredService<ILoggerFactory>(),
+                    sp.GetRequiredService<IConfiguration>()));
             builder.Services.AddSingleton(sp => new Fallen8ChatProvider(
                 sp.GetRequiredService<IOptions<Fallen8ChatOptions>>(),
                 new Lazy<IChatBackend>(() => sp.GetRequiredService<IChatBackend>())));
@@ -601,6 +624,18 @@ namespace NoSQL.GraphDB.App
                 new NoSQL.GraphDB.App.Integrations.IntegrationsClient(
                     sp.GetRequiredService<IOptions<Fallen8IntegrationsOptions>>(),
                     sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Integrations.IntegrationsClient>>()));
+
+            // The agent-host proxy (feature agent-host): the client is inert until an /agents route
+            // is called - with the flag off (the default) those routes refuse before anything is
+            // contacted (403 or 401, see AgentsController), and with no endpoint configured they
+            // answer 503 rather than timing out.
+            // Tests replace IAgentsClient.
+            builder.Services.Configure<Fallen8AgentsOptions>(
+                builder.Configuration.GetSection(Fallen8AgentsOptions.SectionName));
+            builder.Services.AddSingleton<NoSQL.GraphDB.App.Agents.IAgentsClient>(sp =>
+                new NoSQL.GraphDB.App.Agents.AgentsClient(
+                    sp.GetRequiredService<IOptions<Fallen8AgentsOptions>>(),
+                    sp.GetRequiredService<ILogger<NoSQL.GraphDB.App.Agents.AgentsClient>>()));
 
             // CORS: one named policy, default deny. Only the configured origins are allowed; never a
             // wildcard-with-credentials.
@@ -831,7 +866,8 @@ namespace NoSQL.GraphDB.App
                 // A name this app does not have is reported by Validate, not inferred from a null
                 // resolution: a null now also means a supported backend that speaks no protocol the
                 // residency probe can ask, so inferring would warn about a working deployment.
-                var chatProblem = NoSQL.GraphDB.App.Chat.ChatBackendFactory.Validate(chatOptions);
+                var chatProblem = NoSQL.GraphDB.App.Chat.ChatBackendFactory.Validate(chatOptions,
+                    configuration: app.Configuration);
                 if (chatProblem != null)
                 {
                     startupLogger.LogWarning(

@@ -281,7 +281,7 @@ All Studio work lives in `fallen-8-web-ui/` (in-repo).
 | [observability](../observability/) | Meter collision fix: namespace-id tag on `Fallen8Metrics` (§7). |
 | [api-error-envelope](../../done/api-error-envelope/) (done) | New endpoints are problem+json from day one; its 134-site inventory is unaffected. |
 | [studio-embeddable](../../done/studio-embeddable/) (done) | Orthogonal (`storageNamespace` prefixes localStorage keys); its spec carries a one-line "may pin a namespace" future-work note. |
-| [agent-host](../../open/agent-host/), [mcp-server](../mcp-server/) (open) | Both consume the REST contract; their specs get a one-line note that tools/agents address `/ns/{ns}/…`. |
+| [agent-host](../agent-host/), [mcp-server](../mcp-server/) (open) | Both consume the REST contract; their specs get a one-line note that tools/agents address `/ns/{ns}/…`. |
 
 ## 10. Acceptance scenarios
 

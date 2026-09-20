@@ -68,10 +68,15 @@ import { ErrorBox } from "./ErrorBox";
 function isNamespacePolicy(key: string, lockNamespace?: boolean): boolean {
   return lockNamespace === true && key.startsWith("Fallen8:Namespaces:");
 }
+/**
+ * The label column is sized for the LONGEST label any card prints, not for the average one: it is
+ * fixed width so the rows of both cards line up, so a label that does not fit wraps onto a second
+ * line while its value stays on the first. `model (assist)` did exactly that at the previous 5rem.
+ */
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-baseline gap-2 text-[12px]">
-      <span className="text-fg-faint w-20 shrink-0 tracking-wide uppercase">{label}</span>
+      <span className="text-fg-faint w-28 shrink-0 tracking-wide uppercase">{label}</span>
       <span className="text-fg-dim min-w-0 truncate" title={value}>
         {value}
       </span>
@@ -110,7 +115,8 @@ function StatusRow({ status }: { status: ModelStatus }) {
     status.state === "loaded" ? "bg-accent" : status.state === "idle" ? "bg-fg-faint" : "bg-warn";
   return (
     <div className="flex items-center gap-2 text-[12px]" data-testid="config-model-status">
-      <span className="text-fg-faint w-20 shrink-0 tracking-wide uppercase">status</span>
+      {/* Same width as Row's label column, or this row's dot and text sit out of line with them. */}
+      <span className="text-fg-faint w-28 shrink-0 tracking-wide uppercase">status</span>
       <span className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} aria-hidden />
       <span className="text-fg-dim min-w-0 truncate">{status.text}</span>
     </div>
@@ -136,7 +142,8 @@ function EmbeddingCard({ embedding }: { embedding: EmbeddingProviderStatsREST | 
         </div>
       ) : (
         <p className="text-fg-faint mt-2 text-[11px]">
-          Off — text-in embedding and semantic search answer 403; bring-your-own-vector paths work.
+          Off. Text-in embedding and semantic search are refused: 401 on a keyless instance,
+          403 once an API key is configured. Bring-your-own-vector paths work.
         </p>
       )}
     </div>
@@ -153,13 +160,26 @@ function ChatCard({ chat }: { chat: ChatProviderStatsREST | null | undefined }) 
       {chat?.enabled ? (
         <div className="mt-2 space-y-0.5">
           <Row label="backend" value={chat.backend ?? "—"} />
-          <Row label="model" value={chat.model ?? "—"} />
+          {/* One row PER PURPOSE (feature agent-host): the two are configured by different people
+              for different reasons, so a single "model" row could only ever show one of them and
+              an operator reading it would have no way to tell which. The agent row says "not set"
+              rather than a dash when the backend names none: that is the shipped state for the two
+              metered providers, and it is the difference between "nothing configured" and "agents
+              will be refused on this backend". A BLANK name counts as none: the server normalises
+              it away (ChatBackendFactory.ModelFor owns that rule), and the trim below is what keeps
+              a cleared row honest on an instance that predates it. */}
+          <Row label="model (assist)" value={chat.model?.trim() || "not set"} />
+          <Row label="model (agent)" value={chat.agentModel?.trim() || "not set"} />
+          {/* ONE residency row, not one per purpose. It is the probe's answer about the backend's
+              loaded model, and the probe reports a single one; printing it twice would claim the
+              two purposes were probed separately. */}
           <StatusRow status={modelStatus(chat.loaded, chat.resident, chat.gpu)} />
         </div>
       ) : (
         <p className="text-fg-faint mt-2 text-[11px]">
-          Off — POST /chat answers 403. Enable it via the docker environment (F8_CHAT) or the
-          Fallen8:Chat config section.
+          Off. POST /chat is refused: 401 on a keyless instance, 403 once an API key is
+          configured. Enable it via the docker environment (F8_CHAT) or the Fallen8:Chat config
+          section.
         </p>
       )}
     </div>

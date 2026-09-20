@@ -1540,11 +1540,12 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        /// Nothing on the runtime is authenticated, and nothing needs to be: the container's port is
-        /// not published, so the only way in is through the apiApp.
+        /// Nothing on the runtime is authenticated. The container's port is not published, so from
+        /// outside the compose network the only way in is the apiApp's authenticated proxy; on that
+        /// network any service reaches it directly, and the unpublished port is the whole boundary.
         /// </summary>
         [TestMethod]
-        public async Task NoRouteOnTheRuntimeAsksForAuthentication_BecauseTheApiAppIsTheOnlyWayIn()
+        public async Task NoRouteOnTheRuntimeAsksForAuthentication_BecauseItsPortIsNotPublished()
         {
             using var factory = new RuntimeFactory();
             using var client = factory.CreateClient();
@@ -1585,9 +1586,9 @@ namespace NoSQL.GraphDB.Tests
             foreach (var probe in answered)
             {
                 Assert.AreNotEqual(HttpStatusCode.Unauthorized, probe.Value,
-                    probe.Key + " asked for a credential. A second auth story on this container is a second " +
-                    "thing to get wrong, and the apiApp - already the authenticated front door - has no " +
-                    "credential of the runtime's to send");
+                    probe.Key + " asked for a credential. This container authenticates nobody by " +
+                    "convention, resting on a port that is not published, and the apiApp - the " +
+                    "authenticated front door in front of it - has no credential of the runtime's to send");
                 Assert.AreNotEqual(HttpStatusCode.Forbidden, probe.Value,
                     probe.Key + " refused an unauthenticated caller, which makes the whole proxy answer 403 " +
                     "and the Studio integrations screen disappear on a correctly configured instance");

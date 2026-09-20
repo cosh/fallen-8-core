@@ -25,6 +25,18 @@ processors:
     timeout: 5s
     send_batch_size: 8192
     send_batch_max_size: 11000
+  # The agent host's GenAI spans (feature agent-host) are named "invoke_agent <name>(<id>)" by
+  # Microsoft Agent Framework, where the name is supplied by whoever spawned the agent and the id
+  # is unique per run. MEASURED: there is no way to make the library emit a bounded name, because
+  # an agent constructed without an id gets a generated GUID and the id is always in the display
+  # name. span.name is an implicit spanmetrics dimension, so left alone this would be one series
+  # per agent run, which is precisely the cardinality bomb the dimensions list below refuses by
+  # hand. The name is bounded HERE, on the branch that feeds the connector and nowhere else: Tempo
+  # still receives the full name, because correlating one span with one run is what a trace is for.
+  transform/bound_agent_spans:
+    error_mode: ignore
+    trace_statements:
+      - set(span.name, "invoke_agent") where IsMatch(span.name, "^invoke_agent ")
 
 connectors:
   # RED metrics from spans: this is what turns the fallen8.path.search / subgraph.run /
@@ -89,7 +101,14 @@ service:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, batch]
-      exporters: [spanmetrics, otlp/tempo]
+      exporters: [otlp/tempo]
+    # The connector gets its own pipeline off the same receiver, because the span-name bounding
+    # above must not reach Tempo. Two pipelines over one receiver is a fan-out, not a duplicate:
+    # each exports to a different place.
+    traces/spanmetrics:
+      receivers: [otlp]
+      processors: [memory_limiter, transform/bound_agent_spans, batch]
+      exporters: [spanmetrics]
     metrics:
       receivers: [otlp, spanmetrics]
       processors: [memory_limiter, batch]
