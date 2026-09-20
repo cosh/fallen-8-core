@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // CodeQualityTest.cs
 //
@@ -29,6 +29,9 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.Rest.Configuration;
+using NoSQL.GraphDB.Rest;
+using System.Reflection;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -508,5 +511,215 @@ namespace NoSQL.GraphDB.Tests
                 + "per-capability row on that page: it is the one home for this posture, so a "
                 + "reader has nowhere else to find the right number.");
         }
+
+        // --- the sidecars share one seam, and these keep it that way (feature sidecar-shared-options) ---
+
+        /// <summary>The three deployables that may reach a Fallen-8 only over its public HTTP contract.</summary>
+        private static IEnumerable<Assembly> SidecarAssemblies()
+        {
+            yield return typeof(NoSQL.GraphDB.Mcp.Configuration.McpOptions).Assembly;
+            yield return typeof(NoSQL.GraphDB.Integrations.Configuration.IntegrationsOptions).Assembly;
+            yield return typeof(NoSQL.GraphDB.Agents.Configuration.AgentsOptions).Assembly;
+        }
+
+        /// <summary>
+        ///   The member names a type DECLARES itself, which is what makes two same-named types a copy
+        ///   of each other rather than a coincidence. Inherited members are excluded on purpose: two
+        ///   classes deriving from one seam base share everything it gives them, and that is the
+        ///   opposite of the problem.
+        /// </summary>
+        private static SortedSet<string> DeclaredMembers(Type type)
+        {
+            const BindingFlags Declared = BindingFlags.Public | BindingFlags.NonPublic
+                | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+            // Accessors and backing fields are dropped so the set is the shape a reader would
+            // recognise: naming <Attempts>k__BackingField beside Attempts says nothing extra and
+            // makes the failure message harder to read than the defect it reports.
+            return new SortedSet<string>(
+                type.GetMembers(Declared)
+                    .Where(m => m.MemberType != MemberTypes.NestedType)
+                    .Select(m => m.Name)
+                    .Where(name => !name.StartsWith("get_", StringComparison.Ordinal)
+                        && !name.StartsWith("set_", StringComparison.Ordinal)
+                        && !name.StartsWith("<", StringComparison.Ordinal)),
+                StringComparer.Ordinal);
+        }
+
+        [TestMethod]
+        public void EverySidecarsSharedOptionsFamily_DerivesFromTheSeamsBase()
+        {
+            // Three families are the same question asked by every sidecar - which Fallen-8, whose
+            // identity, which collector - and each used to be answered by its own copied class. The
+            // rule is a NAMING one rather than a list, so a fourth deployable that copies the class
+            // instead of deriving fails here on the day it is added.
+            var families = new (string Suffix, Type Base)[]
+            {
+                ("TargetOptions", typeof(AFallen8TargetOptions)),
+                ("IdentityOptions", typeof(AFleetIdentityOptions)),
+                ("ObservabilityOptions", typeof(AFleetObservabilityOptions)),
+            };
+
+            var violations = new List<string>();
+            var covered = 0;
+            foreach (var assembly in SidecarAssemblies())
+            {
+                foreach (var type in assembly.GetTypes().Where(t => t.IsClass && !t.IsAbstract))
+                {
+                    foreach (var (suffix, expected) in families)
+                    {
+                        if (!type.Name.EndsWith(suffix, StringComparison.Ordinal))
+                        {
+                            continue;
+                        }
+
+                        covered++;
+                        if (!expected.IsAssignableFrom(type))
+                        {
+                            violations.Add(type.FullName + " (" + assembly.GetName().Name
+                                + ") is named like the shared " + suffix + " family but does not derive from "
+                                + expected.Name + ", so it is a fourth copy of it");
+                        }
+                    }
+                }
+            }
+
+            AssertNoViolations(violations,
+                "a sidecar's target/identity/observability options derive from fallen-8-rest-client's base");
+            Assert.AreEqual(9, covered,
+                "expected three families across three sidecars. If a deployable was added or removed, "
+                + "this count moves with it - but check the new one actually derives rather than "
+                + "just relaxing the number.");
+        }
+
+        [TestMethod]
+        public void NoTypeIsCopiedBetweenTheSidecars()
+        {
+            // A COPY, not a name clash: fallen-8-mcp's McpOptions (the server's own transport, port
+            // and tiers) and fallen-8-agents' nested McpOptions (how the host dials that server) share
+            // a name and nothing else, and flagging that pair would make this gate a nuisance whose
+            // allowlist grew until it proved nothing. So the test compares the members each type
+            // DECLARES, which is what a copied class has in common with its original.
+            var byName = new Dictionary<string, List<Type>>(StringComparer.Ordinal);
+            foreach (var assembly in SidecarAssemblies())
+            {
+                foreach (var type in assembly.GetTypes())
+                {
+                    if (type.IsGenericParameter || type.Name.StartsWith("<", StringComparison.Ordinal))
+                    {
+                        continue;   // compiler-generated closures and iterator classes
+                    }
+
+                    if (!byName.TryGetValue(type.Name, out var list))
+                    {
+                        byName[type.Name] = list = new List<Type>();
+                    }
+                    list.Add(type);
+                }
+            }
+
+            // One entry, and the reason is the SDK's rather than ours: an entry point per assembly is
+            // what makes three processes three processes.
+            var allowed = new HashSet<string>(StringComparer.Ordinal) { "Program" };
+
+            var violations = new List<string>();
+            foreach (var (name, types) in byName.Where(kv => kv.Value.Count > 1))
+            {
+                if (allowed.Contains(name))
+                {
+                    continue;
+                }
+
+                for (var i = 0; i < types.Count; i++)
+                {
+                    for (var j = i + 1; j < types.Count; j++)
+                    {
+                        var (left, right) = (types[i], types[j]);
+
+                        // Deriving from ONE seam base is the fix, not the defect: two sidecars' own
+                        // Fallen8TargetOptions are meant to be parallel, and each adds only the knobs
+                        // it has. EverySidecarsSharedOptionsFamily_DerivesFromTheSeamsBase is what
+                        // holds that half.
+                        if (left.BaseType != null && left.BaseType == right.BaseType
+                            && left.BaseType.Assembly == typeof(RestSeam).Assembly)
+                        {
+                            continue;
+                        }
+
+                        var shape = DeclaredMembers(left);
+                        if (shape.Count > 0 && shape.SetEquals(DeclaredMembers(right)))
+                        {
+                            violations.Add(name + " is declared identically in "
+                                + left.Assembly.GetName().Name + " and " + right.Assembly.GetName().Name
+                                + " (" + shape.Count + " members: " + string.Join(", ", shape)
+                                + "). Give it one home in fallen-8-rest-client and derive, or make the "
+                                + "two genuinely different things different types.");
+                        }
+                    }
+                }
+            }
+
+            AssertNoViolations(violations, "no type is copied between the REST-only deployables");
+        }
+
+        [TestMethod]
+        public void EveryDeployablesServiceName_MatchesTheSelectorTheShippedDashboardUses()
+        {
+            // The pin derives its expectation from the CONSUMER. The per-tenant dashboard's log panel
+            // selects streams by service_name, and Loki anchors its regexes fully, so
+            // "fallen8.*" matched three of the four deployables and silently excluded
+            // fallen-8-integrations - whose panel was described as "logs scoped to the selected
+            // instance". Reading the selector out of the dashboard rather than restating it here means
+            // a deliberate change to the convention has to change the dashboard first, which is the
+            // right order, and a fifth deployable that misses the panel fails the suite instead of
+            // shipping invisible.
+            var root = TestRepo.Root();
+            var dashboard = Path.Combine(root, "observability", "grafana", "dashboards", "per-tenant.json");
+            Assert.IsTrue(File.Exists(dashboard),
+                "the per-tenant dashboard is where the service-name convention is enforced in anger; "
+                + "if it moved, move this pin with it rather than deleting it");
+
+            var selector = Regex.Match(File.ReadAllText(dashboard),
+                @"service_name\s*=~\s*\\?""(?<pattern>[^""\\]+)\\?""");
+            Assert.IsTrue(selector.Success,
+                "no {service_name=~\"...\"} selector found in " + Path.GetFileName(dashboard)
+                + ". The dashboard is the source of this convention, so if it now selects logs another "
+                + "way, this test has to learn the new way.");
+
+            // Loki anchors the whole value; .NET does not, so say so explicitly.
+            var pattern = new Regex("^(?:" + selector.Groups["pattern"].Value + ")$", RegexOptions.CultureInvariant);
+
+            var declared = new List<(string Project, string Name)>();
+            foreach (var project in new[]
+            {
+                "fallen-8-core-apiApp", "fallen-8-mcp", "fallen-8-integrations", "fallen-8-agents",
+            })
+            {
+                foreach (var file in SourceFiles(project))
+                {
+                    foreach (var line in CodeLines(file))
+                    {
+                        foreach (Match call in Regex.Matches(line, @"AddService\(\s*""(?<name>[^""]+)"""))
+                        {
+                            declared.Add((project, call.Groups["name"].Value));
+                        }
+                    }
+                }
+            }
+
+            Assert.AreEqual(4, declared.Count,
+                "expected one OTel service name per deployable, found " + declared.Count + ": "
+                + string.Join(", ", declared.Select(d => d.Project + " -> " + d.Name)));
+
+            var violations = declared
+                .Where(d => !pattern.IsMatch(d.Name))
+                .Select(d => d.Project + " declares service.name '" + d.Name + "', which the dashboard's "
+                    + "selector /" + pattern + "/ does not match, so its logs are absent from the panel")
+                .ToList();
+
+            AssertNoViolations(violations,
+                "every deployable's OTel service.name matches the shipped dashboard's stream selector");
+        }
+
     }
 }
