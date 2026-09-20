@@ -26,6 +26,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
+using System.Reflection;
+using System.IO;
+using System.Threading;
+using System.Net.Http;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Agents.Configuration;
 using NoSQL.GraphDB.Integrations.Configuration;
@@ -63,6 +70,156 @@ namespace NoSQL.GraphDB.Tests
             yield return ("integrations", new IntegrationsIdentityOptions(), "f8-integrations-",
                 IntegrationsIdentityOptions.SectionName);
             yield return ("agents", new AgentsIdentityOptions(), "f8-agents-", AgentsIdentityOptions.SectionName);
+        }
+
+        /// <summary>
+        ///   The dashboard's own stream selector, as a pattern to pull out of its JSON. One home,
+        ///   because CodeQualityTest reads the same thing for the source literals and these two
+        ///   readers must not drift.
+        /// </summary>
+        private const String SelectorPattern =
+            @"service_name\s*=~\s*\\?""(?<pattern>[^""\\]+)\\?""";
+
+        /// <summary>
+        ///   What each sidecar's OTel wiring actually declares about itself, read off the BUILT
+        ///   resource rather than inferred from the options. This is the pin for the two defects a
+        ///   review found unpinned: the integrations runtime passed no serviceInstanceId, so
+        ///   service.instance.id was the SDK's random per-process GUID, and its service.name was a
+        ///   spelling the shipped dashboard's selector cannot match.
+        /// </summary>
+        private static IReadOnlyDictionary<String, Object> ResourceOf(
+            String observabilitySection, String identitySection, String instanceId,
+            Action<IServiceCollection, IConfiguration> wire)
+        {
+            var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<String, String>
+            {
+                [observabilitySection + ":Otlp:Endpoint"] = "http://collector.invalid:4317",
+                [identitySection + ":Instance:Id"] = instanceId,
+                [identitySection + ":Instance:Name"] = "Pinned instance",
+                [identitySection + ":Tenant:Id"] = "acme",
+            }).Build();
+
+            var services = new ServiceCollection();
+            services.AddLogging();
+            wire(services, config);
+
+            using var provider = services.BuildServiceProvider();
+            var meterProvider = provider.GetService(typeof(OpenTelemetry.Metrics.MeterProvider));
+            Assert.IsNotNull(meterProvider,
+                observabilitySection + " configured an OTLP endpoint but registered no MeterProvider, "
+                + "so nothing was wired and this test would pass vacuously");
+
+            var resource = meterProvider.GetType()
+                .GetProperty("Resource", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                ?.GetValue(meterProvider) as OpenTelemetry.Resources.Resource;
+            Assert.IsNotNull(resource,
+                "MeterProviderSdk no longer exposes Resource, so this pin cannot read what the "
+                + "process declares. Find the new way rather than deleting the test.");
+
+            return resource.Attributes.ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        }
+
+        /// <summary>The three wirings, so both pins below cover all of them.</summary>
+        private static IEnumerable<(String Name, String Observability, String Identity, String Expected,
+            Action<IServiceCollection, IConfiguration> Wire)> Wirings()
+        {
+            yield return ("mcp", "Mcp:Observability", "Mcp:Identity", "fallen8-mcp",
+                (s, c) => NoSQL.GraphDB.Mcp.Hosting.McpObservability.AddMcpObservability(s, c));
+            yield return ("integrations", "Integrations:Observability", "Integrations:Identity", "fallen8-integrations",
+                (s, c) => NoSQL.GraphDB.Integrations.Hosting.IntegrationsObservability.Add(s, c));
+            yield return ("agents", "Agents:Observability", "Agents:Identity", "fallen8-agents",
+                (s, c) => NoSQL.GraphDB.Agents.Hosting.AgentsObservability.AddAgentsObservability(s, c));
+        }
+
+        [TestMethod]
+        public void EverySidecarDeclaresTheResolvedInstanceIdAsServiceInstanceId()
+        {
+            // DEFECT 2. The other two sidecars always passed the resolved id into
+            // AddService(serviceInstanceId:); the integrations runtime passed nothing, so the SDK
+            // minted a random GUID per process and the promoted label moved on every restart.
+            // Nothing pinned it, which is why it survived a feature and a review.
+            foreach (var (name, observability, identity, expected, wire) in Wirings())
+            {
+                var attributes = ResourceOf(observability, identity, "pinned-" + name, wire);
+
+                Assert.IsTrue(attributes.TryGetValue("service.instance.id", out var serviceInstanceId),
+                    name + " declares no service.instance.id, so the SDK supplies a random one that "
+                    + "churns on every restart");
+                Assert.AreEqual("pinned-" + name, serviceInstanceId,
+                    name + " reports '" + serviceInstanceId + "' as service.instance.id instead of the "
+                    + "configured instance id, so the promoted label does not survive a restart");
+                Assert.AreEqual(serviceInstanceId, attributes[FleetIdentity.InstanceIdKey],
+                    name + ": service.instance.id and fallen8.instance.id must be the same value, or a "
+                    + "dashboard joining one to the other matches nothing");
+
+                Assert.AreEqual(expected, attributes["service.name"], name + " service.name");
+                Assert.AreEqual("acme", attributes[FleetIdentity.TenantIdKey], name + " tenant");
+                Assert.AreEqual("Pinned instance", attributes[FleetIdentity.InstanceNameKey],
+                    name + " instance name");
+            }
+        }
+
+        [TestMethod]
+        public void EverySidecarsOwnResourceMatchesTheShippedDashboardsSelector()
+        {
+            // DEFECT 3, pinned at the RESOURCE rather than at the source literal. CodeQualityTest
+            // holds the literals against the dashboard; this holds what the process actually
+            // declares, so a wiring that computed its name instead of writing it is covered too.
+            var dashboard = Path.Combine(TestRepo.Root(), "observability", "grafana", "dashboards",
+                "per-tenant.json");
+            var selectors = Regex.Matches(File.ReadAllText(dashboard), SelectorPattern)
+                .Select(m => m.Groups["pattern"].Value)
+                .Where(p => !p.Contains('$', StringComparison.Ordinal))
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            Assert.IsTrue(selectors.Count > 0,
+                "no literal service_name selector in the shipped dashboard, so this pin has nothing "
+                + "to check. The dashboard is the source of the convention.");
+
+            foreach (var (name, observability, identity, _, wire) in Wirings())
+            {
+                var declared = (String)ResourceOf(observability, identity, "pinned-" + name, wire)["service.name"];
+                foreach (var pattern in selectors)
+                {
+                    Assert.IsTrue(
+                        Regex.IsMatch(declared, "^(?:" + pattern + ")$", RegexOptions.CultureInvariant),
+                        name + " declares service.name '" + declared + "', which the shipped dashboard's "
+                        + "selector /" + pattern + "/ does not match, so its logs are absent from that panel");
+                }
+            }
+        }
+
+        [TestMethod]
+        public void TheClampIsSafeForEveryApiItsConsumersArmWithIt()
+        {
+            // OptionBounds' summary states the ceiling of three APIs and calls MaxSeconds the
+            // tightest of them. Those are measurable facts, so they are measured here rather than
+            // asserted in prose: an earlier version of that comment claimed all three shared the
+            // Int32.MaxValue-ms limit, which is false for both timers, and nothing caught it.
+            var clamped = OptionBounds.Seconds(Int32.MaxValue);
+
+            using (var client = new HttpClient())
+            {
+                client.Timeout = clamped;   // throws if the clamp is looser than this API allows
+                Assert.AreEqual(clamped, client.Timeout);
+            }
+
+            using (var source = new CancellationTokenSource())
+            {
+                source.CancelAfter(clamped);
+            }
+
+            using (var timer = new PeriodicTimer(clamped))
+            {
+                Assert.IsNotNull(timer);
+            }
+
+            // And the tightest of the three is the one that binds, so the clamp is not merely safe
+            // but as generous as it can be: one second more would break HttpClient.
+            Assert.ThrowsException<ArgumentOutOfRangeException>(
+                () => new HttpClient { Timeout = TimeSpan.FromSeconds(OptionBounds.MaxSeconds + 1) },
+                "MaxSeconds is meant to be HttpClient.Timeout's own limit; if this stops throwing, "
+                + "the platform moved and the type's summary needs re-measuring");
         }
 
         [TestMethod]

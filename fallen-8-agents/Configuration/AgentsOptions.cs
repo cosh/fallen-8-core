@@ -216,10 +216,26 @@ namespace NoSQL.GraphDB.Agents.Configuration
             }
 
             /// <summary>How long the startup tool-list read may take before the host gives up on it
-            /// and starts anyway. Bounded because an unreachable MCP server must not stop this
+            /// and starts anyway, as the operator wrote it. Read <see cref="Connect" /> to arm
+            /// anything with it. Bounded because an unreachable MCP server must not stop this
             /// process from starting and reporting that it is unreachable, which is also why a
             /// non-positive value is floored at 1 second rather than switching the bound off.</summary>
             public Int32 ConnectTimeoutSeconds { get; set; } = 15;
+
+            /// <summary>
+            ///   The connect bound actually in force, which is <see cref="ConnectTimeoutSeconds" />
+            ///   through both of <c>OptionBounds</c>' ends.
+            ///   <para>
+            ///     It exists because this key had the floor and not the ceiling, in the one project
+            ///     the clamp came from: four copies of <c>Math.Max(1, ...)</c> armed
+            ///     <c>CancelAfter</c> with it, which refuses a delay past about 49.7 days, so a
+            ///     large value threw an exception naming a parameter and the broad catch below
+            ///     reported it as "the MCP server did not answer" - an unreachable server that was
+            ///     up, and a retry cooldown computed from the same number that would not have
+            ///     retried this century. A review of the branch that shared this clamp found it.
+            ///   </para>
+            /// </summary>
+            public TimeSpan Connect => OptionBounds.Seconds(ConnectTimeoutSeconds);
         }
 
         /// <summary>

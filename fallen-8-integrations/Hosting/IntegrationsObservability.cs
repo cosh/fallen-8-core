@@ -89,13 +89,19 @@ namespace NoSQL.GraphDB.Integrations.Hosting
 
             var otel = services.AddOpenTelemetry();
 
-            // ONE resource for all three signals. Logs used to build a SECOND one of their own with
-            // ResourceBuilder.CreateDefault(), so a log record and a metric from this process described
-            // differently-attributed services; WithLogging shares what ConfigureResource sets, as it does in
-            // the MCP server and the agent host.
-            // service.instance.id is the RESOLVED id rather than the SDK's random per-process GUID, so the
-            // promoted label does not churn across restarts. The other two sidecars always did this and this
-            // one did not, which made its panels churn.
+            // ONE resource for all three signals, which logs previously reached by a SECOND call path of
+            // their own (ResourceBuilder.CreateDefault() inside AddLogging). Measured, the two resources
+            // came out attribute-for-attribute identical, so this is not a fix for an observed difference:
+            // it removes a second place the same four attributes had to be assembled correctly, which is a
+            // divergence waiting rather than a divergence. WithLogging shares what ConfigureResource sets,
+            // as it does in the MCP server and the agent host.
+            //
+            // service.instance.id is the RESOLVED id rather than the SDK's random per-process GUID, which
+            // the other two sidecars always passed and this one did not. What that cost is narrower than it
+            // sounds and is worth stating precisely: no dashboard in this repository keys on
+            // service.instance.id, so no shipped panel was wrong. What churned was a promoted resource
+            // label, which an operator's own queries and any grouping by it would see move on every
+            // restart.
             otel.ConfigureResource(resource => resource
                 .AddService("fallen8-integrations", serviceInstanceId: resolved.InstanceId)
                 .AddAttributes(resolved.Attributes()));
@@ -113,15 +119,20 @@ namespace NoSQL.GraphDB.Integrations.Hosting
                 .AddOtlpExporter(exporter => exporter.Endpoint = endpoint));
 
             // Log export runs BEHIND the credential redaction wrap, which is why that wrap is installed last
-            // in DI. IncludeFormattedMessage and IncludeScopes are kept: they decide what a RECORD carries,
-            // which is a separate question from which service it is attributed to.
+            // in DI. IncludeFormattedMessage is kept: it decides what a RECORD carries, which is a separate
+            // question from which service it is attributed to.
+            //
+            // IncludeScopes is NOT set, and its absence is deliberate rather than an omission. It was
+            // carried over from the previous registration, where it had no effect either:
+            // RedactingLoggerProvider.WrapRegisteredProviders REPLACES each ILoggerProvider descriptor with
+            // the wrap, and the wrap implements ILoggerProvider only - not ISupportExternalScope - so the
+            // logging factory never hands the OTel provider a scope provider and there are no scopes for it
+            // to include. Making the wrap forward them would be the wrong fix: a scope value reaches the
+            // exporter WITHOUT passing through redaction, and a credential is exactly the kind of thing a
+            // scope carries. Setting an inert flag told the next reader that scopes are exported.
             otel.WithLogging(
                 logging => logging.AddOtlpExporter(exporter => exporter.Endpoint = endpoint),
-                options =>
-                {
-                    options.IncludeFormattedMessage = true;
-                    options.IncludeScopes = true;
-                });
+                options => options.IncludeFormattedMessage = true);
 
             return services;
         }

@@ -40,26 +40,37 @@ namespace NoSQL.GraphDB.Rest.Configuration
     ///   </para>
     ///   <para>
     ///     <b>The ceiling.</b> A very large value is the other way an operator asks for "off", and
-    ///     it is the worse of the two: <c>CancelAfter</c>, <c>PeriodicTimer</c> and
-    ///     <see cref="System.Net.Http.HttpClient.Timeout" /> all refuse a delay past
-    ///     <see cref="Int32.MaxValue" /> MILLISECONDS, so a large number threw
-    ///     <c>ArgumentOutOfRangeException</c> naming a parameter rather than the setting. Clamped,
-    ///     the largest number an operator can write is about 24 days, which is the practical shape
-    ///     of "no deadline" anyway.
+    ///     it is the worse of the two, because each API this value reaches rejects it with
+    ///     <c>ArgumentOutOfRangeException</c> naming a PARAMETER rather than the setting. Their
+    ///     limits are NOT the same, and these were measured on net10.0 rather than assumed:
+    ///     <see cref="System.Net.Http.HttpClient.Timeout" /> accepts up to 2,147,483 s, which is
+    ///     <see cref="Int32.MaxValue" /> ms or about 24.9 days; <c>CancelAfter</c> and
+    ///     <c>PeriodicTimer</c> both accept up to 4,294,967 s, which is <c>UInt32.MaxValue - 1</c>
+    ///     ms or about 49.7 days.
+    ///   </para>
+    ///   <para>
+    ///     <see cref="MaxSeconds" /> is therefore the TIGHTEST of the three, deliberately: one
+    ///     clamp that is safe for every consumer beats three that each know only their own API.
+    ///     An earlier version of this paragraph claimed all three shared the
+    ///     <see cref="Int32.MaxValue" /> ms limit. That was false for both timers, and it is the
+    ///     kind of plausible detail that survives a reading and not a measurement.
     ///   </para>
     ///   <para>
     ///     It sits at the shared seam rather than in one deployable because that is where the
-    ///     measurement generalised to: the agent host learned the ceiling from an incident, and the
-    ///     MCP server and the integrations runtime were still building an
-    ///     <see cref="System.Net.Http.HttpClient.Timeout" /> with a floor and no ceiling, which is
-    ///     the same crash one API call further along.
+    ///     measurement generalised to: the agent host learned the ceiling from an incident on
+    ///     <c>CancelAfter</c>, and the MCP server and the integrations runtime were still building
+    ///     an <see cref="System.Net.Http.HttpClient.Timeout" /> with a floor and no ceiling, which
+    ///     is the same crash one API call further along and at half the value.
     ///   </para>
     /// </summary>
     public static class OptionBounds
     {
-        /// <summary>The largest delay a timer or client deadline can be armed with, in seconds.
-        /// Milliseconds are what those APIs take, and they take them as an
-        /// <see cref="Int32" />.</summary>
+        /// <summary>
+        ///   The largest delay every consumer of this clamp can safely be armed with, in seconds.
+        ///   It is <see cref="System.Net.Http.HttpClient.Timeout" />'s limit because that is the
+        ///   lowest of the three (see the type's summary for all three, measured); the timers
+        ///   tolerate twice this, and deliberately do not get their own looser clamp.
+        /// </summary>
         public const Int32 MaxSeconds = Int32.MaxValue / 1000;
 
         /// <summary>The duration a configured number of seconds actually produces.</summary>
