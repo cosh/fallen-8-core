@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // IntegrationsObservability.cs
 //
@@ -26,10 +26,8 @@
 using System;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 using NoSQL.GraphDB.Integrations.Configuration;
 using NoSQL.GraphDB.Integrations.Diagnostics;
-using OpenTelemetry;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -43,6 +41,17 @@ namespace NoSQL.GraphDB.Integrations.Hosting
     ///   rather than as an unrelated service.
     ///
     ///   <para>Off by default: with no endpoint configured, zero OpenTelemetry code paths are registered.</para>
+    ///
+    ///   <para>
+    ///     <b>The service name is <c>fallen8-integrations</c>, and the spelling is load-bearing.</b> It was
+    ///     <c>fallen-8-integrations</c>, and the shipped per-tenant dashboard selects its log panel with
+    ///     <c>{service_name=~"fallen8.*"}</c> - a fully anchored Loki regex that matches <c>fallen8</c>,
+    ///     <c>fallen8-mcp</c> and <c>fallen8-agents</c> and did not match this runtime. A panel described as
+    ///     "logs scoped to the selected instance" was therefore showing every service on that instance
+    ///     except this one. The convention is written down in <c>observability/loki/loki-config.yaml</c>;
+    ///     <c>CodeQualityTest</c> now reads the selector out of the dashboard and holds all four names
+    ///     against it, so a fifth deployable that misses the panel fails the suite instead.
+    ///   </para>
     /// </summary>
     public static class IntegrationsObservability
     {
@@ -74,34 +83,45 @@ namespace NoSQL.GraphDB.Integrations.Hosting
 
             var endpoint = new Uri(observability.Otlp.Endpoint!);
 
-            // Called ONCE: an unset instance id yields a fresh value per call, so a second call would declare a
-            // second identity for one process.
-            var attributes = identity.ResourceAttributes();
+            // Resolved ONCE: an unset instance id yields a fresh value per call, so a second call would
+            // declare a second identity for one process.
+            var resolved = identity.Resolve();
 
-            services.AddOpenTelemetry()
-                .ConfigureResource(resource => resource
-                    .AddService("fallen-8-integrations")
-                    .AddAttributes(attributes))
-                .WithMetrics(metrics => metrics
-                    .AddMeter(IntegrationsMetrics.MeterName)
-                    .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation()
-                    .AddOtlpExporter(exporter => exporter.Endpoint = endpoint))
-                .WithTracing(tracing => tracing
-                    .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
-                    .AddOtlpExporter(exporter => exporter.Endpoint = endpoint));
+            var otel = services.AddOpenTelemetry();
 
-            services.AddLogging(logging => logging.AddOpenTelemetry(options =>
-            {
-                options.IncludeFormattedMessage = true;
-                options.IncludeScopes = true;
-                options.SetResourceBuilder(ResourceBuilder.CreateDefault()
-                    .AddService("fallen-8-integrations")
-                    .AddAttributes(attributes));
-                options.AddOtlpExporter(exporter => exporter.Endpoint = endpoint);
-            }));
+            // ONE resource for all three signals. Logs used to build a SECOND one of their own with
+            // ResourceBuilder.CreateDefault(), so a log record and a metric from this process described
+            // differently-attributed services; WithLogging shares what ConfigureResource sets, as it does in
+            // the MCP server and the agent host.
+            // service.instance.id is the RESOLVED id rather than the SDK's random per-process GUID, so the
+            // promoted label does not churn across restarts. The other two sidecars always did this and this
+            // one did not, which made its panels churn.
+            otel.ConfigureResource(resource => resource
+                .AddService("fallen8-integrations", serviceInstanceId: resolved.InstanceId)
+                .AddAttributes(resolved.Attributes()));
+
+            otel.WithMetrics(metrics => metrics
+                .AddMeter(IntegrationsMetrics.MeterName)
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddRuntimeInstrumentation()
+                .AddOtlpExporter(exporter => exporter.Endpoint = endpoint));
+
+            otel.WithTracing(tracing => tracing
+                .AddAspNetCoreInstrumentation()
+                .AddHttpClientInstrumentation()
+                .AddOtlpExporter(exporter => exporter.Endpoint = endpoint));
+
+            // Log export runs BEHIND the credential redaction wrap, which is why that wrap is installed last
+            // in DI. IncludeFormattedMessage and IncludeScopes are kept: they decide what a RECORD carries,
+            // which is a separate question from which service it is attributed to.
+            otel.WithLogging(
+                logging => logging.AddOtlpExporter(exporter => exporter.Endpoint = endpoint),
+                options =>
+                {
+                    options.IncludeFormattedMessage = true;
+                    options.IncludeScopes = true;
+                });
 
             return services;
         }

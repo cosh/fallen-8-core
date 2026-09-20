@@ -1,4 +1,4 @@
-// MIT License
+﻿// MIT License
 //
 // McpObservability.cs
 //
@@ -24,7 +24,6 @@
 // SOFTWARE.
 
 using System;
-using System.Linq;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using OpenTelemetry.Logs;
@@ -61,19 +60,17 @@ namespace NoSQL.GraphDB.Mcp.Hosting
 
             var endpoint = new Uri(observability.Otlp.Endpoint!);
             // Resolve identity ONCE (a fresh GUID would be minted on each call otherwise).
-            var identityAttributes = (configuration.GetSection(McpIdentityOptions.SectionName).Get<McpIdentityOptions>()
-                ?? new McpIdentityOptions()).ResourceAttributes();
-
-            // Reuse the single resolved instance id for service.instance.id (not the SDK's random
-            // per-process GUID), so the promoted label does not churn across restarts.
-            var instanceId = identityAttributes.First(kv => kv.Key == "fallen8.instance.id").Value.ToString();
+            var identity = (configuration.GetSection(McpIdentityOptions.SectionName).Get<McpIdentityOptions>()
+                ?? new McpIdentityOptions()).Resolve();
 
             var otel = services.AddOpenTelemetry();
 
             // One resource for all three signals: service.name + the four identity attributes (§3.1).
+            // service.instance.id is the resolved id rather than the SDK's random per-process GUID, so
+            // the promoted label does not churn across restarts.
             otel.ConfigureResource(r => r
-                .AddService("fallen8-mcp", serviceInstanceId: instanceId)
-                .AddAttributes(identityAttributes));
+                .AddService("fallen8-mcp", serviceInstanceId: identity.InstanceId)
+                .AddAttributes(identity.Attributes()));
 
             otel.WithMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()

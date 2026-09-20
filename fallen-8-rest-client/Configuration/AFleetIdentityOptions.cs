@@ -30,7 +30,7 @@ namespace NoSQL.GraphDB.Rest.Configuration
 {
     /// <summary>
     ///   One id and name level of the fleet identity (a tenant or an instance). Null or blank means
-    ///   auto-fill, which <see cref="AFleetIdentityOptions.ResourceAttributes" /> applies.
+    ///   auto-fill, which <see cref="AFleetIdentityOptions.Resolve" /> applies.
     /// </summary>
     public sealed class IdentityLevel
     {
@@ -39,6 +39,69 @@ namespace NoSQL.GraphDB.Rest.Configuration
 
         /// <summary>The human-readable display name; defaults to the id when unset.</summary>
         public String? Name { get; set; }
+    }
+
+    /// <summary>
+    ///   A sidecar's identity with every default already applied: four values that are never null or
+    ///   empty, and the resource attributes built from them.
+    ///
+    ///   <para>
+    ///     It exists because reading one of those values back out of the attribute LIST was the third
+    ///     copy of the same line in three deployables
+    ///     (<c>attributes.First(kv =&gt; kv.Key == "fallen8.instance.id")</c>), and because the value
+    ///     that line recovers is needed on its own: OTel's <c>service.instance.id</c> must be THIS
+    ///     id rather than the SDK's random per-process GUID, or the promoted label churns on every
+    ///     restart. The apiApp's own <c>Fallen8Identity</c> has had the same shape from the start;
+    ///     this is that shape for the deployables beside it.
+    ///   </para>
+    /// </summary>
+    public sealed class FleetIdentity
+    {
+        /// <summary>Resource-attribute key for the tenant id.</summary>
+        public const String TenantIdKey = "fallen8.tenant.id";
+
+        /// <summary>Resource-attribute key for the tenant name.</summary>
+        public const String TenantNameKey = "fallen8.tenant.name";
+
+        /// <summary>Resource-attribute key for the instance id.</summary>
+        public const String InstanceIdKey = "fallen8.instance.id";
+
+        /// <summary>Resource-attribute key for the instance name.</summary>
+        public const String InstanceNameKey = "fallen8.instance.name";
+
+        internal FleetIdentity(String tenantId, String tenantName, String instanceId, String instanceName)
+        {
+            TenantId = tenantId;
+            TenantName = tenantName;
+            InstanceId = instanceId;
+            InstanceName = instanceName;
+        }
+
+        /// <summary>The effective tenant id, never null or empty.</summary>
+        public String TenantId { get; }
+
+        /// <summary>The effective tenant name, never null or empty.</summary>
+        public String TenantName { get; }
+
+        /// <summary>The effective instance id, never null or empty. Also what a consumer passes as
+        /// OTel's <c>service.instance.id</c>.</summary>
+        public String InstanceId { get; }
+
+        /// <summary>The effective instance name, never null or empty.</summary>
+        public String InstanceName { get; }
+
+        /// <summary>The four values as OTel resource attributes, attached to every metric, trace and
+        /// log the process emits.</summary>
+        public IReadOnlyList<KeyValuePair<String, Object>> Attributes()
+        {
+            return new[]
+            {
+                new KeyValuePair<String, Object>(TenantIdKey, TenantId),
+                new KeyValuePair<String, Object>(TenantNameKey, TenantName),
+                new KeyValuePair<String, Object>(InstanceIdKey, InstanceId),
+                new KeyValuePair<String, Object>(InstanceNameKey, InstanceName),
+            };
+        }
     }
 
     /// <summary>
@@ -85,32 +148,24 @@ namespace NoSQL.GraphDB.Rest.Configuration
         public IdentityLevel Instance { get; set; } = new IdentityLevel();
 
         /// <summary>
-        ///   The four identity values as OTel resource attributes, applying the fleet defaults
-        ///   (tenant id to <c>default</c>, instance id to a prefixed fresh GUID, each name to its
-        ///   id).
+        ///   Applies the fleet defaults (tenant id to <c>default</c>, instance id to a prefixed
+        ///   fresh GUID, each name to its id) and returns the result.
         ///   <para>
         ///     <b>Call this ONCE at startup.</b> An unset instance id mints a new GUID on every
-        ///     call, so a second call would describe a second instance that does not exist. Every
-        ///     consumer's wiring resolves it once and reuses the value, including for
-        ///     <c>service.instance.id</c>, so the promoted label does not churn across restarts.
+        ///     call, so a second call would describe a second instance that does not exist. No
+        ///     clock is read, only <see cref="Guid.NewGuid()" />.
         ///   </para>
         /// </summary>
-        public IReadOnlyList<KeyValuePair<String, Object>> ResourceAttributes()
+        public FleetIdentity Resolve()
         {
-            var tenantId = String.IsNullOrWhiteSpace(Tenant.Id) ? "default" : Tenant.Id!;
-            var tenantName = String.IsNullOrWhiteSpace(Tenant.Name) ? tenantId : Tenant.Name!;
-            var instanceId = String.IsNullOrWhiteSpace(Instance.Id)
+            var tenantId = String.IsNullOrWhiteSpace(Tenant?.Id) ? "default" : Tenant!.Id!;
+            var tenantName = String.IsNullOrWhiteSpace(Tenant?.Name) ? tenantId : Tenant!.Name!;
+            var instanceId = String.IsNullOrWhiteSpace(Instance?.Id)
                 ? _instanceIdPrefix + Guid.NewGuid().ToString("N").Substring(0, 12)
-                : Instance.Id!;
-            var instanceName = String.IsNullOrWhiteSpace(Instance.Name) ? instanceId : Instance.Name!;
+                : Instance!.Id!;
+            var instanceName = String.IsNullOrWhiteSpace(Instance?.Name) ? instanceId : Instance!.Name!;
 
-            return new[]
-            {
-                new KeyValuePair<String, Object>("fallen8.tenant.id", tenantId),
-                new KeyValuePair<String, Object>("fallen8.tenant.name", tenantName),
-                new KeyValuePair<String, Object>("fallen8.instance.id", instanceId),
-                new KeyValuePair<String, Object>("fallen8.instance.name", instanceName),
-            };
+            return new FleetIdentity(tenantId, tenantName, instanceId, instanceName);
         }
     }
 }
