@@ -38,7 +38,7 @@
  * answer differs on every call whether or not a dependency moved: a fresh documentNamespace
  * UUID, a fresh creationInfo timestamp, a creators entry carrying the generator's own build
  * id, and the packages in no stable order. Left alone, that rewrote ~11,600 lines of two
- * committed files on every CI run — ten times in one month, the last of which changed four
+ * committed files on every CI run, ten times in one month, the last of which changed four
  * packages of 1086. See features/done/sidecar-shared-options/spec.md §7.
  */
 
@@ -64,7 +64,7 @@ function ordinal(a: string, b: string): number {
 /**
  * The same document with its unordered collections put in a fixed order. SPDX defines both
  * `packages` and `relationships` as sets, so ordering them changes nothing about what the
- * document says — and it makes the DERIVED sample stable too, because sbomToGraph assigns
+ * document says, and it makes the DERIVED sample stable too, because sbomToGraph assigns
  * vertex ids by package position ("packages keep their SBOM order for stable ids", which was
  * true of the transform and false of its input).
  *
@@ -93,7 +93,7 @@ export function canonicalizeSbom(sbom: SpdxSbom): SpdxSbom {
 }
 
 /**
- * JSON with every OBJECT KEY in a fixed order, for comparison only — never for what is written.
+ * JSON with every OBJECT KEY in a fixed order, for comparison only, never for what is written.
  *
  * `JSON.stringify` emits keys in insertion order, so two documents that say the same thing with
  * their fields in a different order stringify differently. That is not hypothetical here: the
@@ -103,7 +103,7 @@ export function canonicalizeSbom(sbom: SpdxSbom): SpdxSbom {
  * existed: reordering the keys inside ONE package made the comparison report a change.
  *
  * ARRAY order is deliberately left alone. Every array in this document is an SPDX set, so sorting
- * them all would also be defensible — but `packages` and `relationships` are already canonical,
+ * them all would also be defensible, but `packages` and `relationships` are already canonical,
  * and `externalRefs` is read positionally by the transform (`parsePurl` takes the FIRST purl
  * reference), so reordering it is a behaviour change rather than a normalization. If an upgrade
  * ever reorders THAT, the cost is one bounded rewrite, which is the honest trade against masking a

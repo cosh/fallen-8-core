@@ -20,7 +20,7 @@ public REST API, and **`fallen-8-agents`** (the agent host, which RUNS agents ra
 tools to somebody else's), which reaches the graph through NO REST route at all: it calls the
 instance's `/chat` and reads the graph only as a client of the MCP server. Each has an architecture note below. They share one small library,
 **`fallen-8-rest-client`** (`NoSQL.GraphDB.Rest`): the REST-client seam (send classification, the
-absent-body convention, URL safety) plus the three option families all three of them need — the
+absent-body convention, URL safety) plus the three option families all three of them need: the
 target they point at, the fleet identity they declare and the OTLP endpoint they push to, each an
 abstract base a deployable derives from and adds its own knobs to. It is held to the same rule and
 references neither the engine nor the apiApp either; it also holds **no package reference at all**,

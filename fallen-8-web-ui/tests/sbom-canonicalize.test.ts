@@ -38,7 +38,7 @@ import { sbomToGraph, type SpdxSbom } from "../src/lib/sbomGraph";
  *
  * So two properties are pinned here. Canonicalizing puts the two unordered collections in a
  * fixed order, and the content comparison ignores exactly the three volatile fields and
- * nothing else — because a comparison that ignored one field too many would stop noticing a
+ * nothing else, because a comparison that ignored one field too many would stop noticing a
  * real dependency change, which is the failure that actually matters.
  */
 
