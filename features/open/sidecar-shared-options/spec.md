@@ -1,19 +1,25 @@
 # Sidecar shared options - Specification
 
-> **Status:** IMPLEMENTED on `feature/sidecar-shared-options`, six commits, gate in progress. One
-> branch carrying three pieces of work that share no code but do share a cause: the same thing
-> written down in more than one place. Follow the feature workflow in
-> [CLAUDE.md](../../../CLAUDE.md).
+> **Status:** IMPLEMENTED on `feature/sidecar-shared-options`, and reviewed. One branch carrying
+> three pieces of work that share no code but do share a cause: the same thing written down in more
+> than one place. Follow the feature workflow in [CLAUDE.md](../../../CLAUDE.md).
 >
-> **Three defects fell out of the deduplication, and the third was found by the spec being wrong.**
-> Defect 1 (two hosts crashed on a large deadline) and defect 2 (the integrations runtime's
-> telemetry described a service its own logs did not) were visible from reading the three copies
-> side by side. Defect 3 was not: this spec's first version argued that the odd `service.name`
-> spelling should be left alone because nothing in the repository keyed on it. Something did - the
-> shipped Grafana dashboard - and section 5.1 now records both the finding and the reversal.
+> **Three defects fell out of the deduplication, and the third was found by this spec being wrong.**
+> Defect 1 (two hosts throwing on a large deadline) and defect 2 (the integrations runtime's
+> telemetry misdescribing itself) were visible from reading the three copies side by side. Defect 3
+> was not: this spec's first version argued that the odd `service.name` spelling should be left
+> alone because nothing in the repository keyed on it. Something did - the shipped Grafana dashboard
+> - and section 5.1 records both the finding and the reversal.
 >
-> **Every claim below that a test can hold is held by one**, and each new test was mutation-checked
-> with the result recorded: see section 6 and the commit messages.
+> **A delegated adversarial review then found 24 more things, and most of them were claims in this
+> document.** Its most useful result was that all three new gates could not fail the way section 6
+> originally described, proven by five mutations that passed; they are rebuilt and every one of
+> those mutants is now killed. It also measured two facts this spec had asserted and got wrong (the
+> ceiling of `CancelAfter` and `PeriodicTimer`, and how alike the copies were), found one defect the
+> branch had not swept (a fourth unclamped site in the project the clamp came from), and found that
+> the one operator-visible change was documented nowhere while section 9 claimed it was. Each
+> correction is marked in place rather than quietly applied, because a spec that agrees with the
+> code afterwards is not a record of anything.
 
 ## 1. Summary
 
@@ -21,9 +27,15 @@ Three deployables sit beside a Fallen-8 and reach it only over its public HTTP c
 `fallen-8-mcp`, `fallen-8-integrations` and `fallen-8-agents`. They already share the behavioural
 seam (`fallen-8-rest-client`). They do **not** share the three option families every one of them
 needs, so each carries its own copy: the target it points at, the tenant and instance identity it
-declares, and the OTLP endpoint it pushes to. The copies are not variations on a theme. The
-identity one is byte-identical across all three but for a twelve-character string, and the OTLP one
-is byte-identical outright.
+declares, and the OTLP endpoint it pushes to.
+
+**How alike the copies are, stated precisely**, because an earlier draft of this paragraph called
+two of them "byte-identical" and a review checked. The identity family differs in class name,
+namespace, the `SectionName` value, four lines of doc comment, and the prefix an auto-filled
+instance id carries (`f8-mcp-`, `f8-integrations-`, `f8-agents-`, which are 7, 16 and 10 characters;
+the twelve in the earlier draft was the GUID slice, which IS identical in all three). Its
+`ResourceAttributes()` body was identical but for that prefix. The OTLP family differs in the same
+first four ways and its one property is identical. So: identical in substance, and not in bytes.
 
 This feature gives those three families one home, and takes the two defects the third copy had
 drifted into with it. It also clears two smaller pieces of the same kind: a feature record filed
@@ -56,8 +68,11 @@ Both halves of that are worth keeping. The shapes really do differ, and each dif
 host that writes no graph; `fallen-8-agents` has a `Deadline` the other two lack.
 
 What the argument does not cover is the part that is the same in all three: a base URL, an API key,
-the header it travels under, and a per-request deadline in seconds. Nor does it cover the identity
-and OTLP families, where nothing differs and no comment claims anything does. **A shared base class
+the header it travels under, and a per-request deadline in seconds. It covers the identity and OTLP families
+less well than it looks, too: their substance is the same in all three, and one of the six classes
+DOES carry a deployable-specific note worth keeping (the integrations OTLP one, on log export
+running behind the credential redaction wrap). That note is why the derived classes keep their own
+summaries rather than becoming empty shells. **A shared base class
 with a derived class per deployable keeps every property of the argument** - one spelling for the
 operator, each deployable's own shape, room for a knob the others have no use for - and removes the
 copy. That is the design.
@@ -94,17 +109,26 @@ uses for an abstract base (`AGraphElementModel`, `ABucketIndex`, `ATransaction`)
 |---|---|---|
 | `OptionBounds` | the floor and the ceiling on a configured seconds value | nothing (static) |
 | `AFallen8TargetOptions` | `BaseUrl`, `ApiKey`, `ApiKeyHeader`, `TimeoutSeconds`, `Deadline` | the default timeout, through a protected constructor |
-| `AFleetIdentityOptions` | `Tenant`, `Instance`, `ResourceAttributes()` | the instance-id prefix, through a protected constructor |
+| `AFleetIdentityOptions` | `Tenant`, `Instance`, `Resolve()` | the instance-id prefix, through a protected constructor |
 | `AFleetObservabilityOptions` | `Otlp`, `OtlpEnabled` | nothing |
 
-plus two small shared types the nested copies become: `IdentityLevel` (an id and a name) and
-`OtlpOptions` (an endpoint). Both were nested classes in three places; they are now one top-level
-type each. Configuration binding is by property name, not by type name, so
+plus three shared top-level types. Two are the nested copies promoted: `IdentityLevel` (an id and
+a name) and `OtlpOptions` (an endpoint), each previously nested in three places. The third is new:
+`Resolve()` returns a **`FleetIdentity`** carrying `TenantId`, `TenantName`, `InstanceId`,
+`InstanceName`, an `Attributes()` list and the four `*Key` constants that are the wire names the
+collector promotes and the Grafana panels join on. It exists because reading the instance id back
+out of the attribute LIST was itself the third copy of a line
+(`attributes.First(kv => kv.Key == "fallen8.instance.id")`) and because that value is needed on its
+own, as OTel's `service.instance.id`. It deliberately mirrors the apiApp's own `Fallen8Identity`,
+which has had that shape from the start (section 7.2). Configuration binding is by property name, not by type name, so
 `Mcp:Identity:Tenant:Id` and `Agents:Observability:Otlp:Endpoint` bind exactly as before.
 
-`SectionName` stays on each derived class, because the section name is the one thing that genuinely
-differs per deployable (`Mcp:Identity`, `Integrations:Identity`, `Agents:Identity`) and it is what
-an operator writes.
+`SectionName` follows the section, which is not the same answer for all three families. The identity
+and observability ones differ per deployable (`Mcp:Identity`, `Integrations:Identity`,
+`Agents:Identity`), so each derived class keeps its own. The TARGET one is `Fallen8Target` in all
+three, which is the whole point of that family, so it lives on the base and there is one home for
+it. An earlier draft of this paragraph said it stays on each derived class, full stop, which was
+wrong for a third of the change it describes.
 
 `OptionBounds` moves out of `fallen-8-agents`, where it was `internal`, and becomes `public` at the
 seam. It is the one home for a rule the other two deployables had not learned yet, which is the
@@ -122,16 +146,28 @@ The other two deployables learned only the floor:
 - `fallen-8-mcp/Hosting/McpHost.cs:90` - `client.Timeout = TimeSpan.FromSeconds(Math.Max(1, target.TimeoutSeconds));`
 - `fallen-8-integrations/Run/GraphTargetFactory.cs:83` - `Timeout = TimeSpan.FromSeconds(Math.Max(1, options.TimeoutSeconds)),`
 
-`HttpClient.Timeout` has the same ceiling as the timers do: it accepts `InfiniteTimeSpan` or a
-positive span up to `Int32.MaxValue` milliseconds, and throws
-`ArgumentOutOfRangeException` for anything larger. So `Fallen8Target:TimeoutSeconds` set to a large
-number - which is how an operator asks for "effectively no deadline", and which the floor comment
-invites by explaining only the low end - takes the host down at startup with an exception naming
+`HttpClient.Timeout` has a ceiling too, and a LOWER one than the timers: measured on net10.0 it
+accepts `InfiniteTimeSpan` or a positive span up to `Int32.MaxValue` milliseconds (2,147,483 s),
+while `CancelAfter` and `PeriodicTimer` go to 4,294,967 s. So `Fallen8Target:TimeoutSeconds` set to
+a large number - which is how an operator asks for "effectively no deadline", and which the floor
+comment invites by explaining only the low end - throws `ArgumentOutOfRangeException` naming
 `value`. Both sites become `target.Deadline`, which is the clamp.
 
-**This is asserted here and proved by a test, not by reading.** The test sets a large value and
-asserts the deployable starts and the deadline is the clamped one; before the fix it fails with the
-exception above. Deleting the clamp must bring it back.
+**Neither site fails at startup, and where they DO fail is worse.** An earlier draft of this
+section said "takes the host down at startup"; a review reverted both fixes and read the stack
+traces. In `fallen-8-mcp` the assignment runs inside the named client's configure delegate, so it
+throws from `DefaultHttpClientFactory.CreateClient` on every bridged tool call: the container comes
+up, answers `/health`, reports green, and then fails everything. In `fallen-8-integrations`
+`GraphTargetFactory.Create` runs once per job from the line `JobRunner` marks as the point of no
+return, AFTER the source read that can take hours - so an operator lost the whole read, every run,
+from a healthy-looking container. A host that will not start is the kinder failure; neither of these
+was that.
+
+**This is asserted here and proved by a test, not by reading.** Each test builds the client the way
+its deployable does and asserts the resulting deadline is the clamped one; before the fix each
+failed with the exception above, which is where this section's quotation of it comes from. Deleting
+either clamp brings it back. (The tests assert a `TimeSpan` and start no host, which is the right
+scope for what the fix changes.)
 
 ## 5. Defect 2: the integrations runtime's telemetry describes a different service than it says
 
@@ -140,8 +176,13 @@ Three wiring blocks, three different answers to two questions that should have o
 **`service.instance.id`.** `fallen-8-mcp` and `fallen-8-agents` both pass the resolved instance id
 into `AddService(..., serviceInstanceId:)`, each with a comment saying why: otherwise the SDK mints
 a random per-process GUID and the promoted label churns on every restart.
-`fallen-8-integrations` does not pass it, so its panels churn. The fix is the one line the other two
-have, and the shared `ResourceAttributes()` is what makes the value available in one form to all
+`fallen-8-integrations` did not pass it. **What that cost is narrower than "its panels churn",**
+which is what an earlier draft said: no dashboard in this repository selects on
+`service.instance.id` or its promoted Prometheus label, so no shipped panel was ever wrong - every
+panel filters on the `fallen8.*` attributes this runtime already stamped. What churned was the
+promoted resource label itself, so an operator's own queries, and anything grouping or counting by
+it, saw a new value on every restart. The fix is the one line the other two have, and
+`Resolve()`'s `FleetIdentity.InstanceId` is what makes the value available in one form to all
 three.
 
 **The resource that logs carry.** `fallen-8-mcp` and `fallen-8-agents` use `otel.WithLogging(...)`,
@@ -194,18 +235,48 @@ literal in the apiApp and the three sidecars matches it. A fifth deployable whos
 dashboard therefore fails the suite instead of quietly missing the panel, and a deliberate change to
 the convention has to change the dashboard first, which is the right order.
 
-## 6. The gate that keeps the copies from coming back
+## 6. The gates that keep the copies from coming back
 
-A convention test in `fallen-8-unittest/CodeQualityTest.cs`, **derived rather than listed**: it
-enumerates every class, record, interface and enum declared in the four REST-only projects and fails
-when one simple name is declared in more than one of them. A hand-maintained list of the types that
-happen to be duplicated today would pass the moment a fifth copy of something else appeared, which
-is exactly the failure it is meant to catch.
+Three convention tests in `fallen-8-unittest/CodeQualityTest.cs`. **The first version of all three
+could not fail the way this section originally claimed**, and a review proved it by mutating the
+tree five times and watching them pass. What follows is what shipped after that.
 
-One allowlisted name, with its reason: `Program`, which the web SDK requires per assembly.
+**The project list is derived from the build graph**, not listed: any project whose csproj takes a
+`ProjectReference` on the seam. The first version hardcoded the three sidecars, so the one change
+the gates advertised catching - a new deployable that copies instead of deriving - was outside their
+scan entirely.
 
-The test is mutation-checked both ways round: with the duplicate types restored it must fail and name
-them, and it must pass on the finished tree without the allowlist doing the work.
+1. **Each consumer's target/identity/observability options derive from the seam's base.** A TEXT
+   sweep, deliberately: a brand-new project is not referenced by the test assembly and so cannot be
+   reflected over at all, which is exactly the case that has to fail. Restoring the pre-branch
+   triplication now fails it on all three copies with correct line numbers.
+2. **No type is copied between the seam and its consumers.** Two rules, because one cannot express
+   both halves. A NAME rule: a consumer may not re-declare a name the seam owns, at any size, which
+   is what catches a re-forked `OptionBounds` (two members, below any useful shape threshold) and
+   what the first version missed because only one project declared the name. And a SHAPE rule: no
+   two consumers declare the same set of four-plus members, which catches a RENAMED copy - the case
+   the first version missed for every one of the nine classes this branch de-duplicated, since it
+   keyed on the type name.
+   **The threshold is measured.** At three members the only cross-assembly shape matches on this
+   tree are coincidences (the two `Program` entry points, and `UnifiSite` against `IdentityLevel`,
+   both `{Id, Name}`); at four there are none. A three-member renamed copy therefore slips, and
+   saying so beats an allowlist that grows until the gate proves nothing.
+3. **Every OpenTelemetry-wiring project names a service that matches every literal selector the
+   shipped dashboard uses.** Per project, because asserting only a TOTAL of four literals let a
+   review delete one registration, add a second elsewhere, and pass. Every selector, because reading
+   only the first one let it hide a strict selector behind a lax one. Grafana template variables are
+   skipped as untestable rather than failed on.
+
+One allowlisted name, with its reason: none. `Program` needed one while the rule was name-based;
+the shape rule does not flag it, because the two entry points share member names and nothing else.
+
+Beside these, two tests read the BUILT OTel resource rather than the source, which is what pins
+defects 2 and 3 at the level an operator sees: the resolved instance id really is
+`service.instance.id`, and the declared `service.name` really does match the dashboard.
+
+**Every one of the five mutants the review used is now a killed mutant**, each naming the defect: a
+fourth sidecar copying the options class; a re-forked `OptionBounds`; a renamed `RunSpool` copy; a
+deleted service registration masked by a second one; and a laxer dashboard panel inserted first.
 
 ## 7. The two smaller items on the same branch
 
@@ -273,9 +344,10 @@ defaults and yields the same four resource attributes. It is a fourth instance o
 it is **deliberately not** folded into the seam: the apiApp is the server the three sidecars talk
 TO, and having it depend on their shared REST-client library would point the dependency the wrong
 way down the architecture. The seam's own `FleetIdentity` was written to mirror that class rather
-than to replace it, so the two agree in shape, and the new copy gate scopes itself to the four
-REST-only projects, which is why the pair does not trip it. Revisit if a third thing ever needs
-the same resolution, since two is a coincidence and three is a pattern.
+than to replace it, so the two agree in shape. The copy gate does not trip on the pair because it
+scopes itself to the seam and the projects that consume it, and the apiApp is neither - which is a
+scope decision rather than, as an earlier draft implied, a property of the gate's rule. Revisit if a
+third thing ever needs the same resolution, since two is a coincidence and three is a pattern.
 
 ## 8. Non-goals
 
@@ -309,7 +381,7 @@ the same resolution, since two is a coincidence and three is a pattern.
 | Docs site | `debugging.md` gains two rows and a sentence | docs build with link validation |
 | Architecture diagrams | none: no new deployable, no new channel, no changed layer | re-read to confirm, no edit expected |
 | `observability` dashboards | **the per-tenant "Logs (Loki)" panel starts including the integrations runtime** (defect 3), and its `service.instance.id` stops churning across restarts (defect 2) | both are fixes to documented intent; the new service-name test derives its expectation from the dashboard itself |
-| `observability` docs page | names no service, so nothing there is stale | re-read to confirm; the renamed service is recorded on the integrations docs page instead |
+| `observability` docs page | **it was stale in two ways and is fixed**: it described two OTLP producers when there are four (omitting this runtime and the agent host entirely), and the rename was documented nowhere at all while this table claimed otherwise | a producer table naming all four service names, which one changed and what an operator must repoint |
 | Persisted recipes and stored queries | none | none |
 | `sample-graphs` feature | **a one-time renumbering landed**: every vertex id in `fallen8-deps.jsonl` moved once and the stored SBOM was sorted in place, after which repeated builds were verified byte-identical. The graph is unchanged - 1086 vertices, 1850 edges, `index.json` untouched | rebuilt, hashed twice, and the unchanged `index.json` is the check that no count moved |
 | CI | no workflow file changes; `refresh-sbom` commits only on a real change | reasoned in section 7 |

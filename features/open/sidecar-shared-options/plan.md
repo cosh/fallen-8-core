@@ -21,7 +21,9 @@ living document and not an account of what was hoped for.
    `Deadline => OptionBounds.Seconds(TimeoutSeconds)`. A `protected` constructor takes the default
    timeout, so each deployable keeps its own number and the reason for it.
 3. `AFleetIdentityOptions.cs` - `public abstract class` with `Tenant`, `Instance` and the single
-   implementation of `ResourceAttributes()`; a `protected` constructor takes the instance-id prefix
+   implementation of `Resolve()`, which returns a `FleetIdentity` with the four values already
+   defaulted, an `Attributes()` list and the four wire-name constants; a `protected` constructor
+   takes the instance-id prefix
    (`f8-mcp-`, `f8-integrations-`, `f8-agents-`). Plus `public sealed class IdentityLevel`,
    promoted from a nested type in three places to one top-level type.
 4. `AFleetObservabilityOptions.cs` - `public abstract class` with `Otlp` and `OtlpEnabled`, plus

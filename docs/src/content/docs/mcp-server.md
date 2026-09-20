@@ -219,7 +219,7 @@ capability (which runs C# fragments as the Fallen-8 process) as a trusted, delib
 | `Fallen8Target:BaseUrl` | the Fallen-8 REST base URL this server bridges to (default `http://localhost:8080`) |
 | `Fallen8Target:ApiKey` / `ApiKeyHeader` | the server's single downstream credential (header default `X-Api-Key`) |
 | `Fallen8Target:TlsInsecure` | lab-only: skip downstream TLS validation (loudly logged) |
-| `Fallen8Target:TimeoutSeconds` | deadline on one bridged REST call (default `330`, floored at `1`). Exceeding it returns the bridge's retryable `504` "Fallen-8 timeout". The default sits above the instance's own longest budget on a bridged route (`Fallen8:Embedding:TimeoutSeconds`, 300s, which a semantic search spends embedding the query) so the instance's error wins instead of being cut off here |
+| `Fallen8Target:TimeoutSeconds` | deadline on one bridged REST call (default `330`, clamped to `1`..`2147483`: a non-positive value is a one-second deadline rather than none, and a very large one is capped at what the transport can be armed with rather than throwing). Exceeding it returns the bridge's retryable `504` "Fallen-8 timeout". The default sits above the instance's own longest budget on a bridged route (`Fallen8:Embedding:TimeoutSeconds`, 300s, which a semantic search spends embedding the query) so the instance's error wins instead of being cut off here |
 
 ## For contributors: engine → REST → MCP
 

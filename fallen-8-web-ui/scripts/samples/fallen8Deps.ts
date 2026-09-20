@@ -39,7 +39,7 @@
  * UUID, a fresh creationInfo timestamp, a creators entry carrying the generator's own build
  * id, and the packages in no stable order. Left alone, that rewrote ~11,600 lines of two
  * committed files on every CI run, ten times in one month, the last of which changed four
- * packages of 1086. See features/done/sidecar-shared-options/spec.md §7.
+ * packages of 1086. See the sidecar-shared-options feature record, section 7.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
