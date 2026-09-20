@@ -209,6 +209,48 @@ describe("sbomContentEquals", () => {
     ).toBe(false);
   });
 
+  it("ignores a reordering of the FIELDS inside a package", () => {
+    // Measured before the key-stable comparison existed: this returned false, so a generator
+    // upgrade that reordered struct fields would have rewritten 11,600 lines to say nothing. The
+    // endpoint's own creators entry shows that generator is versioned, so it is a real path.
+    const committed = sbom([{ SPDXID: "SPDXRef-x", name: "zod", versionInfo: "3.0.0" }]);
+    const reordered = {
+      ...committed,
+      packages: [
+        {
+          versionInfo: "3.0.0",
+          name: "zod",
+          filesAnalyzed: false,
+          SPDXID: "SPDXRef-x",
+          downloadLocation: "NOASSERTION",
+        },
+      ],
+    } as unknown as SpdxSbom;
+
+    expect(sbomContentEquals(committed, reordered)).toBe(true);
+  });
+
+  it("ignores a reordering of the document's own top-level fields", () => {
+    const committed = sbom(THREE);
+    const reordered = Object.fromEntries(
+      Object.entries(committed as unknown as Record<string, unknown>).reverse(),
+    ) as unknown as SpdxSbom;
+
+    expect(sbomContentEquals(committed, reordered)).toBe(true);
+  });
+
+  it("still notices a renamed field, which a key sort must not hide", () => {
+    // The danger of sorting keys is that it stops distinguishing documents it should. A package
+    // whose version moved to a differently-named field is a different document.
+    const committed = sbom([{ SPDXID: "SPDXRef-x", name: "zod", versionInfo: "3.0.0" }]);
+    const renamed = {
+      ...committed,
+      packages: [{ SPDXID: "SPDXRef-x", name: "zod", version: "3.0.0" }],
+    } as unknown as SpdxSbom;
+
+    expect(sbomContentEquals(committed, renamed)).toBe(false);
+  });
+
   it("notices a changed relationship even when the packages are identical", () => {
     const committed = sbom(THREE, [["SPDXRef-npm-zod-3.0.0", "SPDXRef-npm-alpha-1.0.0"]]);
     const rewired = sbom(THREE, [["SPDXRef-npm-zod-3.0.0", "SPDXRef-nuget-Middle-2.0.0"]]);

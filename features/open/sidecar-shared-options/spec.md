@@ -34,6 +34,13 @@ Nothing here changes a configuration key, a section name, a default, or anything
 writes. An operator's `appsettings.json` and every `F8_*` compose variable mean exactly what they
 meant before. That is the constraint the design is built around, not a hoped-for outcome.
 
+**One thing IS operator-visible, and that sentence does not cover it.** The integrations runtime's
+OpenTelemetry `service.name` changes from `fallen-8-integrations` to `fallen8-integrations`. It is
+a literal in wiring code rather than a setting, and changing it fixes a shipped defect rather than
+following from the refactor - but an operator whose own dashboard keys on the old spelling has to
+repoint it. Section 5.1 is the whole story, and it is stated here so that section 1 is not read as
+a promise the branch does not keep.
+
 ## 2. Why the copies exist, and why that reason does not cover them
 
 The target-options copy is **argued for** in the code, and the argument is good as far as it goes:

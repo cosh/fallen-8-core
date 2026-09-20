@@ -93,18 +93,55 @@ export function canonicalizeSbom(sbom: SpdxSbom): SpdxSbom {
 }
 
 /**
+ * JSON with every OBJECT KEY in a fixed order, for comparison only — never for what is written.
+ *
+ * `JSON.stringify` emits keys in insertion order, so two documents that say the same thing with
+ * their fields in a different order stringify differently. That is not hypothetical here: the
+ * `creators` entry shows the endpoint's generator is itself versioned (protobom, with a build
+ * date in its name), and a generator upgrade that reorders struct fields would otherwise read as
+ * "the dependencies changed" and rewrite 11,600 lines to say nothing. Measured before this
+ * existed: reordering the keys inside ONE package made the comparison report a change.
+ *
+ * ARRAY order is deliberately left alone. Every array in this document is an SPDX set, so sorting
+ * them all would also be defensible — but `packages` and `relationships` are already canonical,
+ * and `externalRefs` is read positionally by the transform (`parsePurl` takes the FIRST purl
+ * reference), so reordering it is a behaviour change rather than a normalization. If an upgrade
+ * ever reorders THAT, the cost is one bounded rewrite, which is the honest trade against masking a
+ * real difference.
+ */
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return "[" + value.map(stableStringify).join(",") + "]";
+  }
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return (
+      "{" +
+      Object.keys(record)
+        .sort()
+        .map((key) => JSON.stringify(key) + ":" + stableStringify(record[key]))
+        .join(",") +
+      "}"
+    );
+  }
+  // undefined stringifies to undefined rather than a string, which would poison the join.
+  return JSON.stringify(value) ?? "null";
+}
+
+/**
  * Whether two documents say the same thing about this repository's dependencies, ignoring the
  * three fields the endpoint regenerates per call: `documentNamespace` (a fresh UUID),
  * `creationInfo.created` (now) and `creationInfo.creators` (which carries the generator's own
  * build id). None of those is a dependency, so none of them is a reason to rewrite the file.
  *
- * Both sides are canonicalized first, so a pure reordering counts as equal.
+ * Both sides are canonicalized first, so a pure reordering of packages or relationships counts as
+ * equal, and both are stringified key-stably, so a reordering of FIELDS does too.
  */
 export function sbomContentEquals(left: SpdxSbom, right: SpdxSbom): boolean {
   const strip = (sbom: SpdxSbom) => {
     const { documentNamespace: _ns, creationInfo: _info, ...content } = canonicalizeSbom(sbom) as
       SpdxSbom & { documentNamespace?: unknown; creationInfo?: unknown };
-    return JSON.stringify(content);
+    return stableStringify(content);
   };
   return strip(left) === strip(right);
 }
