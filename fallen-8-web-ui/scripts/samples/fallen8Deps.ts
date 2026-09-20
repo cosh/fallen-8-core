@@ -33,6 +33,13 @@
  * changes when dependencies do. The committed copy is refreshed by CI when a dependency
  * manifest changes (.github/workflows/refresh-sbom.yml) or on demand:
  *   F8_DEPS_REFETCH=1 npm run build:samples -- --only fallen8-deps
+ *
+ * A refetch is CANONICALIZED and then compared before it is written, because the endpoint's
+ * answer differs on every call whether or not a dependency moved: a fresh documentNamespace
+ * UUID, a fresh creationInfo timestamp, a creators entry carrying the generator's own build
+ * id, and the packages in no stable order. Left alone, that rewrote ~11,600 lines of two
+ * committed files on every CI run — ten times in one month, the last of which changed four
+ * packages of 1086. See features/done/sidecar-shared-options/spec.md §7.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -44,6 +51,75 @@ import type { BuiltSample } from "./shared";
 
 const DEFAULT_REPO = "cosh/fallen-8-core";
 const SBOM_PATH = join(dirname(fileURLToPath(import.meta.url)), "data", "fallen8-sbom.json");
+
+/**
+ * Ordinal rather than locale-aware, for the reason the engine's own sorted responses give:
+ * a culture-sensitive order would rank the same two identifiers differently on different
+ * machines, which is exactly the churn this is here to remove.
+ */
+function ordinal(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/**
+ * The same document with its unordered collections put in a fixed order. SPDX defines both
+ * `packages` and `relationships` as sets, so ordering them changes nothing about what the
+ * document says — and it makes the DERIVED sample stable too, because sbomToGraph assigns
+ * vertex ids by package position ("packages keep their SBOM order for stable ids", which was
+ * true of the transform and false of its input).
+ *
+ * The comparators are total rather than relying on sort stability: SPDXID is meant to be
+ * unique, and if it ever is not, a tie broken by input order would reintroduce the churn.
+ */
+export function canonicalizeSbom(sbom: SpdxSbom): SpdxSbom {
+  const canonical: SpdxSbom = { ...sbom };
+  if (sbom.packages) {
+    canonical.packages = [...sbom.packages].sort(
+      (a, b) =>
+        ordinal(a.SPDXID ?? "", b.SPDXID ?? "") ||
+        ordinal(a.name ?? "", b.name ?? "") ||
+        ordinal(a.versionInfo ?? "", b.versionInfo ?? ""),
+    );
+  }
+  if (sbom.relationships) {
+    canonical.relationships = [...sbom.relationships].sort(
+      (a, b) =>
+        ordinal(a.spdxElementId ?? "", b.spdxElementId ?? "") ||
+        ordinal(a.relatedSpdxElement ?? "", b.relatedSpdxElement ?? "") ||
+        ordinal(a.relationshipType ?? "", b.relationshipType ?? ""),
+    );
+  }
+  return canonical;
+}
+
+/**
+ * Whether two documents say the same thing about this repository's dependencies, ignoring the
+ * three fields the endpoint regenerates per call: `documentNamespace` (a fresh UUID),
+ * `creationInfo.created` (now) and `creationInfo.creators` (which carries the generator's own
+ * build id). None of those is a dependency, so none of them is a reason to rewrite the file.
+ *
+ * Both sides are canonicalized first, so a pure reordering counts as equal.
+ */
+export function sbomContentEquals(left: SpdxSbom, right: SpdxSbom): boolean {
+  const strip = (sbom: SpdxSbom) => {
+    const { documentNamespace: _ns, creationInfo: _info, ...content } = canonicalizeSbom(sbom) as
+      SpdxSbom & { documentNamespace?: unknown; creationInfo?: unknown };
+    return JSON.stringify(content);
+  };
+  return strip(left) === strip(right);
+}
+
+/** The committed copy, or null when there is none yet or it cannot be parsed. */
+function committedSbom(): SpdxSbom | null {
+  try {
+    return JSON.parse(readFileSync(SBOM_PATH, "utf8")) as SpdxSbom;
+  } catch {
+    // A missing or corrupt committed copy is not an error here: the refetch that is already in
+    // flight replaces it, and a non-refetch build has nothing to fall back to and fails below
+    // on its own readFileSync with the real reason.
+    return null;
+  }
+}
 
 async function loadSbom(): Promise<SpdxSbom> {
   if (process.env.F8_DEPS_REFETCH === "1") {
@@ -59,12 +135,27 @@ async function loadSbom(): Promise<SpdxSbom> {
         `fallen8-deps: SBOM refetch failed (${response.status}) for ${repo}: ${await response.text()}`,
       );
     }
-    const sbom = ((await response.json()) as { sbom: SpdxSbom }).sbom;
-    writeFileSync(SBOM_PATH, JSON.stringify(sbom, null, 1) + "\n", "utf8");
-    console.log(`  refetched and stored ${SBOM_PATH}`);
-    return sbom;
+    const fetched = canonicalizeSbom(((await response.json()) as { sbom: SpdxSbom }).sbom);
+    const committed = committedSbom();
+
+    if (committed && sbomContentEquals(committed, fetched)) {
+      // Deliberately NOT written. The committed copy keeps its own metadata, so its timestamp
+      // goes on meaning "when this SBOM last actually changed" rather than "when CI last
+      // looked", and the workflow's `git status --porcelain` guard finds nothing to commit.
+      // The canonicalized COMMITTED copy is returned, not the file as it sits on disk, so a
+      // build that runs before the first sorted write still derives the same sample.
+      console.log(`  refetched; dependencies unchanged, ${SBOM_PATH} left as it is`);
+      return canonicalizeSbom(committed);
+    }
+
+    // Changed (or nothing committed yet): written whole, fresh metadata included.
+    writeFileSync(SBOM_PATH, JSON.stringify(fetched, null, 1) + "\n", "utf8");
+    console.log(`  refetched and stored ${SBOM_PATH} (dependencies changed)`);
+    return fetched;
   }
-  return JSON.parse(readFileSync(SBOM_PATH, "utf8")) as SpdxSbom;
+  // Canonicalized on read as well, so the sample a plain build produces cannot depend on
+  // whether the committed file happens to be sorted yet.
+  return canonicalizeSbom(JSON.parse(readFileSync(SBOM_PATH, "utf8")) as SpdxSbom);
 }
 
 export async function buildFallen8Deps(): Promise<BuiltSample> {
