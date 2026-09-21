@@ -24,60 +24,27 @@
 // SOFTWARE.
 
 using System;
-using System.Collections.Generic;
+using NoSQL.GraphDB.Rest.Configuration;
 
 namespace NoSQL.GraphDB.Integrations.Configuration
 {
     /// <summary>
-    ///   Tenant/instance identity (feature fleet-observability), bound from
-    ///   <c>Integrations:Identity</c> - this runtime's mirror of the apiApp's <c>Fallen8:Identity</c>
-    ///   and the MCP server's <c>Mcp:Identity</c>. This runtime feeds exactly one Fallen-8, so it
-    ///   declares THAT target's identity and the fleet dashboards resolve its panels under that
-    ///   instance rather than as an unrelated service. Ids default to auto-generated values so the
-    ///   feature is on with zero config; names default to the id.
+    ///   This runtime's tenant and instance identity, bound from <c>Integrations:Identity</c>. The
+    ///   shape, the defaults and the resource attributes are <see cref="AFleetIdentityOptions" />';
+    ///   this runtime feeds exactly one Fallen-8, so it declares THAT target's identity and the
+    ///   fleet dashboards resolve its panels under that instance rather than as an unrelated
+    ///   service.
     /// </summary>
-    public sealed class IntegrationsIdentityOptions
+    public sealed class IntegrationsIdentityOptions : AFleetIdentityOptions
     {
         /// <summary>The configuration section this binds from.</summary>
         public const String SectionName = "Integrations:Identity";
 
-        /// <summary>The tenant this runtime's target belongs to.</summary>
-        public IdentityLevel Tenant { get; set; } = new IdentityLevel();
-
-        /// <summary>The target Fallen-8 instance this runtime feeds.</summary>
-        public IdentityLevel Instance { get; set; } = new IdentityLevel();
-
-        /// <summary>
-        ///   The four identity values as OTel resource attributes, applying the fleet defaults
-        ///   (tenant id to <c>default</c>, instance id to a fresh GUID, each name to its id). Call
-        ///   ONCE at startup: an unset instance id yields a new GUID per call.
-        /// </summary>
-        public IReadOnlyList<KeyValuePair<String, Object>> ResourceAttributes()
+        /// <summary>Prefixes an auto-filled instance id with <c>f8-integrations-</c>, so a
+        /// generated id says which deployable minted it.</summary>
+        public IntegrationsIdentityOptions()
+            : base("f8-integrations-")
         {
-            var tenantId = String.IsNullOrWhiteSpace(Tenant.Id) ? "default" : Tenant.Id!;
-            var tenantName = String.IsNullOrWhiteSpace(Tenant.Name) ? tenantId : Tenant.Name!;
-            var instanceId = String.IsNullOrWhiteSpace(Instance.Id)
-                ? "f8-integrations-" + Guid.NewGuid().ToString("N").Substring(0, 12)
-                : Instance.Id!;
-            var instanceName = String.IsNullOrWhiteSpace(Instance.Name) ? instanceId : Instance.Name!;
-
-            return new[]
-            {
-                new KeyValuePair<String, Object>("fallen8.tenant.id", tenantId),
-                new KeyValuePair<String, Object>("fallen8.tenant.name", tenantName),
-                new KeyValuePair<String, Object>("fallen8.instance.id", instanceId),
-                new KeyValuePair<String, Object>("fallen8.instance.name", instanceName),
-            };
-        }
-
-        /// <summary>One id+name level (tenant or instance). Null/blank means "auto-fill".</summary>
-        public sealed class IdentityLevel
-        {
-            /// <summary>The stable machine identifier; auto-fills when unset.</summary>
-            public String? Id { get; set; }
-
-            /// <summary>The human-readable display name; defaults to the id when unset.</summary>
-            public String? Name { get; set; }
         }
     }
 }

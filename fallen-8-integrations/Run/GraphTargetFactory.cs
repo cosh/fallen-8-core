@@ -80,7 +80,11 @@ namespace NoSQL.GraphDB.Integrations.Run
             var client = new HttpClient(handler, disposeHandler: true)
             {
                 BaseAddress = new Uri(baseUrl.EndsWith("/", StringComparison.Ordinal) ? baseUrl : baseUrl + "/"),
-                Timeout = TimeSpan.FromSeconds(Math.Max(1, options.TimeoutSeconds)),
+                // Bounded at BOTH ends by OptionBounds rather than only floored: HttpClient.Timeout
+                // refuses a span past Int32.MaxValue MILLISECONDS, so a large seconds value - how an
+                // operator asks for "effectively no deadline" - threw ArgumentOutOfRangeException
+                // naming `value` instead of the setting, and took the run's first call with it.
+                Timeout = options.Deadline,
             };
 
             if (!String.IsNullOrEmpty(options.ApiKey))

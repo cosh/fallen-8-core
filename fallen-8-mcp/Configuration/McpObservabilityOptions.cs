@@ -24,32 +24,18 @@
 // SOFTWARE.
 
 using System;
+using NoSQL.GraphDB.Rest.Configuration;
 
 namespace NoSQL.GraphDB.Mcp.Configuration
 {
     /// <summary>
-    ///   MCP observability configuration (feature fleet-observability §3.6), bound from
-    ///   <c>Mcp:Observability</c> - the MCP mirror of the apiApp's <c>Fallen8:Observability</c>.
-    ///   Off by default: with no OTLP endpoint the server registers zero OpenTelemetry code paths
-    ///   (spec §9, "zero-config-off in code").
+    ///   MCP observability configuration, bound from <c>Mcp:Observability</c>. The shape and the
+    ///   off-by-default rule are <see cref="AFleetObservabilityOptions" />'; what this server
+    ///   registers when it is on is in <see cref="Hosting.McpObservability" />.
     /// </summary>
-    public sealed class McpObservabilityOptions
+    public sealed class McpObservabilityOptions : AFleetObservabilityOptions
     {
         /// <summary>The configuration section this binds from.</summary>
         public const String SectionName = "Mcp:Observability";
-
-        /// <summary>The OTLP push block (<c>Mcp:Observability:Otlp</c>).</summary>
-        public OtlpOptions Otlp { get; set; } = new OtlpOptions();
-
-        /// <summary>Whether an OTLP pipeline must be registered at all.</summary>
-        public Boolean OtlpEnabled => !String.IsNullOrWhiteSpace(Otlp?.Endpoint);
-
-        /// <summary>The OTLP endpoint block.</summary>
-        public sealed class OtlpOptions
-        {
-            /// <summary>OTLP endpoint URL (e.g. http://otel-collector:4317, gRPC). When set, an OTLP
-            /// exporter for metrics, traces AND logs is added. Default null (off).</summary>
-            public String? Endpoint { get; set; }
-        }
     }
 }

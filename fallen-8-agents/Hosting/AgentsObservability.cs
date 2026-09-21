@@ -25,7 +25,6 @@
 
 
 using System;
-using System.Linq;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using NoSQL.GraphDB.Agents.Configuration;
@@ -95,18 +94,16 @@ namespace NoSQL.GraphDB.Agents.Hosting
             // Resolved ONCE: an unset instance id mints a fresh GUID per call, so a second call
             // would describe a second instance that does not exist.
             var identity = (configuration.GetSection(AgentsIdentityOptions.SectionName)
-                .Get<AgentsIdentityOptions>() ?? new AgentsIdentityOptions()).ResourceAttributes();
-
-            // The resolved id rather than the SDK's random per-process GUID, so the promoted label
-            // does not churn across restarts.
-            var instanceId = identity.First(kv => kv.Key == "fallen8.instance.id").Value.ToString();
+                .Get<AgentsIdentityOptions>() ?? new AgentsIdentityOptions()).Resolve();
 
             var otel = services.AddOpenTelemetry();
 
             // One resource for all three signals: service.name plus the four identity attributes.
+            // service.instance.id is the resolved id rather than the SDK's random per-process GUID,
+            // so the promoted label does not churn across restarts.
             otel.ConfigureResource(r => r
-                .AddService("fallen8-agents", serviceInstanceId: instanceId)
-                .AddAttributes(identity));
+                .AddService("fallen8-agents", serviceInstanceId: identity.InstanceId)
+                .AddAttributes(identity.Attributes()));
 
             otel.WithMetrics(metrics => metrics
                 .AddAspNetCoreInstrumentation()

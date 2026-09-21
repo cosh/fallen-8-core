@@ -23,45 +23,23 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-
 using System;
+using NoSQL.GraphDB.Rest.Configuration;
 
 namespace NoSQL.GraphDB.Agents.Configuration
 {
     /// <summary>
-    ///   Agent-host observability (feature fleet-observability 3.6), bound from
-    ///   <c>Agents:Observability</c> and the third mirror of the apiApp's
-    ///   <c>Fallen8:Observability</c>.
+    ///   Agent-host observability, bound from <c>Agents:Observability</c>. The shape and the
+    ///   off-by-default rule are <see cref="AFleetObservabilityOptions" />', including why the
+    ///   meter is created even when export is off.
     ///
-    ///   <para>
-    ///     Off by default, and off means ZERO OpenTelemetry code paths rather than a pipeline with
-    ///     no exporter: with no endpoint configured the wiring returns before touching
-    ///     <c>AddOpenTelemetry</c>. The meter itself is always created, because an unobserved
-    ///     instrument costs a few objects and nothing else, and a host that had to be configured
-    ///     before it could count would report nothing about the run that made an operator look.
-    ///   </para>
+    ///   <para>What is this host's own is that the Agent Framework's GenAI telemetry is registered
+    ///   rather than reimplemented, and with sensitive data off. See
+    ///   <see cref="Hosting.AgentsObservability" />.</para>
     /// </summary>
-    public sealed class AgentsObservabilityOptions
+    public sealed class AgentsObservabilityOptions : AFleetObservabilityOptions
     {
         /// <summary>The configuration section this binds from.</summary>
         public const String SectionName = "Agents:Observability";
-
-        /// <summary>The OTLP push block (<c>Agents:Observability:Otlp</c>).</summary>
-        public OtlpOptions Otlp { get; set; } = new OtlpOptions();
-
-        /// <summary>Whether an OTLP pipeline must be registered at all.</summary>
-        public Boolean OtlpEnabled => !String.IsNullOrWhiteSpace(Otlp?.Endpoint);
-
-        /// <summary>The OTLP endpoint block.</summary>
-        public sealed class OtlpOptions
-        {
-            /// <summary>OTLP endpoint URL (for example <c>http://otel-collector:4317</c>, gRPC).
-            /// When set, an exporter for metrics, traces AND logs is added. Default null, which is
-            /// off.</summary>
-            public String? Endpoint
-            {
-                get; set;
-            }
-        }
     }
 }

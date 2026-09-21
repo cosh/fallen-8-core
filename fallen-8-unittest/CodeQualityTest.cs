@@ -29,6 +29,9 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using NoSQL.GraphDB.Rest.Configuration;
+using NoSQL.GraphDB.Rest;
+using System.Reflection;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -507,6 +510,408 @@ namespace NoSQL.GraphDB.Tests
                 + "security.mdx says " + claimed + ". Update the count, the switch table and the "
                 + "per-capability row on that page: it is the one home for this posture, so a "
                 + "reader has nowhere else to find the right number.");
+        }
+
+        // --- the sidecars share one seam, and these keep it that way (feature sidecar-shared-options) ---
+
+        /// <summary>
+        ///   The projects that consume the shared seam, DERIVED from the build graph rather than
+        ///   listed: any project whose csproj takes a ProjectReference on fallen-8-rest-client. The
+        ///   seam itself and the test project are excluded, the first because it is the thing being
+        ///   consumed and the second because it is not a deployable.
+        ///
+        ///   <para>
+        ///     This is the fix for a gate that could not fail. The first version of these three
+        ///     tests hardcoded the three sidecars, so the ONE change they advertised catching - a
+        ///     new deployable that copies instead of deriving - was outside their scan. A review
+        ///     proved it by adding a fourth sidecar that copied the options class and watched all
+        ///     three gates pass.
+        ///   </para>
+        /// </summary>
+        private static IReadOnlyList<string> SeamConsumingProjects()
+        {
+            var projects = new List<string>();
+            foreach (var directory in DotNetProjectDirectories())
+            {
+                var name = Path.GetFileName(directory);
+                if (name == "fallen-8-rest-client" || name == "fallen-8-unittest")
+                {
+                    continue;
+                }
+
+                foreach (var csproj in Directory.EnumerateFiles(directory, "*.csproj", SearchOption.TopDirectoryOnly))
+                {
+                    var text = File.ReadAllText(csproj);
+                    if (Regex.IsMatch(text, @"<ProjectReference[^>]*fallen-8-rest-client"))
+                    {
+                        projects.Add(name);
+                        break;
+                    }
+                }
+            }
+
+            projects.Sort(StringComparer.Ordinal);
+            Assert.IsTrue(projects.Count >= 3,
+                "expected at least the three REST-only sidecars to consume the seam, found: "
+                + string.Join(", ", projects) + ". If the seam is gone, these gates go with it - but "
+                + "silently finding nothing is how a gate stops being one.");
+            return projects;
+        }
+
+        /// <summary>
+        ///   Every .NET project directory, which is the only kind these sweeps can read. Gated on a
+        ///   csproj being present rather than on the fallen-8-* name alone: fallen-8-web-ui and
+        ///   fallen-8-nlp match that name and are a Vite app and a Python service, and walking the
+        ///   first one throws PathTooLongException on the recursive node_modules link its embed
+        ///   fixture leaves behind.
+        /// </summary>
+        private static IEnumerable<string> DotNetProjectDirectories()
+        {
+            foreach (var directory in Directory.EnumerateDirectories(TestRepo.Root(), "fallen-8-*"))
+            {
+                if (Directory.EnumerateFiles(directory, "*.csproj", SearchOption.TopDirectoryOnly).Any())
+                {
+                    yield return directory;
+                }
+            }
+        }
+
+        /// <summary>Every project that wires OpenTelemetry, derived by looking for the call.</summary>
+        private static IReadOnlyList<string> OpenTelemetryProjects()
+        {
+            var projects = new List<string>();
+            foreach (var directory in DotNetProjectDirectories())
+            {
+                var name = Path.GetFileName(directory);
+                if (name == "fallen-8-unittest")
+                {
+                    continue;
+                }
+
+                // CodeLines, so a doc comment MENTIONING AddOpenTelemetry does not enrol a project
+                // that does not call it: the seam's own options type explains the wiring it
+                // deliberately does not do.
+                if (SourceFiles(name).Any(f => CodeLines(f).Any(l => l.Contains(".AddOpenTelemetry(", StringComparison.Ordinal))))
+                {
+                    projects.Add(name);
+                }
+            }
+
+            projects.Sort(StringComparer.Ordinal);
+            return projects;
+        }
+
+        /// <summary>The assembly a project's types live in, or null when this test run cannot see it.</summary>
+        private static Assembly ProjectAssembly(string project)
+        {
+            return AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(a => string.Equals(a.GetName().Name, project, StringComparison.Ordinal));
+        }
+
+        /// <summary>
+        ///   The member names a type DECLARES itself, which is what makes two types a copy of each
+        ///   other rather than a coincidence. Inherited members are excluded on purpose: two classes
+        ///   deriving from one seam base share everything it gives them, and that is the opposite of
+        ///   the problem.
+        ///
+        ///   <para>
+        ///     Accessors and backing fields are dropped so the set is the shape a reader would
+        ///     recognise: naming &lt;Attempts&gt;k__BackingField beside Attempts says nothing extra
+        ///     and makes the failure message harder to read than the defect it reports.
+        ///   </para>
+        /// </summary>
+        private static SortedSet<string> DeclaredMembers(Type type)
+        {
+            const BindingFlags Declared = BindingFlags.Public | BindingFlags.NonPublic
+                | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+            return new SortedSet<string>(
+                type.GetMembers(Declared)
+                    .Where(m => m.MemberType != MemberTypes.NestedType)
+                    .Select(m => m.Name)
+                    .Where(name => !name.StartsWith("get_", StringComparison.Ordinal)
+                        && !name.StartsWith("set_", StringComparison.Ordinal)
+                        && !name.StartsWith("<", StringComparison.Ordinal)),
+                StringComparer.Ordinal);
+        }
+
+        [TestMethod]
+        public void EverySeamConsumersSharedOptionsFamily_DerivesFromTheSeamsBase()
+        {
+            // Three families are the same question asked by every deployable beside a Fallen-8 -
+            // which instance, whose identity, which collector - and each used to be answered by its
+            // own copied class. The rule is a NAMING one over a DERIVED project list, so a fourth
+            // deployable that copies the class instead of deriving fails here on the day it is
+            // added, whether or not the test project references it.
+            var families = new (string Suffix, string Base)[]
+            {
+                ("TargetOptions", nameof(AFallen8TargetOptions)),
+                ("IdentityOptions", nameof(AFleetIdentityOptions)),
+                ("ObservabilityOptions", nameof(AFleetObservabilityOptions)),
+            };
+
+            var violations = new List<string>();
+            var found = new List<string>();
+
+            foreach (var project in SeamConsumingProjects())
+            {
+                foreach (var file in SourceFiles(project))
+                {
+                    var relative = Path.GetRelativePath(TestRepo.Root(), file);
+                    var lineNumber = 0;
+                    // The RAW lines with comments skipped inline, not CodeLines: counting only the
+                    // code lines makes the reported number drift by the length of the licence
+                    // header, and a citation an operator cannot open is worse than none.
+                    foreach (var raw in File.ReadLines(file))
+                    {
+                        lineNumber++;
+                        var line = raw.TrimStart().StartsWith("//", StringComparison.Ordinal) ? string.Empty : raw;
+                        foreach (var (suffix, expected) in families)
+                        {
+                            // The declaration, not a usage: "class Foo<Suffix>" optionally followed
+                            // by ": Base". Text rather than reflection because a NEW project is not
+                            // referenced by this test assembly and so cannot be reflected over at
+                            // all - which is exactly the case that has to fail.
+                            var match = Regex.Match(line,
+                                @"\b(?:class|record)\s+(?<name>\w*" + suffix + @")\b\s*(?<bases>:[^{]*)?");
+                            if (!match.Success)
+                            {
+                                continue;
+                            }
+
+                            found.Add(project + ":" + match.Groups["name"].Value);
+                            if (!match.Groups["bases"].Value.Contains(expected, StringComparison.Ordinal))
+                            {
+                                violations.Add(relative + ":" + lineNumber + " declares "
+                                    + match.Groups["name"].Value + " without deriving from " + expected
+                                    + ", so it is another copy of what the seam owns");
+                            }
+                        }
+                    }
+                }
+            }
+
+            AssertNoViolations(violations,
+                "a seam consumer's target/identity/observability options derive from fallen-8-rest-client's base");
+
+            // Coverage, reported rather than asserted as a magic number: every consuming project
+            // must contribute at least one of the families, or the sweep found nothing and is
+            // passing vacuously.
+            foreach (var project in SeamConsumingProjects())
+            {
+                Assert.IsTrue(found.Any(f => f.StartsWith(project + ":", StringComparison.Ordinal)),
+                    project + " consumes the seam but declares none of the three shared option "
+                    + "families. Either it gained a family under a name this rule does not match, "
+                    + "or the sweep has gone blind. Found: " + string.Join(", ", found));
+            }
+        }
+
+        [TestMethod]
+        public void NoTypeIsCopiedBetweenTheSeamAndItsConsumers()
+        {
+            // Keyed on the SHAPE, not on the name, which is the difference between a gate and a
+            // formality. The first version keyed on the type name AND required an exactly equal
+            // member set, so it would not have caught the triplication it was written for: the
+            // three *IdentityOptions differed in name, and the three same-named Fallen8TargetOptions
+            // differed by one member each. A review proved both.
+            //
+            // The SEAM is in scope too, because the copy direction this feature fixed is a consumer
+            // keeping its own copy of what the seam owns - re-adding fallen-8-mcp's own OptionBounds
+            // passed the first version, since only one project declared the name.
+            var assemblies = new List<Assembly>();
+            foreach (var project in SeamConsumingProjects())
+            {
+                var assembly = ProjectAssembly(project);
+                Assert.IsNotNull(assembly,
+                    project + " consumes the seam but its assembly is not loaded here, so this gate "
+                    + "cannot see it. Add a ProjectReference from fallen-8-unittest, or this project's "
+                    + "copies are invisible.");
+                assemblies.Add(assembly);
+            }
+            assemblies.Add(typeof(RestSeam).Assembly);
+
+            // FOUR, and the number is measured rather than chosen. At three, the only two
+            // cross-assembly matches on this tree are coincidences: the two Program entry points
+            // (same member NAMES, and TransportBound holds 832 MiB in one and 2 MiB in the other),
+            // and UnifiSite against IdentityLevel, which are both {Id, Name}. At four there are
+            // none. A three-member copy therefore slips, and saying so is better than an allowlist
+            // that grows until the gate proves nothing.
+            const int MinimumShape = 4;
+
+            var shapes = new List<(Assembly Assembly, Type Type, SortedSet<string> Shape)>();
+            foreach (var assembly in assemblies)
+            {
+                foreach (var type in assembly.GetTypes())
+                {
+                    if (type.IsGenericParameter || type.Name.StartsWith("<", StringComparison.Ordinal))
+                    {
+                        continue;   // compiler-generated closures and iterator classes
+                    }
+
+                    var shape = DeclaredMembers(type);
+                    if (shape.Count >= MinimumShape)
+                    {
+                        shapes.Add((assembly, type, shape));
+                    }
+                }
+            }
+
+            var violations = new List<string>();
+
+            // RULE 1, and it is the one the shape rule cannot express: a consumer must not declare a
+            // type whose NAME the seam already owns, at any size. The seam's names are few and
+            // deliberate, so a second declaration of one is a fork rather than a coincidence - and
+            // the shape rule misses it twice over, because only one project declares the name and
+            // because the type that actually got forked in the review's mutant (OptionBounds, a
+            // clamp with one constant and one method) is below any useful shape threshold. This is
+            // the drift the clamp's own history is about: a host quietly forks it and then edits
+            // only its own copy.
+            var seamTypes = typeof(RestSeam).Assembly.GetTypes()
+                .Where(t => !t.Name.StartsWith("<", StringComparison.Ordinal))
+                .ToDictionary(t => t.Name, t => t.FullName, StringComparer.Ordinal);
+
+            foreach (var assembly in assemblies.Where(a => a != typeof(RestSeam).Assembly))
+            {
+                foreach (var type in assembly.GetTypes())
+                {
+                    if (type.Name.StartsWith("<", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (seamTypes.TryGetValue(type.Name, out var seamType) && type.FullName != seamType)
+                    {
+                        violations.Add(type.FullName + " (" + assembly.GetName().Name
+                            + ") re-declares a name the seam already owns (" + seamType
+                            + "). Use the seam's, or give this one a name that says how it differs.");
+                    }
+                }
+            }
+
+            // RULE 2: a renamed copy, which no name-based rule can see.
+            for (var i = 0; i < shapes.Count; i++)
+            {
+                for (var j = i + 1; j < shapes.Count; j++)
+                {
+                    var (left, right) = (shapes[i], shapes[j]);
+                    if (left.Assembly == right.Assembly)
+                    {
+                        continue;
+                    }
+
+                    if (!left.Shape.SetEquals(right.Shape))
+                    {
+                        continue;
+                    }
+
+                    // Deriving from ONE seam base is the fix, not the defect: two consumers' own
+                    // Fallen8TargetOptions are meant to be parallel and each adds only its own
+                    // knobs. EverySeamConsumersSharedOptionsFamily_DerivesFromTheSeamsBase holds
+                    // that half.
+                    if (left.Type.BaseType != null && left.Type.BaseType == right.Type.BaseType
+                        && left.Type.BaseType.Assembly == typeof(RestSeam).Assembly)
+                    {
+                        continue;
+                    }
+
+                    violations.Add(left.Type.Name + " (" + left.Assembly.GetName().Name + ") and "
+                        + right.Type.Name + " (" + right.Assembly.GetName().Name
+                        + ") declare the same " + left.Shape.Count + " members ("
+                        + string.Join(", ", left.Shape)
+                        + "). Give them one home in fallen-8-rest-client and derive, or make two "
+                        + "genuinely different things genuinely different shapes.");
+                }
+            }
+
+            AssertNoViolations(violations,
+                "no type shape is copied between the seam and its consumers");
+        }
+
+        [TestMethod]
+        public void EveryDeployablesServiceName_MatchesEverySelectorTheShippedDashboardUses()
+        {
+            // The pin derives its expectation from the CONSUMER. The per-tenant dashboard's log
+            // panel selects streams by service_name, and Loki anchors its regexes fully, so
+            // "fallen8.*" matched three of the four deployables and silently excluded
+            // fallen-8-integrations - whose panel is described as "logs scoped to the selected
+            // instance". Reading the selector out of the dashboard rather than restating it here
+            // means a deliberate change to the convention has to change the dashboard first.
+            //
+            // EVERY selector, not the first one found: a review added an earlier panel selecting
+            // {service_name=~".+"} and renamed a service, and the first-match version passed while
+            // the real Logs panel still excluded it.
+            var root = TestRepo.Root();
+            var dashboard = Path.Combine(root, "observability", "grafana", "dashboards", "per-tenant.json");
+            Assert.IsTrue(File.Exists(dashboard),
+                "the per-tenant dashboard is where the service-name convention is enforced in anger; "
+                + "if it moved, move this pin with it rather than deleting it");
+
+            var selectors = Regex.Matches(File.ReadAllText(dashboard),
+                    @"service_name\s*=~\s*\\?""(?<pattern>[^""\\]+)\\?""")
+                .Select(m => m.Groups["pattern"].Value)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            Assert.IsTrue(selectors.Count > 0,
+                "no {service_name=~\"...\"} selector found in " + Path.GetFileName(dashboard)
+                + ". The dashboard is the source of this convention, so if it now selects logs "
+                + "another way, this test has to learn the new way.");
+
+            // A Grafana template variable is not a testable pattern: "$service" would compile to a
+            // regex matching nothing and fail all four names with a message blaming the code.
+            var testable = selectors.Where(s => !s.Contains('$', StringComparison.Ordinal)).ToList();
+            Assert.IsTrue(testable.Count > 0,
+                "every service_name selector in " + Path.GetFileName(dashboard) + " is a template "
+                + "variable (" + string.Join(", ", selectors) + "), so none of them says what the "
+                + "convention is. Keep one literal selector, or this gate has nothing to check.");
+
+            // Per PROJECT, derived from which projects wire OpenTelemetry at all. The first version
+            // asserted only a TOTAL of four literals, so a review deleted one project's
+            // registration, added a second to another, and watched the gate pass while the MCP
+            // server exported as "unknown_service:fallen-8-mcp".
+            var declared = new List<(string Project, string Name)>();
+            var otelProjects = OpenTelemetryProjects();
+            Assert.IsTrue(otelProjects.Count >= 4,
+                "expected the apiApp and the three sidecars to wire OpenTelemetry, found: "
+                + string.Join(", ", otelProjects));
+
+            foreach (var project in otelProjects)
+            {
+                foreach (var file in SourceFiles(project))
+                {
+                    foreach (var line in CodeLines(file))
+                    {
+                        foreach (Match call in Regex.Matches(line, @"AddService\(\s*""(?<name>[^""]+)"""))
+                        {
+                            declared.Add((project, call.Groups["name"].Value));
+                        }
+                    }
+                }
+            }
+
+            var missing = otelProjects
+                .Where(p => !declared.Any(d => d.Project == p))
+                .Select(p => p + " wires OpenTelemetry but names no service, so it exports as the "
+                    + "SDK's default (unknown_service:*) and its logs are absent from the panel")
+                .ToList();
+            AssertNoViolations(missing, "every OpenTelemetry-wiring project names its own service");
+
+            var violations = new List<string>();
+            foreach (var (project, name) in declared)
+            {
+                foreach (var pattern in testable)
+                {
+                    if (!Regex.IsMatch(name, "^(?:" + pattern + ")$", RegexOptions.CultureInvariant))
+                    {
+                        violations.Add(project + " declares service.name '" + name
+                            + "', which the dashboard selector /" + pattern + "/ does not match, so "
+                            + "its logs are absent from that panel");
+                    }
+                }
+            }
+
+            AssertNoViolations(violations,
+                "every deployable's OTel service.name matches every literal stream selector the shipped dashboard uses");
         }
     }
 }

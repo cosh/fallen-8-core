@@ -19,8 +19,12 @@ runner that reads a system on the operator's own network), both of which reach t
 public REST API, and **`fallen-8-agents`** (the agent host, which RUNS agents rather than exposing
 tools to somebody else's), which reaches the graph through NO REST route at all: it calls the
 instance's `/chat` and reads the graph only as a client of the MCP server. Each has an architecture note below. They share one small library,
-**`fallen-8-rest-client`** (`NoSQL.GraphDB.Rest`): the REST-client seam, which is held to the same
-rule and references neither the engine nor the apiApp either. **`fallen-8-bench`** is the throughput harness and does
+**`fallen-8-rest-client`** (`NoSQL.GraphDB.Rest`): the REST-client seam (send classification, the
+absent-body convention, URL safety) plus the three option families all three of them need: the
+target they point at, the fleet identity they declare and the OTLP endpoint they push to, each an
+abstract base a deployable derives from and adds its own knobs to. It is held to the same rule and
+references neither the engine nor the apiApp either; it also holds **no package reference at all**,
+which is why the OTLP *wiring* stays in each deployable while only its shape is shared. **`fallen-8-bench`** is the throughput harness and does
 reference the engine, because it measures it in process.
 
 **User-facing documentation is a [Starlight](https://starlight.astro.build/) site rooted at
@@ -46,7 +50,7 @@ from the README and has a page on the docs site.
 
 ```bash
 dotnet build fallen-8-core.sln            # build everything (net10.0)
-dotnet test  fallen-8-core.sln            # run all tests (~90s)
+dotnet test  fallen-8-core.sln            # run all tests (~6 min, 2800+ of them)
 
 # Run a focused subset while iterating:
 dotnet test fallen-8-core.sln --filter "FullyQualifiedName~SubGraphTest"

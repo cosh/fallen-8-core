@@ -132,7 +132,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
             try
             {
                 using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                budget.CancelAfter(TimeSpan.FromSeconds(Math.Max(1, _options.ConnectTimeoutSeconds)));
+                budget.CancelAfter(_options.Connect);
 
                 await CloseAsync().ConfigureAwait(false);
 
@@ -140,7 +140,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
                 {
                     Endpoint = new Uri(_options.Endpoint, UriKind.Absolute),
                     Name = "fallen-8-agents",
-                    ConnectionTimeout = TimeSpan.FromSeconds(Math.Max(1, _options.ConnectTimeoutSeconds)),
+                    ConnectionTimeout = _options.Connect,
                 };
 
                 if (!String.IsNullOrWhiteSpace(_options.BearerToken))
@@ -195,7 +195,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
                     + "the next run tries again, at most once every {ConnectSeconds} seconds, so a "
                     + "server that comes up late needs no restart here. GET /agent/status reports "
                     + "this state.",
-                    _options.Endpoint, Math.Max(1, _options.ConnectTimeoutSeconds));
+                    _options.Endpoint, (Int64)_options.Connect.TotalSeconds);
                 return false;
             }
             finally
@@ -239,7 +239,7 @@ namespace NoSQL.GraphDB.Agents.Runtime
             // Monotonic ticks rather than a wall clock: this is an interval, and the repository
             // reserves DateTime.Now for the documented helper.
             var now = Environment.TickCount64;
-            var cooldown = Math.Max(1, _options.ConnectTimeoutSeconds) * 1000L;
+            var cooldown = (Int64)_options.Connect.TotalMilliseconds;
             var last = Volatile.Read(ref _lastAttempt);
             if (last != Int64.MinValue && now - last < cooldown)
             {

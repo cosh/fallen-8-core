@@ -232,10 +232,13 @@ of one. Set the number you mean: to wait longer for a completion, raise
 `GET /agents/status` reports the deadline and the keep-alive in force, so a `0` reads back as `1`
 there.
 
-The two durations among them have a **ceiling** as well, at about 24 days, because that is the
-largest delay the timers behind them can be armed with. Writing a bigger number used to be the
-other way to ask for "off", and it made every model call, or every feed connection, fail with an
-exception naming a parameter rather than the setting.
+All three durations among them have a **ceiling** as well, at about 24.9 days. That is
+`HttpClient`'s own limit rather than the timers', which is the tightest of the three APIs these
+values reach and therefore the one clamp that is safe for all of them: the timers behind the
+keep-alive and the handshake actually tolerate about 49.7 days. Writing a bigger number used to be
+the other way to ask for "off", and it made every model call, every feed connection, or the startup
+handshake fail with an exception naming a parameter rather than the setting. The handshake was the
+last of the three to get its ceiling.
 
 Instance:
 

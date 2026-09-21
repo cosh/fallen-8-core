@@ -194,7 +194,22 @@ When an exporter is enabled the cost is noise-level: recording a handful of coun
 
 Everything above makes one Fallen-8 process observable. Fleet observability is the **consumer** side: one place that collects the OpenTelemetry data many Fallen-8 instances push, keyed by tenant, instance, and namespace, and presents it in a single Grafana pane. It comes up with `npm run env:up`, so a first-time user sees metrics, traces, and logs immediately.
 
-Fleet observability itself spans both roles. On the **producer** side each apiApp and [MCP server](/mcp-server/) stamps a fleet identity on every signal and adds the per-action signals a fleet dashboard needs. On the **consumer** side a small stack (OpenTelemetry Collector, Prometheus, Tempo, Loki, Grafana) ingests the push and renders it.
+Fleet observability itself spans both roles. On the **producer** side every deployable stamps a fleet identity on every signal and adds the per-action signals a fleet dashboard needs. On the **consumer** side a small stack (OpenTelemetry Collector, Prometheus, Tempo, Loki, Grafana) ingests the push and renders it.
+
+### The four producers, and the name each answers to
+
+Four processes push, not two, and each declares its own OpenTelemetry `service.name`:
+
+| Deployable | `service.name` | Its config prefix |
+|---|---|---|
+| The REST API (apiApp) | `fallen8` | `Fallen8:Observability`, `Fallen8:Identity` |
+| [MCP server](/mcp-server/) | `fallen8-mcp` | `Mcp:Observability`, `Mcp:Identity` |
+| [Integrations runtime](/integrations/) | `fallen8-integrations` | `Integrations:Observability`, `Integrations:Identity` |
+| [Agent host](/agents/) | `fallen8-agents` | `Agents:Observability`, `Agents:Identity` |
+
+**The spelling matters, and one of them changed.** The tenant dashboard's log panel selects streams with `{service_name=~"fallen8.*"}`, and Loki anchors that pattern at both ends. The integrations runtime used to call itself `fallen-8-integrations`, with a hyphen after `fallen`, which the pattern cannot match: its logs were absent from a panel whose own description is "logs scoped to the selected instance". It is now `fallen8-integrations` like the rest. **If you wrote your own panel or alert against the old spelling, repoint it**; in exchange the shipped dashboard now shows that runtime's logs. A convention test reads the selector out of the dashboard and holds all four names against it, so a fifth deployable cannot ship invisible.
+
+Each producer also sets `service.instance.id` to its own resolved instance id rather than letting the SDK mint a fresh one per process, so that promoted label is stable across restarts and equals `fallen8.instance.id`.
 
 ### The identity model
 
@@ -210,7 +225,7 @@ Everything auto-fills, so identity is on with **zero config**: an unset tenant b
 
 ### Collection is push-only
 
-Each Fallen-8 apiApp and MCP server sets its OTLP endpoint to the Collector; nothing scrapes the producers. Push is the only path that carries traces and logs, and it needs no target list. The Collector is the single ingest point and the enrichment seam: it derives per-action RED metrics from spans (the `spanmetrics` connector) and promotes the identity resource attributes to Prometheus labels.
+Each of the four producers above sets its OTLP endpoint to the Collector; nothing scrapes them. Push is the only path that carries traces and logs, and it needs no target list. The Collector is the single ingest point and the enrichment seam: it derives per-action RED metrics from spans (the `spanmetrics` connector) and promotes the identity resource attributes to Prometheus labels.
 
 ### What every user action looks like
 
@@ -256,7 +271,7 @@ Fallen8__Identity__Instance__Id=<instance-guid>
 Fallen8__Identity__Instance__Name=<instance name>
 ```
 
-The MCP mirror is `Mcp__Observability__Otlp__Endpoint` and `Mcp__Identity__*`. Set the MCP's instance id to the apiApp instance it fronts, so its tool panels resolve under that instance.
+The other three deployables mirror those two settings under their own prefixes (`Mcp__*`, `Integrations__*`, `Agents__*`; see the producer table above). Set each one's instance id to the apiApp instance it sits beside, so its panels resolve under that instance rather than as an unrelated service.
 
 Reconfiguration is environment config applied on `env:up` (the pipeline wires at process start), not live hot-reload.
 
