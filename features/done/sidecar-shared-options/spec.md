@@ -1,8 +1,9 @@
 # Sidecar shared options - Specification
 
-> **Status:** IMPLEMENTED on `feature/sidecar-shared-options`, and reviewed. One branch carrying
-> three pieces of work that share no code but do share a cause: the same thing written down in more
-> than one place. Follow the feature workflow in [CLAUDE.md](../../../CLAUDE.md).
+> **Status:** DONE. Implemented, reviewed, and merged to `main` from
+> `feature/sidecar-shared-options` (13 commits). One branch carrying three pieces of work that share
+> no code but do share a cause: the same thing written down in more than one place. Follow the
+> feature workflow in [CLAUDE.md](../../../CLAUDE.md).
 >
 > **Three defects fell out of the deduplication, and the third was found by this spec being wrong.**
 > Defect 1 (two hosts throwing on a large deadline) and defect 2 (the integrations runtime's

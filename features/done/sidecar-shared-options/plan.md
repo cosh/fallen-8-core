@@ -159,7 +159,7 @@ what must not happen is the sort landing while the committed sample still reflec
    not apply.
 7. An adversarial review of the whole diff and the section 9 cross-feature sweep, delegated in
    parallel and verified rather than believed. Its findings land in
-   `features/open/sidecar-shared-options/findings.md`.
+   `findings.md` beside this plan.
 8. The feature record moves to `features/done/sidecar-shared-options/` and the status line says
    what landed, including the one operator-visible change.
 
