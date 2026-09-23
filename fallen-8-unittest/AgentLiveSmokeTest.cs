@@ -77,9 +77,10 @@ namespace NoSQL.GraphDB.Tests
             using var http = new HttpClient
             {
                 BaseAddress = new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/"),
-                // The adapter owns the deadline; a second one here would be the nearer of two and
-                // would report a vague local failure in place of the instance's own answer.
-                Timeout = Timeout.InfiniteTimeSpan,
+                // The transport owns the deadline, as it does in the host (AgentsHost): armed here,
+                // a timeout fires with the caller's token unset, which is what lets the shared seam
+                // name it instead of letting it read as a cancelled agent.
+                Timeout = TimeSpan.FromSeconds(600),
             };
             http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
@@ -112,7 +113,7 @@ namespace NoSQL.GraphDB.Tests
             options.Limits.MaxConcurrentAgents = 1;
 
             var wrapped = Options.Create(options);
-            var chat = new Fallen8ChatClient(http, TimeSpan.FromSeconds(600));
+            var chat = new Fallen8ChatClient(http);
             var roles = RoleCatalog.Load(options);
             using var feed = new AgentFeedDispatcher(wrapped,
                 TestLoggerFactory.Create().CreateLogger<AgentFeedDispatcher>());
