@@ -114,20 +114,27 @@ namespace NoSQL.GraphDB.Core.Service
                 {
                     if (WriteResource())
                     {
-                        if (Services.ContainsKey(serviceName))
+                        try
                         {
-                            _logger.LogError(String.Format("There already exists a service with the name {0}", serviceName));
-                            service = null;
+                            if (Services.ContainsKey(serviceName))
+                            {
+                                _logger.LogError(String.Format("There already exists a service with the name {0}", serviceName));
+                                service = null;
 
-                            FinishWriteResource();
-                            return false;
+                                return false;
+                            }
+
+                            // Plugin code, inside the lock, so a plugin that throws from its own
+                            // Initialize is exactly the case the release below has to survive.
+                            service.Initialize(_fallen8, parameter);
+                            Services.Add(serviceName, service);
+
+                            return true;
                         }
-
-                        service.Initialize(_fallen8, parameter);
-                        Services.Add(serviceName, service);
-
-                        FinishWriteResource();
-                        return true;
+                        finally
+                        {
+                            FinishWriteResource();
+                        }
                     }
 
                     throw new CollisionException();
@@ -142,8 +149,12 @@ namespace NoSQL.GraphDB.Core.Service
                 _logger.LogError(String.Format("Fallen-8 was not able to add the {0} service plugin. Message: {1}",
                     servicePluginName, e.Message));
 
-                FinishWriteResource();
-
+                // Deliberately does NOT release the lock. It used to, and that was the worse half of
+                // this defect: this catch also covers the plugin resolution ABOVE the acquisition, so
+                // a plugin that could not be resolved released a lock that had never been taken. That
+                // drives the writer counter negative, which reads as permanently held, and every
+                // later reader and writer on this factory then spins forever. The finally inside the
+                // guarded region owns the release, and it is the only thing that does.
                 service = null;
                 return false;
             }

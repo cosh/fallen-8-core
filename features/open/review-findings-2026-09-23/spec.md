@@ -211,6 +211,64 @@ Each is one line to fix and each is false at HEAD.
 | Architecture diagrams | none |
 | Feature records | agent-host findings (sections 1 pointer, 4 correction, new 17), arxml-vehicle-model (spec line 3, findings review section), platform-integrity-audit (status line) |
 
+## 7a. What the implementation changed about this spec
+
+Recorded rather than edited into the sections above, because what was believed before the work
+is part of the record. Every item here was established by running something.
+
+- **Section 5 row 2 was wrong twice over.** It said no fixture puts two `CONDITIONAL`s in one
+  cluster and that a fixture was needed to decide which side was wrong. The shipped
+  `TwoChannelCluster` fixture has exactly that shape, and adding a zero-diagnostics assertion to
+  the test that already used it turned it RED: the spurious `DuplicatePath` was being emitted on
+  a valid extract and no assertion looked. The comment was right about AUTOSAR and the diagnostic
+  was the wrong side, as the row's second option guessed.
+- **The dedupe is keyed on the channel's containing list, not its name.** A name-only dedupe
+  passes the restatement test and silently drops the report for the case that IS a
+  contradiction, two channels of one name in a single `PHYSICAL-CHANNELS` list. Both cases now
+  have a test, and the name-only version fails the second.
+- **The unread-cluster skip does not need the cluster's short name.** The diagnostic is keyed by
+  the ELEMENT name, so nothing inside the subtree is wanted. That made the fix smaller than
+  planned, and it exposed a silence the plan had not predicted: an empty or unnamed unread
+  cluster was reported as nothing at all, because the old path refused a nameless element before
+  it reached the unread-bus branch. That is the half the new tests find red.
+- **W8's claim family is four times its stated size, and the gate found a site nobody had
+  counted.** Measured by deriving acquisitions against releases across all seven
+  `AThreadSafeElement` subclasses: `SingleValueIndex` 12 unguarded sections (13 release sites, as
+  `AddOrUpdate` had two), `RTree` 15, `ServiceFactory` 1. The other four were already clean.
+  `ServiceFactory`'s is the worst of the three and is not a missing `finally` at all: its `catch`
+  released unconditionally, and that `catch` also covers the plugin resolution ABOVE the
+  acquisition, so a plugin that failed to resolve released a lock never held. That drives the
+  writer counter negative, which reads as permanently held, and wedges the factory for the life
+  of the process. Fixed with the rest.
+- **`RTree` is NOT fixed, and that is a decision to take rather than a thing to inherit.** Its 15
+  unguarded sections are the same defect and the larger instance of it, several of them around an
+  injected `IMetric` and caller geometry. W8 scoped itself to `SingleValueIndex` and the audit's
+  four architects never assessed this file, so a mechanical sweep through a 2,000-line spatial
+  index is a scope decision. It is named in the new gate's exemption list with this reason, so it
+  is machine-visible rather than forgotten, and the exemption goes when it is fixed.
+- **The W8 gate is on the RELEASE, not the acquisition.** "The guarded region opens with `try`"
+  was the first shape written and it reported `IndexFactory`, whose release is correctly in a
+  `finally` behind one local declaration that cannot throw. The invariant that matters is that no
+  release can be jumped over. The gate is mutation-checked: against the pre-fix index it reports
+  all 13 sites and spares the one that was already guarded.
+- **The runner half of 2.1 is left to composition, with the reason recorded.** One test already
+  pins that a throwing model call ends a run as failed carrying its reason, and the runtime
+  harness builds its own chat client, so a composite test would have rebuilt the runner rather
+  than driven it. The adapter test proves the exception is a named gateway failure and not a
+  cancellation; the chain is those two.
+- **The deadline moved rather than being duplicated.** 2.1 said the host would set
+  `HttpClient.Timeout` and the client would keep its own timeout for the message it prints. That
+  leaves the same number in two places that must agree. The client now takes no deadline at all
+  and reads the number off the transport, so the sentence cannot drift from the bound in force.
+- **2.3's residual is real and deliberate.** Fixing `Parsed` fixes the only backend that could
+  produce an unset element, but `ChatToolCallREST.Arguments` still cannot express one, so any
+  future backend could fault a response the same way. The guard stays at the producer, where the
+  false promise was, rather than in both places.
+- **A divergence worth naming:** the Anthropic and OpenAI backends synthesise per-reply ordinals
+  the same way the Ollama one did. Their protocols carry the id on the wire, so it only bites if
+  a provider omits one, and neither has the nearest-preceding walk to absorb a collision. Left
+  alone, said here rather than silently.
+
 ## 8. Verification
 
 - `dotnet build` and the full `dotnet test`, never with `-v q`.

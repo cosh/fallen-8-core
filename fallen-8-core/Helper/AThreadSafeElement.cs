@@ -34,8 +34,25 @@ namespace NoSQL.GraphDB.Core.Helper
     public abstract class AThreadSafeElement
     {
         /// <summary>
-        /// The using resource.
-        /// 0 for false, 1 for true.
+        ///   Two counters packed into one word, not a flag: the low 20 bits
+        ///   (<c>0x000fffff</c>) count READERS, one per reader, and the high bits
+        ///   (<c>0xfff00000</c>) count WRITERS, in units of <c>0x100000</c>. Free is zero.
+        ///
+        ///   <para>
+        ///     <b>Why every acquisition must release in a <c>finally</c>.</b> A release that does not
+        ///     run leaks the lock permanently. A leaked WRITE parks every later reader and writer in
+        ///     the outer spin; a leaked READ lets readers through but parks the first later writer in
+        ///     the inner spin, which then sets the writer bit and parks readers too. Both spin on
+        ///     <see cref="Thread.Yield" />, which returns immediately when nothing else is runnable,
+        ///     so each parked thread burns a logical core for the life of the process.
+        ///   </para>
+        ///   <para>
+        ///     <see cref="CollisionException" /> is NOT the symptom, which is what makes a leak hard
+        ///     to recognise: the loops below are bounded in failed ATTEMPTS, not in time, and a
+        ///     leaked lock never gets as far as a failed attempt. Acquisition simply never returns,
+        ///     neither true nor false. So a throw inside a guarded region shows up as a pegged core
+        ///     and a wedged index, with no exception naming either.
+        ///   </para>
         /// </summary>
         private volatile Int32 _usingResource;
 
