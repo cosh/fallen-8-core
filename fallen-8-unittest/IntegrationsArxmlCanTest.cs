@@ -336,6 +336,53 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(1, network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.UnreadCluster));
         }
 
+        /// <summary>
+        ///   An unread bus is skipped WHOLE, and the element after it still reads. The second half is
+        ///   the load-bearing one: the reader's loop relies on a skip leaving it on the node after
+        ///   the element, exactly where materialising the element left it, so a skip that advanced
+        ///   by one too many or one too few would swallow or re-read the sibling.
+        ///   <para>
+        ///     The first half was already true before the subtree stopped being materialised, since
+        ///     the cluster was built as XML and then dropped unwalked. It is asserted so that the
+        ///     skip cannot start collecting from inside an unread bus later.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public void AnUnreadBusIsSkippedWhole_AndTheElementAfterItStillReads()
+        {
+            var network = ArxmlReader.Read(UnreadBusBesideReadableElementsExtract);
+
+            Assert.IsNotNull(network.UnreadClusters.SingleOrDefault(u => u.Element == "LIN-CLUSTER"),
+                "the LIN bus went by unmentioned: " + Describe(network));
+
+            Assert.IsFalse(network.Elements.Any(e => e.Path.Contains("SIG_InsideTheUnreadBus",
+                    StringComparison.Ordinal)),
+                "nothing below an unread bus is collected: " + Describe(network));
+
+            Assert.IsTrue(network.Elements.Any(e => e.Path == "/Mixed/SIG_AfterTheUnreadBus"),
+                "the sibling AFTER the skipped subtree has to still be read, which is what pins "
+                + "where a skip leaves the reader: " + Describe(network));
+        }
+
+        /// <summary>
+        ///   A bus with nothing in it, and a bus with no name, are still reported. Both used to be
+        ///   silent: the kind was only noticed after the whole subtree had been materialised and
+        ///   handed on, and that hand-off refused an element with no short name before it ever
+        ///   reached the unread-bus branch. The kind is what the report is about, not the identity,
+        ///   so a declared LIN bus is a declared LIN bus whether or not it was given a name.
+        /// </summary>
+        [TestMethod]
+        public void AnEmptyOrUnnamedUnreadBusIsStillReported()
+        {
+            var empty = ArxmlReader.Read(EmptyUnreadBusExtract);
+            Assert.IsNotNull(empty.UnreadClusters.SingleOrDefault(u => u.Element == "LIN-CLUSTER"),
+                "an empty LIN cluster still declares a LIN bus: " + Describe(empty));
+
+            var unnamed = ArxmlReader.Read(UnnamedUnreadBusExtract);
+            Assert.IsNotNull(unnamed.UnreadClusters.SingleOrDefault(u => u.Element == "LIN-CLUSTER"),
+                "a LIN cluster with no SHORT-NAME still declares a LIN bus: " + Describe(unnamed));
+        }
+
         #endregion
 
         #region the PDU flow path
@@ -820,6 +867,55 @@ namespace NoSQL.GraphDB.Tests
         ///   nobody reads has to be NAMED, because the reader materialises only its interest set and would
         ///   otherwise leave no trace of it - is the same whichever protocol is unread.
         /// </summary>
+        /// <summary>An unread bus holding an element the reader WOULD collect if it descended, and a
+        /// readable sibling after it in the same list.</summary>
+        private const String UnreadBusBesideReadableElementsExtract = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Mixed</SHORT-NAME>
+                  <ELEMENTS>
+                    <LIN-CLUSTER>
+                      <SHORT-NAME>COMFORT_LIN</SHORT-NAME>
+                      <I-SIGNAL><SHORT-NAME>SIG_InsideTheUnreadBus</SHORT-NAME><LENGTH>1</LENGTH></I-SIGNAL>
+                    </LIN-CLUSTER>
+                    <I-SIGNAL><SHORT-NAME>SIG_AfterTheUnreadBus</SHORT-NAME><LENGTH>4</LENGTH></I-SIGNAL>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        /// <summary>A declared bus with no content at all, as an empty element.</summary>
+        private const String EmptyUnreadBusExtract = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <LIN-CLUSTER/>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        /// <summary>A declared bus that was never given a SHORT-NAME.</summary>
+        private const String UnnamedUnreadBusExtract = """
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <LIN-CLUSTER>
+                      <LIN-CLUSTER-VARIANTS/>
+                    </LIN-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
         private const String UnreadBusExtract = """
             <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
               <AR-PACKAGES>

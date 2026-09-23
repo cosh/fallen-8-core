@@ -486,6 +486,37 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(2, network.Relations.Count(r => r.Type == ArxmlRelations.PartOf),
                 "and the repeat must not emit a second partOf edge either: a duplicated structural edge " +
                 "makes every count over the graph wrong in a way nothing downstream can undo");
+
+            // And it is not reported as a FAULT. The variant wrapper is not Identifiable, so it adds no
+            // segment to a reference path: a restated channel is the same element addressed by the same
+            // path, which is the opposite of a file contradicting itself. This assertion is the half the
+            // counts above could not see, and it was failing on this very fixture.
+            Assert.AreEqual(0, network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.DuplicatePath),
+                "a channel restated by a second variant is not a duplicate path: " + Describe(network));
+        }
+
+        /// <summary>
+        ///   The case that IS the file contradicting itself: two channels of the same short name as
+        ///   siblings in ONE list. There is no variant to make them the same element, so they are two
+        ///   elements claiming one path, which AUTOSAR's per-namespace short-name uniqueness forbids,
+        ///   and it is still reported.
+        ///   <para>
+        ///     This is why the restatement is recognised by the list a channel sits in rather than by
+        ///     its name alone: deduping on the name would have removed a false report by giving up a
+        ///     true one, and nothing would have said so.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public void TwoChannelsOfOneNameInOneListAreStillReportedAsADuplicatePath()
+        {
+            var network = ArxmlReader.Read(TwinChannelCluster);
+
+            Assert.AreEqual(1, network.Elements.Count(e => e.Kind == ArxmlKinds.Channel),
+                "one path is one element, whichever declaration got there first: " + Describe(network));
+
+            var duplicate = network.Diagnostics.Single(d => d.Kind == ArxmlDiagnosticKind.DuplicatePath);
+            StringAssert.Contains(duplicate.Subject, "/Clusters/TWINBUS/TWINBUS_CH_A",
+                "and the report names the path both declarations claimed: " + duplicate.Subject);
         }
 
         /// <summary>
@@ -514,6 +545,36 @@ namespace NoSQL.GraphDB.Tests
         ///   channel A - which is how a real cluster is written and is what makes the claim rather than a
         ///   count the thing that decides how many channels there are.
         /// </summary>
+        /// <summary>Two channels of one short name as siblings in ONE list, with no variant between
+        /// them: the genuine contradiction, as against the restatement in <c>TwoChannelCluster</c>.</summary>
+        private const String TwinChannelCluster = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>TWINBUS</SHORT-NAME>
+                      <FLEXRAY-CLUSTER-VARIANTS>
+                        <FLEXRAY-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>TWINBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>TWINBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER-CONDITIONAL>
+                      </FLEXRAY-CLUSTER-VARIANTS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
         private const String TwoChannelCluster = """
             <?xml version="1.0" encoding="UTF-8"?>
             <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
