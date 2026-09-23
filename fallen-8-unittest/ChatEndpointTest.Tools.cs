@@ -256,5 +256,54 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsFalse(payload.TryGetProperty("toolCalls", out _),
                 "and an answer with no calls says nothing about them");
         }
+
+        /// <summary>
+        ///   A model that emits malformed JSON for its arguments leaves the caller a call with EMPTY
+        ///   arguments, which is what the mapping promises, rather than faulting the whole response.
+        ///   <para>
+        ///     The one tool test here that runs a REAL provider backend behind the controller, and
+        ///     it has to. The defect was an unset <c>JsonElement</c> reaching the REST shape, which
+        ///     cannot express one, and it is only WRITING the response that throws: a test asserting
+        ///     on the backend's own result cannot fail the way this did, because nothing has been
+        ///     serialised yet. Reading the body is therefore the assertion, not a convenience.
+        ///   </para>
+        ///   <para>
+        ///     The backend is deliberately not in a <c>using</c>: it is disposable and the factory
+        ///     registers this instance, so the container disposes it once.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public async Task MalformedToolArguments_ArriveAsEmptyArguments_RatherThanFaultingTheResponse()
+        {
+            var stub = new RecordingHandler(_ => RemoteModelWire.Json(
+                "{\"id\":\"c1\",\"object\":\"chat.completion\",\"created\":1,\"model\":\"gpt-4o-mini\","
+                + "\"choices\":[{\"index\":0,\"finish_reason\":\"tool_calls\",\"message\":"
+                + "{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"call_9\","
+                + "\"type\":\"function\",\"function\":{\"name\":\"count_vertices\","
+                + "\"arguments\":\"{not json\"}}]}}]}"));
+            var backend = new OpenAIChatBackend(RemoteModelWire.OpenAITarget(), stream: false,
+                logger: null, stub);
+            using var factory = new ChatFactory(enabled: true, backend);
+            using var client = factory.CreateClient();
+
+            using var response = await client.PostAsync("/chat", Json(
+                "{\"purpose\":\"agent\",\"messages\":[{\"role\":\"user\",\"content\":\"how many?\"}],"
+                + OneTool + "}"));
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                "a malformed argument string is the MODEL's mistake, and the caller has to see the "
+                + "call in order to refuse it");
+
+            var calls = JsonDocument.Parse(await response.Content.ReadAsStringAsync())
+                .RootElement.GetProperty("toolCalls");
+            Assert.AreEqual(1, calls.GetArrayLength());
+            Assert.AreEqual("call_9", calls[0].GetProperty("id").GetString());
+
+            var arguments = calls[0].GetProperty("arguments");
+            Assert.AreEqual(JsonValueKind.Object, arguments.ValueKind,
+                "an unset element is not a shape this contract can carry");
+            Assert.AreEqual("{}", arguments.GetRawText(),
+                "empty arguments, which is exactly what the mapping's own comment promises");
+        }
     }
 }

@@ -397,6 +397,55 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("call_1", toolTurn.GetProperty("tool_call_id").GetString());
         }
 
+        /// <summary>
+        ///   A model that SPOKE and then called keeps both halves on replay. This SDK models the
+        ///   text and the calls as two fields of ONE assistant message rather than as alternatives,
+        ///   so the previous mapping dropped the text for no reason the protocol required, where the
+        ///   other two backends kept it. What the model said between rounds is what the next round
+        ///   reads.
+        ///   <para>The assertion is on the WIRE and not on the object, because the claim being
+        ///   tested is the SDK's serialiser: that it emits the content when both fields are set.
+        ///   Reading it back off a message this test had just built would prove nothing.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task OpenAI_ReplaysAnAssistantTurnThatSpokeAndCalled_KeepingBothHalves()
+        {
+            var stub = new RecordingHandler(_ => RemoteModelWire.Json(
+                "{\"id\":\"c3\",\"object\":\"chat.completion\",\"created\":1,\"model\":\"gpt-4o-mini\","
+                + "\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"message\":{\"role\":\"assistant\","
+                + "\"content\":\"there are 8\"}}],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":4,"
+                + "\"total_tokens\":13}}"));
+            using var backend = OpenAIBackend(stub);
+
+            var conversation = new[]
+            {
+                new ChatTurn("user", "how many vertices?"),
+                new ChatTurn("assistant", "let me check the default namespace", new[]
+                {
+                    new ChatToolCall
+                    {
+                        Id = "call_1",
+                        Name = "count_vertices",
+                        Arguments = Schema("{\"namespace\":\"default\"}"),
+                    },
+                }),
+                new ChatTurn("tool", "{\"count\":8}", null, "call_1"),
+            };
+
+            await backend.ChatAsync(conversation, WithTool(), CancellationToken.None);
+
+            var turns = JsonDocument.Parse(stub.Bodies[0]).RootElement.GetProperty("messages");
+            var assistant = turns.EnumerateArray().Single(m => m.GetProperty("role").GetString() == "assistant");
+            Assert.AreEqual("call_1", assistant.GetProperty("tool_calls")[0].GetProperty("id").GetString(),
+                "the calls are still what the next turn answers");
+
+            Assert.IsTrue(assistant.TryGetProperty("content", out var spoken),
+                "the assistant turn carries no content at all: " + stub.Bodies[0]);
+            StringAssert.Contains(spoken.ToString(), "let me check the default namespace",
+                "the text the model produced before calling has to survive the replay, whether this "
+                + "SDK spells content as a string or as parts: " + stub.Bodies[0]);
+        }
+
         #endregion
 
         #region Anthropic

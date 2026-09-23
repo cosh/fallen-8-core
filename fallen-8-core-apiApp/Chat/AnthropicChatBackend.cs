@@ -489,9 +489,9 @@ namespace NoSQL.GraphDB.App.Chat
         }
 
         /// <summary>
-        ///   A <c>tool</c> turn becomes a user turn: a tool result has to name the tool call it
-        ///   answers, an id this seam does not carry, and refusing the turn outright would fail a
-        ///   request instead of answering it.
+        ///   This protocol has two roles, so anything that is not an assistant turn is a user turn.
+        ///   Which BLOCKS one then carries is the mapper's business, and a tool result is explained
+        ///   where it is built.
         /// </summary>
         private static Role RoleOf(String role)
         {
