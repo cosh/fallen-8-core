@@ -239,6 +239,93 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(String.Empty, assistant.GetProperty("content").GetString());
         }
 
+        /// <summary>
+        ///   A result is attributed to the round that ASKED, not to the first round that happens to
+        ///   share its id. Ids are synthesised per reply in this protocol, so two rounds sharing one
+        ///   is not a malformed conversation: it is what the previous scheme produced for every
+        ///   reply's first call. Resolving by first match anywhere therefore answered round two's
+        ///   result with round one's tool name, and the model was told the wrong tool had run.
+        ///   <para>Masked in practice only because the shipped agent model never reaches a second
+        ///   round; it appears the moment an operator names a tool-capable one.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task Ollama_AttributesAResultToTheNearestPrecedingCall_WhenTwoRoundsShareAnId()
+        {
+            var stub = new OllamaStub(
+                "{\"model\":\"m\",\"message\":{\"role\":\"assistant\",\"content\":\"8 vertices, 5 edges\"},"
+                + "\"done\":true,\"prompt_eval_count\":9,\"eval_count\":6,\"eval_duration\":1000000,"
+                + "\"total_duration\":2000000}");
+            using var backend = OllamaBackend(stub);
+
+            var conversation = new[]
+            {
+                new ChatTurn("user", "how many vertices and edges?"),
+                new ChatTurn("assistant", null, new[]
+                {
+                    new ChatToolCall
+                    {
+                        Id = "call_0",
+                        Name = "count_vertices",
+                        Arguments = Schema("{\"namespace\":\"default\"}"),
+                    },
+                }),
+                new ChatTurn("tool", "{\"count\":8}", null, "call_0"),
+                new ChatTurn("assistant", null, new[]
+                {
+                    new ChatToolCall
+                    {
+                        Id = "call_0",
+                        Name = "count_edges",
+                        Arguments = Schema("{\"namespace\":\"default\"}"),
+                    },
+                }),
+                new ChatTurn("tool", "{\"count\":5}", null, "call_0"),
+            };
+
+            await backend.ChatAsync(conversation, WithTool(), CancellationToken.None);
+
+            var turns = JsonDocument.Parse(stub.Body).RootElement.GetProperty("messages");
+            Assert.AreEqual(5, turns.GetArrayLength());
+            Assert.AreEqual("count_vertices", turns[2].GetProperty("tool_name").GetString(),
+                "round one's result still answers round one's call: " + stub.Body);
+            Assert.AreEqual("count_edges", turns[4].GetProperty("tool_name").GetString(),
+                "round two's result answers the NEAREST preceding call, not the first id match: "
+                + stub.Body);
+        }
+
+        /// <summary>
+        ///   A synthesised id names the round it was made in, so a trace of several rounds does not
+        ///   read <c>call_0</c> at every step. It stays DERIVED rather than generated, because the
+        ///   client echoes it back on the next request: the same reply to the same conversation has
+        ///   to produce the same id, which rules out a counter, a random value and the clock.
+        ///   <para>This is the only test that exercises the synthesis branch at all: the shared
+        ///   fixture's reply carries an id of its own, so the provider-supplied path is what every
+        ///   other test here takes.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task Ollama_SynthesisesAnIdPerRound_AndTheSameRoundTwiceGetsTheSameOne()
+        {
+            var stub = new OllamaStub(
+                "{\"model\":\"m\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":"
+                + "[{\"function\":{\"name\":\"count_vertices\",\"arguments\":{\"namespace\":\"default\"}}}]},"
+                + "\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":11,\"eval_count\":0,"
+                + "\"eval_duration\":1000000,\"total_duration\":2000000}");
+            using var backend = OllamaBackend(stub);
+
+            // Conversations of DIFFERENT length, because that is what distinguishes the rounds: Ask
+            // is one turn and Replay is three. Two calls on the same conversation must agree.
+            var first = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+            var second = await backend.ChatAsync(Replay(), WithTool(), CancellationToken.None);
+            var again = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+
+            Assert.AreEqual(1, first.ToolCalls.Count);
+            Assert.AreNotEqual(first.ToolCalls[0].Id, second.ToolCalls[0].Id,
+                "two rounds must not both be call_0, or a trace cannot tell their steps apart");
+            Assert.AreEqual(first.ToolCalls[0].Id, again.ToolCalls[0].Id,
+                "and the id is derived, not generated: the client echoes it back, so the same reply "
+                + "to the same conversation has to produce the same id");
+        }
+
         #endregion
 
         #region OpenAI

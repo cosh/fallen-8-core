@@ -105,7 +105,7 @@ namespace NoSQL.GraphDB.App.Chat
                 // This library's own version of it: OllamaSharp documents its tools field as
                 // requiring stream to be false.
                 Stream = _stream && tools == null,
-                Messages = messages.Select(m => ToMessage(m, messages)).ToList(),
+                Messages = messages.Select((m, i) => ToMessage(m, i, messages)).ToList(),
                 Options = RequestOptionsFor(options),
                 Tools = tools
             };
@@ -131,7 +131,7 @@ namespace NoSQL.GraphDB.App.Chat
                     {
                         foreach (var call in calls)
                         {
-                            if (ToolCallFrom(call, toolCalls.Count) is { } mapped)
+                            if (ToolCallFrom(call, toolCalls.Count, messages.Count) is { } mapped)
                             {
                                 toolCalls.Add(mapped);
                             }
@@ -230,14 +230,16 @@ namespace NoSQL.GraphDB.App.Chat
         ///   <para>
         ///     <b>This protocol matches a tool result by NAME, where the other two match by call
         ///     id.</b> Its message has a <c>ToolName</c> and no id field at all, so the id the
-        ///     caller sent is resolved back to a name by looking through the turns before this one -
-        ///     the assistant turn that made the call is necessarily among them, because a result
-        ///     without a call is not a conversation. If no such call is found the name is left
-        ///     unset rather than guessed: the model then sees an unattributed result, which is
-        ///     wrong in a way it can notice, unlike a result attributed to the wrong tool.
+        ///     caller sent is resolved back to a name by walking BACKWARDS from this turn to the
+        ///     nearest call carrying it, and only then by sweeping the conversation. Nearest-first
+        ///     is what makes more than one round right: the protocol carries no id, so ids are
+        ///     synthesised per reply and two rounds can legitimately share one, while the round
+        ///     that asked is always the last one before the result. If no such call is found the
+        ///     name is left unset rather than guessed: the model then sees an unattributed result,
+        ///     which is wrong in a way it can notice, unlike a result attributed to the wrong tool.
         ///   </para>
         /// </summary>
-        private static Message ToMessage(ChatTurn turn, IReadOnlyList<ChatTurn> conversation)
+        private static Message ToMessage(ChatTurn turn, Int32 index, IReadOnlyList<ChatTurn> conversation)
         {
             // EMPTY, never null. This protocol types content as a string and refuses a null with
             // "invalid type: null, expected a string" - a 422 the whole request dies on. It bites
@@ -261,32 +263,63 @@ namespace NoSQL.GraphDB.App.Chat
 
             if (!String.IsNullOrEmpty(turn.ToolCallId))
             {
-                message.ToolName = NameOfCall(turn.ToolCallId, conversation);
+                message.ToolName = NameOfCall(turn.ToolCallId, index, conversation);
             }
 
             return message;
         }
 
-        /// <summary>The tool a call id belongs to, from the turns that already happened.</summary>
-        private static String NameOfCall(String id, IReadOnlyList<ChatTurn> conversation)
+        /// <summary>
+        ///   The tool a call id belongs to: the NEAREST preceding call carrying that id, and only
+        ///   then the first match anywhere. The fallback keeps the behaviour a caller supplying its
+        ///   own ids has always had, for a conversation that orders them some other way.
+        /// </summary>
+        private static String NameOfCall(String id, Int32 index, IReadOnlyList<ChatTurn> conversation)
         {
+            for (var before = index - 1; before >= 0; before--)
+            {
+                if (TryNameOfCall(conversation[before], id, out var nearest))
+                {
+                    return nearest;
+                }
+            }
+
             foreach (var turn in conversation)
             {
-                if (turn.ToolCalls == null)
+                if (TryNameOfCall(turn, id, out var anywhere))
                 {
-                    continue;
-                }
-
-                foreach (var call in turn.ToolCalls)
-                {
-                    if (String.Equals(call.Id, id, StringComparison.Ordinal))
-                    {
-                        return call.Name;
-                    }
+                    return anywhere;
                 }
             }
 
             return null;
+        }
+
+        /// <summary>
+        ///   The name one turn gives a call id, if it made that call. A Try* rather than a
+        ///   null-returning helper because a matched call's name may itself be null, and a
+        ///   null-means-no-match helper would walk PAST the round that asked and attribute the
+        ///   result to an older one.
+        /// </summary>
+        private static Boolean TryNameOfCall(ChatTurn turn, String id, out String name)
+        {
+            name = null;
+
+            if (turn.ToolCalls == null)
+            {
+                return false;
+            }
+
+            foreach (var call in turn.ToolCalls)
+            {
+                if (String.Equals(call.Id, id, StringComparison.Ordinal))
+                {
+                    name = call.Name;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
@@ -341,8 +374,18 @@ namespace NoSQL.GraphDB.App.Chat
         ///   One call the model asked for. The id is SYNTHESISED when the provider sent none, which
         ///   this protocol permits: a result is matched by id everywhere above this layer, so
         ///   several unnamed calls in one turn would otherwise be indistinguishable.
+        ///   <para>
+        ///     It names the ROUND as well as the call, because an ordinal alone made every reply's
+        ///     first call <c>call_0</c> and a trace of several rounds unreadable. DERIVED from the
+        ///     request rather than generated, and that is a requirement and not a preference: the
+        ///     client echoes this id back on the next request, so the same reply to the same
+        ///     conversation has to produce the same id. That rules out a counter on this backend
+        ///     (one instance serves every conversation), anything random, and anything clock-based.
+        ///     It is not a uniqueness GUARANTEE, and does not need to be: attribution is settled by
+        ///     walking back to the nearest call, not by the id being unique.
+        ///   </para>
         /// </summary>
-        private static ChatToolCall ToolCallFrom(Message.ToolCall call, Int32 ordinal)
+        private static ChatToolCall ToolCallFrom(Message.ToolCall call, Int32 ordinal, Int32 turns)
         {
             if (call?.Function?.Name is not { Length: > 0 } name)
             {
@@ -352,7 +395,8 @@ namespace NoSQL.GraphDB.App.Chat
             return new ChatToolCall
             {
                 Id = String.IsNullOrEmpty(call.Id)
-                    ? "call_" + ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    ? "call_" + turns.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        + "_" + ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture)
                     : call.Id,
                 Name = name,
                 Arguments = JsonSerializer.SerializeToElement(
