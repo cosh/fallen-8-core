@@ -372,8 +372,10 @@ namespace NoSQL.GraphDB.App.Chat
 
         /// <summary>
         ///   One call the model asked for. The id is SYNTHESISED when the provider sent none, which
-        ///   on this protocol is every time, since it carries no id field at all. The rule that
-        ///   builds it, and why it is derived rather than generated, is on
+        ///   on this protocol is the norm rather than an exception: the native API defines no id for
+        ///   a tool call, though a compatible server may send one anyway and this SDK carries the
+        ///   field, so the provider's is used when it is there. The rule that builds the fallback,
+        ///   and why it is derived rather than generated, is on
         ///   <see cref="ChatToolCall.SynthesiseId" />; all three backends use it.
         /// </summary>
         private static ChatToolCall ToolCallFrom(Message.ToolCall call, Int32 ordinal, Int32 turns)

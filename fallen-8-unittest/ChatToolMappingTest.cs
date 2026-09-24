@@ -296,7 +296,8 @@ namespace NoSQL.GraphDB.Tests
         /// <summary>
         ///   A synthesised id names the round it was made in, so a trace of several rounds does not
         ///   read <c>call_0</c> at every step, and it stays DERIVED rather than generated. Why it has
-        ///   to be derived is on <c>OllamaChatBackend.ToolCallFrom</c>, which owns that decision.
+        ///   to be derived is on <c>ChatToolCall.SynthesiseId</c>, which owns that decision for all
+        ///   three backends.
         ///   <para>This is the only test that exercises the synthesis branch at all: the shared
         ///   fixture's reply carries an id of its own, so the provider-supplied path is what every
         ///   other test here takes.</para>
@@ -465,6 +466,7 @@ namespace NoSQL.GraphDB.Tests
 
             var first = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
             var second = await backend.ChatAsync(Replay(), WithTool(), CancellationToken.None);
+            var again = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
 
             Assert.AreEqual(1, first.ToolCalls.Count);
             StringAssert.StartsWith(first.ToolCalls[0].Id, "call_",
@@ -472,6 +474,10 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreNotEqual(first.ToolCalls[0].Id, second.ToolCalls[0].Id,
                 "two rounds must not share a synthesised id on a protocol that matches results BY "
                 + "id: there is no nearest-call walk here to absorb the collision");
+            Assert.AreEqual(first.ToolCalls[0].Id, again.ToolCalls[0].Id,
+                "and it is DERIVED, not generated, which the other two assertions cannot tell "
+                + "apart from a counter or a Guid: the client echoes the id back, so the same reply "
+                + "to the same conversation has to reproduce it");
         }
 
         #endregion
@@ -564,11 +570,14 @@ namespace NoSQL.GraphDB.Tests
 
             var first = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
             var second = await backend.ChatAsync(Replay(), WithTool(), CancellationToken.None);
+            var again = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
 
             Assert.AreEqual(1, first.ToolCalls.Count);
             StringAssert.StartsWith(first.ToolCalls[0].Id, "call_");
             Assert.AreNotEqual(first.ToolCalls[0].Id, second.ToolCalls[0].Id,
                 "two rounds must not share a synthesised id here either");
+            Assert.AreEqual(first.ToolCalls[0].Id, again.ToolCalls[0].Id,
+                "and it is derived rather than generated, for the reason the OpenAI sibling gives");
         }
 
         #endregion

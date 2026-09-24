@@ -778,7 +778,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
             // TWICE in variant B has its third occurrence compared against A's list, differs from
             // it, and is filed as a restatement, so a file that really does contradict itself
             // inside one list says nothing about it.
-            var claimedChannels = new Dictionary<String, List<XElement?>>(StringComparer.Ordinal);
+            var claimedChannels = new Dictionary<String, HashSet<XElement>>(StringComparer.Ordinal);
 
             foreach (var channel in channels)
             {
@@ -816,26 +816,23 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 // does not.
                 if (!claimedChannels.TryGetValue(channelName, out var seenIn))
                 {
-                    seenIn = new List<XElement?>();
+                    // Reference identity, because what matters is WHICH list this is rather than
+                    // what it holds: two variants can carry lists that compare equal by value.
+                    seenIn = new HashSet<XElement>(ReferenceEqualityComparer.Instance);
                     claimedChannels[channelName] = seenIn;
                 }
 
-                // Reference equality, because the identity that matters is WHICH list this is and
-                // not what it contains: two variants can hold lists that compare equal by value.
-                var sameList = seenIn.Exists(list => ReferenceEquals(list, channel.Parent));
-                var restated = seenIn.Count > 0 && !sameList;
+                // Add answers both questions at once: false means this exact list has been seen
+                // before, so a repeat within it is two elements claiming one path. The parent is
+                // never null here - these come from Descendants(), which yields strict descendants,
+                // so each one has at least the cluster element above it.
+                var sameList = !seenIn.Add(channel.Parent!);
+                var restated = seenIn.Count > 1 && !sameList;
 
-                if (!restated)
+                if (!restated
+                    && collected.Claim(channelElement, collected.Channels) == PathClaim.Recorded)
                 {
-                    if (collected.Claim(channelElement, collected.Channels) == PathClaim.Recorded)
-                    {
-                        collected.Pending.Add(new Pending(channelPath, ArxmlRelations.PartOf, path));
-                    }
-                }
-
-                if (!sameList)
-                {
-                    seenIn.Add(channel.Parent);
+                    collected.Pending.Add(new Pending(channelPath, ArxmlRelations.PartOf, path));
                 }
 
                 foreach (var reference in Descendants(channel, n => n == "COMMUNICATION-CONNECTOR-REF"))

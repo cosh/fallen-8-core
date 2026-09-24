@@ -177,21 +177,21 @@ namespace NoSQL.GraphDB.Tests
                 var lines = File.ReadAllLines(file);
                 for (var i = 0; i < lines.Length; i++)
                 {
-                    var trimmed = lines[i].Trim();
+                    // The CODE on the line, with any trailing comment removed first. Removing it is
+                    // load-bearing twice over: a line that is only prose about a release must not be
+                    // reported, and a trailing comment must not be allowed to satisfy the finally
+                    // check below. "FinishWriteResource(); // not in a finally" outside a finally
+                    // was counted as guarded before this, which is the exact shape this rule was
+                    // widened to catch, one word away.
+                    var trimmed = WithoutTrailingComment(lines[i]);
 
                     // ANYWHERE on the line, not the whole line. A whole-line pattern let
-                    // "FinishWriteResource(); return;" and "FinishWriteResource(); // released"
-                    // through without counting or reporting them, which is the one shape a gate
-                    // about releases must not miss. The declarations in AThreadSafeElement carry no
-                    // semicolon, so they still do not match.
+                    // "FinishWriteResource(); return;" through without counting or reporting it. The
+                    // declarations in AThreadSafeElement carry no semicolon, so they still do not
+                    // match.
                     if (!Regex.IsMatch(trimmed, @"Finish(Read|Write)Resource\(\)\s*;"))
                     {
                         continue;
-                    }
-
-                    if (trimmed.StartsWith("//", StringComparison.Ordinal))
-                    {
-                        continue;   // prose about a release, including this rule's own examples
                     }
 
                     // A one-line "finally { Finish...(); }" is guarded by the line it is on.
@@ -230,6 +230,18 @@ namespace NoSQL.GraphDB.Tests
 
             AssertNoViolations(violations,
                 "every AThreadSafeElement lock release sits in a finally (one exempt file, see the comment)");
+        }
+
+        /// <summary>
+        ///   A line's code, with any trailing <c>//</c> comment cut off and the result trimmed.
+        ///   Naive about a <c>//</c> inside a string literal, which is correct for what it is used
+        ///   for: no release line in this repository carries one, and treating such a line as
+        ///   shorter code can only make the gate report MORE, never less.
+        /// </summary>
+        private static string WithoutTrailingComment(string line)
+        {
+            var comment = line.IndexOf("//", StringComparison.Ordinal);
+            return (comment >= 0 ? line.Substring(0, comment) : line).Trim();
         }
 
         /// <summary>The previous line that is neither blank nor a comment, for the gate above.</summary>

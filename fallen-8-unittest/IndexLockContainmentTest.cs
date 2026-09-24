@@ -30,12 +30,14 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Core;
 using NoSQL.GraphDB.Core.Helper;
 using NoSQL.GraphDB.Core.Index;
 using NoSQL.GraphDB.Core.Model;
 using NoSQL.GraphDB.Core.Serializer;
+using NoSQL.GraphDB.Core.Service;
 
 namespace NoSQL.GraphDB.Tests
 {
@@ -250,6 +252,156 @@ namespace NoSQL.GraphDB.Tests
                 throw new InvalidOperationException("this key's hash throws");
 
             public override Boolean Equals(Object obj) => ReferenceEquals(this, obj);
+        }
+
+        /// <summary>
+        ///   The same rule on the OTHER W8 site, <c>ServiceFactory.TryAddService</c>, and the reason
+        ///   this test exists rather than a fourth paragraph of reasoning: what can reach that
+        ///   member's <c>catch</c> WITHOUT the lock has now been asserted three times and been wrong
+        ///   twice. It was first written up as an unresolved plugin (false: resolution returns false
+        ///   and takes the else branch), then as unreachable (false: see below), and the review that
+        ///   found the second error named a shape the name map filters out. So it is measured here.
+        ///
+        ///   <para>
+        ///     The reachable shape is a plugin whose construction fails LATE. <c>BuildNameMap</c>
+        ///     activates every candidate once to read its name and skips one that throws, so a
+        ///     constructor that always throws never enters the map and resolution simply answers
+        ///     "no such plugin". But the map is memoized and stores the TYPE, and
+        ///     <c>TryFindPlugin</c> then activates a FRESH instance per call with no catch around
+        ///     it, so a constructor that succeeded once and fails afterwards propagates out of
+        ///     resolution and into the catch, before <c>WriteResource</c> was ever called. Any
+        ///     plugin whose constructor touches a file, a socket or configuration can do that.
+        ///   </para>
+        ///   <para>
+        ///     The old code released the lock in that catch, which is the release-never-held half of
+        ///     W8: it drives the writer counter negative, which reads as permanently held. So this
+        ///     asserts the lock is FREE afterwards, which is the assertion that would have failed.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public void AServicePluginWhoseConstructionFailsLate_DoesNotLeakTheFactoryLock()
+        {
+            var sink = new TestLogSink();
+            var factory = new ServiceFactory(
+                _fallen8, sink.CreateFactory().CreateLogger<ServiceFactory>());
+
+            // Warms the memoized name map while the plugin still constructs, which is what puts its
+            // type in the map at all. Also the happy path, so the arrangement is not assumed.
+            Assert.IsTrue(
+                factory.TryAddService(out _, LateFailingService.TestPluginName, "first", null),
+                "the fixture plugin has to resolve while it is willing to be constructed, or the "
+                + "path below is never reached and this test proves nothing");
+            AssertLockIsFree(factory, "TryAddService, having added a service");
+
+            LateFailingService.RefuseConstruction = true;
+            try
+            {
+                Assert.IsFalse(
+                    factory.TryAddService(out _, LateFailingService.TestPluginName, "second", null),
+                    "a plugin that cannot be constructed is not a service that was added");
+            }
+            finally
+            {
+                LateFailingService.RefuseConstruction = false;
+            }
+
+            // The load-bearing half. Without it this test passes just as well when resolution
+            // answers a quiet "no such plugin", which is the OTHER way to return false and reaches
+            // no catch at all: the whole point is that the constructor's exception propagated INTO
+            // the catch, and this is the only observable that says so.
+            // Matched on the CATCH's own sentence, not on the constructor's: Activator wraps a
+            // constructor exception, so what arrives here is the TargetInvocationException's
+            // message ("Exception has been thrown by the target of an invocation"). Asserting the
+            // inner text instead is how this assertion was first written, and it failed while the
+            // path it was checking had worked perfectly, which is worth keeping as a note.
+            Assert.IsTrue(
+                sink.Entries.Any(e => e.Level == LogLevel.Error
+                    && e.Message.Contains("was not able to add", StringComparison.Ordinal)
+                    && e.Message.Contains(LateFailingService.TestPluginName, StringComparison.Ordinal)),
+                "the plugin's own exception never reached TryAddService's catch, so this test did "
+                + "not exercise the release-never-held path it exists for. A quiet 'no such plugin' "
+                + "returns false from resolution and reaches no catch at all, which is the outcome "
+                + "this distinguishes. Logged: "
+                + String.Join(" | ", sink.Entries.Select(e => e.Level + " " + e.Message)));
+
+            AssertLockIsFree(factory,
+                "TryAddService, after construction threw on the way to the lock");
+        }
+    }
+
+    /// <summary>
+    ///   A discoverable service plugin that can be told to refuse construction. Public and top-level
+    ///   because <c>PluginFactory</c> only offers types that are, which is the same reason
+    ///   <c>ThrowingOnLoadIndex</c> is; the remarks there describe what being globally discoverable
+    ///   costs, and it applies here too.
+    ///   <para>
+    ///     It constructs happily by DEFAULT, so the name map that every service resolution shares is
+    ///     built with it present and no other test is affected. Only the one test that arms it sees
+    ///     it refuse, and it disarms in a <c>finally</c>. The suite is sequential (there is no
+    ///     <c>[Parallelize]</c>), which is what makes a static flag safe here.
+    ///   </para>
+    /// </summary>
+    public sealed class LateFailingService : IService
+    {
+        public const String TestPluginName = "LateFailingTestService";
+
+        /// <summary>Set by the one test that needs this plugin to fail, and cleared by it.</summary>
+        internal static Boolean RefuseConstruction;
+
+        public LateFailingService()
+        {
+            if (RefuseConstruction)
+            {
+                // Surfaces as TargetInvocationException from Activator.CreateInstance, which
+                // PluginFactory deliberately does NOT treat as a deployment failure, so it
+                // propagates rather than becoming a quiet "no such plugin".
+                throw new InvalidOperationException("this plugin refuses to be constructed");
+            }
+        }
+
+        public String PluginName => TestPluginName;
+        public Type PluginCategory => typeof(IService);
+        public String Description => "a service whose construction can be made to fail";
+        public String Manufacturer => "fallen-8 tests";
+        public DateTime StartTime => DateTime.MinValue;
+
+        public Boolean IsRunning
+        {
+            get; private set;
+        }
+
+        public IDictionary<String, String> Metadata => new Dictionary<String, String>();
+
+        public void Initialize(IFallen8 fallen8, IDictionary<String, Object> parameter)
+        {
+        }
+
+        public void Save(SerializationWriter writer)
+        {
+        }
+
+        public void Load(SerializationReader reader, IFallen8 fallen8)
+        {
+        }
+
+        public void OnServiceRestart()
+        {
+        }
+
+        public Boolean TryStart()
+        {
+            IsRunning = true;
+            return true;
+        }
+
+        public Boolean TryStop()
+        {
+            IsRunning = false;
+            return true;
+        }
+
+        public void Dispose()
+        {
         }
     }
 }

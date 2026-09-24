@@ -140,10 +140,10 @@ namespace NoSQL.GraphDB.App.Chat
         ///   </para>
         ///   <para>
         ///     Not a uniqueness GUARANTEE, and it does not need to be: a caller that rewrites
-        ///     history could repeat a turn count. On the Ollama protocol, which carries no id at
-        ///     all, attribution is settled by walking back to the nearest call rather than by the
-        ///     id being unique; on the other two the provider supplies ids in practice and this is
-        ///     the fallback for a provider that does not.
+        ///     history could repeat a turn count. On the Ollama protocol, whose native API defines
+        ///     no id for a tool call, attribution is settled by walking back to the nearest call
+        ///     rather than by the id being unique; on the other two the provider supplies ids in
+        ///     practice and this is the fallback for one that does not.
         ///   </para>
         /// </summary>
         /// <param name="turns">How many turns the request carried, which is what names the round.</param>

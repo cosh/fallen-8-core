@@ -14,9 +14,9 @@
 > [review-findings-2026-09-23](../review-findings-2026-09-23/spec.md), where measuring it found the
 > claim family was more than twice its stated size, 28 sections against 12: `SingleValueIndex` had
 > the 12 sections W8 names, `ServiceFactory` had one whose release sat in a `catch` spanning more
-> than the guarded region (wrong by ownership; no reachable path made it release a lock never held,
-> since the plugin resolution above it is `Try*` and returns false rather than throwing), and
-> `RTree` has 15 that are
+> than the guarded region, which DID release a lock never held for one reachable class of broken
+> plugin (construction that fails late; pinned by `IndexLockContainmentTest`, and described wrongly
+> twice before it was tested), and `RTree` has 15 that are
 > **still open** and are named in a convention-test exemption rather than forgotten. Also still
 > open: **W9** (`HEAD /trim` renumbers every element id and is documented only as releasing unused
 > memory), **W10** half (the compose profile exists; `/status` carries no integrations field),

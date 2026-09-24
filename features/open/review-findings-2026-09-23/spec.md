@@ -252,9 +252,10 @@ is part of the record. Every item here was established by running something.
   clean. `ServiceFactory`'s is not a missing `finally` at all: its `catch` released
   unconditionally while spanning MORE than the guarded region, so the release was right for the
   throws raised inside the lock and wrong for any raised outside it. Fixed with the rest.
-  **This bullet first claimed that an unresolved plugin reached that catch and wedged the factory.
-  It does not: the resolution is `Try*` all the way down. See section 9 item 2 for what the fix
-  actually rests on, which is ownership rather than an incident.**
+  **This bullet took three attempts to get right and is now settled by a test rather than a
+  reading: see section 10 item 1.** It first claimed an unresolved plugin reached that catch, then
+  that nothing could. The truth is a plugin whose construction fails LATE, so the wedge was live
+  for that one class of broken plugin.
 - **`RTree` is NOT fixed, and that is a decision to take rather than a thing to inherit.** Its 15
   unguarded sections are the same defect and the larger instance of it, several of them around an
   injected `IMetric` and caller geometry. W8 scoped itself to `SingleValueIndex` and the audit's
@@ -387,11 +388,13 @@ items too. **Nothing here is fixed yet.** That is the next step, and this sectio
    wedge, and this feature's own rule is that a claim says which arm it verified. Fix: the comment
    states the structural fact; 7a and the audit line are corrected; the commit message cannot be
    edited and is noted here instead.
-   **Corrected by section 10 item 1: this item is itself wrong.** "Cannot fire" was too strong. A
-   service plugin discovered from the plugin folder whose constructor throws DOES reach that catch
-   with no lock held, because `PluginFactory.Activate<T>` lets a constructor's own exception
-   propagate. What cannot reach it is an unknown name, and a registered plugin whose constructor
-   throws. The record is left as written so the mistake is visible; section 10 has the truth.
+   **Corrected by section 10 item 1: this item is itself wrong, and so was the review's version
+   of the correction.** "Cannot fire" was too strong. What reaches the catch with no lock held is a
+   plugin whose construction fails LATE, not one that always throws: the name map activates each
+   candidate once and skips a thrower, but it is memoized and stores the type, so resolution
+   activates a fresh instance per call with nothing catching it. Proven by
+   `AServicePluginWhoseConstructionFailsLate_DoesNotLeakTheFactoryLock`, which asserts the catch's
+   own log line and so cannot pass on a quiet "no such plugin". Both mistakes are left visible.
 3. **The variant dedupe misses a duplicate inside a later variant (correctness, by trace).**
    `claimedChannels` remembers only the FIRST list a name was seen in, so two same-named channels
    in a LATER variant's list both read as restatements and the genuine contradiction is never

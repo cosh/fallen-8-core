@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -57,22 +58,14 @@ namespace NoSQL.GraphDB.Tests
         private static ServiceProvider Host(params (String Key, String Value)[] settings)
         {
             var configuration = new ConfigurationBuilder()
-                .AddInMemoryCollection(BuildSettings(settings))
+                .AddInMemoryCollection(settings.Select(
+                    s => new KeyValuePair<String, String>(s.Key, s.Value)))
                 .Build();
 
             var services = new ServiceCollection();
             services.AddLogging();
             AgentsHost.AddFallen8Agents(services, configuration);
             return services.BuildServiceProvider();
-        }
-
-        private static IEnumerable<KeyValuePair<String, String>> BuildSettings(
-            (String Key, String Value)[] settings)
-        {
-            foreach (var setting in settings)
-            {
-                yield return new KeyValuePair<String, String>(setting.Key, setting.Value);
-            }
         }
 
         /// <summary>The named client the adapter is built over, as the host composes it.</summary>

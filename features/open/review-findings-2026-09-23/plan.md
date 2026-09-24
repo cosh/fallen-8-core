@@ -163,7 +163,8 @@ Files: `README.md`, `docs/src/content/docs/agents.md`, `docker-compose.yml`,
 - [x] Python dash check over every changed text file, detector self-tested first.
 - [x] Confidential-name grep over the whole diff.
 - [x] Impact table in the spec re-checked against the diff as it actually is.
-- [x] Move this directory to `features/done/` in the merge commit's own PR or merge; the spec's
+- [ ] Move this directory to `features/done/` in the merge commit's own PR or merge, carrying the
+      four pointer edits listed below; the spec's
       status line says what shipped and what was left (the model decision of spec section 3).
 
 ## The move to features/done, and the four edits it owes

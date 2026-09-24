@@ -568,11 +568,6 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
-        ///   A FlexRay cluster with two physical channels and, deliberately, a SECOND variant repeating
-        ///   channel A - which is how a real cluster is written and is what makes the claim rather than a
-        ///   count the thing that decides how many channels there are.
-        /// </summary>
-        /// <summary>
         ///   The two cases together: variant A declares the channel once, and variant B declares it
         ///   TWICE in one list. A restatement across variants and a genuine contradiction inside
         ///   one, in a single file, which is what distinguishes remembering the first list a name
@@ -643,6 +638,11 @@ namespace NoSQL.GraphDB.Tests
             </AUTOSAR>
             """;
 
+        /// <summary>
+        ///   A FlexRay cluster with two physical channels and, deliberately, a SECOND variant repeating
+        ///   channel A - which is how a real cluster is written and is what makes the claim rather than a
+        ///   count the thing that decides how many channels there are.
+        /// </summary>
         private const String TwoChannelCluster = """
             <?xml version="1.0" encoding="UTF-8"?>
             <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
