@@ -1,0 +1,193 @@
+// MIT License
+//
+// AppJsonContext.cs
+//
+// Copyright (c) 2011-2026 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System.Text.Json.Serialization;
+using NoSQL.GraphDB.App.Controllers.Model;
+using NoSQL.GraphDB.Core.App.Controllers.Model;
+
+namespace NoSQL.GraphDB.App
+{
+    /// <summary>
+    /// System.Text.Json source-generation context for the REST DTOs and the subgraph
+    /// specification. It is inserted into the MVC JSON options' resolver chain so request/response
+    /// (de)serialization uses generated metadata instead of runtime reflection, and it is used
+    /// directly by the explicit <c>SubGraphSpecification</c> (de)serialization call sites.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The naming policy is set to camelCase to match the ASP.NET Core Web defaults that MVC uses,
+    /// so the few DTOs without explicit <c>[JsonPropertyName]</c> attributes (for example
+    /// <see cref="StatusREST"/> and <see cref="SampleStats"/>) emit identical property names. When
+    /// the context is attached to MVC's own options via the resolver chain, MVC's options continue
+    /// to drive naming, indentation and read behaviour; the generated metadata only provides the
+    /// type shape. Output is therefore unchanged from the previous reflection-based behaviour.
+    /// </para>
+    /// <para>
+    /// The abstract <c>AGraphElement</c> base is deliberately not registered: the only endpoint
+    /// returning it (<c>GetGraphElement</c>) hands MVC a concrete <see cref="Vertex"/> or
+    /// <see cref="Edge"/>, which the output formatter serializes by runtime type. Registering the
+    /// concrete types (which include the inherited base properties) reproduces exactly that output
+    /// without introducing a polymorphic <c>$type</c> discriminator or changing the OpenAPI schema.
+    /// </para>
+    /// </remarks>
+    [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
+    [JsonSerializable(typeof(Graph))]
+    [JsonSerializable(typeof(Vertex))]
+    [JsonSerializable(typeof(Edge))]
+    [JsonSerializable(typeof(VertexSpecification))]
+    [JsonSerializable(typeof(EdgeSpecification))]
+    [JsonSerializable(typeof(PropertySpecification))]
+    // The batch property-write body (feature platform-integrity-audit W2). The element type is
+    // enough: the generator derives the List<T> converter from it, and naming the closed generic
+    // here needs a using this file deliberately does not carry.
+    [JsonSerializable(typeof(PropertyWriteSpecification))]
+    // The batch element READ (feature platform-integrity-audit W6).
+    //[JsonSerializable(typeof(GraphElementProjectionREST))]
+    //[JsonSerializable(typeof(GraphElementBatchREST))]
+    // Index repair from element state (feature platform-integrity-audit W4).
+    [JsonSerializable(typeof(IndexBackfillSpecification))]
+    [JsonSerializable(typeof(IndexRebuildREST))]
+    //[JsonSerializable(typeof(StatusREST))]
+    // The durability / recovery-integrity block on /status (feature platform-integrity-audit W5).
+    //[JsonSerializable(typeof(DurabilityStatusREST))]
+    [JsonSerializable(typeof(SampleStats))]
+    [JsonSerializable(typeof(SubGraphSpecification))]
+    [JsonSerializable(typeof(SubGraphSummary))]
+    [JsonSerializable(typeof(PatternSpecification))]
+    [JsonSerializable(typeof(ScanSpecification))]
+    [JsonSerializable(typeof(PropertySearchSpecification))]
+    [JsonSerializable(typeof(IndexScanSpecification))]
+    [JsonSerializable(typeof(RangeIndexScanSpecification))]
+    [JsonSerializable(typeof(FulltextIndexScanSpecification))]
+    //[JsonSerializable(typeof(FulltextSearchResultREST))]
+    //[JsonSerializable(typeof(FulltextSearchResultElementREST))]
+    [JsonSerializable(typeof(SearchDistanceSpecification))]
+    [JsonSerializable(typeof(PathSpecification))]
+    [JsonSerializable(typeof(SemanticTraversalSpecification))]
+    //[JsonSerializable(typeof(EmbeddingWriteSpecification))]
+    //[JsonSerializable(typeof(ElementEmbeddingREST))]
+    //[JsonSerializable(typeof(EmbedElementSpecification))]
+    //[JsonSerializable(typeof(EmbedElementItem))]
+    //[JsonSerializable(typeof(EmbedElementsSpecification))]
+    //[JsonSerializable(typeof(EmbeddingSearchSpecification))]
+    //[JsonSerializable(typeof(EmbedTextSpecification))]
+    //[JsonSerializable(typeof(EmbeddingVectorsREST))]
+    //[JsonSerializable(typeof(EmbeddingProviderStatsREST))]
+    //[JsonSerializable(typeof(ChatSpecification))]
+    //[JsonSerializable(typeof(ChatMessageSpecification))]
+    //[JsonSerializable(typeof(ChatOptionsSpecification))]
+    //[JsonSerializable(typeof(ChatResultREST))]
+    //[JsonSerializable(typeof(ChatModelsREST))]
+    //[JsonSerializable(typeof(ChatStatsREST))]
+    //[JsonSerializable(typeof(ConfigREST))]
+    //[JsonSerializable(typeof(SemanticConfigREST))]
+    //[JsonSerializable(typeof(ObservabilityConfigREST))]
+    //[JsonSerializable(typeof(ChatProviderStatsREST))]
+    //[JsonSerializable(typeof(SettingREST))]
+    //[JsonSerializable(typeof(PendingRestartREST))]
+    //[JsonSerializable(typeof(ConfigWriteSpecification))]
+    //[JsonSerializable(typeof(ConfigWriteResultREST))]
+    //[JsonSerializable(typeof(ConfigWriteREST))]
+    //[JsonSerializable(typeof(PathREST))]
+    //[JsonSerializable(typeof(PathElementREST))]
+    [JsonSerializable(typeof(PathFilterSpecification))]
+    [JsonSerializable(typeof(PathCostSpecification))]
+    [JsonSerializable(typeof(LiteralSpecification))]
+    [JsonSerializable(typeof(PluginSpecification))]
+    [JsonSerializable(typeof(IndexAddToSpecification))]
+    [JsonSerializable(typeof(LoadSpecification))]
+    [JsonSerializable(typeof(SaveSpecification))]
+    [JsonSerializable(typeof(ResultTypeSpecification))]
+    //[JsonSerializable(typeof(NamespaceREST))]
+    //[JsonSerializable(typeof(NamespacesREST))]
+    //[JsonSerializable(typeof(NamespaceActivationREST))]
+    //[JsonSerializable(typeof(NamespaceUpdateSpecification))]
+    //[JsonSerializable(typeof(ChangeEventREST))]
+    //[JsonSerializable(typeof(BulkImportResultREST))]
+    //[JsonSerializable(typeof(VectorIndexAddSpecification))]
+    //[JsonSerializable(typeof(VectorIndexScanSpecification))]
+    //[JsonSerializable(typeof(VectorSearchResultREST))]
+    //[JsonSerializable(typeof(VectorScoredElementREST))]
+    [JsonSerializable(typeof(StoredQuerySpecification))]
+    [JsonSerializable(typeof(StoredPathQueryBlock))]
+    [JsonSerializable(typeof(StoredSubGraphQueryBlock))]
+    //[JsonSerializable(typeof(StoredQuerySummaryREST))]
+    //[JsonSerializable(typeof(StoredQueryDetailREST))]
+    [JsonSerializable(typeof(AlgorithmPluginRegistration))]
+    [JsonSerializable(typeof(FunctionPluginRegistration))]
+    [JsonSerializable(typeof(GraphFunctionInvocation))]
+    [JsonSerializable(typeof(PluginValidationSpecification))]
+    //[JsonSerializable(typeof(PluginSummaryREST))]
+    //[JsonSerializable(typeof(PluginDetailREST))]
+    //[JsonSerializable(typeof(GraphFunctionResultREST))]
+    //[JsonSerializable(typeof(PluginValidationREST))]
+    [JsonSerializable(typeof(ValidateDelegateSpecification))]
+    //[JsonSerializable(typeof(DelegateValidationREST))]
+    //[JsonSerializable(typeof(DelegateDiagnosticREST))]
+    //[JsonSerializable(typeof(BenchmarkResultREST))]
+    //[JsonSerializable(typeof(GraphGenerationResultREST))]
+    //[JsonSerializable(typeof(SaveGameREST))]
+    //[JsonSerializable(typeof(SaveGameKpisREST))]
+    //[JsonSerializable(typeof(SaveGameNamespaceREST))]
+    [JsonSerializable(typeof(NoSQL.GraphDB.App.Namespaces.NamespaceCatalogDocument))]
+    [JsonSerializable(typeof(NoSQL.GraphDB.App.Namespaces.NamespaceCatalogEntry))]
+    //[JsonSerializable(typeof(IndexDescriptionREST))]
+    //[JsonSerializable(typeof(SaveGameRegistryDocument))]
+    //[JsonSerializable(typeof(System.Collections.Generic.Dictionary<string, string>))]
+    //[JsonSerializable(typeof(AnalyticsSpecification))]
+    //[JsonSerializable(typeof(AnalyticsResultREST))]
+    //[JsonSerializable(typeof(ScoredVertexREST))]
+    //[JsonSerializable(typeof(PartitionSummaryREST))]
+    //[JsonSerializable(typeof(PartitionMembersREST))]
+    //[JsonSerializable(typeof(WriteBackResultREST))]
+    //[JsonSerializable(typeof(GraphStatisticsREST))]
+    //[JsonSerializable(typeof(CardinalityStatsREST))]
+    //[JsonSerializable(typeof(NamedCountREST))]
+    //[JsonSerializable(typeof(DegreeStatsREST))]
+    //[JsonSerializable(typeof(IndexStatsREST))]
+    //[JsonSerializable(typeof(MemoryStatsREST))]
+    //[JsonSerializable(typeof(IngestionStatsREST))]
+    //[JsonSerializable(typeof(DoclingStatsREST))]
+    //[JsonSerializable(typeof(IngestionLimitsREST))]
+    //[JsonSerializable(typeof(NlpStatsREST))]
+    [JsonSerializable(typeof(IngestTextSpecification))]
+    [JsonSerializable(typeof(LinkSpecificationREST))]
+    [JsonSerializable(typeof(DocumentSummaryREST))]
+    [JsonSerializable(typeof(DocumentListREST))]
+    [JsonSerializable(typeof(DocumentDetailREST))]
+    //[JsonSerializable(typeof(DocumentBindingREST))]
+    //[JsonSerializable(typeof(DocumentBindingRoleREST))]
+    //[JsonSerializable(typeof(DocumentEntityListREST))]
+    //[JsonSerializable(typeof(DocumentEntityREST))]
+    [JsonSerializable(typeof(ChunkSummaryREST))]
+    [JsonSerializable(typeof(DocumentSearchSpecification))]
+    [JsonSerializable(typeof(DocumentSearchResultREST))]
+    [JsonSerializable(typeof(ChunkHitREST))]
+    [JsonSerializable(typeof(ChunkWindowEntryREST))]
+    [JsonSerializable(typeof(DocumentGroupREST))]
+    public sealed partial class AppJsonContext : JsonSerializerContext
+    {
+    }
+}
