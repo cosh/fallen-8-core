@@ -149,12 +149,19 @@ namespace NoSQL.GraphDB.Core.Service
                 _logger.LogError(String.Format("Fallen-8 was not able to add the {0} service plugin. Message: {1}",
                     servicePluginName, e.Message));
 
-                // Deliberately does NOT release the lock. It used to, and that was the worse half of
-                // this defect: this catch also covers the plugin resolution ABOVE the acquisition, so
-                // a plugin that could not be resolved released a lock that had never been taken. That
-                // drives the writer counter negative, which reads as permanently held, and every
-                // later reader and writer on this factory then spins forever. The finally inside the
-                // guarded region owns the release, and it is the only thing that does.
+                // Deliberately does NOT release the lock, and it used to. The reason is structural
+                // rather than a known incident: this catch spans MORE than the guarded region (the
+                // plugin resolution above it, and the throw when acquisition fails), so an
+                // unconditional release here was correct for the throws raised inside the lock and
+                // wrong for the ones raised outside it, where it releases a lock never held and
+                // drives the writer counter negative, which reads as permanently held.
+                //
+                // No reachable path did that, which is worth stating rather than dramatising: the
+                // resolution above is Try* all the way down and returns false instead of throwing,
+                // so the only way in here without the lock was the CollisionException from a failed
+                // acquisition, and that needs 2^31 consecutive failures. The finally inside the
+                // region now owns the release, which is where ownership belongs whether or not a
+                // caller can currently reach the bad half.
                 service = null;
                 return false;
             }

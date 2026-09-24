@@ -372,18 +372,9 @@ namespace NoSQL.GraphDB.App.Chat
 
         /// <summary>
         ///   One call the model asked for. The id is SYNTHESISED when the provider sent none, which
-        ///   this protocol permits: a result is matched by id everywhere above this layer, so
-        ///   several unnamed calls in one turn would otherwise be indistinguishable.
-        ///   <para>
-        ///     It names the ROUND as well as the call, because an ordinal alone made every reply's
-        ///     first call <c>call_0</c> and a trace of several rounds unreadable. DERIVED from the
-        ///     request rather than generated, and that is a requirement and not a preference: the
-        ///     client echoes this id back on the next request, so the same reply to the same
-        ///     conversation has to produce the same id. That rules out a counter on this backend
-        ///     (one instance serves every conversation), anything random, and anything clock-based.
-        ///     It is not a uniqueness GUARANTEE, and does not need to be: attribution is settled by
-        ///     walking back to the nearest call, not by the id being unique.
-        ///   </para>
+        ///   on this protocol is every time, since it carries no id field at all. The rule that
+        ///   builds it, and why it is derived rather than generated, is on
+        ///   <see cref="ChatToolCall.SynthesiseId" />; all three backends use it.
         /// </summary>
         private static ChatToolCall ToolCallFrom(Message.ToolCall call, Int32 ordinal, Int32 turns)
         {
@@ -395,8 +386,7 @@ namespace NoSQL.GraphDB.App.Chat
             return new ChatToolCall
             {
                 Id = String.IsNullOrEmpty(call.Id)
-                    ? "call_" + turns.ToString(System.Globalization.CultureInfo.InvariantCulture)
-                        + "_" + ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                    ? ChatToolCall.SynthesiseId(turns, ordinal)
                     : call.Id,
                 Name = name,
                 Arguments = JsonSerializer.SerializeToElement(

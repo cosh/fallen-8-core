@@ -188,7 +188,7 @@ namespace NoSQL.GraphDB.App.Chat
                     Message response = await _client.Messages.Create(parameters, cancellationToken);
                     content.Append(String.Join(String.Empty,
                         response.Content.Select(block => block.Value).OfType<TextBlock>().Select(t => t.Text)));
-                    toolCalls = ToolCallsOf(response);
+                    toolCalls = ToolCallsOf(response, messages.Count);
                     promptTokens = response.Usage.InputTokens;
                     completionTokens = response.Usage.OutputTokens;
                     refusal = RefusalOf(response.StopDetails);
@@ -393,7 +393,7 @@ namespace NoSQL.GraphDB.App.Chat
         }
 
         /// <summary>The calls a reply asked for, read off its content blocks.</summary>
-        private static List<ChatToolCall> ToolCallsOf(Message response)
+        private static List<ChatToolCall> ToolCallsOf(Message response, Int32 turns)
         {
             var uses = response.Content
                 .Select(block => block.Value)
@@ -409,8 +409,12 @@ namespace NoSQL.GraphDB.App.Chat
             {
                 mapped.Add(new ChatToolCall
                 {
+                    // The round-naming id, whose rule ChatToolCall.SynthesiseId owns. As on the
+                    // OpenAI protocol, a tool_result is matched by this id, so a synthesised one
+                    // that repeated across rounds would be wrong on the wire and not just in a
+                    // trace.
                     Id = String.IsNullOrEmpty(uses[i].ID)
-                        ? "call_" + i.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        ? ChatToolCall.SynthesiseId(turns, i)
                         : uses[i].ID,
                     Name = uses[i].Name,
                     Arguments = JsonSerializer.SerializeToElement(uses[i].Input

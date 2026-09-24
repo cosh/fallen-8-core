@@ -469,14 +469,11 @@ namespace NoSQL.GraphDB.Tests
         [TestMethod]
         public async Task AGatewayThatNeverAnswersIsTheGatewaysFailure_NotACancelledAgent()
         {
-            // The other direction of the test above, and the one that was broken. The adapter used
-            // to arm a LINKED source of its own and hand the seam that token, so when its deadline
-            // fired the token was already cancelled, the seam's timeout naming was filtered out
-            // (it names a timeout only when the token it was given is NOT set), and the raw
-            // cancellation reached the runner, which records a cancellation as a user action. A
-            // gateway that had simply gone quiet was therefore reported as an agent somebody
-            // cancelled. The deadline now lives on the transport, where it fires with the caller's
-            // token still unset.
+            // The other direction of the test above, and the one that was broken: a gateway that
+            // went quiet was reported as an agent somebody cancelled. Why the deadline has to be
+            // the transport's for this to work is stated in AgentsHost, where it is armed; that the
+            // HOST actually arms it is a separate claim with its own test
+            // (AgentHostCompositionTest), because this one arms it itself.
             using var factory = Factory(async (turns, opts, token) =>
             {
                 await Task.Delay(TimeSpan.FromMinutes(5), token);
@@ -515,9 +512,9 @@ namespace NoSQL.GraphDB.Tests
         private static Fallen8ChatClient Client(AgentChatFactory factory, TimeSpan deadline)
         {
             // The factory's client speaks to the in-memory server, so this is the real controller
-            // on the far side of a real HTTP request. The deadline goes on the TRANSPORT, which is
-            // where the host arms it too (AgentsHost), so a test cannot pass while the shipped
-            // wiring puts it somewhere the seam cannot classify.
+            // on the far side of a real HTTP request. The deadline goes on the transport, as the
+            // host arms it (AgentsHost); that the host does so is pinned by
+            // AgentHostCompositionTest and not by anything here.
             var http = factory.CreateClient();
             http.BaseAddress = new Uri(http.BaseAddress, "/");
             http.Timeout = deadline;

@@ -166,6 +166,17 @@ Files: `README.md`, `docs/src/content/docs/agents.md`, `docker-compose.yml`,
 - [x] Move this directory to `features/done/` in the merge commit's own PR or merge; the spec's
       status line says what shipped and what was left (the model decision of spec section 3).
 
+## The move to features/done, and the four edits it owes
+
+Not done here, because the feature is not merged. Whoever moves this directory carries these with
+it, or four pointers break silently (spec section 9 item 9):
+
+- [ ] `features/done/agent-host/findings.md` links `../../open/review-findings-2026-09-23/spec.md`
+- [ ] `features/done/arxml-vehicle-model/findings.md` links the same path
+- [ ] `features/open/platform-integrity-audit/spec.md` links `../review-findings-2026-09-23/spec.md`
+- [ ] `fallen-8-unittest/CodeQualityTest.cs` carries the path as a STRING in the exemption comment,
+      so no link checker would catch it
+
 ## Phase 9 - what the gate found (2026-09-24)
 
 Spec section 9 is the list, worst first. Items 1 to 7 block the merge; 8 goes in with them because

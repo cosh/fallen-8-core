@@ -295,9 +295,8 @@ namespace NoSQL.GraphDB.Tests
 
         /// <summary>
         ///   A synthesised id names the round it was made in, so a trace of several rounds does not
-        ///   read <c>call_0</c> at every step. It stays DERIVED rather than generated, because the
-        ///   client echoes it back on the next request: the same reply to the same conversation has
-        ///   to produce the same id, which rules out a counter, a random value and the clock.
+        ///   read <c>call_0</c> at every step, and it stays DERIVED rather than generated. Why it has
+        ///   to be derived is on <c>OllamaChatBackend.ToolCallFrom</c>, which owns that decision.
         ///   <para>This is the only test that exercises the synthesis branch at all: the shared
         ///   fixture's reply carries an id of its own, so the provider-supplied path is what every
         ///   other test here takes.</para>
@@ -446,6 +445,35 @@ namespace NoSQL.GraphDB.Tests
                 + "SDK spells content as a string or as parts: " + stub.Bodies[0]);
         }
 
+        /// <summary>
+        ///   A provider that omits the call id gets the same round-naming id the Ollama path uses,
+        ///   from the one rule all three share. It matters MORE here than there: this protocol
+        ///   matches a tool result by id on the wire, so a synthesised id repeated across rounds is
+        ///   not just an unreadable trace, and there is no nearest-preceding walk to fall back on.
+        /// </summary>
+        [TestMethod]
+        public async Task OpenAI_SynthesisesARoundNamingId_WhenTheProviderOmitsOne()
+        {
+            var stub = new RecordingHandler(_ => RemoteModelWire.Json(
+                "{\"id\":\"c4\",\"object\":\"chat.completion\",\"created\":1,\"model\":\"gpt-4o-mini\","
+                + "\"choices\":[{\"index\":0,\"finish_reason\":\"tool_calls\",\"message\":"
+                + "{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"\","
+                + "\"type\":\"function\",\"function\":{\"name\":\"count_vertices\","
+                + "\"arguments\":\"{}\"}}]}}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":0,"
+                + "\"total_tokens\":5}}"));
+            using var backend = OpenAIBackend(stub);
+
+            var first = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+            var second = await backend.ChatAsync(Replay(), WithTool(), CancellationToken.None);
+
+            Assert.AreEqual(1, first.ToolCalls.Count);
+            StringAssert.StartsWith(first.ToolCalls[0].Id, "call_",
+                "a provider that sent no id still leaves the seam one to match a result by");
+            Assert.AreNotEqual(first.ToolCalls[0].Id, second.ToolCalls[0].Id,
+                "two rounds must not share a synthesised id on a protocol that matches results BY "
+                + "id: there is no nearest-call walk here to absorb the collision");
+        }
+
         #endregion
 
         #region Anthropic
@@ -517,6 +545,30 @@ namespace NoSQL.GraphDB.Tests
             var resultBlock = turns[2].GetProperty("content")[0];
             Assert.AreEqual("tool_result", resultBlock.GetProperty("type").GetString());
             Assert.AreEqual("call_1", resultBlock.GetProperty("tool_use_id").GetString());
+        }
+
+        /// <summary>
+        ///   The third user of the one synthesis rule. As on the OpenAI protocol a
+        ///   <c>tool_result</c> is matched by this id, so a repeat across rounds would be wrong on
+        ///   the wire rather than merely unreadable.
+        /// </summary>
+        [TestMethod]
+        public async Task Anthropic_SynthesisesARoundNamingId_WhenTheProviderOmitsOne()
+        {
+            var stub = new RecordingHandler(_ => RemoteModelWire.Json(
+                "{\"id\":\"m3\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\","
+                + "\"content\":[{\"type\":\"tool_use\",\"id\":\"\",\"name\":\"count_vertices\","
+                + "\"input\":{}}],\"stop_reason\":\"tool_use\","
+                + "\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}"));
+            using var backend = AnthropicBackend(stub);
+
+            var first = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+            var second = await backend.ChatAsync(Replay(), WithTool(), CancellationToken.None);
+
+            Assert.AreEqual(1, first.ToolCalls.Count);
+            StringAssert.StartsWith(first.ToolCalls[0].Id, "call_");
+            Assert.AreNotEqual(first.ToolCalls[0].Id, second.ToolCalls[0].Id,
+                "two rounds must not share a synthesised id here either");
         }
 
         #endregion

@@ -77,9 +77,8 @@ namespace NoSQL.GraphDB.Tests
             using var http = new HttpClient
             {
                 BaseAddress = new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/"),
-                // The transport owns the deadline, as it does in the host (AgentsHost): armed here,
-                // a timeout fires with the caller's token unset, which is what lets the shared seam
-                // name it instead of letting it read as a cancelled agent.
+                // The transport owns the deadline, as it does in the host (AgentsHost, which
+                // states why).
                 Timeout = TimeSpan.FromSeconds(600),
             };
             http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));

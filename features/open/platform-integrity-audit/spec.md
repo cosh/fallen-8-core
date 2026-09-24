@@ -12,9 +12,11 @@
 > `IntegrationsClient : SidecarHttpClient` and `AgentsClient : SidecarHttpClient`, which is exactly
 > the typed facade section W7 asked for. **W8 landed** in
 > [review-findings-2026-09-23](../review-findings-2026-09-23/spec.md), where measuring it found the
-> claim family was four times its stated size: `SingleValueIndex` had the 12 sections W8 names,
-> `ServiceFactory` had one worse instance (its release sat in a `catch` that also covered code above
-> the acquisition, so an unresolved plugin released a lock never held), and `RTree` has 15 that are
+> claim family was more than twice its stated size, 28 sections against 12: `SingleValueIndex` had
+> the 12 sections W8 names, `ServiceFactory` had one whose release sat in a `catch` spanning more
+> than the guarded region (wrong by ownership; no reachable path made it release a lock never held,
+> since the plugin resolution above it is `Try*` and returns false rather than throwing), and
+> `RTree` has 15 that are
 > **still open** and are named in a convention-test exemption rather than forgotten. Also still
 > open: **W9** (`HEAD /trim` renumbers every element id and is documented only as releasing unused
 > memory), **W10** half (the compose profile exists; `/status` carries no integrations field),

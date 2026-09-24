@@ -152,7 +152,14 @@ namespace NoSQL.GraphDB.Tests
             // mechanical fix into a 2,000-line spatial index is a decision to take deliberately
             // rather than to inherit from a gate. Recorded in
             // features/open/review-findings-2026-09-23/spec.md; the exemption goes when it is fixed.
-            var exempt = new[] { Path.Combine("fallen-8-core", "Index", "Spatial") };
+            // The FILE, not its directory. Exempting Index/Spatial would hand the same pass to any
+            // spatial index added later, which is the one thing an exemption must not do: RTree.cs
+            // is the only file under there with a release today, and the gate should widen by itself
+            // when that stops being true.
+            var exempt = new[]
+            {
+                Path.Combine("fallen-8-core", "Index", "Spatial", "Implementation", "RTree", "RTree.cs"),
+            };
             var root = TestRepo.Root();
 
             var violations = new List<string>();
@@ -160,7 +167,7 @@ namespace NoSQL.GraphDB.Tests
             foreach (var file in SourceFiles(_productProjects))
             {
                 var relative = Path.GetRelativePath(root, file);
-                if (exempt.Any(e => relative.StartsWith(e, StringComparison.OrdinalIgnoreCase)))
+                if (exempt.Any(e => relative.Equals(e, StringComparison.OrdinalIgnoreCase)))
                 {
                     continue;
                 }
@@ -170,8 +177,27 @@ namespace NoSQL.GraphDB.Tests
                 var lines = File.ReadAllLines(file);
                 for (var i = 0; i < lines.Length; i++)
                 {
-                    if (!Regex.IsMatch(lines[i], @"^\s*Finish(Read|Write)Resource\(\);\s*$"))
+                    var trimmed = lines[i].Trim();
+
+                    // ANYWHERE on the line, not the whole line. A whole-line pattern let
+                    // "FinishWriteResource(); return;" and "FinishWriteResource(); // released"
+                    // through without counting or reporting them, which is the one shape a gate
+                    // about releases must not miss. The declarations in AThreadSafeElement carry no
+                    // semicolon, so they still do not match.
+                    if (!Regex.IsMatch(trimmed, @"Finish(Read|Write)Resource\(\)\s*;"))
                     {
+                        continue;
+                    }
+
+                    if (trimmed.StartsWith("//", StringComparison.Ordinal))
+                    {
+                        continue;   // prose about a release, including this rule's own examples
+                    }
+
+                    // A one-line "finally { Finish...(); }" is guarded by the line it is on.
+                    if (Regex.IsMatch(trimmed, @"\bfinally\b"))
+                    {
+                        guarded++;
                         continue;
                     }
 
@@ -188,7 +214,7 @@ namespace NoSQL.GraphDB.Tests
                         continue;
                     }
 
-                    violations.Add(relative + ":" + (i + 1) + " " + lines[i].Trim()
+                    violations.Add(relative + ":" + (i + 1) + " " + trimmed
                         + " - a release outside a finally is skipped by any throw above it");
                 }
             }
@@ -203,7 +229,7 @@ namespace NoSQL.GraphDB.Tests
                 + "written, so its pattern has stopped matching the code it is meant to check");
 
             AssertNoViolations(violations,
-                "every AThreadSafeElement lock release sits in a finally (exempt: Index/Spatial, see the comment)");
+                "every AThreadSafeElement lock release sits in a finally (one exempt file, see the comment)");
         }
 
         /// <summary>The previous line that is neither blank nor a comment, for the gate above.</summary>

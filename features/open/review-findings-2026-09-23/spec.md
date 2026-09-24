@@ -245,15 +245,16 @@ is part of the record. Every item here was established by running something.
   planned, and it exposed a silence the plan had not predicted: an empty or unnamed unread
   cluster was reported as nothing at all, because the old path refused a nameless element before
   it reached the unread-bus branch. That is the half the new tests find red.
-- **W8's claim family is four times its stated size, and the gate found a site nobody had
-  counted.** Measured by deriving acquisitions against releases across all seven
-  `AThreadSafeElement` subclasses: `SingleValueIndex` 12 unguarded sections (13 release sites, as
-  `AddOrUpdate` had two), `RTree` 15, `ServiceFactory` 1. The other four were already clean.
-  `ServiceFactory`'s is the worst of the three and is not a missing `finally` at all: its `catch`
-  released unconditionally, and that `catch` also covers the plugin resolution ABOVE the
-  acquisition, so a plugin that failed to resolve released a lock never held. That drives the
-  writer counter negative, which reads as permanently held, and wedges the factory for the life
-  of the process. Fixed with the rest.
+- **W8's claim family is more than twice its stated size, 28 sections against 12, and the gate
+  found a site nobody had counted.** Measured by deriving acquisitions against releases across all
+  seven `AThreadSafeElement` subclasses: `SingleValueIndex` 12 unguarded sections (13 release
+  sites, as `AddOrUpdate` had two), `RTree` 15, `ServiceFactory` 1. The other four were already
+  clean. `ServiceFactory`'s is not a missing `finally` at all: its `catch` released
+  unconditionally while spanning MORE than the guarded region, so the release was right for the
+  throws raised inside the lock and wrong for any raised outside it. Fixed with the rest.
+  **This bullet first claimed that an unresolved plugin reached that catch and wedged the factory.
+  It does not: the resolution is `Try*` all the way down. See section 9 item 2 for what the fix
+  actually rests on, which is ownership rather than an incident.**
 - **`RTree` is NOT fixed, and that is a decision to take rather than a thing to inherit.** Its 15
   unguarded sections are the same defect and the larger instance of it, several of them around an
   injected `IMetric` and caller geometry. W8 scoped itself to `SingleValueIndex` and the audit's
@@ -428,7 +429,10 @@ items too. **Nothing here is fixed yet.** That is the next step, and this sectio
     by a variant in a LATER file used to increment `_redeclared` once per occurrence and now once
     per name, so the "elements already declared by an earlier file" count drops for such files. The
     new count is the right one, since a restated channel is one element, so this is a claim to
-    correct rather than code.
+    correct rather than code. **Not pinned by a test, deliberately:** that number lives inside a
+    formatted sentence, and every existing assertion on this diagnostic is on the count of
+    diagnostics (one aggregate per re-declaring file) and its subject, neither of which moved.
+    Asserting the number would mean matching prose, which this suite avoids everywhere else.
 12. **Plan box 36 was a false tick**, per item 1, and is corrected in this commit.
 
 ### Cleared, and why

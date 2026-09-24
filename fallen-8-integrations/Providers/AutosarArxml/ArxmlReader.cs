@@ -769,9 +769,16 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 collected.ClusterRedeclared(path);
             }
 
-            // Which PHYSICAL-CHANNELS list each channel name was first seen in. See the claim below for
-            // what it decides; it is per cluster, because a short name is unique within its namespace.
-            var claimedChannels = new Dictionary<String, XElement?>(StringComparer.Ordinal);
+            // EVERY PHYSICAL-CHANNELS list each channel name has been seen in, not just the first.
+            // See the claim below for what it decides; it is per cluster, because a short name is
+            // unique within its namespace.
+            //
+            // Remembering only the first list is not enough, and the difference is a report that
+            // goes missing rather than a tidiness point: a name declared once in variant A and
+            // TWICE in variant B has its third occurrence compared against A's list, differs from
+            // it, and is filed as a restatement, so a file that really does contradict itself
+            // inside one list says nothing about it.
+            var claimedChannels = new Dictionary<String, List<XElement?>>(StringComparer.Ordinal);
 
             foreach (var channel in channels)
             {
@@ -807,17 +814,28 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 // Only the claim is guarded, never the loop: every occurrence is still walked below,
                 // because a second variant carries connector references and triggerings the first
                 // does not.
-                var restated = claimedChannels.TryGetValue(channelName, out var firstSeenIn)
-                    && !ReferenceEquals(firstSeenIn, channel.Parent);
+                if (!claimedChannels.TryGetValue(channelName, out var seenIn))
+                {
+                    seenIn = new List<XElement?>();
+                    claimedChannels[channelName] = seenIn;
+                }
+
+                // Reference equality, because the identity that matters is WHICH list this is and
+                // not what it contains: two variants can hold lists that compare equal by value.
+                var sameList = seenIn.Exists(list => ReferenceEquals(list, channel.Parent));
+                var restated = seenIn.Count > 0 && !sameList;
 
                 if (!restated)
                 {
-                    claimedChannels[channelName] = channel.Parent;
-
                     if (collected.Claim(channelElement, collected.Channels) == PathClaim.Recorded)
                     {
                         collected.Pending.Add(new Pending(channelPath, ArxmlRelations.PartOf, path));
                     }
+                }
+
+                if (!sameList)
+                {
+                    seenIn.Add(channel.Parent);
                 }
 
                 foreach (var reference in Descendants(channel, n => n == "COMMUNICATION-CONNECTOR-REF"))

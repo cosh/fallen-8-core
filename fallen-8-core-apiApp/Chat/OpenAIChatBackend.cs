@@ -168,7 +168,7 @@ namespace NoSQL.GraphDB.App.Chat
                 else
                 {
                     ChatCompletion completion = await client.CompleteChatAsync(turns, request, cancellationToken);
-                    toolCalls = ToolCallsOf(completion);
+                    toolCalls = ToolCallsOf(completion, turns.Count);
                     Append(content, completion.Content);
                     finish = completion.FinishReason;
                     usage = completion.Usage;
@@ -367,7 +367,7 @@ namespace NoSQL.GraphDB.App.Chat
         }
 
         /// <summary>The calls a completion asked for, in the seam's shape.</summary>
-        private static List<ChatToolCall> ToolCallsOf(ChatCompletion completion)
+        private static List<ChatToolCall> ToolCallsOf(ChatCompletion completion, Int32 turns)
         {
             if (completion?.ToolCalls == null || completion.ToolCalls.Count == 0)
             {
@@ -380,8 +380,11 @@ namespace NoSQL.GraphDB.App.Chat
                 var call = completion.ToolCalls[i];
                 mapped.Add(new ChatToolCall
                 {
+                    // The round-naming id, whose rule ChatToolCall.SynthesiseId owns. This
+                    // protocol carries an id on the wire and a result is matched BY it, so a
+                    // provider that omits one leaves no nearest-call walk to recover with.
                     Id = String.IsNullOrEmpty(call.Id)
-                        ? "call_" + i.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        ? ChatToolCall.SynthesiseId(turns, i)
                         : call.Id,
                     Name = call.FunctionName,
                     Arguments = Parsed(call.FunctionArguments),

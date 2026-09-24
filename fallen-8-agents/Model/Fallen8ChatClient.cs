@@ -69,15 +69,8 @@ namespace NoSQL.GraphDB.Agents.Model
         private ModelProvenance? _lastSeen;
 
         /// <param name="http">The transport, already carrying the base address, this host's own API
-        /// key, and its DEADLINE for one completion.
-        /// <para>
-        ///   The deadline belongs to the transport rather than to this class, and that is the whole
-        ///   of it: a linked source armed here cancels the CALLER's token too, so the shared seam
-        ///   could not tell this host's deadline from a caller who went away, left the timeout
-        ///   unnamed, and had it recorded as an agent somebody cancelled. On the client the two stay
-        ///   distinguishable, which is exactly what <c>RestSeam.SendAsync</c> keys on, and it is how
-        ///   the other two sidecars have always armed theirs.
-        /// </para></param>
+        /// key, and its DEADLINE for one completion. This class arms no deadline of its own; why it
+        /// must not is stated where the deadline IS armed, in <c>AgentsHost</c>.</param>
         public Fallen8ChatClient(HttpClient http)
         {
             _http = http;
@@ -118,9 +111,8 @@ namespace NoSQL.GraphDB.Agents.Model
 
             // Through the shared REST seam, which is what the project reference is FOR: it owns the
             // one distinction this layer kept getting wrong, between an answer that never came and a
-            // caller who went away. The caller's OWN token goes in, unwrapped, because that is what
-            // keeps the two distinguishable: the deadline is the transport's (see the constructor)
-            // and fires with this token still unset.
+            // caller who went away. The caller's OWN token goes in, unwrapped, because wrapping it
+            // is what breaks that distinction (AgentsHost states why).
             var response = await RestSeam.SendAsync(_http, HttpMethod.Post, "chat", request,
                 NoAnswer, cancellationToken).ConfigureAwait(false);
 

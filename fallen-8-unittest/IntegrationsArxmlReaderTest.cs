@@ -520,6 +520,33 @@ namespace NoSQL.GraphDB.Tests
         }
 
         /// <summary>
+        ///   A restatement and a contradiction in ONE cluster: variant A declares the channel, and
+        ///   variant B declares it twice. The repeat across variants is the same channel and is
+        ///   silent; the repeat INSIDE variant B is two elements claiming one path and is reported.
+        ///   <para>
+        ///     This is what makes the difference between remembering the first list a name was seen
+        ///     in and remembering every list it was seen in. Remembering only the first, variant B's
+        ///     second occurrence is compared against variant A's list, differs from it, and is
+        ///     therefore filed as a restatement: the contradiction goes unreported and the file's
+        ///     own count of channels is the only trace left.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public void AChannelRestatedByOneVariantAndDuplicatedInAnother_ReportsOnlyTheDuplicate()
+        {
+            var network = ArxmlReader.Read(RestatedThenTwinnedCluster);
+
+            Assert.AreEqual(1, network.Elements.Count(e => e.Kind == ArxmlKinds.Channel),
+                "three occurrences of one short name in one cluster are one channel: "
+                + Describe(network));
+
+            var duplicate = network.Diagnostics.Single(d => d.Kind == ArxmlDiagnosticKind.DuplicatePath);
+            StringAssert.Contains(duplicate.Subject, "/Clusters/MIXEDBUS/MIXEDBUS_CH_A",
+                "exactly one report, for the two in a single list, and not for the restatement "
+                + "across variants: " + duplicate.Subject);
+        }
+
+        /// <summary>
         ///   A redundant bus attaches its ECU to the network ONCE, however many channels carry the
         ///   connector, and to each channel it is really on. The network edge is deduped because "on this
         ///   bus" is one fact; the channel edges are not, because they are different facts.
@@ -545,6 +572,47 @@ namespace NoSQL.GraphDB.Tests
         ///   channel A - which is how a real cluster is written and is what makes the claim rather than a
         ///   count the thing that decides how many channels there are.
         /// </summary>
+        /// <summary>
+        ///   The two cases together: variant A declares the channel once, and variant B declares it
+        ///   TWICE in one list. A restatement across variants and a genuine contradiction inside
+        ///   one, in a single file, which is what distinguishes remembering the first list a name
+        ///   was seen in from remembering every list it was seen in.
+        /// </summary>
+        private const String RestatedThenTwinnedCluster = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>MIXEDBUS</SHORT-NAME>
+                      <FLEXRAY-CLUSTER-VARIANTS>
+                        <FLEXRAY-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>MIXEDBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER-CONDITIONAL>
+                        <FLEXRAY-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>MIXEDBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>MIXEDBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER-CONDITIONAL>
+                      </FLEXRAY-CLUSTER-VARIANTS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
         /// <summary>Two channels of one short name as siblings in ONE list, with no variant between
         /// them: the genuine contradiction, as against the restatement in <c>TwoChannelCluster</c>.</summary>
         private const String TwinChannelCluster = """
