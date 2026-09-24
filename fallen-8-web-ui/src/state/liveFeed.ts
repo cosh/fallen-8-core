@@ -27,6 +27,7 @@ import { useEffect, useState } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import type { InstanceConfig } from "../instances/types";
 import { getInstanceStore } from "./instanceStore";
+import { namespacesKey } from "./namespaces";
 import { getEventFeed } from "./eventFeed";
 import { matchesFilter } from "./feedFilter";
 import { getEdge } from "../api/endpoints";
@@ -171,7 +172,7 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
       schedule([instance.id, "graph"]);
       // …and so do the top bar's counts, which come from the inventory rather than /status.
       // Property writes change neither total, so they are the one kind that skips this.
-      schedule([rawInstanceId, "namespaces"]);
+      schedule(namespacesKey(rawInstanceId));
     }
 
     // Document lifecycle (feature unstructured-ingestion): the ingest pipeline commits the
@@ -212,7 +213,7 @@ export function createLiveFeedHandlers(ctx: LiveFeedContext): LiveFeedHandlers {
     // is also when the counts are least trustworthy (trim/tabulaRasa/load replace the graph), so
     // re-read them explicitly. Skipped on an unbound instance, where the prefix already covers it.
     if (rawInstanceId !== instance.id) {
-      void queryClient.invalidateQueries({ queryKey: [rawInstanceId, "namespaces"] });
+      void queryClient.invalidateQueries({ queryKey: namespacesKey(rawInstanceId) });
     }
   };
 

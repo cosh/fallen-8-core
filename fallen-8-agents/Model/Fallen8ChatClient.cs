@@ -66,17 +66,14 @@ namespace NoSQL.GraphDB.Agents.Model
     public sealed class Fallen8ChatClient : IChatClient
     {
         private readonly HttpClient _http;
-        private readonly TimeSpan _timeout;
         private ModelProvenance? _lastSeen;
 
-        /// <param name="http">The transport, already carrying the base address and this host's own
-        /// API key. Not owned: the DI container built it and disposes it.</param>
-        /// <param name="timeout">This host's budget for one completion, which sits ABOVE the
-        /// instance's own so the instance's answer is the one a caller sees.</param>
-        public Fallen8ChatClient(HttpClient http, TimeSpan timeout)
+        /// <param name="http">The transport, already carrying the base address, this host's own API
+        /// key, and its DEADLINE for one completion. This class arms no deadline of its own; why it
+        /// must not is stated where the deadline IS armed, in <c>AgentsHost</c>.</param>
+        public Fallen8ChatClient(HttpClient http)
         {
             _http = http;
-            _timeout = timeout;
         }
 
         /// <summary>
@@ -112,15 +109,12 @@ namespace NoSQL.GraphDB.Agents.Model
                 Options = KnobsOf(options),
             };
 
-            using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            budget.CancelAfter(_timeout);
-
             // Through the shared REST seam, which is what the project reference is FOR: it owns the
             // one distinction this layer kept getting wrong, between an answer that never came and a
-            // caller who went away. Left to HttpClient, both arrive as the same exception and the
-            // runner recorded a hung gateway as an agent somebody cancelled.
+            // caller who went away. The caller's OWN token goes in, unwrapped, because wrapping it
+            // is what breaks that distinction (AgentsHost states why).
             var response = await RestSeam.SendAsync(_http, HttpMethod.Post, "chat", request,
-                NoAnswer, budget.Token).ConfigureAwait(false);
+                NoAnswer, cancellationToken).ConfigureAwait(false);
 
             using (response)
             {
@@ -129,13 +123,13 @@ namespace NoSQL.GraphDB.Agents.Model
                 // body rather than a status this layer invented. Bounded, because it reaches a caller.
                 if (!response.IsSuccessStatusCode)
                 {
-                    var detail = await Detail(response, budget.Token).ConfigureAwait(false);
+                    var detail = await Detail(response, cancellationToken).ConfigureAwait(false);
                     throw new Fallen8ChatException(String.Format(
                         "The Fallen-8 chat gateway answered {0}: {1}",
                         (Int32)response.StatusCode, detail));
                 }
 
-                return await Read(response, budget.Token, cancellationToken).ConfigureAwait(false);
+                return await Read(response, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -150,28 +144,25 @@ namespace NoSQL.GraphDB.Agents.Model
             return failure == RestSendFailure.TimedOut
                 ? new Fallen8ChatException(String.Format(
                     "The Fallen-8 chat gateway did not answer within {0} seconds "
-                    + "(Fallen8Target:TimeoutSeconds).", (Int64)_timeout.TotalSeconds), cause)
+                    + "(Fallen8Target:TimeoutSeconds).", (Int64)_http.Timeout.TotalSeconds), cause)
                 : new Fallen8ChatException(String.Format(
                     "The Fallen-8 chat gateway at {0} could not be reached: {1}",
                     _http.BaseAddress, cause.Message), cause);
         }
 
-        /// <summary>The success body, as the framework's own response shape.</summary>
+        /// <summary>The success body, as the framework's own response shape. Parsed off buffered
+        /// bytes: the seam's completion option finishes the whole response before it returns, so
+        /// this cannot wait on the gateway and the transport deadline has already had its say.
+        /// A cancellation here is therefore the caller's, and is left to propagate as one.</summary>
         private async Task<ChatResponse> Read(HttpResponseMessage response,
-            CancellationToken budget, CancellationToken caller)
+            CancellationToken cancellationToken)
         {
             ChatResponseBody? body;
             try
             {
                 body = await response.Content
-                    .ReadFromJsonAsync<ChatResponseBody>(RestSeam.JsonOptions, budget)
+                    .ReadFromJsonAsync<ChatResponseBody>(RestSeam.JsonOptions, cancellationToken)
                     .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (!caller.IsCancellationRequested)
-            {
-                throw new Fallen8ChatException(String.Format(
-                    "The Fallen-8 chat gateway did not finish answering within {0} seconds "
-                    + "(Fallen8Target:TimeoutSeconds).", (Int64)_timeout.TotalSeconds));
             }
             catch (JsonException failure)
             {

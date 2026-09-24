@@ -104,7 +104,7 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
         private static readonly Dictionary<String, BusProtocol> FrameElements;
 
-        /// <summary>The unread bus kinds as a set, for the membership test in <c>Collect</c>.</summary>
+        /// <summary>The unread bus kinds as a set, for the membership test in the stream loop.</summary>
         private static readonly HashSet<String> UnreadClusters;
 
         /// <summary>
@@ -414,6 +414,24 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                         continue;
                     }
 
+                    if (UnreadClusters.Contains(name))
+                    {
+                        // A bus this version does not read: NOTED, and then skipped WHOLE. Noted
+                        // because the reader materialises only its interest set, so an unread bus
+                        // would otherwise leave no trace at all and an operator would be left
+                        // inferring it from a network that never appeared. Skipped rather than
+                        // materialised because the diagnostic is keyed by the ELEMENT name, so
+                        // nothing inside it is wanted: a J1939 cluster's subtree is the size of a
+                        // bus matrix, and it was being built as XElements only to be dropped.
+                        // Skip leaves the reader on the node AFTER the element, exactly as ReadFrom
+                        // does, so the loop must not read again; and no frame is pushed for it, so
+                        // none is owed on the way out.
+                        collected.UnreadCluster(name);
+                        reader.Skip();
+                        advanced = false;
+                        continue;
+                    }
+
                     if (Interesting.Contains(name))
                     {
                         var prefix = PathOf(stack);
@@ -594,16 +612,6 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 return;
             }
 
-            if (UnreadClusters.Contains(name))
-            {
-                // A bus this version does not read. NOTED rather than skipped, because the alternative is
-                // silence: the reader materialises only its interest set, so an unread bus leaves no trace
-                // at all and an operator is left inferring it from a network that never appeared. Every
-                // element below it stays unread, so the cost is one short-name read per cluster.
-                collected.UnreadCluster(name);
-                return;
-            }
-
             if (FrameElements.TryGetValue(name, out var frameBus))
             {
                 CollectFrame(path, shortName, element, collected, frameBus);
@@ -761,6 +769,17 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 collected.ClusterRedeclared(path);
             }
 
+            // EVERY PHYSICAL-CHANNELS list each channel name has been seen in, not just the first.
+            // See the claim below for what it decides; it is per cluster, because a short name is
+            // unique within its namespace.
+            //
+            // Remembering only the first list is not enough, and the difference is a report that
+            // goes missing rather than a tidiness point: a name declared once in variant A and
+            // TWICE in variant B has its third occurrence compared against A's list, differs from
+            // it, and is filed as a restatement, so a file that really does contradict itself
+            // inside one list says nothing about it.
+            var claimedChannels = new Dictionary<String, HashSet<XElement>>(StringComparer.Ordinal);
+
             foreach (var channel in channels)
             {
                 var channelName = Text(channel.Element(Ar + ShortNameElement));
@@ -771,10 +790,11 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
 
                 var channelPath = path + "/" + channelName;
 
-                // One element per channel, claimed like any other: a cluster's VARIANTS each repeat the
-                // same physical channels, and the claim is what makes the second declaration of one channel
-                // the same element rather than a duplicate. (This is what the removed channelCount had to
-                // count by distinct short name to get right.)
+                // One element per channel. A cluster's VARIANTS each restate the same physical channels,
+                // and the variant wrapper is not Identifiable, so it contributes no segment to a
+                // reference path: a restated channel is the SAME element addressed by the same path.
+                // (This is what the removed channelCount had to count by distinct short name to get
+                // right.) The first declaration is the one kept, as the claim keeps it.
                 var channelElement = new ArxmlElement(channelPath, ArxmlKinds.Channel)
                 {
                     [ArxmlProperties.Name] = channelName,
@@ -786,7 +806,31 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                     [ArxmlProperties.VlanName] = VlanNameOf(channel),
                 };
 
-                if (collected.Claim(channelElement, collected.Channels) == PathClaim.Recorded)
+                // A repeat under a DIFFERENT variant is that restatement, so it is claimed once and is
+                // NOT a fault: reporting it said "the file contradicts itself" about a valid extract.
+                // A repeat in the SAME list is the case that genuinely is one, two elements claiming a
+                // single path, and it still goes to the claim, which reports it.
+                //
+                // Only the claim is guarded, never the loop: every occurrence is still walked below,
+                // because a second variant carries connector references and triggerings the first
+                // does not.
+                if (!claimedChannels.TryGetValue(channelName, out var seenIn))
+                {
+                    // Reference identity, because what matters is WHICH list this is rather than
+                    // what it holds: two variants can carry lists that compare equal by value.
+                    seenIn = new HashSet<XElement>(ReferenceEqualityComparer.Instance);
+                    claimedChannels[channelName] = seenIn;
+                }
+
+                // Add answers both questions at once: false means this exact list has been seen
+                // before, so a repeat within it is two elements claiming one path. The parent is
+                // never null here - these come from Descendants(), which yields strict descendants,
+                // so each one has at least the cluster element above it.
+                var sameList = !seenIn.Add(channel.Parent!);
+                var restated = seenIn.Count > 1 && !sameList;
+
+                if (!restated
+                    && collected.Claim(channelElement, collected.Channels) == PathClaim.Recorded)
                 {
                     collected.Pending.Add(new Pending(channelPath, ArxmlRelations.PartOf, path));
                 }
@@ -1964,15 +2008,10 @@ namespace NoSQL.GraphDB.Integrations.Providers.AutosarArxml
                 }
             }
 
-            // The cluster kinds this version does NOT read are in the interest set too, and that is the
-            // whole mechanism behind naming them in a diagnostic: the reader materialises only what it is
-            // interested in, so an unread bus is invisible unless it is asked for. They dispatch to nothing
-            // in Collect, which is what makes them cost a short-name read and no more.
-            foreach (var unread in UnreadClusterElements)
-            {
-                set.Add(unread);
-            }
-
+            // The cluster kinds this version does NOT read are deliberately absent from this set: the
+            // reader recognises them BEFORE it consults it, notes the kind and skips the subtree (see
+            // the stream loop). Adding them here instead is what used to make an unread bus cost a
+            // whole materialised subtree for one diagnostic keyed by its element name.
             foreach (var pdu in PduElements)
             {
                 set.Add(pdu);

@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -122,6 +123,36 @@ namespace NoSQL.GraphDB.App.Chat
         /// the tool's schema here: the caller invoked the tool and is the only party that knows
         /// what its arguments mean.</summary>
         public JsonElement Arguments { get; init; }
+
+        /// <summary>
+        ///   The id a backend uses when the provider supplied none. It names the ROUND as well as
+        ///   the call, because an ordinal alone made every reply's first call <c>call_0</c>: a
+        ///   conversation of several rounds then carried one id for several different calls, which
+        ///   is unreadable in a trace and, on a protocol that matches results BY id, wrong on the
+        ///   wire.
+        ///
+        ///   <para>
+        ///     DERIVED from the request rather than generated, and that is a requirement and not a
+        ///     preference: the client echoes this id back on the next request, so the same reply to
+        ///     the same conversation has to produce the same id. That rules out a counter on a
+        ///     backend (one instance serves every conversation, so ids would interleave between
+        ///     callers), anything random, and anything clock-based.
+        ///   </para>
+        ///   <para>
+        ///     Not a uniqueness GUARANTEE, and it does not need to be: a caller that rewrites
+        ///     history could repeat a turn count. On the Ollama protocol, whose native API defines
+        ///     no id for a tool call, attribution is settled by walking back to the nearest call
+        ///     rather than by the id being unique; on the other two the provider supplies ids in
+        ///     practice and this is the fallback for one that does not.
+        ///   </para>
+        /// </summary>
+        /// <param name="turns">How many turns the request carried, which is what names the round.</param>
+        /// <param name="ordinal">This call's position within the reply.</param>
+        public static String SynthesiseId(Int32 turns, Int32 ordinal)
+        {
+            return "call_" + turns.ToString(CultureInfo.InvariantCulture)
+                + "_" + ordinal.ToString(CultureInfo.InvariantCulture);
+        }
     }
 
     /// <summary>Optional per-call knobs; each is left at the model's own default when null/empty.</summary>

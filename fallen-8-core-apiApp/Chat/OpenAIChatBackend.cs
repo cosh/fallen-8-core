@@ -168,7 +168,7 @@ namespace NoSQL.GraphDB.App.Chat
                 else
                 {
                     ChatCompletion completion = await client.CompleteChatAsync(turns, request, cancellationToken);
-                    toolCalls = ToolCallsOf(completion);
+                    toolCalls = ToolCallsOf(completion, turns.Count);
                     Append(content, completion.Content);
                     finish = completion.FinishReason;
                     usage = completion.Usage;
@@ -305,9 +305,9 @@ namespace NoSQL.GraphDB.App.Chat
         }
 
         /// <summary>
-        ///   A turn as the SDK spells it. A <c>tool</c> turn becomes a user turn: a tool result has to
-        ///   name the tool call it answers, an id this seam does not carry, and refusing the turn
-        ///   outright would fail a request instead of answering it.
+        ///   A turn as the SDK spells it. Each of the seam's roles has a message type here,
+        ///   including <c>tool</c>, which carries the id of the call it answers
+        ///   (<see cref="ChatTurn.ToolCallId" />).
         /// </summary>
         private static ChatMessage ToMessage(ChatTurn turn)
         {
@@ -316,12 +316,24 @@ namespace NoSQL.GraphDB.App.Chat
                 case "system":
                     return ChatMessage.CreateSystemMessage(turn.Content);
                 case "assistant":
-                    // A turn that called tools is replayed AS those calls: this SDK's assistant
-                    // message is either text or calls, and the calls are what the next turn
-                    // answers, so they are the half that must survive.
-                    return turn.ToolCalls is { Count: > 0 } calls
-                        ? ChatMessage.CreateAssistantMessage(calls.Select(ToToolCall).ToList())
-                        : ChatMessage.CreateAssistantMessage(turn.Content);
+                    if (turn.ToolCalls is { Count: > 0 } calls)
+                    {
+                        // BOTH halves survive. This SDK models the text and the calls as two fields
+                        // of ONE assistant message rather than as alternatives, so a model that
+                        // spoke before it called keeps what it said - which the next turn reads, and
+                        // which the other two backends have always kept.
+                        var spokeAndCalled = ChatMessage.CreateAssistantMessage(
+                            calls.Select(ToToolCall).ToList());
+                        if (!String.IsNullOrEmpty(turn.Content))
+                        {
+                            spokeAndCalled.Content.Add(
+                                ChatMessageContentPart.CreateTextPart(turn.Content));
+                        }
+
+                        return spokeAndCalled;
+                    }
+
+                    return ChatMessage.CreateAssistantMessage(turn.Content);
                 case "tool":
                     return ChatMessage.CreateToolMessage(turn.ToolCallId, turn.Content);
                 default:
@@ -355,7 +367,7 @@ namespace NoSQL.GraphDB.App.Chat
         }
 
         /// <summary>The calls a completion asked for, in the seam's shape.</summary>
-        private static List<ChatToolCall> ToolCallsOf(ChatCompletion completion)
+        private static List<ChatToolCall> ToolCallsOf(ChatCompletion completion, Int32 turns)
         {
             if (completion?.ToolCalls == null || completion.ToolCalls.Count == 0)
             {
@@ -368,8 +380,11 @@ namespace NoSQL.GraphDB.App.Chat
                 var call = completion.ToolCalls[i];
                 mapped.Add(new ChatToolCall
                 {
+                    // The round-naming id, whose rule ChatToolCall.SynthesiseId owns. This
+                    // protocol carries an id on the wire and a result is matched BY it, so a
+                    // provider that omits one leaves no nearest-call walk to recover with.
                     Id = String.IsNullOrEmpty(call.Id)
-                        ? "call_" + i.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                        ? ChatToolCall.SynthesiseId(turns, i)
                         : call.Id,
                     Name = call.FunctionName,
                     Arguments = Parsed(call.FunctionArguments),
@@ -377,6 +392,25 @@ namespace NoSQL.GraphDB.App.Chat
             }
 
             return mapped;
+        }
+
+        /// <summary>
+        ///   What an absent or unparseable argument set becomes. It has to be a real empty OBJECT
+        ///   and not <c>default</c>: an unset <see cref="JsonElement" /> has
+        ///   <see cref="JsonValueKind.Undefined" />, the REST shape it is copied into cannot express
+        ///   that, and writing one throws, so returning it turned a malformed argument string into
+        ///   a failure of the whole response instead of the empty arguments promised below.
+        ///   <para>
+        ///     One cloned instance, reused. A clone outlives the document it was parsed from, this
+        ///     one is never disposed or mutated, and every consumer only reads it.
+        ///   </para>
+        /// </summary>
+        private static readonly JsonElement NoArguments = EmptyObject();
+
+        private static JsonElement EmptyObject()
+        {
+            using var document = JsonDocument.Parse("{}");
+            return document.RootElement.Clone();
         }
 
         /// <summary>
@@ -389,7 +423,7 @@ namespace NoSQL.GraphDB.App.Chat
         {
             if (arguments == null)
             {
-                return default;
+                return NoArguments;
             }
 
             try
@@ -399,7 +433,7 @@ namespace NoSQL.GraphDB.App.Chat
             }
             catch (JsonException)
             {
-                return default;
+                return NoArguments;
             }
         }
 

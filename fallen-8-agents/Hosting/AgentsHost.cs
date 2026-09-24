@@ -110,10 +110,15 @@ namespace NoSQL.GraphDB.Agents.Hosting
                 var target = provider.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value;
                 http.BaseAddress = new Uri(BaseAddress(target.BaseUrl), UriKind.Absolute);
 
-                // No HttpClient.Timeout: the adapter's own linked deadline is the budget, and a
-                // second timeout at this layer would be the NEARER of two, reporting a vague local
-                // failure in place of the instance's answer that names what to change.
-                http.Timeout = System.Threading.Timeout.InfiniteTimeSpan;
+                // The deadline for one completion, and the ONLY one: the adapter no longer arms a
+                // linked source of its own, because a linked source cancels the caller's token and
+                // so left the shared seam unable to tell this host's deadline from a caller who
+                // walked away - which is how a gateway that hung was recorded as an agent somebody
+                // cancelled. Armed here, a timeout fires with the caller's token unset, which is
+                // what the seam keys on to name it. The clamp behind Deadline is safe for this
+                // property specifically: HttpClient.Timeout has the tightest limit of the three
+                // APIs it feeds, which is why OptionBounds.MaxSeconds is that limit.
+                http.Timeout = target.Deadline;
                 http.DefaultRequestHeaders.Accept.Add(
                     new MediaTypeWithQualityHeaderValue("application/json"));
 
@@ -128,9 +133,8 @@ namespace NoSQL.GraphDB.Agents.Hosting
             // meter that wraps it (AgentBudgetChatClient), not here.
             services.AddSingleton(provider =>
             {
-                var target = provider.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value;
                 var http = provider.GetRequiredService<IHttpClientFactory>().CreateClient(ChatClientName);
-                return new Fallen8ChatClient(http, target.Deadline);
+                return new Fallen8ChatClient(http);
             });
 
             // The runner asks for the INTERFACE, so a test drives it with a scripted client and

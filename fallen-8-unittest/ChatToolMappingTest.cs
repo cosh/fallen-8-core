@@ -239,6 +239,93 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(String.Empty, assistant.GetProperty("content").GetString());
         }
 
+        /// <summary>
+        ///   A result is attributed to the round that ASKED, not to the first round that happens to
+        ///   share its id. Ids are synthesised per reply in this protocol, so two rounds sharing one
+        ///   is not a malformed conversation: it is what the previous scheme produced for every
+        ///   reply's first call. Resolving by first match anywhere therefore answered round two's
+        ///   result with round one's tool name, and the model was told the wrong tool had run.
+        ///   <para>Masked in practice only because the shipped agent model never reaches a second
+        ///   round; it appears the moment an operator names a tool-capable one.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task Ollama_AttributesAResultToTheNearestPrecedingCall_WhenTwoRoundsShareAnId()
+        {
+            var stub = new OllamaStub(
+                "{\"model\":\"m\",\"message\":{\"role\":\"assistant\",\"content\":\"8 vertices, 5 edges\"},"
+                + "\"done\":true,\"prompt_eval_count\":9,\"eval_count\":6,\"eval_duration\":1000000,"
+                + "\"total_duration\":2000000}");
+            using var backend = OllamaBackend(stub);
+
+            var conversation = new[]
+            {
+                new ChatTurn("user", "how many vertices and edges?"),
+                new ChatTurn("assistant", null, new[]
+                {
+                    new ChatToolCall
+                    {
+                        Id = "call_0",
+                        Name = "count_vertices",
+                        Arguments = Schema("{\"namespace\":\"default\"}"),
+                    },
+                }),
+                new ChatTurn("tool", "{\"count\":8}", null, "call_0"),
+                new ChatTurn("assistant", null, new[]
+                {
+                    new ChatToolCall
+                    {
+                        Id = "call_0",
+                        Name = "count_edges",
+                        Arguments = Schema("{\"namespace\":\"default\"}"),
+                    },
+                }),
+                new ChatTurn("tool", "{\"count\":5}", null, "call_0"),
+            };
+
+            await backend.ChatAsync(conversation, WithTool(), CancellationToken.None);
+
+            var turns = JsonDocument.Parse(stub.Body).RootElement.GetProperty("messages");
+            Assert.AreEqual(5, turns.GetArrayLength());
+            Assert.AreEqual("count_vertices", turns[2].GetProperty("tool_name").GetString(),
+                "round one's result still answers round one's call: " + stub.Body);
+            Assert.AreEqual("count_edges", turns[4].GetProperty("tool_name").GetString(),
+                "round two's result answers the NEAREST preceding call, not the first id match: "
+                + stub.Body);
+        }
+
+        /// <summary>
+        ///   A synthesised id names the round it was made in, so a trace of several rounds does not
+        ///   read <c>call_0</c> at every step, and it stays DERIVED rather than generated. Why it has
+        ///   to be derived is on <c>ChatToolCall.SynthesiseId</c>, which owns that decision for all
+        ///   three backends.
+        ///   <para>This is the only test that exercises the synthesis branch at all: the shared
+        ///   fixture's reply carries an id of its own, so the provider-supplied path is what every
+        ///   other test here takes.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task Ollama_SynthesisesAnIdPerRound_AndTheSameRoundTwiceGetsTheSameOne()
+        {
+            var stub = new OllamaStub(
+                "{\"model\":\"m\",\"message\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":"
+                + "[{\"function\":{\"name\":\"count_vertices\",\"arguments\":{\"namespace\":\"default\"}}}]},"
+                + "\"done\":true,\"done_reason\":\"stop\",\"prompt_eval_count\":11,\"eval_count\":0,"
+                + "\"eval_duration\":1000000,\"total_duration\":2000000}");
+            using var backend = OllamaBackend(stub);
+
+            // Conversations of DIFFERENT length, because that is what distinguishes the rounds: Ask
+            // is one turn and Replay is three. Two calls on the same conversation must agree.
+            var first = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+            var second = await backend.ChatAsync(Replay(), WithTool(), CancellationToken.None);
+            var again = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+
+            Assert.AreEqual(1, first.ToolCalls.Count);
+            Assert.AreNotEqual(first.ToolCalls[0].Id, second.ToolCalls[0].Id,
+                "two rounds must not both be call_0, or a trace cannot tell their steps apart");
+            Assert.AreEqual(first.ToolCalls[0].Id, again.ToolCalls[0].Id,
+                "and the id is derived, not generated: the client echoes it back, so the same reply "
+                + "to the same conversation has to produce the same id");
+        }
+
         #endregion
 
         #region OpenAI
@@ -308,6 +395,89 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("call_1", assistant.GetProperty("tool_calls")[0].GetProperty("id").GetString());
             var toolTurn = turns.EnumerateArray().Single(m => m.GetProperty("role").GetString() == "tool");
             Assert.AreEqual("call_1", toolTurn.GetProperty("tool_call_id").GetString());
+        }
+
+        /// <summary>
+        ///   A model that SPOKE and then called keeps both halves on replay. This SDK models the
+        ///   text and the calls as two fields of ONE assistant message rather than as alternatives,
+        ///   so the previous mapping dropped the text for no reason the protocol required, where the
+        ///   other two backends kept it. What the model said between rounds is what the next round
+        ///   reads.
+        ///   <para>The assertion is on the WIRE and not on the object, because the claim being
+        ///   tested is the SDK's serialiser: that it emits the content when both fields are set.
+        ///   Reading it back off a message this test had just built would prove nothing.</para>
+        /// </summary>
+        [TestMethod]
+        public async Task OpenAI_ReplaysAnAssistantTurnThatSpokeAndCalled_KeepingBothHalves()
+        {
+            var stub = new RecordingHandler(_ => RemoteModelWire.Json(
+                "{\"id\":\"c3\",\"object\":\"chat.completion\",\"created\":1,\"model\":\"gpt-4o-mini\","
+                + "\"choices\":[{\"index\":0,\"finish_reason\":\"stop\",\"message\":{\"role\":\"assistant\","
+                + "\"content\":\"there are 8\"}}],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":4,"
+                + "\"total_tokens\":13}}"));
+            using var backend = OpenAIBackend(stub);
+
+            var conversation = new[]
+            {
+                new ChatTurn("user", "how many vertices?"),
+                new ChatTurn("assistant", "let me check the default namespace", new[]
+                {
+                    new ChatToolCall
+                    {
+                        Id = "call_1",
+                        Name = "count_vertices",
+                        Arguments = Schema("{\"namespace\":\"default\"}"),
+                    },
+                }),
+                new ChatTurn("tool", "{\"count\":8}", null, "call_1"),
+            };
+
+            await backend.ChatAsync(conversation, WithTool(), CancellationToken.None);
+
+            var turns = JsonDocument.Parse(stub.Bodies[0]).RootElement.GetProperty("messages");
+            var assistant = turns.EnumerateArray().Single(m => m.GetProperty("role").GetString() == "assistant");
+            Assert.AreEqual("call_1", assistant.GetProperty("tool_calls")[0].GetProperty("id").GetString(),
+                "the calls are still what the next turn answers");
+
+            Assert.IsTrue(assistant.TryGetProperty("content", out var spoken),
+                "the assistant turn carries no content at all: " + stub.Bodies[0]);
+            StringAssert.Contains(spoken.ToString(), "let me check the default namespace",
+                "the text the model produced before calling has to survive the replay, whether this "
+                + "SDK spells content as a string or as parts: " + stub.Bodies[0]);
+        }
+
+        /// <summary>
+        ///   A provider that omits the call id gets the same round-naming id the Ollama path uses,
+        ///   from the one rule all three share. It matters MORE here than there: this protocol
+        ///   matches a tool result by id on the wire, so a synthesised id repeated across rounds is
+        ///   not just an unreadable trace, and there is no nearest-preceding walk to fall back on.
+        /// </summary>
+        [TestMethod]
+        public async Task OpenAI_SynthesisesARoundNamingId_WhenTheProviderOmitsOne()
+        {
+            var stub = new RecordingHandler(_ => RemoteModelWire.Json(
+                "{\"id\":\"c4\",\"object\":\"chat.completion\",\"created\":1,\"model\":\"gpt-4o-mini\","
+                + "\"choices\":[{\"index\":0,\"finish_reason\":\"tool_calls\",\"message\":"
+                + "{\"role\":\"assistant\",\"content\":null,\"tool_calls\":[{\"id\":\"\","
+                + "\"type\":\"function\",\"function\":{\"name\":\"count_vertices\","
+                + "\"arguments\":\"{}\"}}]}}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":0,"
+                + "\"total_tokens\":5}}"));
+            using var backend = OpenAIBackend(stub);
+
+            var first = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+            var second = await backend.ChatAsync(Replay(), WithTool(), CancellationToken.None);
+            var again = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+
+            Assert.AreEqual(1, first.ToolCalls.Count);
+            StringAssert.StartsWith(first.ToolCalls[0].Id, "call_",
+                "a provider that sent no id still leaves the seam one to match a result by");
+            Assert.AreNotEqual(first.ToolCalls[0].Id, second.ToolCalls[0].Id,
+                "two rounds must not share a synthesised id on a protocol that matches results BY "
+                + "id: there is no nearest-call walk here to absorb the collision");
+            Assert.AreEqual(first.ToolCalls[0].Id, again.ToolCalls[0].Id,
+                "and it is DERIVED, not generated, which the other two assertions cannot tell "
+                + "apart from a counter or a Guid: the client echoes the id back, so the same reply "
+                + "to the same conversation has to reproduce it");
         }
 
         #endregion
@@ -381,6 +551,33 @@ namespace NoSQL.GraphDB.Tests
             var resultBlock = turns[2].GetProperty("content")[0];
             Assert.AreEqual("tool_result", resultBlock.GetProperty("type").GetString());
             Assert.AreEqual("call_1", resultBlock.GetProperty("tool_use_id").GetString());
+        }
+
+        /// <summary>
+        ///   The third user of the one synthesis rule. As on the OpenAI protocol a
+        ///   <c>tool_result</c> is matched by this id, so a repeat across rounds would be wrong on
+        ///   the wire rather than merely unreadable.
+        /// </summary>
+        [TestMethod]
+        public async Task Anthropic_SynthesisesARoundNamingId_WhenTheProviderOmitsOne()
+        {
+            var stub = new RecordingHandler(_ => RemoteModelWire.Json(
+                "{\"id\":\"m3\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\","
+                + "\"content\":[{\"type\":\"tool_use\",\"id\":\"\",\"name\":\"count_vertices\","
+                + "\"input\":{}}],\"stop_reason\":\"tool_use\","
+                + "\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}"));
+            using var backend = AnthropicBackend(stub);
+
+            var first = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+            var second = await backend.ChatAsync(Replay(), WithTool(), CancellationToken.None);
+            var again = await backend.ChatAsync(Ask(), WithTool(), CancellationToken.None);
+
+            Assert.AreEqual(1, first.ToolCalls.Count);
+            StringAssert.StartsWith(first.ToolCalls[0].Id, "call_");
+            Assert.AreNotEqual(first.ToolCalls[0].Id, second.ToolCalls[0].Id,
+                "two rounds must not share a synthesised id here either");
+            Assert.AreEqual(first.ToolCalls[0].Id, again.ToolCalls[0].Id,
+                "and it is derived rather than generated, for the reason the OpenAI sibling gives");
         }
 
         #endregion

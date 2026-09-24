@@ -34,7 +34,8 @@ import {
 } from "../instances/registry";
 import { describeEndpoint, type InstanceConfig } from "../instances/types";
 import { ApiError } from "../api/client";
-import { getStatus, isAuthorized, listNamespaces } from "../api/endpoints";
+import { getStatus, isAuthorized } from "../api/endpoints";
+import { useNamespaces } from "../state/namespaces";
 import { useLiveChangeFeed, type LiveFeedStatus } from "../state/liveFeed";
 import { getInstanceStore } from "../state/instanceStore";
 import { EventFeedBell } from "../components/EventFeedBell";
@@ -185,13 +186,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const namespaceSupported = useRegistry((s) =>
     active ? s.namespaceSupport[active.id] : undefined,
   );
-  const namespaces = useQuery({
-    queryKey: [active?.id, "namespaces"],
-    queryFn: ({ signal }) => listNamespaces(active!, signal),
-    enabled: active !== null && connection === "connected",
-    refetchInterval: STATUS_POLL_MS,
-    retry: 0,
-  });
+  // The gate is passed rather than left to the hook's default, and it is load-bearing: the routes
+  // that hang off the root rather than off a namespace (save games, integrations, an unmatched
+  // path) mount no NamespaceScope, and the Connect screen drops the panel under lockNamespace, so
+  // on those this is the only observer of the key. Without it they would poll an instance that is
+  // not connected.
+  const namespaces = useNamespaces(active, { enabled: connection === "connected" });
   useEffect(() => {
     if (!active) return;
     if (namespaces.data) {

@@ -205,3 +205,33 @@ revisions is variety in the standard, not variety in exporters, so an assumption
 particular tool writes an extract should be isolated and named as one rather than treated as general.
 The conformance suite judges behaviour, not data variety, and cannot catch a vendor writing something
 differently.
+
+## 10. What review this line of work actually got (recorded 2026-09-24)
+
+Section 8 said review was what remained, while `spec.md` said the work was reviewed. Both were
+written, neither was reconciled, and the honest version is in between. Recorded now because a
+validation pass went looking and found the contradiction rather than an answer.
+
+**What the commits got.** The seven commits of 2026-09-02 that added streaming, the Ethernet socket
+layer and the SOME/IP services reached `main` by fast-forward pull, with no merge commit and no
+review record. Four of their messages describe a review of their own subject, and one of them,
+`0847e3b8`, is a review pass over this branch that found three things, so it was not unreviewed;
+it was reviewed without a record, which is a different and smaller problem than section 8 implied.
+
+**What a later pass examined, 2026-09-23.** Four seams of `ArxmlReader`, statically: the XML
+hardening (DTD prohibited, resolver null, size bounded upstream, and the refusal pinned by a test
+with a control document), forward and dangling `DEST` reference resolution (two-stage, diagnostics
+bounded downstream by the per-code budget), duplicate `SHORT-NAME` claiming (first wins, guarded
+indexer writes), and the accumulating tables (linear in elements, shared across documents on
+purpose, cleared per job). All four held. Two defects came out of it, both fixed in
+[review-findings-2026-09-23](../review-findings-2026-09-23/spec.md): an unread bus kind was
+materialised whole to record one diagnostic keyed by its element name, which also meant an empty or
+unnamed one was reported as nothing at all; and a channel restated by a second cluster VARIANT was
+reported as `DuplicatePath`, whose message says the file contradicts itself. The second was firing
+on `TwoChannelCluster`, a fixture already in this suite, and nothing asserted on diagnostics there.
+
+**What remains unreviewable, and why it is not a to-do.** The Ethernet element names, the service
+instances and the coupling ports are name-driven tables read from the standard, with no export to
+check them against. That is unchanged from section 8 item 1, and no amount of reading fixes it: the
+mitigation is the socket layer's report-what-it-saw diagnostic, and the thing that would settle it
+is an extract, not a reviewer.

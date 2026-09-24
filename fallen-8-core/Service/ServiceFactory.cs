@@ -114,20 +114,27 @@ namespace NoSQL.GraphDB.Core.Service
                 {
                     if (WriteResource())
                     {
-                        if (Services.ContainsKey(serviceName))
+                        try
                         {
-                            _logger.LogError(String.Format("There already exists a service with the name {0}", serviceName));
-                            service = null;
+                            if (Services.ContainsKey(serviceName))
+                            {
+                                _logger.LogError(String.Format("There already exists a service with the name {0}", serviceName));
+                                service = null;
 
-                            FinishWriteResource();
-                            return false;
+                                return false;
+                            }
+
+                            // Plugin code, inside the lock, so a plugin that throws from its own
+                            // Initialize is exactly the case the release below has to survive.
+                            service.Initialize(_fallen8, parameter);
+                            Services.Add(serviceName, service);
+
+                            return true;
                         }
-
-                        service.Initialize(_fallen8, parameter);
-                        Services.Add(serviceName, service);
-
-                        FinishWriteResource();
-                        return true;
+                        finally
+                        {
+                            FinishWriteResource();
+                        }
                     }
 
                     throw new CollisionException();
@@ -142,8 +149,22 @@ namespace NoSQL.GraphDB.Core.Service
                 _logger.LogError(String.Format("Fallen-8 was not able to add the {0} service plugin. Message: {1}",
                     servicePluginName, e.Message));
 
-                FinishWriteResource();
-
+                // Deliberately does NOT release the lock, and it used to. This catch spans MORE than
+                // the guarded region - the plugin resolution above it, and the throw when
+                // acquisition fails - so an unconditional release here was correct for a throw
+                // raised inside the lock and wrong for one raised outside it, where it releases a
+                // lock never held, drives the writer counter negative, and so reads as permanently
+                // held. The finally inside the region owns the release now, and only it.
+                //
+                // The reachable way in WITHOUT the lock is a plugin whose construction fails late,
+                // and it is pinned by IndexLockContainmentTest: discovery's name map activates each
+                // candidate once to read its name and skips one that throws, but it stores the TYPE
+                // and is memoized, so resolution activates a fresh instance per call with no catch
+                // around it. A constructor that succeeded at map-build time and fails afterwards -
+                // one that opens a file, a socket or reads configuration - therefore propagates
+                // straight through resolution into here. What does NOT reach it: an unknown name
+                // (resolution answers false and takes the else branch) and a REGISTERED plugin
+                // whose constructor throws (PluginRegistry.TryActivate catches it).
                 service = null;
                 return false;
             }

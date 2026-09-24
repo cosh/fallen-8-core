@@ -71,11 +71,11 @@ namespace NoSQL.GraphDB.Integrations.Configuration
         ///   directly, and for it this ceiling is live up to the runtime's own transport bound.</para>
         ///
         ///   <para>A file this big is not free, and the cost is not hidden: it arrives as raw bytes in its
-        ///   own multipart part, is held whole, and is decoded to TEXT for the provider - two bytes per
-        ///   character for XML - so a run over a maximal extract peaks in the high hundreds of megabytes
-        ///   before the provider has parsed anything. The mount this replaced cost the same; what is new
-        ///   is that a caller rather than an operator picks the size, which is why the ceiling is here at
-        ///   all.</para>
+        ///   own multipart part and is held whole, so a run over a maximal extract has those bytes
+        ///   resident before the provider has parsed anything. A provider that takes the file as a STREAM
+        ///   adds nothing to that, which is what the AUTOSAR reader does; one that wants text pays for the
+        ///   decoded copy as well. The mount this replaced cost the same; what is new is that a caller
+        ///   rather than an operator picks the size, which is why the ceiling is here at all.</para>
         /// </summary>
         public Int64 MaxFileBytes { get; set; } = 134_217_728;
 

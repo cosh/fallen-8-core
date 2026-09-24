@@ -486,6 +486,64 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(2, network.Relations.Count(r => r.Type == ArxmlRelations.PartOf),
                 "and the repeat must not emit a second partOf edge either: a duplicated structural edge " +
                 "makes every count over the graph wrong in a way nothing downstream can undo");
+
+            // And it is not reported as a FAULT. The variant wrapper is not Identifiable, so it adds no
+            // segment to a reference path: a restated channel is the same element addressed by the same
+            // path, which is the opposite of a file contradicting itself. This assertion is the half the
+            // counts above could not see, and it was failing on this very fixture.
+            Assert.AreEqual(0, network.Diagnostics.Count(d => d.Kind == ArxmlDiagnosticKind.DuplicatePath),
+                "a channel restated by a second variant is not a duplicate path: " + Describe(network));
+        }
+
+        /// <summary>
+        ///   The case that IS the file contradicting itself: two channels of the same short name as
+        ///   siblings in ONE list. There is no variant to make them the same element, so they are two
+        ///   elements claiming one path, which AUTOSAR's per-namespace short-name uniqueness forbids,
+        ///   and it is still reported.
+        ///   <para>
+        ///     This is why the restatement is recognised by the list a channel sits in rather than by
+        ///     its name alone: deduping on the name would have removed a false report by giving up a
+        ///     true one, and nothing would have said so.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public void TwoChannelsOfOneNameInOneListAreStillReportedAsADuplicatePath()
+        {
+            var network = ArxmlReader.Read(TwinChannelCluster);
+
+            Assert.AreEqual(1, network.Elements.Count(e => e.Kind == ArxmlKinds.Channel),
+                "one path is one element, whichever declaration got there first: " + Describe(network));
+
+            var duplicate = network.Diagnostics.Single(d => d.Kind == ArxmlDiagnosticKind.DuplicatePath);
+            StringAssert.Contains(duplicate.Subject, "/Clusters/TWINBUS/TWINBUS_CH_A",
+                "and the report names the path both declarations claimed: " + duplicate.Subject);
+        }
+
+        /// <summary>
+        ///   A restatement and a contradiction in ONE cluster: variant A declares the channel, and
+        ///   variant B declares it twice. The repeat across variants is the same channel and is
+        ///   silent; the repeat INSIDE variant B is two elements claiming one path and is reported.
+        ///   <para>
+        ///     This is what makes the difference between remembering the first list a name was seen
+        ///     in and remembering every list it was seen in. Remembering only the first, variant B's
+        ///     second occurrence is compared against variant A's list, differs from it, and is
+        ///     therefore filed as a restatement: the contradiction goes unreported and the file's
+        ///     own count of channels is the only trace left.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public void AChannelRestatedByOneVariantAndDuplicatedInAnother_ReportsOnlyTheDuplicate()
+        {
+            var network = ArxmlReader.Read(RestatedThenTwinnedCluster);
+
+            Assert.AreEqual(1, network.Elements.Count(e => e.Kind == ArxmlKinds.Channel),
+                "three occurrences of one short name in one cluster are one channel: "
+                + Describe(network));
+
+            var duplicate = network.Diagnostics.Single(d => d.Kind == ArxmlDiagnosticKind.DuplicatePath);
+            StringAssert.Contains(duplicate.Subject, "/Clusters/MIXEDBUS/MIXEDBUS_CH_A",
+                "exactly one report, for the two in a single list, and not for the restatement "
+                + "across variants: " + duplicate.Subject);
         }
 
         /// <summary>
@@ -508,6 +566,77 @@ namespace NoSQL.GraphDB.Tests
                 "the ECU sits on one bus over two channels, so it reaches the network once and each " +
                 "channel once: [" + String.Join(", ", reached) + "]");
         }
+
+        /// <summary>
+        ///   The two cases together: variant A declares the channel once, and variant B declares it
+        ///   TWICE in one list. A restatement across variants and a genuine contradiction inside
+        ///   one, in a single file, which is what distinguishes remembering the first list a name
+        ///   was seen in from remembering every list it was seen in.
+        /// </summary>
+        private const String RestatedThenTwinnedCluster = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>MIXEDBUS</SHORT-NAME>
+                      <FLEXRAY-CLUSTER-VARIANTS>
+                        <FLEXRAY-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>MIXEDBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER-CONDITIONAL>
+                        <FLEXRAY-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>MIXEDBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>MIXEDBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER-CONDITIONAL>
+                      </FLEXRAY-CLUSTER-VARIANTS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
+
+        /// <summary>Two channels of one short name as siblings in ONE list, with no variant between
+        /// them: the genuine contradiction, as against the restatement in <c>TwoChannelCluster</c>.</summary>
+        private const String TwinChannelCluster = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <AUTOSAR xmlns="http://autosar.org/schema/r4.0">
+              <AR-PACKAGES>
+                <AR-PACKAGE>
+                  <SHORT-NAME>Clusters</SHORT-NAME>
+                  <ELEMENTS>
+                    <FLEXRAY-CLUSTER>
+                      <SHORT-NAME>TWINBUS</SHORT-NAME>
+                      <FLEXRAY-CLUSTER-VARIANTS>
+                        <FLEXRAY-CLUSTER-CONDITIONAL>
+                          <PHYSICAL-CHANNELS>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>TWINBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                            <FLEXRAY-PHYSICAL-CHANNEL>
+                              <SHORT-NAME>TWINBUS_CH_A</SHORT-NAME>
+                            </FLEXRAY-PHYSICAL-CHANNEL>
+                          </PHYSICAL-CHANNELS>
+                        </FLEXRAY-CLUSTER-CONDITIONAL>
+                      </FLEXRAY-CLUSTER-VARIANTS>
+                    </FLEXRAY-CLUSTER>
+                  </ELEMENTS>
+                </AR-PACKAGE>
+              </AR-PACKAGES>
+            </AUTOSAR>
+            """;
 
         /// <summary>
         ///   A FlexRay cluster with two physical channels and, deliberately, a SECOND variant repeating

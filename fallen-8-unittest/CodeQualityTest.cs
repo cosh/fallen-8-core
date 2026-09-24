@@ -121,6 +121,146 @@ namespace NoSQL.GraphDB.Tests
             AssertNoViolations(violations, "no Console.Write* / Console.Out.Write* / Console.Error.Write* in product code");
         }
 
+        /// <summary>
+        ///   Every <c>AThreadSafeElement</c> lock release sits in a <c>finally</c>, so a throw inside
+        ///   a guarded region cannot skip it (platform-integrity audit, W8).
+        ///
+        ///   <para>
+        ///     This is a rule rather than a review note because of what a leak costs and how little
+        ///     it says while costing it: the release is a bare method call, a throw past it wedges
+        ///     the element for the life of the process, acquisition then never returns at all, and
+        ///     two of the callers that can trigger it swallow the throw. The full explanation has one
+        ///     home, on <c>AThreadSafeElement._usingResource</c>. What a leak looks like from the
+        ///     outside is pinned behaviourally by <c>IndexLockContainmentTest</c>; this gate is the
+        ///     cheap structural half that covers every subclass at once.
+        ///   </para>
+        ///   <para>
+        ///     The rule is on the RELEASE and not on the acquisition, which is the difference between
+        ///     a gate and a style check. "The guarded region opens with try" was the first shape
+        ///     tried and it reported <c>IndexFactory</c>, whose release is correctly in a finally
+        ///     behind one local declaration that cannot throw. What actually matters is that no
+        ///     release can be jumped over, and that is what this asserts.
+        ///   </para>
+        /// </summary>
+        [TestMethod]
+        public void EveryThreadSafeElementLock_ReleasesInAFinally()
+        {
+            // RTree is a KNOWN, MEASURED exemption and not an oversight: 15 of its 17 acquisitions
+            // are unguarded, several of them around an injected IMetric and caller geometry, which
+            // is the same defect as W8's and a larger instance of it. W8 scoped itself to
+            // SingleValueIndex and the audit's architects never assessed this file, so widening the
+            // mechanical fix into a 2,000-line spatial index is a decision to take deliberately
+            // rather than to inherit from a gate. Recorded in
+            // features/done/review-findings-2026-09-23/spec.md; the exemption goes when it is fixed.
+            // The FILE, not its directory. Exempting Index/Spatial would hand the same pass to any
+            // spatial index added later, which is the one thing an exemption must not do: RTree.cs
+            // is the only file under there with a release today, and the gate should widen by itself
+            // when that stops being true.
+            var exempt = new[]
+            {
+                Path.Combine("fallen-8-core", "Index", "Spatial", "Implementation", "RTree", "RTree.cs"),
+            };
+            var root = TestRepo.Root();
+
+            var violations = new List<string>();
+            var guarded = 0;
+            foreach (var file in SourceFiles(_productProjects))
+            {
+                var relative = Path.GetRelativePath(root, file);
+                if (exempt.Any(e => relative.Equals(e, StringComparison.OrdinalIgnoreCase)))
+                {
+                    continue;
+                }
+
+                // The RAW lines, so a reported number is the one an editor shows. Comments and blanks
+                // are stepped over while looking back instead.
+                var lines = File.ReadAllLines(file);
+                for (var i = 0; i < lines.Length; i++)
+                {
+                    // The CODE on the line, with any trailing comment removed first. Removing it is
+                    // load-bearing twice over: a line that is only prose about a release must not be
+                    // reported, and a trailing comment must not be allowed to satisfy the finally
+                    // check below. "FinishWriteResource(); // not in a finally" outside a finally
+                    // was counted as guarded before this, which is the exact shape this rule was
+                    // widened to catch, one word away.
+                    var trimmed = WithoutTrailingComment(lines[i]);
+
+                    // ANYWHERE on the line, not the whole line. A whole-line pattern let
+                    // "FinishWriteResource(); return;" through without counting or reporting it. The
+                    // declarations in AThreadSafeElement carry no semicolon, so they still do not
+                    // match.
+                    if (!Regex.IsMatch(trimmed, @"Finish(Read|Write)Resource\(\)\s*;"))
+                    {
+                        continue;
+                    }
+
+                    // A one-line "finally { Finish...(); }" is guarded by the line it is on.
+                    if (Regex.IsMatch(trimmed, @"\bfinally\b"))
+                    {
+                        guarded++;
+                        continue;
+                    }
+
+                    // Back over the finally's own brace to the keyword itself.
+                    var opener = PreviousStatement(lines, i - 1);
+                    if (opener >= 0 && lines[opener].Trim() == "{")
+                    {
+                        opener = PreviousStatement(lines, opener - 1);
+                    }
+
+                    if (opener >= 0 && lines[opener].Trim() == "finally")
+                    {
+                        guarded++;
+                        continue;
+                    }
+
+                    violations.Add(relative + ":" + (i + 1) + " " + trimmed
+                        + " - a release outside a finally is skipped by any throw above it");
+                }
+            }
+
+            // Paired with the rule, because a pattern that matched nothing would pass vacuously and
+            // say the opposite of what it means. A FLOOR rather than an exact count, since the exact
+            // number moves with ordinary edits: 65 releases across 7 files when this was written, so
+            // 50 tolerates a normal change and still catches a pattern that has half stopped
+            // matching. If this trips after a deliberate removal, re-measure and lower it.
+            Assert.IsTrue(guarded >= 50,
+                "this gate found only " + guarded + " releases in a finally, against 65 when it was "
+                + "written, so its pattern has stopped matching the code it is meant to check");
+
+            AssertNoViolations(violations,
+                "every AThreadSafeElement lock release sits in a finally (one exempt file, see the comment)");
+        }
+
+        /// <summary>
+        ///   A line's code, with any trailing <c>//</c> comment cut off and the result trimmed.
+        ///   Naive about a <c>//</c> inside a string literal, which is correct for what it is used
+        ///   for: no release line in this repository carries one, and treating such a line as
+        ///   shorter code can only make the gate report MORE, never less.
+        /// </summary>
+        private static string WithoutTrailingComment(string line)
+        {
+            var comment = line.IndexOf("//", StringComparison.Ordinal);
+            return (comment >= 0 ? line.Substring(0, comment) : line).Trim();
+        }
+
+        /// <summary>The previous line that is neither blank nor a comment, for the gate above.</summary>
+        private static int PreviousStatement(string[] lines, int from)
+        {
+            while (from >= 0)
+            {
+                var trimmed = lines[from].Trim();
+                if (trimmed.Length != 0 && !trimmed.StartsWith("//", StringComparison.Ordinal))
+                {
+                    return from;
+                }
+
+                from--;
+            }
+
+            return -1;
+        }
+
         [TestMethod]
         public void ProductCode_UsesNoLocalClock_OutsideTheDocumentedAllowlist()
         {

@@ -466,6 +466,31 @@ namespace NoSQL.GraphDB.Tests
             await Assert.ThrowsExceptionAsync<TaskCanceledException>(() => pending);
         }
 
+        [TestMethod]
+        public async Task AGatewayThatNeverAnswersIsTheGatewaysFailure_NotACancelledAgent()
+        {
+            // The other direction of the test above, and the one that was broken: a gateway that
+            // went quiet was reported as an agent somebody cancelled. Why the deadline has to be
+            // the transport's for this to work is stated in AgentsHost, where it is armed; that the
+            // HOST actually arms it is a separate claim with its own test
+            // (AgentHostCompositionTest), because this one arms it itself.
+            using var factory = Factory(async (turns, opts, token) =>
+            {
+                await Task.Delay(TimeSpan.FromMinutes(5), token);
+                return new ChatBackendResult { Content = "never", Model = opts.Model };
+            });
+
+            var failure = await Assert.ThrowsExceptionAsync<Fallen8ChatException>(
+                () => Client(factory, TimeSpan.FromMilliseconds(250))
+                    .GetResponseAsync(new[] { new ChatMessage(ChatRole.User, "hi") }));
+
+            StringAssert.Contains(failure.Message, "did not answer",
+                "a deadline that fired is the GATEWAY's failure, and the message has to say so "
+                + "rather than arriving as the cancellation the runner would believe");
+            StringAssert.Contains(failure.Message, "Fallen8Target:TimeoutSeconds",
+                "and it names the setting to change, because the number is this host's own");
+        }
+
         /// <summary>A tool whose schema has a required array, which is the part a mapping through a
         /// provider's own schema type silently drops.</summary>
         private static AIFunction CountVertices()
@@ -481,11 +506,19 @@ namespace NoSQL.GraphDB.Tests
 
         private static Fallen8ChatClient Client(AgentChatFactory factory)
         {
+            return Client(factory, TimeSpan.FromSeconds(30));
+        }
+
+        private static Fallen8ChatClient Client(AgentChatFactory factory, TimeSpan deadline)
+        {
             // The factory's client speaks to the in-memory server, so this is the real controller
-            // on the far side of a real HTTP request.
+            // on the far side of a real HTTP request. The deadline goes on the transport, as the
+            // host arms it (AgentsHost); that the host does so is pinned by
+            // AgentHostCompositionTest and not by anything here.
             var http = factory.CreateClient();
             http.BaseAddress = new Uri(http.BaseAddress, "/");
-            return new Fallen8ChatClient(http, TimeSpan.FromSeconds(30));
+            http.Timeout = deadline;
+            return new Fallen8ChatClient(http);
         }
 
         private static AgentChatFactory Factory(
