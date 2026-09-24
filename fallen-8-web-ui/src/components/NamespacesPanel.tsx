@@ -24,13 +24,12 @@
 // SOFTWARE.
 
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRegistry, useActiveInstance, DEFAULT_NAMESPACE } from "../instances/registry";
 import { describeEndpoint } from "../instances/types";
 import {
   createNamespace,
   dropNamespace,
-  listNamespaces,
   renameNamespace,
   setNamespaceLoadOnStartup,
 } from "../api/endpoints";
@@ -38,7 +37,7 @@ import type { NamespaceEntry, NamespaceTriState } from "../api/types";
 import { ApiError } from "../api/client";
 import { migrateInstanceStore, purgeInstanceStore } from "../state/instanceStore";
 import { DISPLAY_CAP, truncateChars } from "../lib/truncate";
-import { STATUS_POLL_MS } from "../lib/pollIntervals";
+import { namespacesKey, useNamespaces } from "../state/namespaces";
 import { SCROLL_ROWS, capList, scrollRows } from "../lib/listCaps";
 import { isValidNamespaceName } from "../lib/namespaceName";
 import { ABSENT, formatCountOrDash } from "../lib/format";
@@ -119,16 +118,10 @@ export function NamespacesPanel() {
   const [dropping, setDropping] = useState<NamespaceEntry | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const list = useQuery({
-    queryKey: [instance?.id, "namespaces"],
-    queryFn: ({ signal }) => listNamespaces(instance!, signal),
-    enabled: instance !== null,
-    refetchInterval: STATUS_POLL_MS,
-    retry: 0,
-  });
+  const list = useNamespaces(instance);
 
   const invalidate = () =>
-    queryClient.invalidateQueries({ queryKey: [instance?.id, "namespaces"] });
+    queryClient.invalidateQueries({ queryKey: namespacesKey(instance?.id) });
 
   const create = useMutation({
     mutationFn: (name: string) => createNamespace(instance!, name),

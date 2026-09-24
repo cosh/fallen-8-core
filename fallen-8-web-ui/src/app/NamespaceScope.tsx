@@ -25,15 +25,15 @@
 
 import { useEffect } from "react";
 import { Outlet, useNavigate, useParams, useRouterState } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRegistry, useActiveInstance, DEFAULT_NAMESPACE } from "../instances/registry";
-import { activateNamespace, listNamespaces, createNamespace } from "../api/endpoints";
+import { activateNamespace, createNamespace } from "../api/endpoints";
 import { purgeInstanceStore } from "../state/instanceStore";
 import { bumpFeedGeneration } from "../state/liveFeed";
 import { ErrorBox } from "../components/ErrorBox";
 import { useStudioConfig } from "./studioConfig";
 import { sameScopedScreen } from "./scopedRoute";
-import { STATUS_POLL_MS } from "../lib/pollIntervals";
+import { namespacesKey, useNamespaces } from "../state/namespaces";
 
 /**
  * Layout under /q/$ns/… (feature graph-namespaces): keeps the registry's active namespace
@@ -68,13 +68,7 @@ export function NamespaceScope() {
 
   // The same poll the switcher uses; a namespace dropped elsewhere surfaces within a cycle —
   // or immediately, when any request's marked 404 announces it (see throwIfNotOk).
-  const namespaces = useQuery({
-    queryKey: [instance?.id, "namespaces"],
-    queryFn: ({ signal }) => listNamespaces(instance!, signal),
-    enabled: instance !== null,
-    refetchInterval: STATUS_POLL_MS,
-    retry: 0,
-  });
+  const namespaces = useNamespaces(instance);
   const refetchNamespaces = namespaces.refetch;
   useEffect(() => {
     const onMissing = () => void refetchNamespaces();
@@ -88,7 +82,7 @@ export function NamespaceScope() {
   // operator who just fixed it to reload the page.
   const activate = useMutation({
     mutationFn: () => activateNamespace(instance!, ns),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [instance!.id, "namespaces"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: namespacesKey(instance!.id) }),
   });
 
   const entries = namespaces.data?.namespaces;
@@ -112,7 +106,7 @@ export function NamespaceScope() {
               // 404 and the effect key did not change - the generation bump resubscribes it.
               purgeInstanceStore(instance.id, ns);
               bumpFeedGeneration();
-              await queryClient.invalidateQueries({ queryKey: [instance.id, "namespaces"] });
+              await queryClient.invalidateQueries({ queryKey: namespacesKey(instance.id) });
             }}
           >
             Recreate “{ns}” (empty)

@@ -31,6 +31,7 @@ import type { NamespaceEntry } from "../api/types";
 import { createNamespace } from "../api/endpoints";
 import { ApiError } from "../api/client";
 import { DEFAULT_NAMESPACE } from "../instances/registry";
+import { namespacesKey } from "../state/namespaces";
 import { isValidNamespaceName } from "../lib/namespaceName";
 import { formatCountOrDash } from "../lib/format";
 import { Truncated } from "./Truncated";
@@ -98,7 +99,7 @@ export function NamespaceSwitcher({
   const create = useMutation({
     mutationFn: (name: string) => createNamespace(instance, name),
     onSuccess: (entry) => {
-      void queryClient.invalidateQueries({ queryKey: [instance.id, "namespaces"] });
+      void queryClient.invalidateQueries({ queryKey: namespacesKey(instance.id) });
       close();
       if (entry) onSwitch(entry.name);
     },

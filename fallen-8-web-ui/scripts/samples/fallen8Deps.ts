@@ -146,10 +146,29 @@ export function sbomContentEquals(left: SpdxSbom, right: SpdxSbom): boolean {
   return strip(left) === strip(right);
 }
 
+/**
+ * The committed document, behind a seam a test can supply.
+ *
+ * Injected rather than mocked, and the reason is measured rather than stylistic: mocking
+ * `node:fs` from a test does NOT reach this module. The unchanged-path assertion then passed
+ * while the real write went through, so the test was green AND it had overwritten the committed
+ * 26,000-line document with a two-package fixture. A seam cannot fail that way, and it is the
+ * same test-supplied-transport shape the chat backends already use.
+ */
+export interface SbomFile {
+  read(): string;
+  write(contents: string): void;
+}
+
+const committedFile: SbomFile = {
+  read: () => readFileSync(SBOM_PATH, "utf8"),
+  write: (contents) => writeFileSync(SBOM_PATH, contents, "utf8"),
+};
+
 /** The committed copy, or null when there is none yet or it cannot be parsed. */
-function committedSbom(): SpdxSbom | null {
+function committedSbom(file: SbomFile): SpdxSbom | null {
   try {
-    return JSON.parse(readFileSync(SBOM_PATH, "utf8")) as SpdxSbom;
+    return JSON.parse(file.read()) as SpdxSbom;
   } catch {
     // A missing or corrupt committed copy is not an error here: the refetch that is already in
     // flight replaces it, and a non-refetch build has nothing to fall back to and fails below
@@ -158,7 +177,7 @@ function committedSbom(): SpdxSbom | null {
   }
 }
 
-async function loadSbom(): Promise<SpdxSbom> {
+async function loadSbom(file: SbomFile): Promise<SpdxSbom> {
   if (process.env.F8_DEPS_REFETCH === "1") {
     const repo = process.env.F8_DEPS_REPO ?? DEFAULT_REPO;
     const url = `https://api.github.com/repos/${repo}/dependency-graph/sbom`;
@@ -173,7 +192,7 @@ async function loadSbom(): Promise<SpdxSbom> {
       );
     }
     const fetched = canonicalizeSbom(((await response.json()) as { sbom: SpdxSbom }).sbom);
-    const committed = committedSbom();
+    const committed = committedSbom(file);
 
     if (committed && sbomContentEquals(committed, fetched)) {
       // Deliberately NOT written. The committed copy keeps its own metadata, so its timestamp
@@ -186,17 +205,17 @@ async function loadSbom(): Promise<SpdxSbom> {
     }
 
     // Changed (or nothing committed yet): written whole, fresh metadata included.
-    writeFileSync(SBOM_PATH, JSON.stringify(fetched, null, 1) + "\n", "utf8");
+    file.write(JSON.stringify(fetched, null, 1) + "\n");
     console.log(`  refetched and stored ${SBOM_PATH} (dependencies changed)`);
     return fetched;
   }
   // Canonicalized on read as well, so the sample a plain build produces cannot depend on
   // whether the committed file happens to be sorted yet.
-  return canonicalizeSbom(JSON.parse(readFileSync(SBOM_PATH, "utf8")) as SpdxSbom);
+  return canonicalizeSbom(JSON.parse(file.read()) as SpdxSbom);
 }
 
-export async function buildFallen8Deps(): Promise<BuiltSample> {
-  const sbom = await loadSbom();
+export async function buildFallen8Deps(file: SbomFile = committedFile): Promise<BuiltSample> {
+  const sbom = await loadSbom(file);
   const { vertices, edges, ecosystemCounts } = sbomToGraph(sbom);
 
   const ecosystems = Object.entries(ecosystemCounts)

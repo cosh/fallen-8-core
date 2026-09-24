@@ -23,13 +23,12 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { useQuery } from "@tanstack/react-query";
 import type { InstanceConfig } from "../instances/types";
 import { isCrossOriginInstance } from "../instances/types";
-import { isAuthorized, listNamespaces } from "../api/endpoints";
+import { isAuthorized } from "../api/endpoints";
 import { ApiError, ApiTimeoutError } from "../api/client";
 import { useStatus } from "../state/status";
-import { STATUS_POLL_MS } from "../lib/pollIntervals";
+import { useNamespaces } from "../state/namespaces";
 import {
   describeDefaultOnly,
   describeTotals,
@@ -61,16 +60,12 @@ export function InstanceHealth({ instance }: { instance: InstanceConfig }) {
   // same query key AppShell polls, rather than opening a second observer with its own interval.
   const health = useStatus(instance, { poll: true });
   const probe = health.data ?? null;
-  // Keyed by the RAW instance id, like every other /ns observer (AppShell, NamespacesPanel): the
-  // inventory is Fallen-8-level, so the active instance's row rides their cache entry and adds no
-  // request of its own.
-  const inventory = useQuery({
-    queryKey: [instance.id, "namespaces"],
-    queryFn: ({ signal }) => listNamespaces(instance, signal),
-    enabled: probe !== null && isAuthorized(probe),
-    refetchInterval: STATUS_POLL_MS,
-    retry: 0,
-  });
+  // The shared /ns row (see state/namespaces.ts): the inventory is Fallen-8-level, so the active
+  // instance's row rides the cache entry the shell and the panel already observe and adds no
+  // request of its own. The gate is passed rather than left to the hook's default because this row
+  // renders for EVERY registered instance, including the ones nothing else observes, and asking
+  // before the probe says the key is accepted would be a request this row knows will 401.
+  const inventory = useNamespaces(instance, { enabled: probe !== null && isAuthorized(probe) });
 
   if (health.isPending) return <span className="text-fg-faint">checking…</span>;
   if (health.isError || probe === null)

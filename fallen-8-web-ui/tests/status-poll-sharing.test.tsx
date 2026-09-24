@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,15 +108,72 @@ describe("the status/namespace poll interval has one numeric source", () => {
     expect(STATUS_POLL_MS).toBe(15_000);
   });
 
+  // The cadence used to be named in each of the four /ns observers, because each of them declared
+  // its own query. They now share one hook, so the constant has moved into the two state modules
+  // and the consumers name it nowhere. The invariant is unchanged and is asserted as two halves:
+  // the hooks are its only homes, and no consumer hand-rolls an interval of its own.
+  it.each(["src/state/status.ts", "src/state/namespaces.ts"] as const)(
+    "%s is one of the two homes of the shared cadence",
+    (relPath) => {
+      expect(read(relPath)).toMatch(/STATUS_POLL_MS/);
+    },
+  );
+
   it.each([
     "src/app/AppShell.tsx",
     "src/app/NamespaceScope.tsx",
     "src/components/NamespacesPanel.tsx",
     "src/components/InstanceHealth.tsx",
-    "src/state/status.ts",
-  ] as const)("%s polls through the shared constant, not a numeric literal", (relPath) => {
-    const source = read(relPath);
-    expect(source).toMatch(/STATUS_POLL_MS/);
-    expect(source).not.toMatch(/refetchInterval:\s*\d/);
+  ] as const)("%s hand-rolls no poll interval of its own", (relPath) => {
+    expect(read(relPath)).not.toMatch(/refetchInterval:\s*\d/);
+  });
+});
+
+/**
+ * The same "one home" rule for the KEY rather than the cadence. Four components declared the /ns
+ * query and five sites invalidated it, so the key was spelled in nine places; a tenth that got a
+ * character wrong would have observed a row nothing else writes, and nothing would have failed.
+ * The hook owns the query and exports the key builder, and this is what keeps it that way.
+ */
+describe("the namespace inventory has one query key", () => {
+  const src = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src");
+  const owner = "state/namespaces.ts";
+
+  it("is spelled in state/namespaces.ts and nowhere else under src/", () => {
+    const offenders: string[] = [];
+    let ownerMatched = false;
+
+    for (const entry of readdirSync(src, { recursive: true, encoding: "utf8" })) {
+      const relative = entry.replace(/\\/g, "/");
+      if (!/\.tsx?$/.test(relative)) {
+        continue;
+      }
+
+      // Comments are stripped, for the reason CodeQualityTest documents: pollIntervals.ts
+      // describes the key form in its prose, and prose is not a second definition.
+      const code = readFileSync(resolve(src, entry), "utf8")
+        .split("\n")
+        .filter((line) => {
+          const trimmed = line.trim();
+          return !trimmed.startsWith("//") && !trimmed.startsWith("*") && !trimmed.startsWith("/*");
+        })
+        .join("\n");
+
+      if (!/,\s*"namespaces"\s*\]/.test(code)) {
+        continue;
+      }
+
+      if (relative === owner) {
+        ownerMatched = true;
+        continue;
+      }
+
+      offenders.push(relative);
+    }
+
+    // The control. A pattern that matched nothing would report an empty offender list and read as
+    // a pass, which is the opposite of what it means.
+    expect(ownerMatched).toBe(true);
+    expect(offenders).toEqual([]);
   });
 });

@@ -264,6 +264,23 @@ is part of the record. Every item here was established by running something.
   produce an unset element, but `ChatToolCallREST.Arguments` still cannot express one, so any
   future backend could fault a response the same way. The guard stays at the producer, where the
   false promise was, rather than in both places.
+- **Section 4's "no refactor" claim was wrong, and finding that out cost the committed SBOM.** The
+  plan said the unchanged-path test could be written by mocking `node:fs`. Mocking it does NOT
+  reach that module: the mock intercepted the test file's own binding, the pre-flight probe
+  therefore passed, and the real write went through anyway. The result was the worst shape a test
+  can have, green while destructive, and it replaced the committed 26,000-line document with a
+  two-package fixture. It was restored from `HEAD` and verified byte-identical. `loadSbom` now
+  takes an injected file seam, which is the shape the chat backends already use for a
+  test-supplied transport, and the suite asserts the module read THROUGH that seam so a bypass is
+  a failure rather than a silent write. A fourth test drives the DEFAULT seam against the real
+  document, read-only, because the other three replace it and could not notice it rotting.
+- **Section 5 row 5 was also half wrong.** Two of the four `enabled` predicates are load-bearing,
+  not one: the app shell is the only observer of the key on the routes that hang off the root, and
+  an instance health row renders for every registered instance including ones nothing else
+  observes. Both keep their gate, passed as a parameter; the hook ANDs it with the instance being
+  present so a caller cannot widen it into a null dereference. The poll-sharing convention test
+  moved with the cadence rather than being deleted, and a new half pins that the key literal has
+  exactly one home.
 - **A divergence worth naming:** the Anthropic and OpenAI backends synthesise per-reply ordinals
   the same way the Ollama one did. Their protocols carry the id on the wire, so it only bites if
   a provider omits one, and neither has the nearest-preceding walk to absorb a collision. Left
