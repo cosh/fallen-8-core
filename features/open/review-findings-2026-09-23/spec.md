@@ -387,6 +387,11 @@ items too. **Nothing here is fixed yet.** That is the next step, and this sectio
    wedge, and this feature's own rule is that a claim says which arm it verified. Fix: the comment
    states the structural fact; 7a and the audit line are corrected; the commit message cannot be
    edited and is noted here instead.
+   **Corrected by section 10 item 1: this item is itself wrong.** "Cannot fire" was too strong. A
+   service plugin discovered from the plugin folder whose constructor throws DOES reach that catch
+   with no lock held, because `PluginFactory.Activate<T>` lets a constructor's own exception
+   propagate. What cannot reach it is an unknown name, and a registered plugin whose constructor
+   throws. The record is left as written so the mistake is visible; section 10 has the truth.
 3. **The variant dedupe misses a duplicate inside a later variant (correctness, by trace).**
    `claimedChannels` remembers only the FIRST list a name was seen in, so two same-named channels
    in a LATER variant's list both read as restatements and the genuine contradiction is never
@@ -444,3 +449,77 @@ its own, nearer than the transport's, so the new deadline does not reach it; the
 Studio hook preserve every prior key and gate. One concern of mine is not counted: the timeout
 sentence would print zero seconds for an infinite `HttpClient.Timeout`, and the clamp makes that
 value unreachable.
+
+## 10. The review of the fixes (2026-09-24), and what it found
+
+The house rule, and the pass that found sixteen problems the last time it ran. Same method as
+section 9, over the one commit that applied it (`481e1188`). Ten findings, every one re-verified
+against the tree before it was counted. **Item 1 reverses my own section 9 item 2**, which is why
+this pass exists, and it is stated here at full length so the record is right even before the fix
+lands.
+
+### Confirmed, worst first
+
+1. **The ServiceFactory record is wrong for the SECOND time, now in the dangerous direction
+   (major).** Section 9 item 2 said the catch that used to release the lock was unreachable
+   without it, "the resolution is `Try*` all the way down", and Phase 9 wrote that into the comment,
+   into 7a, and into the audit's status line. It is false. `PluginFactory.Activate<T>` catches only
+   deployment failures, and its own doc says so: "anything else, including the plugin
+   constructor's own exception, propagates." `TryFindPlugin` wraps that call in nothing. So a
+   service plugin DISCOVERED from the plugin folder whose parameterless constructor throws
+   propagates through `TryResolveServicePlugin` into `TryAddService`'s catch before
+   `WriteResource()` was ever called, and the old code released a lock it never held. The path
+   that does NOT reach it is the one first named: a name nobody registered or shipped returns
+   false and takes the else branch, and a REGISTERED plugin whose constructor throws is caught by
+   `PluginRegistry.TryActivate`. So the truth is neither of the two things the record has said. The
+   wedge was live, for one class of broken plugin, and the current code is safe only because the
+   catch no longer releases. A reader who trusted the current comment and restored a release there
+   would reintroduce it believing it unreachable. Fix: the comment, 7a's bullet, section 9 item 2
+   and the audit line all say the reachable path and the two that are not. The claim has been
+   wrong twice, so those four sites get a narrow third look after the fix and nothing else does.
+2. **The lock gate counts a trailing comment as a `finally` (gate correctness).** The one-line
+   check is `\bfinally\b` over the whole trimmed line, so `FinishWriteResource(); // not in a
+   finally` outside any finally is counted as guarded. That is the exact shape item 4 of section 9
+   set out to catch, one word away. Fix: strip a trailing `//` comment before both checks.
+3. **The two new sibling synthesis tests do not pin "derived" (test cannot fail).** They assert
+   the id starts with `call_` and that two rounds differ; a counter or a `Guid` passes both. Their
+   Ollama sibling asserts that the same conversation twice gives the same id, and they must too.
+4. **The plan's move box is a false tick, the second one.** Line 166 ticks "move this directory to
+   features/done" while the directory is under `features/open` and the section eight lines below
+   opens with "not done here". Untick it.
+5. **"Carries no id field at all" is false, in two places.** `OllamaChatBackend.ToolCallFrom`'s
+   new doc says synthesis happens "every time, since it carries no id field at all", and
+   `ChatToolCall.SynthesiseId` says "the Ollama protocol, which carries no id at all". The SDK's
+   `ToolCall` has an `Id`, the ternary beneath the comment reads it, the shared fixture sends
+   `call_9`, and a test asserts it arrives. The native protocol defines no id; a compatible server
+   may still send one. Say that.
+6. **A stale pointer.** `ChatToolMappingTest` line 299 sends the reader to
+   `OllamaChatBackend.ToolCallFrom`, whose own doc now sends them on to
+   `ChatToolCall.SynthesiseId`. Point at the home.
+7. **An orphaned fixture summary.** The block at `IntegrationsArxmlReaderTest` line 571 describes
+   `TwoChannelCluster` (line 646), which now has no doc at all, while `RestatedThenTwinnedCluster`
+   carries two. Two insertions displaced it. Move it back above the constant it describes.
+8. **A hand-rolled reference set.** `Dictionary<String, List<XElement?>>` plus `Exists` plus a
+   guarded `Add` is a `HashSet<XElement>` with `ReferenceEqualityComparer.Instance`, whose
+   `Contains` and idempotent `Add` also make the six-line comment justifying reference equality
+   unnecessary. The `?` is unreachable: a `Descendants` hit always has a parent.
+9. **A hand-rolled `Select`.** `AgentHostCompositionTest.BuildSettings` is nine lines of
+   `yield return` for a projection.
+10. **A comment that misstates the gate's scope.** The `//` skip says it exists partly for "this
+    rule's own examples"; the gate scans product projects only and never reads its own file.
+
+### Cleared
+
+Everything else in the commit: the composition test's four cases and what they pin (the wiring, the
+floor, the ceiling, the default); the variant fixture and the fix's logic, which is correct even
+though item 8 says it is verbose; the widened regex's core, matching anywhere on the line with the
+declarations still excluded; the shared `SynthesiseId` design and its two wire tests, apart from
+item 3; the pointer reductions; the arithmetic correction; the redeclaration note.
+
+### What this pass says about the process
+
+Two of the twelve first-gate items were false claims of the implementation's, and one of the ten
+here is a false claim of the GATE's, mine, which the fix then copied into three more places. The
+second pass exists for exactly this, and it earned its keep. It also says where to stop: item 1's
+four sites get one more look because that claim has now failed twice, and the rest of this list is
+small enough that a third full pass would cost more than it could find.

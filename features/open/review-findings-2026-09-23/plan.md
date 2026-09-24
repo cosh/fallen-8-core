@@ -184,6 +184,15 @@ the files are open; 9 to 12 are record corrections, and 9 is owed by whoever mov
 Each code fix follows the same shape as before: the failing test first, the fix, the mutant. Item 1
 is the one whose test must go red on the HOST mutant this time, not on a client mutant.
 
+## Phase 10 - what the review of the fixes found (2026-09-24)
+
+Spec section 10 is the list, worst first. Item 1 is a record correction across four sites and is
+the only one that earns a further look afterwards, because that claim has now been wrong twice, in
+opposite directions. Items 2 and 3 are a gate and two tests that cannot fail as written; 4 is a
+false tick; 5 to 10 are wording, a pointer, a displaced comment and two simplifications. All ten
+are small. After they land, re-check item 1's four sites against `PluginFactory.Activate<T>` and
+stop; a third full pass is not worth what it would find.
+
 ## Risks
 
 - Phase 1 changes an observable state for one failure class (`cancelled` becomes `failed`). Any
