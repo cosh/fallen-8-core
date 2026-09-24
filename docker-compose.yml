@@ -88,9 +88,16 @@ services:
       - Fallen8__Chat__Backend=Ollama
       - Fallen8__Chat__Ollama__Endpoint=http://ollama:11434
       # One model per PURPOSE (feature agent-host): the request says which job it is and the
-      # server says which model does that job. Assist is the fine-tune that emits one C#
-      # fragment; agent is a stock tool-calling model, because the fine-tune cannot call tools.
-      # Both are models ollama-init.sh already pulls, so this needs no extra weights.
+      # server says which model does that job. Assist is the fine-tune that emits one C# fragment.
+      #
+      # The agent model below is a PLACEHOLDER, not a recommendation, and this is the measured
+      # position rather than a caveat: phi4-mini emits a real tool call from a bare user turn and
+      # stops emitting one as soon as any instruction text is present, so it cannot run a
+      # tool-using agent, and the role prompts the host sends are instruction text. It is named
+      # here because ollama-init.sh already pulls it, so the default needs no extra weights and no
+      # download. A deployment that wants agents which actually call tools names a tool-capable
+      # model here AND in F8_AGENT_MODEL so the sidecar pulls it. See
+      # https://docs.fallen-8.com/agents/#the-model-you-give-it.
       - Fallen8__Chat__Ollama__Models__Assist=phi4-f8-mini:latest
       - Fallen8__Chat__Ollama__Models__Agent=phi4-mini:latest
       # Documents in, graph out (feature unstructured-ingestion): binary formats convert in

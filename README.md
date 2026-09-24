@@ -114,7 +114,10 @@ Each feature has a deep-dive doc — follow the link.
   reading it through the MCP server above. It holds no model configuration and no provider key, so
   every model call goes to this instance's own chat gateway; each run leaves a bounded trace, an
   SSE event feed and hard budgets on steps, tool calls, wall clock and tokens. Off by default,
-  because an agent decides for itself which tools to call.
+  because an agent decides for itself which tools to call. **Name a tool-capable model before you
+  use it:** the model that ships as the default stops emitting tool calls as soon as any
+  instruction text is present, which is measured and
+  [documented](https://docs.fallen-8.com/agents/#the-model-you-give-it).
 - **[NL assist and fine-tuning](https://docs.fallen-8.com/nl-assist/)**: draft C# fragments from a
   sentence, and an offline pipeline (compile-gated dataset, QLoRA training, held-out eval,
   feedback loop) to train, evaluate and publish your own model.

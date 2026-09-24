@@ -17,6 +17,10 @@ call goes to your instance's own `POST /chat` with `purpose: agent`, so you conf
 on the instance, and the host inherits it. Point that instance at Nahil, at a local Ollama, at
 OpenAI or at Anthropic and the agents follow, with no second place to change.
 
+Which makes the model you point it at the one decision to take before anything else here is worth
+reading: the model that ships as the default **cannot run a tool-using agent**, and
+[the model you give it](#the-model-you-give-it) says what was measured and what to name instead.
+
 :::caution[Off by default, and it is a decision rather than caution]
 Every other capability here defaults on. This one does not. An agent decides for itself which
 tools to call, which means what it can do is whatever the MCP server advertises: enable the write
@@ -156,13 +160,18 @@ It is a **count, never a judgement**, and the numbers are worth reading precisel
 - What the pair is good for is the shape a fabricating run has: every figure asserted, no citations
   at all, and a trace with no tool calls in it.
 
-:::note[Measured, and worth knowing before you choose a model]
+## The model you give it
+
+:::caution[Measured: the default model cannot run a tool-using agent]
 The stock model the sidecar pulls by default emits no parsed tool call once **any** instruction
 text is present: with no instructions it calls the tool, and with a role prompt it writes the
 literal text of a tool-call marker followed by an invented result. Verified against the platform
 directly, so it is the model rather than this gateway. Agents that actually call tools need a
 tool-capable model named in `Fallen8:Chat:<Backend>:Models:Agent` (and in `F8_AGENT_MODEL` if you
-run it locally). The citation count is what makes a fabricating run visible when they do not.
+run it locally). The citation count above is what makes a fabricating run visible when they do not.
+
+Everything else on this page works as described. This is the one thing to settle before you turn
+agents on, and it is a model to choose rather than a setting to fix.
 :::
 
 ## Security posture
