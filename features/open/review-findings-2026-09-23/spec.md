@@ -352,3 +352,91 @@ gate has to surface the runner's own exit code, and this one was rewritten to do
 The `cmd /v:on` note above did not survive contact: it misfires under this shell and printed a
 banner instead of running anything. Both JavaScript gates were run through the Bash tool and their
 exit codes read from `PIPESTATUS`, which is reliable here.
+
+## 9. The review gate (2026-09-24), and what it found
+
+Method: a code review over `main...HEAD` at high effort (ten angles, a dedup pass and a gap sweep)
+returned eight findings. Every one was re-verified against the tree by hand before it was counted,
+and the most consequential one by measurement. Four more came from reading the implementation
+record against the code, which is where the last two gates on this repository found their worst
+items too. **Nothing here is fixed yet.** That is the next step, and this section is its input.
+
+### Confirmed, in order of what each would cost
+
+1. **The host's deadline wiring is pinned by no test, and the record says otherwise (major,
+   measured).** `AgentsHost.cs` sets `http.Timeout = target.Deadline`. Reverted to
+   `InfiniteTimeSpan`, every agent test passes: 234 of 234, one skipped. The adapter test arms the
+   timeout on a client it builds itself, so it pins the client's behaviour and not the host's
+   wiring, and the defect 2.1 fixed returns with the suite green. Plan box 36 says this exact
+   mutant was run and went red. It was not run: the mutant that was run re-armed a linked source
+   inside the client, which is a different claim. The box is corrected in this commit. Fix: a
+   composition test that calls `AgentsHost.AddFallen8Agents` with a configuration carrying
+   `Fallen8Target:TimeoutSeconds`, resolves `IHttpClientFactory`, creates
+   `AgentsHost.ChatClientName` and asserts its `Timeout` is the clamped deadline. That test is red
+   on this mutant, and it is the test the plan claimed to have.
+2. **The ServiceFactory story names a trigger that cannot fire (major, as a false claim).** The
+   comment on its catch, section 7a above, the audit's status line and commit `3404c11c` all say
+   an unresolved plugin released a lock never held and wedged the factory. `TryResolveServicePlugin`
+   is Try* all the way down: `PluginRegistry.TryActivate` wraps `CreateInstance` in its own catch,
+   `TryFindPlugin` returns false, `LogPluginNotFound` logs. An unresolved plugin takes the else
+   branch and never reaches the catch. The only way into that catch WITHOUT the lock was the
+   `CollisionException` thrown when `WriteResource()` returned false, which the audit itself
+   measured as unreachable. The fix stands, because a release outside the guarded region is wrong
+   by construction and the finally is where it belongs. The drama does not: there was no live
+   wedge, and this feature's own rule is that a claim says which arm it verified. Fix: the comment
+   states the structural fact; 7a and the audit line are corrected; the commit message cannot be
+   edited and is noted here instead.
+3. **The variant dedupe misses a duplicate inside a later variant (correctness, by trace).**
+   `claimedChannels` remembers only the FIRST list a name was seen in, so two same-named channels
+   in a LATER variant's list both read as restatements and the genuine contradiction is never
+   reported. Fix: a set of parents per name; an occurrence is a restatement only when its parent is
+   new to that set, and a repeat under a known parent goes to the claim. Fixture: variant A
+   declares the channel once, variant B declares it twice.
+4. **The lock gate cannot see a release that shares its line (gate correctness).** The regex
+   requires the release to be the whole line, so `FinishWriteResource(); // released` or
+   `FinishWriteResource(); return;` outside a finally is neither counted nor reported, and the floor
+   of 50 still holds. Fix: match `Finish(Read|Write)Resource\(\)\s*;` anywhere on the line; the
+   declarations in `AThreadSafeElement` carry no semicolon and stay excluded. Mutation-check with
+   exactly that shape.
+5. **The gate's exemption is a directory while its reason is a file.** `RTree.cs` is the only file
+   under `Index/Spatial` with a release today. Exempt the file, so the gate widens by itself when
+   another spatial index appears.
+6. **Five narrations of one rationale.** The linked-source-cancels-the-caller's-token story is told
+   in the chat client's constructor doc, its call-site comment, the host's wiring comment, two
+   adapter-test comments, the smoke test and findings section 4. The seam's own doc on
+   `RestSeam.SendAsync`'s token parameter already states the rule. Fix: the host, where the
+   deadline is armed, keeps two sentences and points at the seam; every other site becomes one
+   line; the history stays in findings section 4 and nowhere else.
+7. **Two narrations of the derived-id rationale.** `OllamaChatBackend.ToolCallFrom` owns it and the
+   test summary in `ChatToolMappingTest` repeats it. The test points; it does not retell.
+
+### Valid and pre-existing, recommended rather than blocking
+
+8. **The OpenAI and Anthropic backends still synthesise `call_{i}` per reply.** Recorded in 7a as
+   a divergence. Reachable only if a provider omits ids, which neither does, but the change is two
+   lines in each file and removes a recorded divergence, so it goes in while the files are open.
+
+### Found by reading the record against the code
+
+9. **Four pointers dangle the moment this directory moves to `features/done/`**: the agent-host
+   findings and the arxml findings link `../../open/review-findings-2026-09-23/`, the audit spec
+   links `../review-findings-2026-09-23/`, and `CodeQualityTest.cs` carries the path as a string.
+   The plan says move at merge; the move has to carry these four edits.
+10. **"Four times its stated size" is arithmetic that does not hold.** Twelve, fifteen and one make
+    28 against 12, a factor of 2.3. In 7a and in the audit status line.
+11. **Commit `76026160` says cross-file redeclaration is untouched.** Not quite: a channel restated
+    by a variant in a LATER file used to increment `_redeclared` once per occurrence and now once
+    per name, so the "elements already declared by an earlier file" count drops for such files. The
+    new count is the right one, since a restated channel is one element, so this is a claim to
+    correct rather than code.
+12. **Plan box 36 was a false tick**, per item 1, and is corrected in this commit.
+
+### Cleared, and why
+
+The review's own cleared list held on re-check. The twelve wraps and the ServiceFactory move are
+correct against the counter arithmetic; the removed body-read catch is dead because the seam
+buffers the whole response before returning; the startup probe keeps a ten second linked budget of
+its own, nearer than the transport's, so the new deadline does not reach it; the Ollama walk and the
+Studio hook preserve every prior key and gate. One concern of mine is not counted: the timeout
+sentence would print zero seconds for an infinite `HttpClient.Timeout`, and the clamp makes that
+value unreachable.

@@ -33,7 +33,11 @@ Files: `fallen-8-agents/Hosting/AgentsHost.cs`, `fallen-8-agents/Model/Fallen8Ch
       `NoAnswer` sentence prints.
 - [x] Confirm `ACallerCancellationPropagatesAsItselfRatherThanAsAGatewayFailure` still passes:
       a caller's cancel must still arrive as `TaskCanceledException`.
-- [x] Mutation check both tests by restoring `http.Timeout = InfiniteTimeSpan` alone.
+- [ ] **Was ticked and had not been done.** The mutant that was actually run re-armed a linked
+      source inside the client, which fails the adapter test for the client's reason. Restoring
+      `http.Timeout = InfiniteTimeSpan` in the HOST was measured at the gate on 2026-09-24 and
+      leaves all 234 agent tests green: the production wiring is pinned by nothing. Spec section
+      9 item 1 has the test that closes this.
 - [x] Record: agent-host `findings.md` section 4 gets the correction from spec section 4, and a
       new section 17 records this pass (what was examined, what was found, what was not: the
       registry's lock order, memory and token-source lifecycle were read and found sound).
@@ -161,6 +165,13 @@ Files: `README.md`, `docs/src/content/docs/agents.md`, `docker-compose.yml`,
 - [x] Impact table in the spec re-checked against the diff as it actually is.
 - [x] Move this directory to `features/done/` in the merge commit's own PR or merge; the spec's
       status line says what shipped and what was left (the model decision of spec section 3).
+
+## Phase 9 - what the gate found (2026-09-24)
+
+Spec section 9 is the list, worst first. Items 1 to 7 block the merge; 8 goes in with them because
+the files are open; 9 to 12 are record corrections, and 9 is owed by whoever moves this directory.
+Each code fix follows the same shape as before: the failing test first, the fix, the mutant. Item 1
+is the one whose test must go red on the HOST mutant this time, not on a client mutant.
 
 ## Risks
 
