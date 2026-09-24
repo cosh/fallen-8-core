@@ -1,11 +1,21 @@
 # Review findings 2026-09-23 - Specification
 
-> **Status:** Open, spec and plan only, nothing implemented. Source: the validation pass of
-> 2026-09-23 over the claimed-outstanding list (agent overclaim, unreviewed September code, small
-> items, declared gaps, another session's work). Every defect below was found by READING the tree
-> at 89b68b99 and none was executed, which is why each carries a reachability verdict rather than a
-> severity taken on faith. Branch: `feature/review-findings-2026-09-23`, branch-only workflow, no
-> issue or PR unless asked. Tick a box in the plan when a fix is on the branch with its test.
+> **Status:** IMPLEMENTED on `feature/review-findings-2026-09-23`, awaiting the review gate; not
+> merged. Eight commits, one per phase plus the bookkeeping, each fix mutation-checked. What the
+> implementation changed about this document is in section 7a rather than edited into the sections
+> above, and what the gate itself taught is in 7b; **section 7a corrects four claims made below**,
+> so read it before trusting a row in section 5.
+>
+> Two things are deliberately NOT done and are recorded rather than dropped: `RTree`'s 15 unguarded
+> lock sections, the same defect as W8 and a larger instance, which are named in a convention-test
+> exemption; and the default agent model, which stays as it is because that is a platform choice
+> with its own revisit trigger (section 3).
+>
+> Source: the validation pass of 2026-09-23 over the claimed-outstanding list (agent overclaim,
+> unreviewed September code, small items, declared gaps, another session's work). Every defect
+> below was found by READING the tree at 89b68b99 and none was executed, which is why each carries
+> a reachability verdict rather than a severity taken on faith, and why three of those verdicts
+> needed correcting once something was run. Branch-only workflow, no issue or PR unless asked.
 
 ## 1. Summary
 
