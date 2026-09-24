@@ -224,7 +224,7 @@ with a control document), forward and dangling `DEST` reference resolution (two-
 bounded downstream by the per-code budget), duplicate `SHORT-NAME` claiming (first wins, guarded
 indexer writes), and the accumulating tables (linear in elements, shared across documents on
 purpose, cleared per job). All four held. Two defects came out of it, both fixed in
-[review-findings-2026-09-23](../../open/review-findings-2026-09-23/spec.md): an unread bus kind was
+[review-findings-2026-09-23](../review-findings-2026-09-23/spec.md): an unread bus kind was
 materialised whole to record one diagnostic keyed by its element name, which also meant an empty or
 unnamed one was reported as nothing at all; and a channel restated by a second cluster VARIANT was
 reported as `DuplicatePath`, whose message says the file contradicts itself. The second was firing

@@ -151,7 +151,7 @@ namespace NoSQL.GraphDB.Tests
             // SingleValueIndex and the audit's architects never assessed this file, so widening the
             // mechanical fix into a 2,000-line spatial index is a decision to take deliberately
             // rather than to inherit from a gate. Recorded in
-            // features/open/review-findings-2026-09-23/spec.md; the exemption goes when it is fixed.
+            // features/done/review-findings-2026-09-23/spec.md; the exemption goes when it is fixed.
             // The FILE, not its directory. Exempting Index/Spatial would hand the same pass to any
             // spatial index added later, which is the one thing an exemption must not do: RTree.cs
             // is the only file under there with a release today, and the gate should widen by itself

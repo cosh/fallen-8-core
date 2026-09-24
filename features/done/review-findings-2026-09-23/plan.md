@@ -1,10 +1,11 @@
 # Review findings 2026-09-23 - Implementation plan
 
-Branch `feature/review-findings-2026-09-23` from `main` at 89b68b99 or later. Branch-only
-workflow. The spec is the contract; this file is the order of work and the gate each phase must
-pass. Phases are independent except where noted, so a phase that turns out wrong can be dropped
-without unpicking the others. Tick a box when the fix is on the branch WITH its test and the
-mutation check has been run.
+Branched from `main` at 89b68b99 and merged back once phases 1 to 10 were done. The spec is the
+contract; this file is the order of work and the gate each phase had to pass. Phases were
+independent except where noted, so one that turned out wrong could be dropped without unpicking
+the others. A box is ticked when the fix is on the branch WITH its test and its mutation check,
+and the boxes that stayed UNTICKED say why in place: two of them were ticked once when they should
+not have been, which is the defect class this whole record is about.
 
 Every code phase follows the same shape: write the failing test first against the current code,
 confirm it is red for the stated reason, fix, confirm green, then revert the fix once more and
@@ -167,16 +168,17 @@ Files: `README.md`, `docs/src/content/docs/agents.md`, `docker-compose.yml`,
       four pointer edits listed below; the spec's
       status line says what shipped and what was left (the model decision of spec section 3).
 
-## The move to features/done, and the four edits it owes
+## The move to features/done, and the four edits it owed
 
-Not done here, because the feature is not merged. Whoever moves this directory carries these with
-it, or four pointers break silently (spec section 9 item 9):
+Done, in the commit that moved this directory. All four were re-derived from one search rather than
+trusted from this list, and the list is what made them findable at all (spec section 9 item 9):
 
-- [ ] `features/done/agent-host/findings.md` links `../../open/review-findings-2026-09-23/spec.md`
-- [ ] `features/done/arxml-vehicle-model/findings.md` links the same path
-- [ ] `features/open/platform-integrity-audit/spec.md` links `../review-findings-2026-09-23/spec.md`
-- [ ] `fallen-8-unittest/CodeQualityTest.cs` carries the path as a STRING in the exemption comment,
-      so no link checker would catch it
+- [x] `features/done/agent-host/findings.md` dropped its hop through `open/`
+- [x] `features/done/arxml-vehicle-model/findings.md` dropped the same hop
+- [x] `features/open/platform-integrity-audit/spec.md` now crosses into `done/`, since the audit
+      itself is still open
+- [x] `fallen-8-unittest/CodeQualityTest.cs` carried the path as a STRING in the exemption comment,
+      which no link checker would have caught
 
 ## Phase 9 - what the gate found (2026-09-24)
 

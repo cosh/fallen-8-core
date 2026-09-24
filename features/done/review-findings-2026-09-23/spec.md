@@ -1,10 +1,14 @@
 # Review findings 2026-09-23 - Specification
 
-> **Status:** IMPLEMENTED on `feature/review-findings-2026-09-23`, awaiting the review gate; not
-> merged. Eight commits, one per phase plus the bookkeeping, each fix mutation-checked. What the
-> implementation changed about this document is in section 7a rather than edited into the sections
-> above, and what the gate itself taught is in 7b; **section 7a corrects four claims made below**,
-> so read it before trusting a row in section 5.
+> **Status:** DONE and merged to main. Fourteen commits: one per phase, two review gates and the
+> fixes each of them found, every fix mutation-checked. What the implementation changed about this
+> document is in section 7a rather than edited into the sections above, what the gate itself taught
+> is in 7b, and the two review passes are sections 9 and 10; **7a corrects four claims made below
+> and section 10 corrects one of section 9's**, so read those before trusting a row in section 5.
+>
+> Read section 10 first if you read only one thing. Across three passes every remaining problem was
+> a CLAIM about the code rather than the code, and one claim was wrong three times in three
+> different directions before a test settled it.
 >
 > Two things are deliberately NOT done and are recorded rather than dropped: `RTree`'s 15 unguarded
 > lock sections, the same defect as W8 and a larger instance, which are named in a convention-test
@@ -428,9 +432,12 @@ items too. **Nothing here is fixed yet.** That is the next step, and this sectio
 ### Found by reading the record against the code
 
 9. **Four pointers dangle the moment this directory moves to `features/done/`**: the agent-host
-   findings and the arxml findings link `../../open/review-findings-2026-09-23/`, the audit spec
-   links `../review-findings-2026-09-23/`, and `CodeQualityTest.cs` carries the path as a string.
-   The plan says move at merge; the move has to carry these four edits.
+   findings and the arxml findings linked `../../open/review-findings-2026-09-23/`, the audit spec
+   linked `../review-findings-2026-09-23/`, and `CodeQualityTest.cs` carried the path as a string.
+   **Discharged in the move commit**, which carried all four and then checked each one resolves on
+   disk rather than trusting the list. The paths quoted here are the pre-move ones, on purpose:
+   this is the finding, not the current state. The string in the test is the one that mattered,
+   because no link checker reads it.
 10. **"Four times its stated size" is arithmetic that does not hold.** Twelve, fifteen and one make
     28 against 12, a factor of 2.3. In 7a and in the audit status line.
 11. **Commit `76026160` says cross-file redeclaration is untouched.** Not quite: a channel restated

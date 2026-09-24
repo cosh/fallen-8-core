@@ -1011,7 +1011,7 @@ is now the last step before a commit rather than an optional one.
 
 A validation pass over a list of claimed-outstanding items, recorded here because two of its
 results are about THIS feature and one of them contradicts what section 4 said. The full record is
-[review-findings-2026-09-23](../../open/review-findings-2026-09-23/spec.md).
+[review-findings-2026-09-23](../review-findings-2026-09-23/spec.md).
 
 **The overclaim was real.** Nothing a user read first said the shipped default model cannot run a
 tool-using agent. The README entry described traces, feeds and budgets; the docs page carried the

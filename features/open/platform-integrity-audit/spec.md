@@ -11,7 +11,7 @@
 > the P1 remainder", and W7 was wrong): **W7 LANDED** with the integrations and agents sidecars, as
 > `IntegrationsClient : SidecarHttpClient` and `AgentsClient : SidecarHttpClient`, which is exactly
 > the typed facade section W7 asked for. **W8 landed** in
-> [review-findings-2026-09-23](../review-findings-2026-09-23/spec.md), where measuring it found the
+> [review-findings-2026-09-23](../../done/review-findings-2026-09-23/spec.md), where measuring it found the
 > claim family was more than twice its stated size, 28 sections against 12: `SingleValueIndex` had
 > the 12 sections W8 names, `ServiceFactory` had one whose release sat in a `catch` spanning more
 > than the guarded region, which DID release a lock never held for one reachable class of broken
