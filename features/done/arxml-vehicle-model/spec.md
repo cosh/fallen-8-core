@@ -1,7 +1,9 @@
 # A vehicle communication model across CAN, FlexRay and Ethernet
 
-Status: **IMPLEMENTED.** Every phase is done, reviewed and merged; the steps are in
-[plan.md](plan.md) and the record in [findings.md](findings.md).
+Status: **IMPLEMENTED.** Every phase is done and merged; the steps are in [plan.md](plan.md) and
+the record in [findings.md](findings.md). "Reviewed" was claimed here and contradicted by
+[findings.md](findings.md) section 8, which said review was what remained; what each commit
+actually got, and what a later pass found, is now stated in findings.md section 10.
 
 This spec is a historical record and is written in the present tense of the day it was written, so
 "today the channel is not an element" and "what it does not do is read Ethernet" describe the state it

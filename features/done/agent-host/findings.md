@@ -88,7 +88,7 @@ Fixed three ways, because one was not enough: the setup moved inside the `try`, 
 clamped with a warning naming what was applied, and `Start` now observes the task and records a
 failure for anything that escapes `RunAsync` itself.
 
-## 4. A gateway that hung was reported as an agent somebody cancelled (fixed)
+## 4. A gateway that hung was reported as an agent somebody cancelled (half fixed here, closed 2026-09-24)
 
 The adapter's own deadline produced an `OperationCanceledException`, which is exactly what a
 caller's cancel produces, and the runner turns that into `state: cancelled`. So an instance that
@@ -101,6 +101,20 @@ distinction and is what the other two sidecars use: `RestSendFailure.TimedOut` a
 
 This also removed a hand-rolled copy of the seam's classification and made the project reference,
 which was previously unused, actually load-bearing.
+
+**Correction, 2026-09-24.** Only the UNREACHABLE half was fixed, and the live check above covered
+exactly that half. The timeout half was still broken, for a reason the seam's own contract makes
+plain in hindsight: the adapter kept arming a linked source of its own and handed the seam THAT
+token, and the seam names a timeout only when the token it was given is not already set. So the
+adapter's own deadline remained the one shape the seam could never classify, the raw cancellation
+still reached the runner, and a gateway that went quiet was still recorded as an agent somebody
+cancelled. Closed in the review-findings-2026-09-23 branch by moving the deadline onto the
+transport, where the other two sidecars have always armed theirs, and pinned by
+`AGatewayThatNeverAnswersIsTheGatewaysFailure_NotACancelledAgent`.
+
+The process lesson is worth more than the defect. "Verified live" was written about a check that
+exercised one of the two branches, and the sentence did not say which, so it read as coverage of
+both. A live check names the arm it ran.
 
 ## 5. The documented tool allowlist could not be configured (fixed)
 
@@ -992,3 +1006,35 @@ break, dropping the words "is the only" from one operator-facing message and "th
 another. Neither the verifier (it ran before my edit) nor the JavaScript parser (both were still
 valid strings) could see it. What found it was reading the diff of every line I had changed, which
 is now the last step before a commit rather than an optional one.
+
+## 17. What an outside validation pass found (2026-09-24)
+
+A validation pass over a list of claimed-outstanding items, recorded here because two of its
+results are about THIS feature and one of them contradicts what section 4 said. The full record is
+[review-findings-2026-09-23](../../open/review-findings-2026-09-23/spec.md).
+
+**The overclaim was real.** Nothing a user read first said the shipped default model cannot run a
+tool-using agent. The README entry described traces, feeds and budgets; the docs page carried the
+measurement as a note two thirds down, under a heading about citation counts, so it was not even in
+the table of contents. Two compose comments said the opposite of what section 1 measured, one
+calling the model "a stock tool-calling model" and the other citing the measurement for the arm
+that has no instructions in it, which is not the arm this host uses. Fixed in words only: the
+measurement now has its own heading, the intro names the decision, and the compose comments say the
+model is a placeholder chosen because it is already pulled. The default model is deliberately
+unchanged, and section 1's revisit trigger stands.
+
+**Section 4 was half true**, corrected in place above.
+
+**What was examined and found sound.** The registry's lock ordering (no pair taken in both orders,
+no external call under `_gate`), its per-run memory (bounded trace, bounded feed, eviction by time
+and by count, no child list on the record), and its token-source lifecycle, which no earlier round
+had looked at: a record's `CancellationTokenSource` is never disposed by anything, so the
+disposal race that would otherwise be worth worrying about cannot occur. Three observations were
+left alone deliberately: `ResultText` is retained uncapped in the listing (bounded by the model's
+own output cap), both retention knobs at zero mean unbounded retention (the documented "off"), and
+`TryAdmit` has no disposed check (reachable only during shutdown).
+
+**One divergence named rather than fixed.** The Anthropic and OpenAI backends synthesise per-reply
+tool-call ordinals the same way the Ollama one did before this branch. Their protocols carry the id
+on the wire, so it only bites if a provider omits one, and neither has the nearest-preceding walk
+that now absorbs a collision on the Ollama path.

@@ -199,17 +199,21 @@ Each is one line to fix and each is false at HEAD.
 
 ## 7. Impact on existing features
 
+Re-checked against the 33 files the branch actually touched, per the plan's phase 8. Where the
+first pass was wrong the row says so.
+
 | Layer | Impact |
 |---|---|
-| Engine | W8 only: try/finally around existing lock sections in `SingleValueIndex`, no contract change. The browser host runs this file; the change has no threading arm, so the probe is recommended rather than required |
-| REST contract and OpenAPI snapshot | no route, shape or XML-doc change. If a `ChatREST` remark is touched after all, regenerate the snapshot and expect a doc-only diff |
-| Studio | `useNamespaces` refactor, no visible change, no screenshot |
+| Engine | Wider than planned. `SingleValueIndex` (12 sections), `ServiceFactory` (1, a release in the wrong place), and `AThreadSafeElement`'s doc comment. No contract change: every edit is try/finally around an existing region plus the removal of locals that only existed to release before returning. The browser probe was RUN, not skipped, and passed 9 of 9 |
+| REST contract and OpenAPI snapshot | unchanged, as predicted. No controller, route, response shape or XML doc was touched; the three chat backends sit behind `/chat` and the OpenAPI document test passes unchanged, so no regeneration |
+| Studio | `useNamespaces` refactor across four call sites and five invalidation sites. Behaviour-preserving by construction (same key, same cadence, same retry, each site's own gate passed in), so no screenshot: nothing rendered differently |
 | NL-assist dataset and eval | none, no retrain entry |
-| MCP | none; the Ollama fix is behind `/chat`, which MCP does not bridge for agents |
-| Agent host | 2.1; a behaviour change visible only as `failed` with a timeout sentence where `cancelled` was reported |
-| Docs site | `agents.md` intro sentence; README entry; both link-checked by the docs build |
-| Architecture diagrams | none |
-| Feature records | agent-host findings (sections 1 pointer, 4 correction, new 17), arxml-vehicle-model (spec line 3, findings review section), platform-integrity-audit (status line) |
+| MCP | none. The Ollama and OpenAI fixes are behind `/chat`, which MCP does not bridge, and no REST operation was added, so the coverage gate has nothing new to decide |
+| Agent host | 2.1. One observable change: a gateway that stops answering now ends a run `failed` with a named timeout where it ended `cancelled`. Nothing asserted or documented the old text |
+| Integrations runtime | 5 rows 1 and 2. One new diagnostic where there was silence (an empty or unnamed unread bus is now reported) and one false diagnostic removed. No provider descriptor changed, so the descriptor snapshot and `screen-integrations.png` are untouched |
+| Docs site | `agents.md` gains a heading and an intro pointer; README entry. Build green, all internal links valid including the new anchor |
+| Architecture diagrams | none. No channel, deployable or layer changed |
+| Feature records | agent-host findings (4 corrected in place, new 17), arxml-vehicle-model (spec status line, new findings 10), platform-integrity-audit (status line re-derived: W7 was listed pending and had landed) |
 
 ## 7a. What the implementation changed about this spec
 
@@ -286,6 +290,30 @@ is part of the record. Every item here was established by running something.
   a provider omits one, and neither has the nearest-preceding walk to absorb a collision. Left
   alone, said here rather than silently.
 
+## 7b. Two things the gate itself taught
+
+**A pre-existing, load-dependent failure in `IntegrationsResumeTest`.** The merge gate's full suite
+failed once on `AResumedRunTheGraphRefused_KeepsItsEntryForTheNextStart`, at its last assertion:
+the resumed run finished and did its work, and one spool file was left behind. Established before
+blaming the branch, because that is the rule: the class passes 18 of 18 three times in isolation;
+the same integrations code passed the full suite earlier on this branch; and the branch touches
+nothing in the spool (only `ArxmlReader` and an `IntegrationsOptions` doc comment). The mechanism
+is visible in the code rather than guessed: `RunSpool.Remove` deliberately catches `IOException`
+and `UnauthorizedAccessException`, logs a warning naming the consequence, and does not throw, so a
+transient Windows file lock leaves the entry and the test's absolute assertion sees it. The
+assertion was the ONE bare one in a file where every sibling names what it found, which is why the
+first occurrence said only "expected 0, actual 1". It now names the file. The strictness is
+deliberately unchanged: weakening it would hide the real version of this, which is an entry the
+runtime never tried to drop, and that would be suppressing the symptom instead of the cause.
+Whether the swallow is the right production behaviour is a question for the integrations feature,
+not this one, and it is recorded rather than answered.
+
+**A gate that could not fail.** The first full-suite invocation here was
+`dotnet test ... > file 2>&1; echo "TEST_EXIT=$?"` followed by a grep, and the surrounding task
+reported exit 0 while the suite had one failure, because the exit code belonged to the grep. The
+failure was found by reading the summary lines, not by the status. Any command whose purpose is to
+gate has to surface the runner's own exit code, and this one was rewritten to do so.
+
 ## 8. Verification
 
 - `dotnet build` and the full `dotnet test`, never with `-v q`.
@@ -296,3 +324,21 @@ is part of the record. Every item here was established by running something.
 - A Python check for U+2013 and U+2014 over every changed text file, self-tested on a known-bad
   string, because the shell grep for these characters matches nothing.
 - The confidential-name grep over the diff before any commit.
+
+### What was actually run, 2026-09-24
+
+| Gate | Result |
+|---|---|
+| `dotnet build` | 0 errors, 31 IL2026 warnings, the documented apiApp set |
+| Full `dotnet test` | 2849 tests, 41 skipped (benchmarks), one pre-existing load-dependent failure diagnosed in 7b and then green on re-run |
+| Browser probe, trimmed browser-wasm under node | 9 of 9 PASS, exit 0. Not optional: the workload is installed and this branch changes engine code, and two of its checks cross the sections phase 5 wrapped |
+| Web UI `tsc -b` | exit 0 |
+| Web UI vitest | 106 files, 1489 tests, exit 0 |
+| Docs site build | green, and the link validator confirms the new `#the-model-you-give-it` anchor resolves |
+| Dashes and arrows | 0 across all 1592 added lines of the branch, detector self-tested both ways first |
+| Confidential names | 0 across the branch diff, paired with a control that matches |
+| Mutation checks | 8, one per fix, each failing only its own test and for the stated reason |
+
+The `cmd /v:on` note above did not survive contact: it misfires under this shell and printed a
+banner instead of running anything. Both JavaScript gates were run through the Bash tool and their
+exit codes read from `PIPESTATUS`, which is reliable here.

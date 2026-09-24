@@ -371,7 +371,15 @@ namespace NoSQL.GraphDB.Tests
 
             Assert.AreEqual(Entities, graph.EmbeddedSummaries.Count,
                 "and the work the first attempt had not done is done now");
-            Assert.AreEqual(0, SpoolFiles().Length);
+            // Says WHAT was left, like every other spool assertion in this file. This was the one
+            // bare one, and it is the one that has been seen to fail under full-suite load: the run
+            // finished, so what is left is a delete that did not happen, and RunSpool.Remove
+            // deliberately swallows an IOException and logs instead of throwing. Without the file
+            // name there is nothing to tell a transient Windows lock from an entry the runtime
+            // never tried to drop.
+            Assert.AreEqual(0, SpoolFiles().Length,
+                "the finished run left its entry behind, so the next start would resume work that is "
+                + "already done. Left: " + String.Join(", ", SpoolFiles()));
         }
 
         [TestMethod]

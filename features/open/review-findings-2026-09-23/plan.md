@@ -15,22 +15,26 @@ confirm red (mutation check; back up per mutant, touch the restored file so MSBu
 Files: `fallen-8-agents/Hosting/AgentsHost.cs`, `fallen-8-agents/Model/Fallen8ChatClient.cs`,
 `fallen-8-unittest/AgentChatAdapterTest.cs`, `fallen-8-unittest/AgentRuntimeTest.cs`.
 
-- [ ] Test first, adapter level: an `HttpMessageHandler` that awaits a never-completing task while
+- [x] Test first, adapter level: an `HttpMessageHandler` that awaits a never-completing task while
       honouring the token; `HttpClient.Timeout` of 50 ms; `Fallen8ChatClient.GetResponseAsync`
       throws `Fallen8ChatException` whose message contains `Fallen8Target:TimeoutSeconds`. Against
       the current code this must fail with a raw `TaskCanceledException`, which is the defect.
-- [ ] Test first, runner level: the real `Fallen8ChatClient` over the same handler inside the
-      existing runtime harness; the run ends `AgentState.Failed`, not `Cancelled`, and
-      `agent.Failure` is the adapter's sentence, not "Cancelled while the host was stopping."
-- [ ] Fix: `AgentsHost` sets `http.Timeout = target.Deadline` and its comment states the seam's
+- [ ] **NOT done, and recorded rather than quietly dropped.** Runner level: a real
+      `Fallen8ChatClient` driven through the runner. The harness builds its own
+      `ScriptedChatClient`, so this would have rebuilt the runner rather than driven it, which is
+      the defect shape this feature keeps finding. Left to composition instead:
+      `AFailingModelCallEndsTheRunAsFailedCarryingTheReason` already pins that a throwing model
+      call ends a run as `Failed` carrying its reason, and the adapter test above pins that a
+      timeout is a `Fallen8ChatException` rather than a cancellation. The chain is those two.
+- [x] Fix: `AgentsHost` sets `http.Timeout = target.Deadline` and its comment states the seam's
       rule once (one deadline, the seam classifies it). `Fallen8ChatClient` drops the `budget`
       source, passes the caller's token to `RestSeam.SendAsync`, and `Read` loses its
       cancellation catch and its `budget` parameter. `_timeout` stays, it is the number the
       `NoAnswer` sentence prints.
-- [ ] Confirm `ACallerCancellationPropagatesAsItselfRatherThanAsAGatewayFailure` still passes:
+- [x] Confirm `ACallerCancellationPropagatesAsItselfRatherThanAsAGatewayFailure` still passes:
       a caller's cancel must still arrive as `TaskCanceledException`.
-- [ ] Mutation check both tests by restoring `http.Timeout = InfiniteTimeSpan` alone.
-- [ ] Record: agent-host `findings.md` section 4 gets the correction from spec section 4, and a
+- [x] Mutation check both tests by restoring `http.Timeout = InfiniteTimeSpan` alone.
+- [x] Record: agent-host `findings.md` section 4 gets the correction from spec section 4, and a
       new section 17 records this pass (what was examined, what was found, what was not: the
       registry's lock order, memory and token-source lifecycle were read and found sound).
 
@@ -44,18 +48,18 @@ the adapter test that the streamed call goes through the same code path already 
 
 Files: `fallen-8-core-apiApp/Chat/OllamaChatBackend.cs`, `fallen-8-unittest/ChatToolMappingTest.cs`.
 
-- [ ] Test first: one request whose conversation is user, assistant with call `call_0`
+- [x] Test first: one request whose conversation is user, assistant with call `call_0`
       `count_vertices`, tool result for `call_0`, assistant with call `call_0` `count_edges`,
       tool result for `call_0`; the captured body's LAST tool turn carries `tool_name`
       `count_edges`. Red today because first-match returns `count_vertices`.
-- [ ] Test first: the stub replies twice without ids; the two mapped calls have different ids.
+- [x] Test first: the stub replies twice without ids; the two mapped calls have different ids.
       Red today because both are `call_0`. This is the first test that executes the synthesis
       branch at all; the existing fixture supplies `call_9`.
-- [ ] Fix: resolve a result's name from the nearest preceding assistant turn that carries tool
+- [x] Fix: resolve a result's name from the nearest preceding assistant turn that carries tool
       calls (walk backwards from the result's own index), then fall back to the existing
       first-match search. Make the synthesised id unique per assistant turn. Correct the comment
       at lines 233-234 to describe the lookup that now exists.
-- [ ] Mutation check: restore first-match alone, the first test goes red; restore the per-reply
+- [x] Mutation check: restore first-match alone, the first test goes red; restore the per-reply
       ordinal alone, the second goes red.
 
 ## Phase 3 - OpenAI malformed arguments (spec 2.3)
@@ -63,18 +67,18 @@ Files: `fallen-8-core-apiApp/Chat/OllamaChatBackend.cs`, `fallen-8-unittest/Chat
 Files: `fallen-8-core-apiApp/Chat/OpenAIChatBackend.cs`, `fallen-8-unittest/ChatEndpointTest.Tools.cs`
 or `ChatToolMappingTest.cs`, whichever already drives the controller end to end.
 
-- [ ] Test first, THROUGH the controller and its serialisation: the stub reply carries
+- [x] Test first, THROUGH the controller and its serialisation: the stub reply carries
       `"arguments":"{not json"`; the response is 200 and the call's `arguments` is `{}`. Red today
       with the serialisation fault. If no existing fixture reaches the controller with a fake
       OpenAI server, build the smallest one; a backend-only assertion cannot fail the right way.
-- [ ] Fix: `Parsed` returns an empty object element in both the null and the malformed branch.
-- [ ] Replay check while here: verify against the shipped SDK whether an assistant message can
+- [x] Fix: `Parsed` returns an empty object element in both the null and the malformed branch.
+- [x] Replay check while here: verify against the shipped SDK whether an assistant message can
       carry text parts alongside tool calls. If yes, keep the text on replay
       (`OpenAIChatBackend.cs` line 322) with a captured-body test; if no, record the SDK limit in
       the comment and stop.
-- [ ] Correct the comments at `OpenAIChatBackend.cs:307-311` and `AnthropicChatBackend.cs:491-495`
+- [x] Correct the comments at `OpenAIChatBackend.cs:307-311` and `AnthropicChatBackend.cs:491-495`
       (a tool result's id IS carried since 7d0e0805).
-- [ ] Mutation check: restore `return default` alone.
+- [x] Mutation check: restore `return default` alone.
 
 ## Phase 4 - the ARXML reader's two small items (spec 5, rows 1 and 2)
 
@@ -83,76 +87,79 @@ Files: `fallen-8-integrations/Providers/AutosarArxml/ArxmlReader.cs`,
 `fallen-8-unittest/IntegrationsArxmlReaderTest.cs` (and the CAN or Ethernet test file for the
 variant fixture).
 
-- [ ] Test first: a fixture whose `LIN-CLUSTER` contains a `CAN-FRAME-TRIGGERING` or another
+- [x] Test first: a fixture whose `LIN-CLUSTER` contains a `CAN-FRAME-TRIGGERING` or another
       element the reader would otherwise collect; after the read, nothing from below the cluster
       is in the element set and the unread-cluster diagnostic still names `LIN-CLUSTER`. Today the
       subtree is materialised and then dropped, so the first half may already pass; the test's
       value is holding the skip in place once it exists. If it is green before the fix, say so in
       the test comment rather than pretending it was red.
-- [ ] Fix: for the unread kinds, read the short name and `reader.Skip()` instead of
+- [x] Fix: for the unread kinds, read the short name and `reader.Skip()` instead of
       `XNode.ReadFrom`. The comment at line 602 becomes true.
-- [ ] Fixture first for the variant question: one cluster with two `VARIANTS/CONDITIONAL`
+- [x] Fixture first for the variant question: one cluster with two `VARIANTS/CONDITIONAL`
       children each declaring the same channel. Observe: does `Claim` emit `DuplicatePath`? Then
       fix whichever side is wrong (spec 5, row 2) and pin it.
-- [ ] Correct `IntegrationsOptions.cs:74-76` (the file is read as a stream, not decoded to text).
-- [ ] Record in `features/done/arxml-vehicle-model/`: the spot-check as the review it was, the
+- [x] Correct `IntegrationsOptions.cs:74-76` (the file is read as a stream, not decoded to text).
+- [x] Record in `features/done/arxml-vehicle-model/`: the spot-check as the review it was, the
       seams it covered, the name tables it could not, and the corrected line 3 of the spec.
 
 ## Phase 5 - W8, the twelve lock sections (spec 5, row 4)
 
 Files: `fallen-8-core/Index/SingleValueIndex.cs`, a new or existing index test.
 
-- [ ] Test first: a key type whose `GetHashCode` throws once; `AddOrUpdate` with it throws; then
+- [x] Test first: a key type whose `GetHashCode` throws once; `AddOrUpdate` with it throws; then
       a second `AddOrUpdate` with a plain key, run on another thread with a bounded wait,
       completes. Red today because the leaked write lock makes the second writer spin forever
       (the wait times out).
-- [ ] Fix: wrap the twelve unguarded sections (lines 83, 97, 117, 145, 159, 175, 189, 233, 259,
+- [x] Fix: wrap the twelve unguarded sections (lines 83, 97, 117, 145, 159, 175, 189, 233, 259,
       285, 390, 407 at HEAD) in try/finally, matching the one that already exists at line 204.
       Nothing else changes.
-- [ ] Mutation check: remove the finally on the `AddOrUpdate` section alone.
-- [ ] Run the browser probe if the `wasm-tools` workload is present; note the result either way.
-- [ ] Update the audit spec's status line (spec section 4): W7 done, the verified pending list.
+- [x] Mutation check: remove the finally on the `AddOrUpdate` section alone.
+- [x] Browser probe RUN (the workload is installed, so it was not optional): published trimmed
+      and executed headless under node, 9 of 9 PASS, exit 0. It is the only gate that reaches
+      this engine file on a single-threaded host, and two of its checks cross the sections
+      this phase wrapped: the registered index round trip exercises `Save` and `Load`.
+- [x] Update the audit spec's status line (spec section 4): W7 done, the verified pending list.
 
 ## Phase 6 - the Studio hook and the SBOM test (spec 5, rows 5 and 6)
 
 Files: `fallen-8-web-ui/src/state/namespaces.ts` (new), the four consumers,
 `fallen-8-web-ui/tests/`.
 
-- [ ] `useNamespaces(instance, { enabled? })` owning key, `listNamespaces`, `STATUS_POLL_MS`,
+- [x] `useNamespaces(instance, { enabled? })` owning key, `listNamespaces`, `STATUS_POLL_MS`,
       `retry: 0`; default gate `instance !== null`. `AppShell`, `NamespaceScope`,
       `NamespacesPanel` take the default; `InstanceHealth` passes its authorisation gate, with a
       comment saying why that one is different. Invalidation sites keep using the key through a
       helper the hook exports, so the literal has one home.
-- [ ] Convention test: the string `"namespaces"` as a query-key element appears in exactly one
+- [x] Convention test: the string `"namespaces"` as a query-key element appears in exactly one
       file under `src/`. Mutation check by re-adding one inline definition.
-- [ ] SBOM test through `buildFallen8Deps`: `F8_DEPS_REFETCH=1`, `fetch` stubbed to return the
+- [x] SBOM test through `buildFallen8Deps`: `F8_DEPS_REFETCH=1`, `fetch` stubbed to return the
       committed copy with the three regenerated fields altered, `node:fs` mocked so
       `readFileSync` serves the committed copy and `writeFileSync` is a spy; assert never called
       and the returned SBOM equals the canonicalised committed copy. Restore env and mocks after.
-- [ ] `tsc` and vitest, exit codes read through `cmd /v:on`.
+- [x] `tsc` and vitest, exit codes read through `cmd /v:on`.
 
 ## Phase 7 - the overclaim, in words (spec 3)
 
 Files: `README.md`, `docs/src/content/docs/agents.md`, `docker-compose.yml`,
 `docker-compose.nahil.yml`.
 
-- [ ] README Key features Agents entry: one clause saying the shipped default model does not call
+- [x] README Key features Agents entry: one clause saying the shipped default model does not call
       tools once instructions are present, and that a tool-capable model must be named.
-- [ ] `agents.md` intro: one sentence pointing at the measured note; the note stays where it is
+- [x] `agents.md` intro: one sentence pointing at the measured note; the note stays where it is
       and stays the one home.
-- [ ] `docker-compose.yml:92` and `docker-compose.nahil.yml:49`: state what was measured (calls a
+- [x] `docker-compose.yml:92` and `docker-compose.nahil.yml:49`: state what was measured (calls a
       tool with a bare user turn, not with a role prompt) and point at the docs page.
-- [ ] Docs build green. No screenshot changes.
+- [x] Docs build green. No screenshot changes.
 
 ## Phase 8 - the gate
 
-- [ ] Full solution build and test, `-v n` or higher.
-- [ ] Web UI `tsc` and vitest.
-- [ ] Docs build.
-- [ ] Python dash check over every changed text file, detector self-tested first.
-- [ ] Confidential-name grep over the whole diff.
-- [ ] Impact table in the spec re-checked against the diff as it actually is.
-- [ ] Move this directory to `features/done/` in the merge commit's own PR or merge; the spec's
+- [x] Full solution build and test, `-v n` or higher.
+- [x] Web UI `tsc` and vitest.
+- [x] Docs build.
+- [x] Python dash check over every changed text file, detector self-tested first.
+- [x] Confidential-name grep over the whole diff.
+- [x] Impact table in the spec re-checked against the diff as it actually is.
+- [x] Move this directory to `features/done/` in the merge commit's own PR or merge; the spec's
       status line says what shipped and what was left (the model decision of spec section 3).
 
 ## Risks

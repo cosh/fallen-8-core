@@ -5,7 +5,21 @@
 > (`POST /index/backfill`), W5 (durability/recovery state on `GET /status`) and W6's platform half
 > (batch element read + literal ingress/egress inverse) shipped to main on 2026-08-09/10 - commits
 > f81d86e, 8e58d72, f160d7f, 6f2b7f3, 13bb370, 02ddca1, 0764b38, merged inside the integrations
-> branch (ae7f094), which consumed them. Still pending: W7, W8 and the P1 remainder. This feature's
+> branch (ae7f094), which consumed them.
+>
+> **Still pending, re-derived against the tree on 2026-09-23** (the previous line said "W7, W8 and
+> the P1 remainder", and W7 was wrong): **W7 LANDED** with the integrations and agents sidecars, as
+> `IntegrationsClient : SidecarHttpClient` and `AgentsClient : SidecarHttpClient`, which is exactly
+> the typed facade section W7 asked for. **W8 landed** in
+> [review-findings-2026-09-23](../review-findings-2026-09-23/spec.md), where measuring it found the
+> claim family was four times its stated size: `SingleValueIndex` had the 12 sections W8 names,
+> `ServiceFactory` had one worse instance (its release sat in a `catch` that also covered code above
+> the acquisition, so an unresolved plugin released a lock never held), and `RTree` has 15 that are
+> **still open** and are named in a convention-test exemption rather than forgotten. Also still
+> open: **W9** (`HEAD /trim` renumbers every element id and is documented only as releasing unused
+> memory), **W10** half (the compose profile exists; `/status` carries no integrations field),
+> **W11** (structurally open, though nothing hides today: zero routes carry an ApiExplorer-ignore
+> attribute against 447 documented operations), **W12**, **W13**, and **W15** in P2. This feature's
 > OWN Phase 9 gate ran late rather than not at all: the code rode another feature's merge, and the
 > docs-site pages for the new REST surface were written afterwards (the `durability` block of
 > `GET /status` in `save-games.mdx`, `POST /index/backfill/{indexId}` in `indexes.mdx`, and
