@@ -1,0 +1,51 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>fallen_8_core_app</RootNamespace>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+	<RootNamespace>NoSQL.GraphDB.App</RootNamespace>
+  </PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning" Version="5.1.0" />
+		<PackageReference Include="Microsoft.AspNetCore.Mvc.Versioning.ApiExplorer" Version="5.1.0" />
+		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+		<!-- Explicit pin: Microsoft.AspNetCore.OpenApi 10.0.9 transitively resolves
+         Microsoft.OpenApi 2.0.0, which carries a high-severity advisory (NU1903,
+         GHSA-v5pm-xwqc-g5wc). 2.10.0 is the patched version that clears it without an
+         NU1605 downgrade, verified by the vulnerable-package scan. -->
+		<PackageReference Include="Microsoft.OpenApi" Version="2.10.0" />
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.13.0" />
+		<PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.21.2" />
+		<PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.17.0" />
+		<PackageReference Include="OpenTelemetry.Exporter.Prometheus.AspNetCore" Version="1.17.0-beta.1" />
+		<PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.17.0" />
+		<PackageReference Include="Scalar.AspNetCore" Version="2.1.17" />
+		<!-- Embedding provider (feature embedding-provider). The abstraction IS
+         Microsoft.Extensions.AI's IEmbeddingGenerator; the three interchangeable local
+         backends are all MIT-licensed. The in-process backends ship native binaries
+         (OnnxRuntime, LLamaSharp CPU) - the publish-size price of self-contained local
+         inference; the Ollama backend carries none. Nothing loads until the capability
+         flag is on AND first use arrives. -->
+		<PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.9.0" />
+		<PackageReference Include="OllamaSharp" Version="5.4.27" />
+		<PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.27.1" />
+		<PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+		<PackageReference Include="LLamaSharp" Version="0.27.0" />
+		<PackageReference Include="LLamaSharp.Backend.Cpu" Version="0.27.0" />
+		<!-- Model providers (feature model-providers). Both official SDKs, both wrapped in our own
+         IChatBackend / IEmbeddingGenerator the way OllamaSharp is. Each is configured with the
+         SINGLE-DEADLINE and NO-AUTO-RETRY settings the transport contract requires; see
+         RemoteModelHttpClient for the one home of that composition. -->
+		<PackageReference Include="OpenAI" Version="2.13.0" />
+		<PackageReference Include="Anthropic" Version="12.44.0" />
+	</ItemGroup>
+	
+	
+  <ItemGroup>
+    <ProjectReference Include="..\fallen-8-core\fallen-8-core.csproj" />
+  </ItemGroup>
+
+</Project>

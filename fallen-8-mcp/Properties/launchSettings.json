@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "fallen-8-mcp": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:56346;http://localhost:56349"
+    }
+  }
+}

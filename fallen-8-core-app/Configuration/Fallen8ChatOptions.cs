@@ -1,0 +1,278 @@
+// MIT License
+//
+// Fallen8ChatOptions.cs
+//
+// Copyright (c) 2011-2026 Henning Rauch
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+using System;
+
+namespace NoSQL.GraphDB.App.Configuration
+{
+    /// <summary>
+    ///   The chat (SLM/LLM) provider configuration (feature instance-config), section
+    ///   <c>Fallen8:Chat</c>. It is the server-side half of the semantic gateway: the instance
+    ///   proxies chat completions to the model backend (<see cref="Backend" />, Nahil by default)
+    ///   so Studio and other clients can reach a model THROUGH the instance instead of directly.
+    ///   Default OFF: <c>POST /chat</c> answers 403 and no client is constructed, so a bare
+    ///   deployment stays model-free and the backend default is not even consulted. The instance
+    ///   OWNS the model (the selected block's <c>Model</c>); the endpoint takes no client-supplied
+    ///   model, mirroring the embedding gateway.
+    /// </summary>
+    public sealed class Fallen8ChatOptions
+    {
+        public const String SectionName = "Fallen8:Chat";
+
+        /// <summary>The authorization policy gating <c>POST /chat</c>
+        /// (<see cref="Security.DynamicCapabilityRequirement.Capability.Chat" />).</summary>
+        public const String ChatPolicy = "Fallen8.Chat";
+
+        /// <summary>The capability flag. Default off (403 when off).</summary>
+        public Boolean Enabled
+        {
+            get; set;
+        }
+
+        /// <summary>The backend: <c>Nahil</c> (nahil.dev, the default), <c>Ollama</c> (a local
+        /// sidecar), <c>OpenAI</c> or <c>Anthropic</c>. Ollama and Nahil speak one protocol, so
+        /// Nahil differs from the sidecar only by a credential and a warm-up state; OpenAI and
+        /// Anthropic speak their own protocols and each carries its own credential too. Matching is
+        /// ordinal, so the spelling here is the spelling the catalog publishes.
+        /// <para>
+        ///   <b>Nahil is the default because the alternative is a guess.</b> This value is only
+        ///   consulted when a deployment turned chat ON and named no backend, and the two candidates
+        ///   answer that case very differently: the sidecar's endpoint defaults to
+        ///   <c>http://localhost:11434</c>, so an unconfigured instance would dial whatever is
+        ///   listening there and report a connection failure - or, worse, quietly serve from an
+        ///   unrelated Ollama. Nahil cannot be aimed at localhost and has no credential to invent,
+        ///   so the same mistake is refused up front naming
+        ///   <see cref="NahilOptions" />.<c>ApiKey</c>. A deployment that brings its own model names
+        ///   its own backend, which is why the compose environment sets this explicitly.
+        /// </para></summary>
+        public String Backend { get; set; } = "Nahil";
+
+        /// <summary>The per-request proxy timeout; exceeded requests answer 504. It is the SINGLE
+        /// deadline on a chat call at any value: the Ollama transport is built without one, so this
+        /// is never pre-empted by a shorter undocumented bound (it once was - OllamaSharp's default
+        /// 100s client timeout fired first and surfaced as an unhandled 500).
+        /// <para>
+        ///   A CEILING, not a delay: a backend that answers in five seconds is unaffected by any
+        ///   value here, which is what makes a generous one cheap. And generous it must be, for two
+        ///   independent reasons. A local model on CPU is SLOW - measured on a 16-core laptop, a
+        ///   fine-tuned phi4-mini answers a Studio NL-assist prompt in minutes, not seconds - and
+        ///   the DEFAULT backend now warms up inside this budget: the transport waits out Nahil's
+        ///   503-while-pulling here rather than failing, so a value that expires during a cold pull
+        ///   answers 504 to a request that was about to succeed. That is why this moved from 120s
+        ///   when Nahil became the default; the Nahil compose overlay had already raised it to the
+        ///   same 600 for the same reason.
+        /// </para>
+        /// <para>
+        ///   Do not raise it much above 600: F8 Studio's editor gives up at ten minutes, so a larger
+        ///   server budget only moves the give-up from the server, which explains itself, to the
+        ///   browser, which cannot. Raising it also does not make a slow host usable; it only
+        ///   decides how long a caller waits before the honest 504. See the NL-assist
+        ///   troubleshooting page.
+        /// </para></summary>
+        public Int32 TimeoutSeconds { get; set; } = 600;
+
+        /// <summary>
+        ///   Whether to ask the backend to stream the completion. On by default: the tokens then
+        ///   arrive as they are produced instead of after the whole answer exists, and Nahil runs
+        ///   its own verification pass AFTER delivery rather than in front of it, so a slow remote
+        ///   worker stops paying for that pass twice over in latency.
+        ///   <para>
+        ///     <c>POST /chat</c> buffers either way - its response shape is unchanged - so this is
+        ///     about what the BACKEND is asked to do, not about what a client sees. Turn it off only
+        ///     for a backend whose streaming is broken.
+        ///   </para>
+        /// </summary>
+        public Boolean Stream { get; set; } = true;
+
+        /// <summary>Ollama backend settings (reuses the sidecar the embedding provider uses).</summary>
+        public OllamaOptions Ollama { get; set; } = new OllamaOptions();
+
+        /// <summary>Nahil settings; used only when <see cref="Backend" /> is <c>Nahil</c>.</summary>
+        public NahilOptions Nahil { get; set; } = new NahilOptions();
+
+        /// <summary>OpenAI settings; used only when <see cref="Backend" /> is <c>OpenAI</c>.</summary>
+        public OpenAIOptions OpenAI { get; set; } = new OpenAIOptions();
+
+        /// <summary>Anthropic settings; used only when <see cref="Backend" /> is <c>Anthropic</c>.</summary>
+        public AnthropicOptions Anthropic { get; set; } = new AnthropicOptions();
+
+        /// <summary>
+        ///   One server-owned model name per <see cref="Chat.ChatPurpose" />, carried by every
+        ///   backend block. A purpose is a JOB, not a model: the request says which job it is
+        ///   (<c>purpose</c>) and the server says which model does that job, so no client ever
+        ///   names a model and instance-config decision D8 stands.
+        ///   <para>
+        ///     It exists because the two jobs want opposite models and always will. NL assist wants
+        ///     a task-specialised fine-tune that emits one C# fragment and nothing else; an agent
+        ///     wants a general model that calls tools and holds a conversation. Pointing one setting
+        ///     at both means one of them is wrong. Keeping a purpose stable while the model behind it
+        ///     moves is also what lets a fine-tune be swapped in by configuration, version tag and
+        ///     all, without a line of code or a client knowing.
+        ///   </para>
+        ///   <para>
+        ///     A purpose is a model name and NOTHING else. Prompts, sampling and stop sequences stay
+        ///     the caller's, because the assist path and the agent host each own their prompt
+        ///     contract. The moment a purpose would need server-side behaviour of its own it has
+        ///     stopped being a purpose and become a capability.
+        ///   </para>
+        /// </summary>
+        public sealed class ModelPurposes
+        {
+            /// <summary>The model for <c>purpose: assist</c>, the default: Studio's NL assist and
+            /// anything else that asks for a completion without saying why.</summary>
+            public String Assist
+            {
+                get; set;
+            }
+
+            /// <summary>The model for <c>purpose: agent</c>: a tool-calling conversation driven by
+            /// the agent host. It must be a model that can call tools, which the assist fine-tune
+            /// deliberately is not.</summary>
+            public String Agent
+            {
+                get; set;
+            }
+        }
+
+        public sealed class OllamaOptions
+        {
+            /// <summary>The Ollama endpoint (the compose-shipped container by default). Using this
+            /// backend couples chat availability to that container: when it is down <c>POST /chat</c>
+            /// answers 503 while everything else keeps running.</summary>
+            public String Endpoint { get; set; } = "http://localhost:11434";
+
+            /// <summary>The model this backend serves for each purpose. Both defaults are models
+            /// the shipped sidecar pulls, so a local deployment needs no model configuration at
+            /// all.</summary>
+            public ModelPurposes Models { get; set; } = new ModelPurposes
+            {
+                Assist = "phi4-f8-mini:latest",
+                Agent = "phi4-mini:latest",
+            };
+        }
+
+        /// <summary>
+        ///   Nahil (nahil.dev): the same Ollama protocol, authenticated, served from someone else's
+        ///   hardware, and the default backend.
+        ///   <para>
+        ///     The endpoint and the model carry defaults; the credential deliberately does not, and
+        ///     that asymmetry is the whole fail-closed story. A host root and a model name are facts
+        ///     about a named single-vendor service that this repository already states twice (the
+        ///     compose overlay's <c>F8_NAHIL_URL</c> default and the sibling
+        ///     <see cref="OllamaOptions" /> model), so repeating them here costs nothing and makes
+        ///     the refusal an unconfigured instance gets name the ONE value nobody can supply for
+        ///     it. A credential that appeared from nowhere would be a credential nobody could
+        ///     rotate.
+        ///   </para>
+        /// </summary>
+        public sealed class NahilOptions
+        {
+            /// <summary>The Nahil base URL. Must be a host root (scheme, host, optional port);
+            /// HTTPS for anything off the operator's own network. Defaulted to Nahil's own host
+            /// root: a public host root cannot be aimed at localhost, so unlike the sidecar's
+            /// endpoint this default cannot silently point at something else's model.</summary>
+            public String Endpoint { get; set; } = "https://api.nahil.dev";
+
+            /// <summary>The bearer credential Nahil requires on EVERY route, including its version and
+            /// residency probes. Never logged and never published on the config read surface.
+            /// <b>No default, ever</b> - it is what an unconfigured instance is told to supply.</summary>
+            public String ApiKey
+            {
+                get; set;
+            }
+
+            /// <summary>The model this backend serves for each purpose, as NAHIL's catalog names
+            /// it (the published registry name, which may differ from a locally tagged copy of the
+            /// same weights). Both defaults name the same models the sidecar block does, because
+            /// they are the same models wherever they run and Nahil catalogues both; a deployment
+            /// whose catalog spells one differently sets that one, which is an environment variable
+            /// and nothing more.</summary>
+            public ModelPurposes Models { get; set; } = new ModelPurposes
+            {
+                Assist = "phi4-f8-mini:latest",
+                Agent = "phi4-mini:latest",
+            };
+        }
+
+        /// <summary>
+        ///   OpenAI, or any gateway that serves OpenAI's chat-completions protocol. The endpoint has
+        ///   a default because OpenAI's own host is the overwhelmingly common target; the model does
+        ///   not, so selecting this backend without naming one is refused with the reason rather
+        ///   than guessing a model the operator pays for.
+        /// </summary>
+        public sealed class OpenAIOptions
+        {
+            /// <summary>The base URL. Must be a host root (scheme, host, optional port); the SDK
+            /// appends the route itself.</summary>
+            public String Endpoint { get; set; } = "https://api.openai.com";
+
+            /// <summary>The credential OpenAI requires on every route. Never logged and never
+            /// published on the config read surface.</summary>
+            public String ApiKey
+            {
+                get; set;
+            }
+
+            /// <summary>The model this backend serves for each purpose, as OpenAI's catalog names
+            /// it. No defaults: this provider is metered, so a model nobody named is a model nobody
+            /// agreed to pay for.</summary>
+            public ModelPurposes Models { get; set; } = new ModelPurposes();
+        }
+
+        /// <summary>
+        ///   Anthropic's native Messages API. Same endpoint/model reasoning as
+        ///   <see cref="OpenAIOptions" />, plus one knob no other provider has.
+        ///
+        ///   <para><b>No sampling parameter is ever sent to this backend</b> - not
+        ///   <c>temperature</c>, not <c>top_p</c>, not <c>top_k</c>. Current Claude models reject
+        ///   them with a 400, so honouring <c>ChatBackendOptions.Temperature</c> here would turn a
+        ///   request that works on every other backend into a hard failure on this one. The caller's
+        ///   value is ignored, deliberately.</para>
+        /// </summary>
+        public sealed class AnthropicOptions
+        {
+            /// <summary>The base URL. Must be a host root (scheme, host, optional port); the SDK
+            /// appends the route itself.</summary>
+            public String Endpoint { get; set; } = "https://api.anthropic.com";
+
+            /// <summary>The credential Anthropic requires on every route. Never logged and never
+            /// published on the config read surface.</summary>
+            public String ApiKey
+            {
+                get; set;
+            }
+
+            /// <summary>The model this backend serves for each purpose, as Anthropic's catalog
+            /// names it. No defaults, for the same reason as OpenAI's.</summary>
+            public ModelPurposes Models { get; set; } = new ModelPurposes();
+
+            /// <summary>The output ceiling for one completion. It exists because the Messages API
+            /// requires the field on every request, which is why no other provider carries the
+            /// knob; an answer that hits it is reported as INCOMPLETE, naming this setting, rather
+            /// than handed on as a draft that merely looks short.</summary>
+            public Int32 MaxTokens { get; set; } = 4096;
+        }
+    }
+}
