@@ -25,6 +25,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -44,6 +45,47 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class McpTransportTest
     {
+        // --- launch (feature mcp-plugin-gaps, spec section 5: the dnx tool launch) -------------
+
+        /// <summary>A launcher may put its own arguments before or after the tool's, so the flag
+        /// must be recognised anywhere in <c>args</c>, in any case, and the environment selector
+        /// must still work when the flag is absent.</summary>
+        [DataTestMethod]
+        [DataRow(new[] { "--stdio" }, "stdio")]
+        [DataRow(new[] { "--verbosity", "quiet", "--stdio" }, "stdio")]
+        [DataRow(new[] { "--STDIO", "--other" }, "stdio")]
+        [DataRow(new String[0], "http")]
+        [DataRow(new[] { "--stdio-ish" }, "http")]
+        public void ResolveTransport_RecognisesTheFlagAnywhere_AndDefaultsToHttp(String[] args, String expected)
+        {
+            var previous = Environment.GetEnvironmentVariable("Mcp__Transport");
+            try
+            {
+                Environment.SetEnvironmentVariable("Mcp__Transport", null);
+                Assert.AreEqual(expected, McpHost.ResolveTransport(args));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("Mcp__Transport", previous);
+            }
+        }
+
+        /// <summary>The posture line prints the transport that is RUNNING. It used to print the
+        /// configured <c>Mcp:Transport</c>, so a <c>--stdio</c> launch over the shipped settings
+        /// announced <c>transport=http</c> (measured on the packed tool).</summary>
+        [TestMethod]
+        public void StartupPosture_NamesTheResolvedTransport_NotTheConfiguredOne()
+        {
+            using var sink = new TestLogSink();
+            var configured = new McpOptions { Transport = "http" };
+
+            McpHost.LogStartupPosture(sink.CreateFactory().CreateLogger("posture"), "stdio", configured, new Fallen8TargetOptions());
+
+            Assert.IsTrue(sink.Contains(Microsoft.Extensions.Logging.LogLevel.Information, "transport=stdio"),
+                "the posture line names the resolved transport: " + String.Join(" | ", sink.Entries.Select(e => e.Message)));
+            Assert.IsFalse(sink.Contains(Microsoft.Extensions.Logging.LogLevel.Information, "transport=http"));
+        }
+
         // --- pure functions -----------------------------------------------------------------
 
         [DataTestMethod]

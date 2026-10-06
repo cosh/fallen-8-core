@@ -63,7 +63,15 @@ namespace NoSQL.GraphDB.Mcp
         /// JSON-RPC frame stream, so ALL logging is routed to stderr (spec §3.3).</summary>
         private static async Task RunStdioAsync(String[] args)
         {
-            var builder = Host.CreateApplicationBuilder(args);
+            // Content root = the binaries' directory, not the caller's: as a .NET tool (dnx) the
+            // process starts in whatever directory the client happens to be in, and appsettings.json
+            // ships next to the dll (feature mcp-plugin-gaps, spec section 5; measured, the default
+            // content root silently skipped the file).
+            var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+            {
+                Args = args,
+                ContentRootPath = AppContext.BaseDirectory,
+            });
             builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
             var holder = McpHost.AddFallen8Mcp(builder.Services, builder.Configuration, stdio: true);
@@ -73,6 +81,7 @@ namespace NoSQL.GraphDB.Mcp
 
             McpHost.LogStartupPosture(
                 host.Services.GetRequiredService<ILogger<Program>>(),
+                "stdio",
                 host.Services.GetRequiredService<IOptions<McpOptions>>().Value,
                 host.Services.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value);
 
@@ -84,7 +93,13 @@ namespace NoSQL.GraphDB.Mcp
         /// §3.3/§3.8.</summary>
         private static async Task RunHttpAsync(String[] args)
         {
-            var builder = WebApplication.CreateBuilder(args);
+            // Same content-root rule as the stdio host (see RunStdioAsync): the tool package can run
+            // this transport too, from any directory.
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                Args = args,
+                ContentRootPath = AppContext.BaseDirectory,
+            });
 
             var mcp = builder.Configuration.GetSection(McpOptions.SectionName).Get<McpOptions>() ?? new McpOptions();
             builder.WebHost.UseUrls($"http://{mcp.Security.BindAddress}:{mcp.Port}");
@@ -180,6 +195,7 @@ namespace NoSQL.GraphDB.Mcp
 
             McpHost.LogStartupPosture(
                 logger,
+                "http",
                 mcp,
                 app.Services.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value);
 

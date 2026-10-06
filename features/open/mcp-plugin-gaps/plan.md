@@ -77,27 +77,43 @@ Files: `fallen-8-mcp/Bridge/Dto/StatusDto.cs`, `fallen-8-mcp/Tools/OverviewTool.
 Files: `fallen-8-mcp/fallen-8-mcp.csproj`, new `fallen-8-mcp/README.md` (package page),
 `.github/workflows/release.yml`, `fallen-8-unittest/McpTransportTest.cs`.
 
-- [ ] **Spike before any edit to the workflow:** set the pack properties locally, `dotnet pack
-      fallen-8-mcp -c Release -o ./packages`, then from an unrelated directory
-      `dnx --yes --source ./packages fallen-8-mcp --stdio` and send an `initialize` on stdin.
-      Record three facts in this file: the pack succeeded from a Web SDK project (or what it
-      needed), `--stdio` arrived (the posture line on stderr says `transport=stdio`), and
-      `appsettings.json` was found from the tool's own directory. If any fails, the fix is in the
-      csproj, not in the workflow.
-- [ ] csproj: `IsPackable`, `PackAsTool`, `ToolCommandName`, `PackageId`, metadata mirroring the
-      engine's; replace the "only the engine" comment with one sentence and a pointer to spec 5.
-      `CodeQualityTest` still passes (exact versions; no new package).
-- [ ] `McpTransportTest.ResolveTransport_StdioFlag_SurvivesLauncherArgumentOrder`.
-- [ ] `release.yml` `nuget` job: a second `dotnet pack` line into `packages/`; job name and header
-      comment list both packages. The push steps are untouched (they glob).
+- [x] **Spike, measured on 2026-10-06 (packed locally, launched with `dotnet dnx --yes
+      --prerelease --source ./packages fallen-8-mcp --stdio` from the scratchpad directory):**
+      - The pack succeeds from the Web SDK project unchanged; the package is 2.2 MB, not tens
+        of MB (the framework-dependent tool carries the SDK and OTLP assemblies, no runtime).
+        The Web SDK also files `appsettings.json` under `content/` and `contentFiles/`, which a
+        tool install ignores; harmless, left alone.
+      - `--stdio` arrives: the server answers `initialize` on stdout with protocol `2025-06-18`.
+      - `appsettings.json` was NOT found: the content root was the caller's directory (the
+        scratchpad), measured with a marker URL in the file that the posture line did not show.
+        Fixed in `Program.cs`: both builders set `ContentRootPath = AppContext.BaseDirectory`;
+        re-measured, the posture line shows the marker and the content root is the package's
+        `tools/net10.0/any/`. The fix is in the host, not the workflow, as predicted.
+      - Found on the way: the posture line said `transport=http` under a `--stdio` launch,
+        because it printed the configured `Mcp:Transport` rather than the resolved one.
+        `LogStartupPosture` now takes the resolved transport; pinned by
+        `StartupPosture_NamesTheResolvedTransport_NotTheConfiguredOne` (red with the setting
+        logged, green with the resolved value).
+      - `dnx` caches by version, and MinVer gave both packs the same prerelease version, so the
+        second measurement needed the cached package removed first. A release never hits this.
+- [x] csproj: `IsPackable`, `PackAsTool`, `ToolCommandName`, `PackageId`, metadata mirroring the
+      engine's, icon and a package README; the "only the engine" comment replaced. An XML
+      comment cannot contain a double hyphen, so the flag is not spelled in it.
+- [x] `McpTransportTest.ResolveTransport_RecognisesTheFlagAnywhere_AndDefaultsToHttp` (named for
+      what it checks: flag position, case, the near-miss `--stdio-ish`, and the http default).
+- [x] `release.yml` `nuget` job: a second pack line into `packages/`; job name and header comment
+      list both packages and state the policy rule. The push steps are untouched (they glob).
 - [ ] **Pre-release operator check, recorded here when done:** the nuget.org Trusted Publishing
       policy for `release.yml` allows the `fallen-8-mcp` id. Until the first tagged release ships
       it, the docs say "from the next release" rather than claiming it resolves today.
-- [ ] Mutation check: a csproj without `PackAsTool` must make the spike's `dnx` line fail to
-      resolve a command; run it once to see the failure mode so the docs can name it.
+- [x] Mutation checks: the content-root mutant is the first spike run itself (marker not shown);
+      the posture mutant (log `mcp.Transport`) fails the posture test. The `PackAsTool` mutant was
+      NOT run: its stated purpose was to learn the failure wording for the docs, and the docs do
+      not describe a mis-packed tool, so there is nothing for that measurement to feed. Recorded
+      as skipped rather than ticked.
 
-Risk: the OTLP and MCP SDK dependencies travel inside the tool package, making it large (tens of
-MB). Acceptable for a tool; noted on the package page so nobody files it as a bug.
+Risk, revised: package size is not a concern (2.2 MB). The remaining risk is the policy check
+above, which no code can do.
 
 ## Phase 4 - `f8_index` (spec 6)
 

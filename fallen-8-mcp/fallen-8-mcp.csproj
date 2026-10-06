@@ -4,14 +4,39 @@
     <TargetFramework>net10.0</TargetFramework>
     <RootNamespace>NoSQL.GraphDB.Mcp</RootNamespace>
     <AssemblyName>fallen-8-mcp</AssemblyName>
-    <!-- Only the engine (fallen-8-core) ships as a NuGet package; the MCP server is a deployable. -->
-    <IsPackable>false</IsPackable>
+    <!-- Ships two ways: as the container image release.yml publishes, and as a .NET tool package so
+         `dnx fallen-8-mcp` with the stdio flag launches it with no install (the Claude Code plugin's
+         native tier does exactly that). The package id is the command dnx resolves, hence lower-case;
+         versions come from the git tag via MinVer like the engine's. Feature mcp-plugin-gaps, spec
+         section 5. (An XML comment cannot hold a double hyphen, so the flag is not spelled here.) -->
+    <IsPackable>true</IsPackable>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>fallen-8-mcp</ToolCommandName>
+    <PackageId>fallen-8-mcp</PackageId>
+    <Authors>Henning Rauch</Authors>
+    <Company>RauchEntwicklung</Company>
+    <Copyright>Copyright (c) 2011-2026 Henning Rauch</Copyright>
+    <Description>The Fallen-8 MCP server: bridges the Model Context Protocol to a Fallen-8 graph database over its REST API. Run with --stdio for a local client, or as an HTTP server.</Description>
+    <PackageIcon>iconwhite.png</PackageIcon>
+    <PackageProjectUrl>https://docs.fallen-8.com/mcp-server/</PackageProjectUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/cosh/fallen-8-core</RepositoryUrl>
+    <PackageTags>graph;database;mcp;model-context-protocol;agents</PackageTags>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);1591</NoWarn>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Package page assets: the icon the engine package uses and this project's own README. -->
+    <None Include="..\pics\iconwhite.png" Pack="true" PackagePath="\" />
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- The REST-client seam shared with the other REST-only deployables: send classification,

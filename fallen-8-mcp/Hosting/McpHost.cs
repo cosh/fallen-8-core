@@ -175,12 +175,15 @@ namespace NoSQL.GraphDB.Mcp.Hosting
             return url.EndsWith('/') ? url : url + "/";
         }
 
-        /// <summary>Honest posture line (spec §2/§3.3), always to the logger (stderr under stdio).</summary>
-        public static void LogStartupPosture(ILogger logger, McpOptions mcp, Fallen8TargetOptions target)
+        /// <summary>Honest posture line (spec §2/§3.3), always to the logger (stderr under stdio).
+        /// <paramref name="transport"/> is the RESOLVED transport (<see cref="ResolveTransport"/>),
+        /// not the configured <c>Mcp:Transport</c>: a <c>--stdio</c> launch used to be logged as
+        /// <c>transport=http</c> because the line printed the setting the flag had overridden.</summary>
+        public static void LogStartupPosture(ILogger logger, String transport, McpOptions mcp, Fallen8TargetOptions target)
         {
             logger.LogInformation(
                 "fallen-8-mcp starting: transport={Transport} bind={Bind}:{Port} auth={Auth} tiers=[read{Write}{Admin}{Code}] target={Target}",
-                mcp.Transport,
+                transport,
                 mcp.Security.BindAddress,
                 mcp.Port,
                 mcp.Auth.Mode,
