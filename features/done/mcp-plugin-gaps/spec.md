@@ -1,11 +1,17 @@
 # MCP plugin gaps 2026-10-06 - Specification
 
-> **Status:** Draft spec. Branch `feature/mcp-plugin-gaps` (branch-only workflow, no issue or PR
-> unless asked). Source: the review written on 2026-10-06 by the author of the Claude Code plugin
+> **Status:** DONE and merged to main on 2026-10-06, branch `feature/mcp-plugin-gaps`, twelve
+> commits (one per phase, the live verification, the review gate's one finding and two
+> corrections of this record's own claims). Section 14 says what the implementation changed about
+> the sections below and section 15 what the gate found; read 14 before trusting a detail in
+> sections 3 to 10. The one thing left to happen is outside the repository: the first tagged
+> release carries the `fallen-8-mcp` tool package (the nuget.org policy is already set for it).
+>
+> Source: the review written on 2026-10-06 by the author of the Claude Code plugin
 > `cosh/fallen-8-claude-plugin`, which was built against this repository's MCP server and found
 > gaps only this repository can close. The review listed nine items; this spec covers items 1 to 8.
 > Item 9, an embedded WebAssembly MCP host, is a feature of its own with a design note first, and
-> lives in [features/open/embedded-mcp/](../embedded-mcp/spec.md).
+> lives in [features/open/embedded-mcp/](../../open/embedded-mcp/spec.md).
 >
 > Every claim in the review was checked against the tree at `4517ee75` before it was accepted.
 > Section 2 lists what the review got wrong or left out, because the review itself asked for that
@@ -466,3 +472,74 @@ Not a repo artifact; the list the PR description carries so the plugin can follo
 - Hard rules before commit: no em or en dash in any changed file (checked in Python, not Bash),
   none of the three forbidden external names, MIT header on every new file, exact package
   versions (no new packages are expected).
+
+## 14. What the implementation changed about this document
+
+Written during implementation on 2026-10-06, one entry per section whose claims the code
+corrected. The sections above are not rewritten; this is the record of where they were wrong.
+
+- **Section 3 (f8_mutate).** "`remove_elements` with a non-integer is a 400 tool error (exists;
+  keep)" was false: neither `set_properties` nor `remove_elements` had any MCP test. Writing one
+  found that the batch's `remove: true` entry had NEVER worked through the tool: the DTO sent an
+  empty `propertyValue`, which the REST model's `[Required]` refuses (it rejects empty strings as
+  well as nulls), so every remove entry was a 400. The value is now absent on the wire for a
+  removal. Also, `f8_get` reports a missing element as `found:false`, not as an error; the test
+  first assumed otherwise.
+- **Section 4 (f8_overview).** The node also carries `ingestionFulltextIndexId`, since the
+  ingestion block names it next to the vector index. The live test compares the overview with the
+  same host's raw `/status` body rather than with literals, because what the test host's provider
+  reports depends on whether its model is loaded. The parity test found no further phantom field:
+  `IndexDto.Keys`/`Values` do exist on the REST side.
+- **Section 5 (tool package).** The package is 2.2 MB, not tens of MB. Two defects were found
+  by the spike and fixed in the host: the content root was the caller's directory, so
+  `appsettings.json` was never loaded by a tool launch, and the posture line printed the
+  configured `Mcp:Transport` rather than the resolved one, announcing `transport=http` under
+  `--stdio`. An XML comment cannot hold `--stdio`, so the csproj comment spells it out in words.
+- **Section 6 (f8_index).** A vector index BOUND to an embedding name refuses `add_vector` by
+  design ("maintains itself; write the element embedding instead"), so the test fills an unbound
+  index through `add_vector` and a bound one through `set_embedding`, and pins the refusal passing
+  through. A bare `false` from `add`/`remove_*`/`delete` is reported as 404 (every cause is
+  "something named here does not exist"); only `create` is 409. Both say the status is the
+  bridge's reading.
+- **Section 7 (semantic, patterns).** `EmbeddingBackend` and `EmbeddingIdentity` are
+  server-owned and discarded on input, so the raw forward is safe. The live witness is
+  `semantic.minScore` removing and keeping a path by the fixture's embeddings, not
+  `costBySimilarity` ranking; the byte-equality assertion became "the three keys are absent from a
+  knob-free body", which pins the same fact without a stored literal.
+- **Section 8 (f8_storedquery).** The kind values are the REST contract's `Path` and `SubGraph`,
+  not the lower-case spelling in the table. The tool's `readOnlyHint` follows the widest advertised
+  surface: true with no write or code capability, false once `delete` or `register` is listed.
+- **Section 9 (/readyz).** `/healthz` WAS inside the rate limiter, and the existing limiter test
+  counted its three requests on it; both probes are exempt now and the test counts on the MCP
+  endpoint. The compose file already had a `/healthz` healthcheck on `f8-mcp` with `f8-agents`
+  waiting on it; it points at `/readyz` now.
+- **Section 10 (docs).** The index page is `/indexes/`, there is no `/index-lifecycle/` page. The
+  feature records of index-lifecycle (no README), stored-query-library and element-embeddings
+  contain no MCP sentence, so no pointer was owed there.
+- **Section 11.** `McpWriteDtoParityTest`'s name computation moved to `McpTestSupport` so the new
+  `McpStatusDtoParityTest` shares it rather than copying it.
+- **Section 5, the policy.** "The policy must allow the new package id" described a mechanism
+  that does not exist. A nuget.org Trusted Publishing policy is scoped by owner, repository,
+  workflow file and scopes; the scopes decide whether the short-lived key may publish NEW
+  packages or only new versions, with an optional glob over package names. The operator check is
+  therefore "the policy's scopes allow new packages and its glob matches `fallen-8-mcp`", as the
+  plan's phase 3 now says.
+- **Section 12 (handoff).** Confirmed against what shipped, with two additions: the overview also
+  reports `ingestionFulltextIndexId`, and `f8_storedquery register` takes `kind` as `Path` or
+  `SubGraph`.
+
+## 15. The review gate (2026-10-06)
+
+The forked review died on the usage limit before producing a finding, so the gate was run by
+hand: every product line of the branch diff read adversarially, the pass-through helpers and the
+typed request's 204 behaviour checked against what the new tools assume of them, and the tree
+swept for mutation markers and the spike's marker URL (none left).
+
+One finding, fixed in the same commit as this section: the bridge's `GetStatusAsync` doc comment
+called it "the connection probe used by f8_overview and /healthz". `/healthz` never called it (it
+answered `ok` unconditionally, which is what section 9 is about); `/readyz` does now, and the
+comment names it. Everything else held: a bare `false` on the body-less DELETE routes is read
+from the raw reply, a 204 from the typed routes reads as `false` and is reported as "nothing
+changed", a bound vector index's refusal and the server's slot-conflict 400 pass through, and the
+probe's timeout arm is the only path through the cancellation catch when the request itself was
+not aborted.

@@ -195,9 +195,23 @@ namespace NoSQL.GraphDB.Mcp.Tools
             node["availableIndexPlugins"] = ToJsonArray(status.AvailableIndexPlugins);
             node["embeddingEnabled"] = status.Embedding?.Enabled ?? false;
             node["embeddingBackend"] = status.Embedding?.Backend;
+            node["embeddingModel"] = status.Embedding?.ModelName;
+            node["embeddingDimension"] = status.Embedding?.Dimension;
             node["chatEnabled"] = status.Chat?.Enabled ?? false;
             // Both backends stay null when unreported, for the reason indexCount stays absent above.
             node["chatBackend"] = status.Chat?.Backend;
+
+            // Ingestion and NLP state (feature mcp-plugin-gaps, spec section 4): the booleans follow
+            // embeddingEnabled (an unreported block is "off"), the names and the dimension stay null
+            // when unreported, for the reason indexCount stays absent above.
+            node["ingestionEnabled"] = status.Ingestion?.Enabled ?? false;
+            node["doclingConfigured"] = status.Ingestion?.Docling?.Configured ?? false;
+            node["doclingReachable"] = status.Ingestion?.Docling?.Reachable ?? false;
+            node["ingestionEmbeddingName"] = status.Ingestion?.EmbeddingName;
+            node["ingestionVectorIndexId"] = status.Ingestion?.VectorIndexId;
+            node["ingestionFulltextIndexId"] = status.Ingestion?.FulltextIndexId;
+            node["nlpEnabled"] = status.Nlp?.Enabled ?? false;
+            node["nlpReachable"] = status.Nlp?.Reachable ?? false;
 
             return node;
         }

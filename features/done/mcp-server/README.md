@@ -10,7 +10,10 @@
 `fallen-8-mcp` is a **separate deployable** that bridges the Model Context Protocol to a
 reachable Fallen-8 over its **REST API** — never an engine embedding (no reference to
 `fallen-8-core` or the apiApp). It gives AI agents, the expected primary users of Fallen-8, a
-small, token-frugal, namespace-aware tool surface.
+small, token-frugal, namespace-aware tool surface. It ships as the `fallen-8-core-mcp` container
+image and, since feature [mcp-plugin-gaps](../mcp-plugin-gaps/spec.md), as the .NET tool package
+`fallen-8-mcp` (`dnx fallen-8-mcp --stdio`); that feature record also holds the thirteen-tool
+surface's two newest tools (`f8_index`, `f8_storedquery`) and the `/readyz` probe.
 
 ## Architecture
 
@@ -46,12 +49,18 @@ also `CLAUDE.md` (Architecture notes + Quality gates).
 
 ## Tests / gates
 
-- `McpToolSurfaceTest` — schema-shape proof (flat, no composition), tier gating, annotations.
+- `McpToolSurfaceTest` - schema-shape proof (flat, no composition), tier gating, annotations; every
+  tool under every capability combination declares no duplicate argument, and one sample call per
+  op validates against the advertised schema (`FlatSchemaChecker`, with its own test).
+- `SchemaBuilderTest` - the builder refuses a repeated argument name.
+- `McpWriteDtoParityTest` / `McpStatusDtoParityTest` - the bridge's write bodies mirror the REST
+  shapes field for field, and its status DTOs declare no field the REST body never sends.
 - `McpUrlSafetyTest` — namespace validation + injection encoding.
 - `McpBridgeTest` — three-rule error mapping + a walking-skeleton round-trip vs a hosted apiApp.
 - `McpReadToolsTest` / `McpWriteToolsTest` — read + write/admin round-trips and the enforcement
   matrix (incl. namespace-scoped isolation and per-op write honesty).
-- `McpTransportTest` — origin validation, static bearer, rate limiter, fail-closed posture.
+- `McpTransportTest` - origin validation, static bearer, rate limiter, fail-closed posture, the
+  `--stdio` launch flag and the posture line, and the `/readyz` probe's four outcomes.
 - `McpOAuthTest` — JWT validation, RFC 9728 metadata + challenge, fail-closed scope→tier, no
   token passthrough.
 - `McpContractTest` — bridged routes/methods pinned against the OpenAPI snapshot.
@@ -64,5 +73,6 @@ also `CLAUDE.md` (Architecture notes + Quality gates).
 ```bash
 dotnet build fallen-8-mcp/fallen-8-mcp.csproj
 dotnet run   --project fallen-8-mcp -- --stdio     # local stdio
+dnx fallen-8-mcp --stdio                           # the published tool package, no checkout
 F8_MCP=1 F8_MCP_TOKEN=… npm run env:up             # compose profile (see docs/mcp-server.md)
 ```

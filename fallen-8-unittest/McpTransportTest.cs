@@ -25,11 +25,16 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using NoSQL.GraphDB.Mcp.Configuration;
 using NoSQL.GraphDB.Mcp.Hosting;
@@ -44,6 +49,47 @@ namespace NoSQL.GraphDB.Tests
     [TestClass]
     public class McpTransportTest
     {
+        // --- launch (feature mcp-plugin-gaps, spec section 5: the dnx tool launch) -------------
+
+        /// <summary>A launcher may put its own arguments before or after the tool's, so the flag
+        /// must be recognised anywhere in <c>args</c>, in any case, and the environment selector
+        /// must still work when the flag is absent.</summary>
+        [DataTestMethod]
+        [DataRow(new[] { "--stdio" }, "stdio")]
+        [DataRow(new[] { "--verbosity", "quiet", "--stdio" }, "stdio")]
+        [DataRow(new[] { "--STDIO", "--other" }, "stdio")]
+        [DataRow(new String[0], "http")]
+        [DataRow(new[] { "--stdio-ish" }, "http")]
+        public void ResolveTransport_RecognisesTheFlagAnywhere_AndDefaultsToHttp(String[] args, String expected)
+        {
+            var previous = Environment.GetEnvironmentVariable("Mcp__Transport");
+            try
+            {
+                Environment.SetEnvironmentVariable("Mcp__Transport", null);
+                Assert.AreEqual(expected, McpHost.ResolveTransport(args));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("Mcp__Transport", previous);
+            }
+        }
+
+        /// <summary>The posture line prints the transport that is RUNNING. It used to print the
+        /// configured <c>Mcp:Transport</c>, so a <c>--stdio</c> launch over the shipped settings
+        /// announced <c>transport=http</c> (measured on the packed tool).</summary>
+        [TestMethod]
+        public void StartupPosture_NamesTheResolvedTransport_NotTheConfiguredOne()
+        {
+            using var sink = new TestLogSink();
+            var configured = new McpOptions { Transport = "http" };
+
+            McpHost.LogStartupPosture(sink.CreateFactory().CreateLogger("posture"), "stdio", configured, new Fallen8TargetOptions());
+
+            Assert.IsTrue(sink.Contains(Microsoft.Extensions.Logging.LogLevel.Information, "transport=stdio"),
+                "the posture line names the resolved transport: " + String.Join(" | ", sink.Entries.Select(e => e.Message)));
+            Assert.IsFalse(sink.Contains(Microsoft.Extensions.Logging.LogLevel.Information, "transport=http"));
+        }
+
         // --- pure functions -----------------------------------------------------------------
 
         [DataTestMethod]
@@ -129,8 +175,15 @@ namespace NoSQL.GraphDB.Tests
         private sealed class McpFactory : WebApplicationFactory<NoSQL.GraphDB.Mcp.Program>
         {
             private readonly Dictionary<String, String> _settings;
+            private readonly HttpMessageHandler _target;
 
-            public McpFactory(Dictionary<String, String> settings = null) => _settings = settings ?? new();
+            /// <param name="target">When given, the Fallen-8 the bridge talks to is this handler
+            /// instead of the configured URL, so a readiness test decides what the target does.</param>
+            public McpFactory(Dictionary<String, String> settings = null, HttpMessageHandler target = null)
+            {
+                _settings = settings ?? new();
+                _target = target;
+            }
 
             protected override void ConfigureWebHost(IWebHostBuilder builder)
             {
@@ -139,6 +192,122 @@ namespace NoSQL.GraphDB.Tests
                 {
                     builder.UseSetting(kv.Key, kv.Value);
                 }
+                if (_target is not null)
+                {
+                    builder.ConfigureTestServices(services =>
+                    {
+                        services.RemoveAll<IHttpClientFactory>();
+                        services.AddSingleton<IHttpClientFactory>(
+                            new McpTestSupport.SingleClientFactory(_target, new Uri("http://target.test")));
+                    });
+                }
+            }
+        }
+
+        /// <summary>A target that never answers, honouring cancellation (the probe's deadline).</summary>
+        private sealed class HangingHandler : HttpMessageHandler
+        {
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+            {
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+                throw new InvalidOperationException("unreachable");
+            }
+        }
+
+        private static McpTestSupport.LambdaHandler StatusTarget(String body, HttpStatusCode code = HttpStatusCode.OK)
+        {
+            return new McpTestSupport.LambdaHandler(_ => new HttpResponseMessage(code)
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+            });
+        }
+
+        private const String ReadyBody = "{\"usedMemory\":1,\"vertexCount\":0,\"edgeCount\":0,\"apiKeyRequired\":true,\"authenticated\":true}";
+
+        // --- /readyz (feature mcp-plugin-gaps, spec section 9) --------------------------------------
+
+        [TestMethod]
+        public async Task Readyz_IsReady_WhenTheTargetAnswersAndAcceptedTheKey()
+        {
+            using var factory = new McpFactory(target: StatusTarget(ReadyBody));
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/readyz");
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.AreEqual(HttpStatusCode.OK, response.StatusCode, body);
+            StringAssert.Contains(body, "\"status\":\"ready\"");
+            StringAssert.Contains(body, "\"authenticated\":true");
+        }
+
+        [TestMethod]
+        public async Task Readyz_IsUnready_WhenTheTargetRejectedTheKey()
+        {
+            using var factory = new McpFactory(target: StatusTarget(
+                "{\"usedMemory\":1,\"vertexCount\":0,\"edgeCount\":0,\"apiKeyRequired\":true,\"authenticated\":false}"));
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/readyz");
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode, body);
+            StringAssert.Contains(body, "\"status\":\"unready\"");
+            StringAssert.Contains(body, "rejected the configured one", "the reason names the credential problem");
+        }
+
+        [TestMethod]
+        public async Task Readyz_IsUnready_WithTheBridgeStatus_WhenTheTargetFails()
+        {
+            using var factory = new McpFactory(target: StatusTarget("boom", HttpStatusCode.InternalServerError));
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/readyz");
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode, body);
+            StringAssert.Contains(body, "500", "the bridge's status for the failed call is in the reason");
+        }
+
+        [TestMethod]
+        public async Task Readyz_IsUnready_WithATimeoutReason_WhenTheTargetNeverAnswers()
+        {
+            using var factory = new McpFactory(
+                new Dictionary<String, String> { ["Mcp:Readiness:TimeoutSeconds"] = "1" },
+                target: new HangingHandler());
+            using var client = factory.CreateClient();
+
+            using var response = await client.GetAsync("/readyz");
+            var body = await response.Content.ReadAsStringAsync();
+
+            Assert.AreEqual(HttpStatusCode.ServiceUnavailable, response.StatusCode, body);
+            StringAssert.Contains(body, "within 1s", "the reason names the deadline that expired");
+            StringAssert.Contains(body, "Mcp:Readiness:TimeoutSeconds", "and the setting that changes it");
+        }
+
+        [TestMethod]
+        public async Task Readyz_StaysOutsideBearerOriginAndRateLimit_LikeHealthz()
+        {
+            using var factory = new McpFactory(new Dictionary<String, String>
+            {
+                ["Mcp:Auth:Mode"] = "StaticToken",
+                ["Mcp:Auth:StaticToken"] = "s3cret-token",
+                ["Mcp:Security:RateLimit:PermitPerWindow"] = "1",
+                ["Mcp:Security:RateLimit:WindowSeconds"] = "60",
+            }, target: StatusTarget(ReadyBody));
+            using var client = factory.CreateClient();
+
+            for (var i = 0; i < 3; i++)
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, "/readyz");
+                request.Headers.TryAddWithoutValidation("Origin", "https://evil.example.com");
+                using var response = await client.SendAsync(request);
+                Assert.AreEqual(HttpStatusCode.OK, response.StatusCode,
+                    $"probe {i + 1}: no bearer, a foreign origin and a one-permit window must not stop a readiness probe");
+            }
+            for (var i = 0; i < 3; i++)
+            {
+                using var health = await client.GetAsync("/healthz");
+                Assert.AreEqual(HttpStatusCode.OK, health.StatusCode, $"liveness probe {i + 1} is outside the rate limiter too");
             }
         }
 
@@ -218,9 +387,12 @@ namespace NoSQL.GraphDB.Tests
             });
             using var client = factory.CreateClient();
 
-            Assert.AreEqual(HttpStatusCode.OK, (await client.GetAsync("/healthz")).StatusCode);
-            Assert.AreEqual(HttpStatusCode.OK, (await client.GetAsync("/healthz")).StatusCode);
-            Assert.AreEqual(HttpStatusCode.TooManyRequests, (await client.GetAsync("/healthz")).StatusCode,
+            // Counted on the MCP endpoint, which is what the limiter protects. It used to be counted
+            // on /healthz, which the probes' exemption (feature mcp-plugin-gaps, spec section 9) took
+            // out of the window on purpose: a probe must never read a 429 as "unhealthy".
+            Assert.AreNotEqual(HttpStatusCode.TooManyRequests, (await client.SendAsync(McpPost())).StatusCode);
+            Assert.AreNotEqual(HttpStatusCode.TooManyRequests, (await client.SendAsync(McpPost())).StatusCode);
+            Assert.AreEqual(HttpStatusCode.TooManyRequests, (await client.SendAsync(McpPost())).StatusCode,
                 "the third request in the window is throttled");
         }
     }

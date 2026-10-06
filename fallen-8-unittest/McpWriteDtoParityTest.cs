@@ -70,6 +70,11 @@ namespace NoSQL.GraphDB.Tests
                 ("vertex", typeof(VertexSpecification), typeof(VertexSpecDto)),
                 ("edge", typeof(EdgeSpecification), typeof(EdgeSpecDto)),
                 ("property", typeof(PropertySpecification), typeof(PropertySpecDto)),
+                // The index lifecycle bodies (feature mcp-plugin-gaps, spec section 6).
+                ("index create", typeof(PluginSpecification), typeof(IndexCreateDto)),
+                ("index add", typeof(IndexAddToSpecification), typeof(IndexAddDto)),
+                ("vector index add", typeof(VectorIndexAddSpecification), typeof(VectorIndexAddDto)),
+                ("index backfill", typeof(IndexBackfillSpecification), typeof(IndexBackfillDto)),
             };
 
             var mismatches = new List<string>();
@@ -96,20 +101,8 @@ namespace NoSQL.GraphDB.Tests
                 + String.Join("\n", mismatches));
         }
 
-        // The wire name each property serializes to: an explicit [JsonPropertyName] wins; otherwise
-        // the camelCase of the CLR name (JsonSerializerDefaults.Web behaviour, which the MCP bridge
-        // uses and which the REST options also apply to any unattributed field).
-        private static HashSet<string> EffectiveJsonNames(Type type)
-        {
-            var names = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var property in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-            {
-                var attribute = property.GetCustomAttribute<JsonPropertyNameAttribute>();
-                names.Add(attribute != null
-                    ? attribute.Name
-                    : JsonNamingPolicy.CamelCase.ConvertName(property.Name));
-            }
-            return names;
-        }
+        // The name computation lives in McpTestSupport.EffectiveJsonNames, shared with the
+        // read-side McpStatusDtoParityTest so both compute wire names the same way.
+        private static HashSet<string> EffectiveJsonNames(Type type) => McpTestSupport.EffectiveJsonNames(type);
     }
 }

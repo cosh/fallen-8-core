@@ -35,6 +35,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NoSQL.GraphDB.Mcp.Bridge;
 using NoSQL.GraphDB.Mcp.Configuration;
 using NoSQL.GraphDB.Mcp.Hosting;
 
@@ -63,7 +64,15 @@ namespace NoSQL.GraphDB.Mcp
         /// JSON-RPC frame stream, so ALL logging is routed to stderr (spec §3.3).</summary>
         private static async Task RunStdioAsync(String[] args)
         {
-            var builder = Host.CreateApplicationBuilder(args);
+            // Content root = the binaries' directory, not the caller's: as a .NET tool (dnx) the
+            // process starts in whatever directory the client happens to be in, and appsettings.json
+            // ships next to the dll (feature mcp-plugin-gaps, spec section 5; measured, the default
+            // content root silently skipped the file).
+            var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+            {
+                Args = args,
+                ContentRootPath = AppContext.BaseDirectory,
+            });
             builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
             var holder = McpHost.AddFallen8Mcp(builder.Services, builder.Configuration, stdio: true);
@@ -73,6 +82,7 @@ namespace NoSQL.GraphDB.Mcp
 
             McpHost.LogStartupPosture(
                 host.Services.GetRequiredService<ILogger<Program>>(),
+                "stdio",
                 host.Services.GetRequiredService<IOptions<McpOptions>>().Value,
                 host.Services.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value);
 
@@ -84,7 +94,13 @@ namespace NoSQL.GraphDB.Mcp
         /// §3.3/§3.8.</summary>
         private static async Task RunHttpAsync(String[] args)
         {
-            var builder = WebApplication.CreateBuilder(args);
+            // Same content-root rule as the stdio host (see RunStdioAsync): the tool package can run
+            // this transport too, from any directory.
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions
+            {
+                Args = args,
+                ContentRootPath = AppContext.BaseDirectory,
+            });
 
             var mcp = builder.Configuration.GetSection(McpOptions.SectionName).Get<McpOptions>() ?? new McpOptions();
             builder.WebHost.UseUrls($"http://{mcp.Security.BindAddress}:{mcp.Port}");
@@ -138,12 +154,12 @@ namespace NoSQL.GraphDB.Mcp
                 app.UseRateLimiter();
             }
 
-            // Origin validation (DNS-rebinding) + static bearer (Phase B). /healthz and the
-            // protected-resource metadata stay anonymous.
+            // Origin validation (DNS-rebinding) + static bearer (Phase B). /healthz, /readyz and the
+            // protected-resource metadata stay anonymous: an orchestrator's probe carries no bearer.
             app.Use(async (context, next) =>
             {
                 var path = context.Request.Path;
-                if (!path.StartsWithSegments("/healthz") && !path.StartsWithSegments(McpOAuth.MetadataPath))
+                if (!path.StartsWithSegments("/healthz") && !path.StartsWithSegments("/readyz") && !path.StartsWithSegments(McpOAuth.MetadataPath))
                 {
                     if (!TransportSecurity.IsOriginAllowed(context.Request.Headers["Origin"].ToString(), mcp.Security))
                     {
@@ -176,10 +192,17 @@ namespace NoSQL.GraphDB.Mcp
                 mcpEndpoints.RequireAuthorization();
             }
 
-            app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
+            // Liveness and readiness (feature mcp-plugin-gaps, spec section 9). Both are outside the
+            // rate limiter too: a probe every few seconds must neither eat the window nor read a 429
+            // as "unready".
+            app.MapGet("/healthz", () => Results.Ok(new { status = "ok" })).DisableRateLimiting();
+            app.MapGet("/readyz", (HttpContext context, Fallen8RestClient bridge, IOptions<Fallen8TargetOptions> target) =>
+                    ReadinessProbe.ProbeAsync(bridge, target.Value, mcp.Readiness, context.RequestAborted))
+                .DisableRateLimiting();
 
             McpHost.LogStartupPosture(
                 logger,
+                "http",
                 mcp,
                 app.Services.GetRequiredService<IOptions<Fallen8TargetOptions>>().Value);
 

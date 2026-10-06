@@ -49,6 +49,19 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public PathCostDto? Cost { get; set; }
+
+        // Pure-data knobs the server already accepts (feature mcp-plugin-gaps, spec section 7).
+        // Omitted when unset so a knob-free call sends the body it always sent.
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Double? MaxPathWeight { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Double? TimeBudgetSeconds { get; set; }
+
+        /// <summary>The <c>semantic</c> block, forwarded as the agent sent it: the server owns the
+        /// shape and its one-owner-per-slot rules, and its 400s pass through unchanged.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public System.Text.Json.JsonElement? Semantic { get; set; }
     }
 
     /// <summary>One element of a <c>PathREST</c> (an edge hop). <c>Direction</c> is the numeric

@@ -34,7 +34,8 @@ using NoSQL.GraphDB.App.Configuration;
 namespace NoSQL.GraphDB.App.Ingestion
 {
     /// <summary>
-    ///   The docling-serve HTTP client: multipart <c>POST /v1/convert/file</c> asking for
+    ///   The docling-serve HTTP client: the asynchronous convert protocol (submit, poll, fetch;
+    ///   the routes and the budget are documented on <see cref="ConvertAsync"/>), asking for
     ///   <c>json</c> AND <c>md</c> (structured chunking primary, markdown fallback), plus a
     ///   cached <c>GET /health</c> probe for the /status block.
     /// </summary>

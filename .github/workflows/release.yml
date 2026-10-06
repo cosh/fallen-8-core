@@ -8,7 +8,12 @@
 # Publish targets, all gated on the full test suite:
 #   - GHCR images (GITHUB_TOKEN):  ghcr.io/cosh/fallen-8-core (+ -api, -studio, -mcp,
 #     -integrations, -agents, -ollama, -nlp), multi-arch except -nlp (see the matrix note).
-#   - nuget.org (Trusted Publishing via OIDC - NO stored API key, no fallback):  Fallen-8.
+#   - nuget.org (Trusted Publishing via OIDC - NO stored API key, no fallback):  Fallen-8 (the
+#     engine) and fallen-8-mcp (the MCP server as a .NET tool, so `dnx fallen-8-mcp` runs it).
+#     The Trusted Publishing policy is scoped by owner, repository, workflow file and SCOPES,
+#     not by package id: its scopes must allow publishing NEW packages (not only new versions)
+#     and its package glob, if any, must match fallen-8-mcp, or the first push of the new id
+#     answers 403 and fails this job loudly, which is the intended failure mode.
 #   - GitHub Packages NuGet feed (GITHUB_TOKEN):  continuity mirror, best-effort.
 #   - npm (Trusted Publishing via OIDC - NO stored token; provenance is automatic):
 #     @fallen-8/studio, the F8 Studio library artifact and its ./canvas subpath. Needs Node 24;
@@ -183,7 +188,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
   nuget:
-    name: NuGet package (nuget.org + GitHub Packages)
+    name: NuGet packages (nuget.org + GitHub Packages)
     runs-on: ubuntu-latest
     needs: [test, test-ui]
     # The ONLY job with id-token: write - the nuget.org Trusted Publishing policy exchanges
@@ -203,8 +208,12 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
-      - name: Pack (version from the git tag via MinVer)
+      - name: Pack the engine (version from the git tag via MinVer)
         run: dotnet pack fallen-8-core/fallen-8-core.csproj --configuration Release -p:ContinuousIntegrationBuild=true --output packages
+      # The MCP server as a .NET tool (feature mcp-plugin-gaps, spec section 5). Same output
+      # folder, so the push steps below pick it up through their glob; nothing else changes.
+      - name: Pack the MCP server tool
+        run: dotnet pack fallen-8-mcp/fallen-8-mcp.csproj --configuration Release -p:ContinuousIntegrationBuild=true --output packages
       # The OIDC exchange happens immediately before the pushes: the token is single-use and
       # the returned key expires after one hour, so it is never fetched early or shared
       # across jobs. If the exchange fails, this step fails the release loudly - there is

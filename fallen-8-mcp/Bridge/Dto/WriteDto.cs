@@ -54,9 +54,61 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
 
         public String FullQualifiedTypeName { get; set; } = "System.String";
 
-        public String PropertyValue { get; set; } = String.Empty;
+        /// <summary>Absent on the wire for a removal: the REST model marks it <c>[Required]</c>,
+        /// which rejects an empty string as well as a null, so a remove entry that carried the
+        /// default empty value was refused with 400 and the batch's remove half never worked
+        /// through this tool until feature mcp-plugin-gaps pinned it.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String? PropertyValue { get; set; }
 
         public Boolean Remove { get; set; }
+    }
+
+    /// <summary>Body of <c>POST /index</c> (mirrors <c>PluginSpecification</c>): the index id, the
+    /// plugin type, and typed options the bridge builds from JSON-native values (feature
+    /// mcp-plugin-gaps, spec section 6).</summary>
+    public sealed class IndexCreateDto
+    {
+        public String UniqueId { get; set; } = String.Empty;
+
+        public String PluginType { get; set; } = String.Empty;
+
+        public Dictionary<String, PropertySpecDto> PluginOptions { get; set; } = new();
+    }
+
+    /// <summary>One entry of <c>PUT /index/{id}</c> and of the <c>/batch</c> list (mirrors
+    /// <c>IndexAddToSpecification</c>).</summary>
+    public sealed class IndexAddDto
+    {
+        public Int32 GraphElementId { get; set; }
+
+        public PropertySpecDto Key { get; set; } = new();
+    }
+
+    /// <summary>Body of <c>PUT /index/vector/{id}</c> (mirrors <c>VectorIndexAddSpecification</c>):
+    /// exactly one of <c>vector</c> / <c>propertyId</c>, the server refuses both or neither.</summary>
+    public sealed class VectorIndexAddDto
+    {
+        public Int32 GraphElementId { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public Single[]? Vector { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String? PropertyId { get; set; }
+    }
+
+    /// <summary>Body of <c>POST /index/backfill/{id}</c> (mirrors <c>IndexBackfillSpecification</c>).</summary>
+    public sealed class IndexBackfillDto
+    {
+        public String PropertyId { get; set; } = String.Empty;
+
+        public Boolean Replace { get; set; }
+
+        public Boolean Prefix { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String? Label { get; set; }
     }
 
     /// <summary>Body of <c>PUT /vertex</c>. <c>creationDate</c> is a Unix-timestamp number.</summary>

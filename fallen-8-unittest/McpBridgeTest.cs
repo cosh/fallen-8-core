@@ -169,6 +169,83 @@ namespace NoSQL.GraphDB.Tests
                 "the shipped chat default reaches the agent, so it can tell where a prompt would go");
             Assert.AreEqual("Onnx", status.GetProperty("embeddingBackend").GetString(),
                 "the shipped embedding default reaches the agent the same way");
+            // Feature mcp-plugin-gaps, spec section 4: the model name and dimension once bound to
+            // nothing (the DTO spelled them differently from the wire). Proven against the SAME
+            // host's raw /status body rather than against a literal, because what the test host's
+            // provider reports depends on whether its model is loaded; what must hold is that the
+            // overview says exactly what the wire said.
+            using var raw = JsonDocument.Parse(await api.CreateClient().GetStringAsync("/status"));
+            var wireEmbedding = raw.RootElement.GetProperty("embedding");
+            Assert.AreEqual(wireEmbedding.GetProperty("modelName").GetRawText(), status.GetProperty("embeddingModel").GetRawText(),
+                "the embedding model name binds from the wire's 'modelName'");
+            Assert.AreEqual(wireEmbedding.GetProperty("dimension").GetRawText(), status.GetProperty("embeddingDimension").GetRawText(),
+                "the embedding dimension binds from the wire's 'dimension'");
+            Assert.AreEqual(raw.RootElement.GetProperty("ingestion").GetProperty("enabled").GetBoolean(),
+                status.GetProperty("ingestionEnabled").GetBoolean(), "ingestionEnabled binds from the wire");
+            // The ingestion and NLP blocks are present on every status body a current apiApp sends,
+            // and they are booleans here, never absent, so an agent reading f8_documents' pointer to
+            // f8_overview gets an answer rather than silence.
+            foreach (var flag in new[] { "ingestionEnabled", "doclingConfigured", "doclingReachable", "nlpEnabled", "nlpReachable" })
+            {
+                var kind = status.GetProperty(flag).ValueKind;
+                Assert.IsTrue(kind is JsonValueKind.True or JsonValueKind.False, flag + " is a boolean, was " + kind);
+            }
+            Assert.IsFalse(status.GetProperty("doclingConfigured").GetBoolean(), "the test host configures no Docling");
+            Assert.IsFalse(status.GetProperty("nlpEnabled").GetBoolean(), "the test host enables no NLP sidecar");
+        }
+
+        /// <summary>
+        ///   The exact field set the overview emits for the provider blocks, against a stubbed body:
+        ///   an older target that sends none of the blocks yields false flags and null names (never a
+        ///   guessed value), and a target that sends them yields their values verbatim. Pinning the
+        ///   set means a later rename cannot drop a field silently.
+        /// </summary>
+        [TestMethod]
+        public async Task Overview_ProviderBlocks_AbsentIsFalseAndNull_PresentPassesThrough()
+        {
+            var bare = "{\"usedMemory\":1,\"vertexCount\":0,\"edgeCount\":0,\"indices\":[]}";
+            var full = "{\"usedMemory\":1,\"vertexCount\":0,\"edgeCount\":0,\"indices\":[]," +
+                "\"embedding\":{\"enabled\":true,\"backend\":\"Onnx\",\"modelName\":\"bge-small\",\"dimension\":384}," +
+                "\"ingestion\":{\"enabled\":true,\"docling\":{\"configured\":true,\"reachable\":false}," +
+                "\"embeddingName\":\"text\",\"vectorIndexId\":\"documents\",\"fulltextIndexId\":\"documents-ft\"}," +
+                "\"nlp\":{\"enabled\":true,\"configured\":true,\"reachable\":true}}";
+
+            var fromBare = await OverviewOf(bare);
+            Assert.IsFalse(fromBare.GetProperty("embeddingEnabled").GetBoolean());
+            Assert.AreEqual(JsonValueKind.Null, fromBare.GetProperty("embeddingModel").ValueKind);
+            Assert.AreEqual(JsonValueKind.Null, fromBare.GetProperty("embeddingDimension").ValueKind);
+            Assert.IsFalse(fromBare.GetProperty("ingestionEnabled").GetBoolean());
+            Assert.IsFalse(fromBare.GetProperty("doclingConfigured").GetBoolean());
+            Assert.IsFalse(fromBare.GetProperty("doclingReachable").GetBoolean());
+            Assert.AreEqual(JsonValueKind.Null, fromBare.GetProperty("ingestionEmbeddingName").ValueKind);
+            Assert.AreEqual(JsonValueKind.Null, fromBare.GetProperty("ingestionVectorIndexId").ValueKind);
+            Assert.AreEqual(JsonValueKind.Null, fromBare.GetProperty("ingestionFulltextIndexId").ValueKind);
+            Assert.IsFalse(fromBare.GetProperty("nlpEnabled").GetBoolean());
+            Assert.IsFalse(fromBare.GetProperty("nlpReachable").GetBoolean());
+
+            var fromFull = await OverviewOf(full);
+            Assert.AreEqual("bge-small", fromFull.GetProperty("embeddingModel").GetString());
+            Assert.AreEqual(384, fromFull.GetProperty("embeddingDimension").GetInt32());
+            Assert.IsTrue(fromFull.GetProperty("ingestionEnabled").GetBoolean());
+            Assert.IsTrue(fromFull.GetProperty("doclingConfigured").GetBoolean());
+            Assert.IsFalse(fromFull.GetProperty("doclingReachable").GetBoolean(), "configured but unreachable is reported as such");
+            Assert.AreEqual("text", fromFull.GetProperty("ingestionEmbeddingName").GetString());
+            Assert.AreEqual("documents", fromFull.GetProperty("ingestionVectorIndexId").GetString());
+            Assert.AreEqual("documents-ft", fromFull.GetProperty("ingestionFulltextIndexId").GetString());
+            Assert.IsTrue(fromFull.GetProperty("nlpEnabled").GetBoolean());
+            Assert.IsTrue(fromFull.GetProperty("nlpReachable").GetBoolean());
+        }
+
+        private static async Task<JsonElement> OverviewOf(String statusBody)
+        {
+            var bridge = McpTestSupport.Bridge(new McpTestSupport.LambdaHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(statusBody, System.Text.Encoding.UTF8, "application/json"),
+            }));
+            var catalog = McpTestSupport.Catalog(new McpToolsOptions(), new IMcpTool[] { new OverviewTool(bridge) });
+            var result = await catalog.CallAsync("f8_overview",
+                new Dictionary<String, JsonElement> { ["namespace"] = Str("default") }, CancellationToken.None);
+            return McpTestSupport.Structured(result);
         }
 
         /// <summary>

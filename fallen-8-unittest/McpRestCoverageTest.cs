@@ -76,11 +76,10 @@ namespace NoSQL.GraphDB.Tests
                 "analytics partition-member pagination is deferred; f8_analytics returns partition summaries"),
             new(op => op.StartsWith("GET /subgraph") || op.StartsWith("DELETE /subgraph") || op.EndsWith("/recalculate"),
                 "subgraph read/recalculate/delete are deferred; define via f8_subgraph"),
-            // " /index" (space-anchored) matches paths that START /index — NOT the bridged /scan/index/*.
-            new(op => op.Contains(" /index"),
-                "index lifecycle (create/populate/drop) is operator/setup tooling; agents scan existing indices via f8_search"),
-            new(op => op.Contains("/storedquery"),
-                "stored-query registration/listing is code-gated setup; agents invoke by name via the storedQuery parameter"),
+            // The former " /index" deferral is gone: the index lifecycle is bridged by f8_index (feature
+            // mcp-plugin-gaps, spec section 6). Deleted rather than narrowed, because this test asserts
+            // the bridged and deferred sets are disjoint. The /storedquery deferral went the same way
+            // (f8_storedquery, spec section 8).
             new(op => op.Contains("/service"),
                 "service administration is operator-only"),
             // The plugin registry is bridged by f8_plugins (list/get/invoke/delete/register_*); only the

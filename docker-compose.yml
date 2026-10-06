@@ -281,7 +281,9 @@ services:
       fallen8:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8090/healthz"]
+      # /readyz, not /healthz: ready means the bridge reached the Fallen-8 and its key was
+      # accepted, which is what f8-agents (depends_on: service_healthy) actually needs.
+      test: ["CMD", "curl", "-sf", "http://localhost:8090/readyz"]
       interval: 10s
       timeout: 5s
       retries: 12

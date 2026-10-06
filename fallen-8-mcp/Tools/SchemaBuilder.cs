@@ -100,6 +100,23 @@ namespace NoSQL.GraphDB.Mcp.Tools
             }, required);
         }
 
+        /// <summary>A number (e.g. a weight ceiling or a time budget in seconds).</summary>
+        public SchemaBuilder Num(String name, String description, Boolean required = false)
+        {
+            return Add(name, new JsonObject { ["type"] = "number", ["description"] = description }, required);
+        }
+
+        /// <summary>An integer array (e.g. a batch of element ids).</summary>
+        public SchemaBuilder IntArray(String name, String description, Boolean required = false)
+        {
+            return Add(name, new JsonObject
+            {
+                ["type"] = "array",
+                ["description"] = description,
+                ["items"] = new JsonObject { ["type"] = "integer" },
+            }, required);
+        }
+
         /// <summary>A numeric array (e.g. an embedding/query vector).</summary>
         public SchemaBuilder NumArray(String name, String description, Boolean required = false)
         {
@@ -128,6 +145,14 @@ namespace NoSQL.GraphDB.Mcp.Tools
 
         private SchemaBuilder Add(String name, JsonObject property, Boolean required)
         {
+            // A repeated name is a defect in the tool, never a harmless overwrite: the last
+            // declaration would silently win and the advertised schema would reject the other
+            // op's calls (f8_mutate once declared 'properties' as a map and as an array).
+            if (_properties.ContainsKey(name))
+            {
+                throw new InvalidOperationException(
+                    $"The schema already declares an argument named '{name}'; give the second declaration its own name.");
+            }
             _properties[name] = property;
             if (required)
             {

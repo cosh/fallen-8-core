@@ -123,12 +123,16 @@ namespace NoSQL.GraphDB.Mcp.Hosting
             // write capability and its register_* ops on the code capability, per-op (feature
             // plugin-registration).
             services.AddSingleton<IMcpTool, PluginsTool>();
+            // f8_storedquery follows the same per-op pattern: list/get always; delete on write;
+            // register on code (feature mcp-plugin-gaps, spec section 8).
+            services.AddSingleton<IMcpTool, StoredQueryTool>();
             // f8_documents is Read tier (list/get/search always available); ingest_text/delete are
             // gated on the write capability, per-op (feature unstructured-ingestion).
             services.AddSingleton<IMcpTool, DocumentsTool>();
 
             // Write tier (Mcp:Tools:EnableWrite) — absent from tools/list and rejected on call when off.
             services.AddSingleton<IMcpTool, MutateTool>();
+            services.AddSingleton<IMcpTool, IndexTool>();
             services.AddSingleton<IMcpTool, SubgraphTool>();
             services.AddSingleton<IMcpTool, NamespaceTool>();
 
@@ -175,12 +179,15 @@ namespace NoSQL.GraphDB.Mcp.Hosting
             return url.EndsWith('/') ? url : url + "/";
         }
 
-        /// <summary>Honest posture line (spec §2/§3.3), always to the logger (stderr under stdio).</summary>
-        public static void LogStartupPosture(ILogger logger, McpOptions mcp, Fallen8TargetOptions target)
+        /// <summary>Honest posture line (spec §2/§3.3), always to the logger (stderr under stdio).
+        /// <paramref name="transport"/> is the RESOLVED transport (<see cref="ResolveTransport"/>),
+        /// not the configured <c>Mcp:Transport</c>: a <c>--stdio</c> launch used to be logged as
+        /// <c>transport=http</c> because the line printed the setting the flag had overridden.</summary>
+        public static void LogStartupPosture(ILogger logger, String transport, McpOptions mcp, Fallen8TargetOptions target)
         {
             logger.LogInformation(
                 "fallen-8-mcp starting: transport={Transport} bind={Bind}:{Port} auth={Auth} tiers=[read{Write}{Admin}{Code}] target={Target}",
-                mcp.Transport,
+                transport,
                 mcp.Security.BindAddress,
                 mcp.Port,
                 mcp.Auth.Mode,
