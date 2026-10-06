@@ -96,10 +96,13 @@ Files: `fallen-8-mcp/fallen-8-mcp.csproj`, new `fallen-8-mcp/README.md` (package
       what it checks: flag position, case, the near-miss `--stdio-ish`, and the http default).
 - [x] `release.yml` `nuget` job: a second pack line into `packages/`; job name and header comment
       list both packages and state the policy rule. The push steps are untouched (they glob).
-- [ ] **Pre-release operator check, recorded here when done:** on nuget.org (username menu,
-      "Trusted Publishing"), the policy for `cosh/fallen-8-core` with workflow file `release.yml`
-      has a scope that allows publishing NEW packages, not only new versions of existing ones, and
-      its package glob (if one is set) matches `fallen-8-mcp`. A policy is scoped by owner,
+- [x] **Pre-release operator check, done by the operator on 2026-10-06:** on nuget.org (username
+      menu, "Trusted Publishing"), the policy for `cosh/fallen-8-core` with workflow file
+      `release.yml` has the scope "Push new packages and package versions", and its package list
+      names `Fallen-8` and `fallen-8-mcp` explicitly (it was empty before, which had covered the
+      engine's version pushes but was undocumented for a package that does not exist yet). What
+      remains is the first tagged release actually carrying the package; until then the docs say
+      "from the first release after it was added". A policy is scoped by owner,
       repository, workflow and scopes, never by package id; the spec's and this plan's earlier
       wording "must allow the id" meant this. Checked on 2026-10-06 that the id `fallen-8-mcp` is
       not registered on nuget.org. Until the first tagged release ships it, the docs say "from the
