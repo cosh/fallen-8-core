@@ -512,6 +512,12 @@ corrected. The sections above are not rewritten; this is the record of where the
   contain no MCP sentence, so no pointer was owed there.
 - **Section 11.** `McpWriteDtoParityTest`'s name computation moved to `McpTestSupport` so the new
   `McpStatusDtoParityTest` shares it rather than copying it.
+- **Section 5, the policy.** "The policy must allow the new package id" described a mechanism
+  that does not exist. A nuget.org Trusted Publishing policy is scoped by owner, repository,
+  workflow file and scopes; the scopes decide whether the short-lived key may publish NEW
+  packages or only new versions, with an optional glob over package names. The operator check is
+  therefore "the policy's scopes allow new packages and its glob matches `fallen-8-mcp`", as the
+  plan's phase 3 now says.
 - **Section 12 (handoff).** Confirmed against what shipped, with two additions: the overview also
   reports `ingestionFulltextIndexId`, and `f8_storedquery register` takes `kind` as `Path` or
   `SubGraph`.

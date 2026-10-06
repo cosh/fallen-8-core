@@ -10,7 +10,9 @@
 #     -integrations, -agents, -ollama, -nlp), multi-arch except -nlp (see the matrix note).
 #   - nuget.org (Trusted Publishing via OIDC - NO stored API key, no fallback):  Fallen-8 (the
 #     engine) and fallen-8-mcp (the MCP server as a .NET tool, so `dnx fallen-8-mcp` runs it).
-#     The Trusted Publishing policy must list BOTH ids; a push for an id it does not cover
+#     The Trusted Publishing policy is scoped by owner, repository, workflow file and SCOPES,
+#     not by package id: its scopes must allow publishing NEW packages (not only new versions)
+#     and its package glob, if any, must match fallen-8-mcp, or the first push of the new id
 #     answers 403 and fails this job loudly, which is the intended failure mode.
 #   - GitHub Packages NuGet feed (GITHUB_TOKEN):  continuity mirror, best-effort.
 #   - npm (Trusted Publishing via OIDC - NO stored token; provenance is automatic):

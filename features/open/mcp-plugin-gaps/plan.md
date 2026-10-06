@@ -96,9 +96,14 @@ Files: `fallen-8-mcp/fallen-8-mcp.csproj`, new `fallen-8-mcp/README.md` (package
       what it checks: flag position, case, the near-miss `--stdio-ish`, and the http default).
 - [x] `release.yml` `nuget` job: a second pack line into `packages/`; job name and header comment
       list both packages and state the policy rule. The push steps are untouched (they glob).
-- [ ] **Pre-release operator check, recorded here when done:** the nuget.org Trusted Publishing
-      policy for `release.yml` allows the `fallen-8-mcp` id. Until the first tagged release ships
-      it, the docs say "from the next release" rather than claiming it resolves today.
+- [ ] **Pre-release operator check, recorded here when done:** on nuget.org (username menu,
+      "Trusted Publishing"), the policy for `cosh/fallen-8-core` with workflow file `release.yml`
+      has a scope that allows publishing NEW packages, not only new versions of existing ones, and
+      its package glob (if one is set) matches `fallen-8-mcp`. A policy is scoped by owner,
+      repository, workflow and scopes, never by package id; the spec's and this plan's earlier
+      wording "must allow the id" meant this. Checked on 2026-10-06 that the id `fallen-8-mcp` is
+      not registered on nuget.org. Until the first tagged release ships it, the docs say "from the
+      first release after it was added" rather than claiming it resolves today.
 - [x] Mutation checks: the content-root mutant is the first spike run itself (marker not shown);
       the posture mutant (log `mcp.Transport`) fails the posture test. The `PackAsTool` mutant was
       NOT run: its stated purpose was to learn the failure wording for the docs, and the docs do
