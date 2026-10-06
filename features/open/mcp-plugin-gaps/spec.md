@@ -466,3 +466,52 @@ Not a repo artifact; the list the PR description carries so the plugin can follo
 - Hard rules before commit: no em or en dash in any changed file (checked in Python, not Bash),
   none of the three forbidden external names, MIT header on every new file, exact package
   versions (no new packages are expected).
+
+## 14. What the implementation changed about this document
+
+Written during implementation on 2026-10-06, one entry per section whose claims the code
+corrected. The sections above are not rewritten; this is the record of where they were wrong.
+
+- **Section 3 (f8_mutate).** "`remove_elements` with a non-integer is a 400 tool error (exists;
+  keep)" was false: neither `set_properties` nor `remove_elements` had any MCP test. Writing one
+  found that the batch's `remove: true` entry had NEVER worked through the tool: the DTO sent an
+  empty `propertyValue`, which the REST model's `[Required]` refuses (it rejects empty strings as
+  well as nulls), so every remove entry was a 400. The value is now absent on the wire for a
+  removal. Also, `f8_get` reports a missing element as `found:false`, not as an error; the test
+  first assumed otherwise.
+- **Section 4 (f8_overview).** The node also carries `ingestionFulltextIndexId`, since the
+  ingestion block names it next to the vector index. The live test compares the overview with the
+  same host's raw `/status` body rather than with literals, because what the test host's provider
+  reports depends on whether its model is loaded. The parity test found no further phantom field:
+  `IndexDto.Keys`/`Values` do exist on the REST side.
+- **Section 5 (tool package).** The package is 2.2 MB, not tens of MB. Two defects were found
+  by the spike and fixed in the host: the content root was the caller's directory, so
+  `appsettings.json` was never loaded by a tool launch, and the posture line printed the
+  configured `Mcp:Transport` rather than the resolved one, announcing `transport=http` under
+  `--stdio`. An XML comment cannot hold `--stdio`, so the csproj comment spells it out in words.
+- **Section 6 (f8_index).** A vector index BOUND to an embedding name refuses `add_vector` by
+  design ("maintains itself; write the element embedding instead"), so the test fills an unbound
+  index through `add_vector` and a bound one through `set_embedding`, and pins the refusal passing
+  through. A bare `false` from `add`/`remove_*`/`delete` is reported as 404 (every cause is
+  "something named here does not exist"); only `create` is 409. Both say the status is the
+  bridge's reading.
+- **Section 7 (semantic, patterns).** `EmbeddingBackend` and `EmbeddingIdentity` are
+  server-owned and discarded on input, so the raw forward is safe. The live witness is
+  `semantic.minScore` removing and keeping a path by the fixture's embeddings, not
+  `costBySimilarity` ranking; the byte-equality assertion became "the three keys are absent from a
+  knob-free body", which pins the same fact without a stored literal.
+- **Section 8 (f8_storedquery).** The kind values are the REST contract's `Path` and `SubGraph`,
+  not the lower-case spelling in the table. The tool's `readOnlyHint` follows the widest advertised
+  surface: true with no write or code capability, false once `delete` or `register` is listed.
+- **Section 9 (/readyz).** `/healthz` WAS inside the rate limiter, and the existing limiter test
+  counted its three requests on it; both probes are exempt now and the test counts on the MCP
+  endpoint. The compose file already had a `/healthz` healthcheck on `f8-mcp` with `f8-agents`
+  waiting on it; it points at `/readyz` now.
+- **Section 10 (docs).** The index page is `/indexes/`, there is no `/index-lifecycle/` page. The
+  feature records of index-lifecycle (no README), stored-query-library and element-embeddings
+  contain no MCP sentence, so no pointer was owed there.
+- **Section 11.** `McpWriteDtoParityTest`'s name computation moved to `McpTestSupport` so the new
+  `McpStatusDtoParityTest` shares it rather than copying it.
+- **Section 12 (handoff).** Confirmed against what shipped, with two additions: the overview also
+  reports `ingestionFulltextIndexId`, and `f8_storedquery register` takes `kind` as `Path` or
+  `SubGraph`.

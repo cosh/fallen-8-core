@@ -48,11 +48,12 @@ F8_MCP_AUTH_MODE=StaticToken F8_MCP_ENABLE_WRITE=true npm run env:up
 `F8_MCP_ENABLE_ADMIN` and `F8_MCP_ENABLE_CODE` open the other two tiers the same way (the full
 list of compose variables is in [Running Fallen-8](/running/)).
 
-Or run the image standalone against a Fallen-8 on another host, fully credentialed. No registry
-publishes it yet, so build it first (the Dockerfile's context is the repo root):
+Or run the image standalone against a Fallen-8 on another host, fully credentialed. Every tagged
+release publishes it as `ghcr.io/cosh/fallen-8-core-mcp`; build it yourself only for an
+unreleased tree (the Dockerfile's context is the repo root):
 
 ```bash
-docker build -f fallen-8-mcp/Dockerfile -t fallen-8-mcp .
+docker pull ghcr.io/cosh/fallen-8-core-mcp:latest   # or build: docker build -f fallen-8-mcp/Dockerfile -t fallen-8-mcp .
 
 docker run --rm -p 8090:8090 \
   -e Fallen8Target__BaseUrl=https://graph.example:8443 \
@@ -77,6 +78,25 @@ a bare `dotnet run` of the API is on `http://localhost:5000`, the compose enviro
 Fallen8Target__BaseUrl=http://localhost:5000 dotnet run --project fallen-8-mcp -- --stdio
 ```
 
+**As a .NET tool, no checkout needed.** The server also ships on nuget.org as the tool package
+`fallen-8-mcp` (from the first release after it was added), so the .NET 10 SDK's `dnx` runs it
+without installing anything; this is the line the Claude Code plugin's native tier launches:
+
+```bash
+Fallen8Target__BaseUrl=http://localhost:5000 dnx fallen-8-mcp --stdio
+```
+
+It bridges to `Fallen8Target__BaseUrl` (default `http://localhost:8080`) and reads the same
+environment variables as the container; `Mcp__Transport=stdio` is honoured too, for a launcher
+that cannot pass the flag.
+
+**Probes.** On the HTTP transport, `GET /healthz` is liveness (the process is up) and
+`GET /readyz` is readiness: one bridged `GET /status` under a short deadline
+(`Mcp:Readiness:TimeoutSeconds`, default 3), answering 503 with a reason when the Fallen-8 is
+unreachable, times out, or requires an API key and rejected the configured one. Both are outside
+the origin, bearer and rate-limit checks, so an orchestrator can poll them bare; the compose
+environment's `f8-mcp` healthcheck uses `/readyz`, which is what `f8-agents` waits for.
+
 ## Connecting a client
 
 Claude Code, over Streamable HTTP. The default dev server is anonymous:
@@ -93,48 +113,65 @@ claude mcp add --transport http fallen8 http://localhost:8090 \
 ```
 
 For stdio, point the client at `dotnet run --project fallen-8-mcp -- --stdio` (or the built
-binary) and set `Fallen8Target__BaseUrl` in its environment.
+binary, or `dnx fallen-8-mcp --stdio`) and set `Fallen8Target__BaseUrl` in its environment.
+
+**The Claude Code plugin.** [`cosh/fallen-8-claude-plugin`](https://github.com/cosh/fallen-8-claude-plugin)
+packages the connection plus skills for working with a Fallen-8 from Claude Code:
+
+```bash
+claude plugin marketplace add cosh/fallen-8-claude-plugin
+claude plugin install fallen-8@fallen-8
+```
+
+It reads `FALLEN8_URL`, the MCP server's URL (`http://localhost:8090` for the compose
+environment), and its native tier launches the tool package above. The plugin has its own
+repository and documentation; this page states no more about it than those two facts.
 
 ## The tools
 
-Eleven consolidated, capability-oriented tools cover the whole surface (not one per REST route),
+Thirteen consolidated, capability-oriented tools cover the whole surface (not one per REST route),
 so a client loads few schemas and each result stays compact. Nearly every tool takes an optional
 `namespace` (a Fallen-8 hosts many isolated graphs; it defaults to `default`); `f8_namespace`
 names its target directly instead, and `f8_admin`'s `list_savegames`/`load` are Fallen-8-level.
 
 | Tier | Tool | What it does |
 |------|------|--------------|
-| read | `f8_overview` | Discover a graph: omit `namespace` to list namespaces; set it for counts, index count, available algorithms/index plugins, and embedding/auth state. `detail:"statistics"` adds the full graph-shape snapshot (label/key cardinalities, degree distribution, and the index inventory itself). A namespace this process did not load is reported as not loaded, with no counts rather than zeros, and the summary names the fix (`f8_admin op:'activate'`). **Start here.** |
+| read | `f8_overview` | Discover a graph: omit `namespace` to list namespaces; set it for counts, index count, available algorithms/index plugins, and the capability state an agent plans around: embedding (`embeddingEnabled`, `embeddingBackend`, `embeddingModel`, `embeddingDimension`), chat, ingestion (`ingestionEnabled`, `doclingConfigured`, `doclingReachable`, the bound `ingestionVectorIndexId`/`ingestionFulltextIndexId`/`ingestionEmbeddingName`), NLP (`nlpEnabled`, `nlpReachable`) and auth. `detail:"statistics"` adds the full graph-shape snapshot (label/key cardinalities, degree distribution, and the index inventory itself). A namespace this process did not load is reported as not loaded, with no counts rather than zeros, and the summary names the fix (`f8_admin op:'activate'`). **Start here.** |
 | read | `f8_get` | Fetch a vertex/edge by id with optional neighbourhood (`include`) and property projection (`fields`). Compact by default, scalar values only, vectors omitted. |
 | read | `f8_search` | Find elements: `mode` = `index` \| `property` (un-indexed, one named key) \| `properties` (un-indexed contains scan across every property value) \| `fulltext` \| `vector` \| `semantic`. `kind` and `label` restrict the hits (ignored by fulltext). Returns ids (+score); `fields` enriches with properties. Paginated (`limit`/`cursor`). |
-| read | `f8_paths` | Find paths between two vertices, unfiltered or by a registered stored query. Knobs: `algorithm` (free-form: `BLS` by default, `DIJKSTRA`, or any registered `Path` plugin the overview reports), `maxDepth` (default 7), `maxResults`. An empty result can also mean an internal traversal limit was hit, so it is not proof no path exists. |
+| read | `f8_paths` | Find paths between two vertices, unfiltered or by a registered stored query. Knobs: `algorithm` (free-form: `BLS` by default, `DIJKSTRA`, or any registered `Path` plugin the overview reports), `maxDepth` (default 7), `maxResults`, `maxPathWeight`, `timeBudgetSeconds`, and a `semantic` block (`queryVector` or `queryText`, `embeddingName`, `metric`, `minScore`, `costBySimilarity`) forwarded as sent, so the server's own validation and its one-owner-per-slot 400s apply. An empty result can also mean an internal traversal limit was hit, so it is not proof no path exists. |
+| read | `f8_storedquery` | The [stored-query library](/stored-queries/): `list`/`get` (with `compileState` and, on `get`, the stored specification as an object); `delete` needs the write capability; `register` compiles C# fragments and needs the code capability. What it registers is what `storedQuery` on `f8_paths`/`f8_subgraph` invokes by name. |
 | read | `f8_analytics` | Run a whole-graph algorithm (PageRank, WCC, communities, centrality, triangle-count), or omit `algorithm` to list them. Optional per-run knobs: `vertexLabel`, `edgePropertyId`, `direction`, `maxResults` (default 25), `maxIterations`, and a numeric `parameters` map (e.g. `{"DampingFactor": 0.85}`). |
 | read | `f8_plugins` | The per-namespace [plugin registry](/plugin-registration/): `list`/`get`/`invoke` (a graph function by name); `delete` needs the write capability; `register_algorithm`/`register_function` (from C# source) need the code capability. An agent can run every registered plugin category: a graph function through `invoke` here, and a registered algorithm by naming it in the `algorithm` knob of `f8_paths`, `f8_subgraph` or `f8_analytics`. |
 | read | `f8_documents` | [Unstructured ingestion](/unstructured-ingestion/): `search` (fused dense+lexical chunk retrieval; hits are vertex ids), `list`, `get`, `binding` (the index-binding state), `entities` (the deduplicated entity network); `ingest_text`/`delete`/`bind` need the write capability. Binary file upload stays REST-only (base64 through tool calls wastes tokens). |
-| write | `f8_mutate` | One transactional mutation: `create_vertex`, `create_edge`, `create_vertices`, `create_edges` (atomic batch creates), `set_property`, `remove_property`, `remove_element`, `set_embedding`. Property values are JSON-native. Success means the transaction applied. The batch creates **return the assigned ids**; the single creates do not (find them with `f8_search`), and `set_property`/`remove_property`/`remove_element` are no-ops for an absent id, so success does not prove the element existed. |
-| write | `f8_subgraph` | Define a subgraph from a stored template (or inline filters when the code capability is on). |
+| write | `f8_mutate` | One transactional mutation: `create_vertex`, `create_edge`, `create_vertices`, `create_edges` (atomic batch creates), `set_property`, `set_properties` (an atomic batch of `updates`, each `{id, key, value}` or `{id, key, remove: true}`), `remove_property`, `remove_element`, `remove_elements` (an atomic batch of `ids`), `set_embedding`. Property values are JSON-native. Success means the transaction applied. The batch creates **return the assigned ids**; the single creates do not (find them with `f8_search`), and the property and removal ops are no-ops for an absent id, so success does not prove the element existed. |
+| write | `f8_index` | The [index lifecycle](/indexes/): `create` (any `pluginType` the overview lists, with JSON-native `options` such as `{dimension, metric, embeddingName}` for a `VectorIndex`), `add`/`add_many`, `add_vector`, `remove_element`/`remove_key`, `backfill` from a property, `delete`. The REST routes answer a bare `false` for a taken id, an unknown type or a missing index; the tool reports those as errors whose message names every cause and says the status is the bridge's reading. |
+| write | `f8_subgraph` | Define a subgraph from a stored template, a code-free `patterns` list (Vertex/Edge/VariableLengthEdge steps) and/or a `semantic` block, or inline filters when the code capability is on. A pattern step carrying a C# fragment needs the code capability too. |
 | write | `f8_namespace` | Create, rename, or drop a namespace. |
 | admin | `f8_admin` | Durability, maintenance & instance configuration: `save`, `list_savegames`, `load` (by save-game id, optionally restoring a single `restoreNamespace` member), `activate` (load a namespace this process skipped at startup, see [namespaces](/namespaces/#startup-load); it needs an explicit `namespace`, since activating `default` is always a no-op), `trim`, `tabula_rasa`, and `get_settings`/`set_settings` over the [configuration](/configuration/) surface (`get_settings` is the first thing to read when a limit or a capability refuses a call; a write is validated as a whole batch and most keys take effect only after a restart, which the result says per key). `trim`/`tabula_rasa` are fire-and-forget: they report "enqueued", never "applied". |
 
 Tools carry MCP annotations so clients can surface the right confirmation UX. The five purely-read
-tools (`f8_overview`, `f8_get`, `f8_search`, `f8_paths`, `f8_analytics`) are `readOnlyHint`;
-`f8_namespace` (drop), `f8_admin` (load/trim/tabula_rasa) and also `f8_plugins`/`f8_documents` are
-`destructiveHint`, the last two because they host write/code ops behind a per-op gate, so a client
-may ask for confirmation even on their read ops. **Annotations are hints: the real enforcement is
-server-side tier gating.**
+tools (`f8_overview`, `f8_get`, `f8_search`, `f8_paths`, `f8_analytics`) are `readOnlyHint`, and
+so is `f8_storedquery` until write or code is on; `f8_namespace` (drop), `f8_admin`
+(load/trim/tabula_rasa), `f8_index` (delete, backfill with replace) and also
+`f8_plugins`/`f8_documents` are `destructiveHint`, the last two because they host write/code ops
+behind a per-op gate, so a client may ask for confirmation even on their read ops. **Annotations
+are hints: the real enforcement is server-side tier gating.**
 
 ## Tiers and the code capability
 
 Tools are grouped by the same opt-in tiers Fallen-8 uses everywhere:
 
 - **read** (on by default): discovery, fetch, search, paths, analytics, plus the read ops of the
-  plugin registry and documents.
-- **write** (`Mcp:Tools:EnableWrite`): mutations, subgraph define, namespace lifecycle, and the
-  write ops inside the read-tier tools (`delete` on `f8_plugins`; `ingest_text`/`delete`/`bind` on
-  `f8_documents`), which appear in those tools' `op` list only once write is on.
+  plugin registry, the stored-query library and documents.
+- **write** (`Mcp:Tools:EnableWrite`): mutations, the index lifecycle, subgraph define, namespace
+  lifecycle, and the write ops inside the read-tier tools (`delete` on `f8_plugins` and
+  `f8_storedquery`; `ingest_text`/`delete`/`bind` on `f8_documents`), which appear in those tools'
+  `op` list only once write is on.
 - **admin** (`Mcp:Tools:EnableAdmin`): save/load/trim/tabula_rasa.
 - **code** (`Mcp:Tools:EnableCode`): does **not** add tools; it *widens* existing ones with C#
-  source: inline filter/cost fragments on `f8_paths`/`f8_subgraph`, and the
+  source: inline filter/cost fragments on `f8_paths`/`f8_subgraph` (including a fragment inside a
+  `patterns` step), the `register` op on `f8_storedquery`, and the
   `register_algorithm`/`register_function` ops on `f8_plugins` (whole-type plugin source). Off by
   default so the MCP surface stays token-frugal and does not invite arbitrary C# from agents; the
   target Fallen-8 always accepts the equivalent (auth + the plugin gate permitting), so this is
@@ -211,6 +248,7 @@ capability (which runs C# fragments as the Fallen-8 process) as a trusted, delib
 | `Mcp:Security:Origins` | allowed cross-origins (loopback allowed by default) |
 | `Mcp:Security:RateLimit:PermitPerWindow` / `WindowSeconds` | fixed-window request throttle (default 600 requests per 60 seconds; `0` disables the limiter) |
 | `Mcp:Tools:EnableWrite` / `EnableAdmin` / `EnableCode` | tier / capability opt-ins (all off by default) |
+| `Mcp:Readiness:TimeoutSeconds` | deadline of the one bridged call `GET /readyz` makes (default `3`, clamped like the target timeout); past it the probe answers 503 naming this setting |
 | `Mcp:Auth:Mode` | `None` \| `StaticToken` \| `OAuth` |
 | `Mcp:Auth:StaticToken` | the shared bearer secret used when `Mode=StaticToken` (env / user-secrets only, never checked in) |
 | `Mcp:Auth:Issuer` / `Audience` | the OAuth authorization server's issuer + this server's resource identifier (the token's `aud`; mandatory under OAuth) |

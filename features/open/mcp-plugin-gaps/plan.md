@@ -23,29 +23,26 @@ Files: `fallen-8-mcp/Tools/SchemaBuilder.cs`, `fallen-8-mcp/Tools/MutateTool.cs`
 `fallen-8-unittest/SchemaBuilderTest.cs`, new `fallen-8-unittest/FlatSchemaChecker.cs` (test
 support).
 
-- [ ] `SchemaBuilderTest.Add_SameNameTwice_Throws` (red: the second `Add` currently succeeds).
-- [ ] `SchemaBuilder.Add` throws `InvalidOperationException` naming the duplicate; add `IntArray`
-      and `Num`.
-- [ ] `McpToolSurfaceTest.EveryTool_Describe_DeclaresNoDuplicateSchemaName` over every registered
-      tool and all eight capability combinations. With the throwing builder and the unfixed
-      `MutateTool` this is red on `f8_mutate` with the duplicate's name in the message; that is the
-      defect, pinned.
-- [ ] `MutateTool`: `properties` stays the object map; the batch becomes `updates`; `ids` is
-      `IntArray`. Runtime: `set_properties` reads `updates`, falling back to an array-valued
-      `properties`. The op descriptions and the tool description name `updates`.
-- [ ] `FlatSchemaChecker`: validates a JSON argument object against the flat subset (`type` of
-      object/string/integer/number/boolean/array, `items.type`, `enum`, `required`,
-      `additionalProperties:false`, and the untyped `Any`). About sixty lines. It has its own
-      test (`FlatSchemaCheckerTest`) with one accepted and one rejected case per rule, because a
-      checker that accepts everything would make the next test a false green.
-- [ ] `McpToolSurfaceTest.EveryTool_SampleCall_ValidatesAgainstItsAdvertisedSchema`: a table of
-      one valid call per op per tool, validated with the checker against `Describe` with all caps
-      on. Red on the current `f8_mutate` for `create_vertex` with object `properties` (the
-      consequence section 2 of the spec names), green after.
-- [ ] `McpWriteToolsTest`: `set_properties` through `updates` and through the legacy array both
-      reach `PUT /graphelements/properties` with the same body.
-- [ ] Mutation check: restore the overwriting `Add` and the duplicate `properties`; both new
-      surface tests must go red.
+- [x] `SchemaBuilderTest.Add_SameNameTwice_Throws_NamingTheDuplicate` (red: the second `Add`
+      succeeded), plus a same-shape repeat, `IntArray` and `Num`.
+- [x] `SchemaBuilder.Add` throws `InvalidOperationException` naming the duplicate; `IntArray` and
+      `Num` added.
+- [x] `McpToolSurfaceTest.EveryTool_Describe_DeclaresNoDuplicateSchemaName` over every registered
+      tool (the shared fixture gained `PluginsTool` and `DocumentsTool`, which it had omitted) and
+      all eight capability combinations.
+- [x] `MutateTool`: `properties` is the object map again; the batch is `updates`; `ids` is
+      `IntArray`; the legacy array-valued `properties` is still read.
+- [x] `FlatSchemaChecker` with `FlatSchemaCheckerTest` (one accepted and one rejected case per
+      rule, including the object-versus-array pair that was the defect).
+- [x] `McpToolSurfaceTest.EveryTool_SampleCall_ValidatesAgainstItsAdvertisedSchema`: measured red
+      on the unfixed tool with six violations (`properties` twice, `updates` undeclared, three
+      `ids` items), green after.
+- [x] `McpWriteToolsTest`: `set_properties` via `updates` and via the legacy array, both applied
+      against the hosted apiApp; found and fixed the remove entry that had never worked (spec
+      section 14); `remove_elements` refusing a non-integer and removing a batch.
+- [x] Mutation checks: the builder's throw, the DTO's omitted value and the integer id array
+      reverted in one run, each caught by its own test; a re-added duplicate declaration caught by
+      the enumeration with the duplicate's name.
 
 Risk: a tool that varies its schema by caps (`f8_plugins`, `f8_documents`, `f8_storedquery` after
 phase 6) could declare a name in one branch and again in another; the eight-combination
@@ -56,21 +53,17 @@ enumeration is there for exactly that.
 Files: `fallen-8-mcp/Bridge/Dto/StatusDto.cs`, `fallen-8-mcp/Tools/OverviewTool.cs`, new
 `fallen-8-unittest/McpStatusDtoParityTest.cs`, `fallen-8-unittest/McpReadToolsTest.cs`.
 
-- [ ] `McpStatusDtoParityTest`: for `StatusDto` and every nested DTO, each effective JSON name
-      exists on the paired REST type (`StatusREST`, `IndexDescriptionREST`,
-      `EmbeddingProviderStatsREST`, `ChatProviderStatsREST`, `IngestionStatsREST`,
-      `DoclingStatsREST`, `NlpStatsREST`). Red on `model` and `dimensions` before the rename.
-      Reuse `McpWriteDtoParityTest`'s name computation by moving it to `McpTestSupport` rather
-      than copying it.
-- [ ] Rename `EmbeddingStateDto.Model` to `ModelName`, `Dimensions` to `Dimension`. Add
-      `IngestionStateDto`, `DoclingStateDto`, `NlpStateDto`; `StatusDto.Ingestion` and `.Nlp`.
-- [ ] `OverviewTool.BuildStatus` emits the nine new fields with the absent-block rules from the
-      spec.
-- [ ] `McpReadToolsTest`: overview against the hosted apiApp (ingestion off, provider on) and
-      against a handler returning a status body with no `ingestion`/`nlp` members. Assert the
-      exact field set so a later rename cannot drop one silently.
-- [ ] Mutation check: revert the rename only; the parity test goes red, the read-tools test goes
-      red on `embeddingModel:null`.
+- [x] `McpStatusDtoParityTest`: measured red on exactly `embedding: {dimensions, model}`; the
+      name computation moved to `McpTestSupport.EffectiveJsonNames`.
+- [x] Rename to `ModelName`/`Dimension`; `IngestionStateDto`, `DoclingStateDto`, `NlpStateDto`
+      added.
+- [x] `OverviewTool.BuildStatus` emits the ten new fields (the spec's nine plus
+      `ingestionFulltextIndexId`) with the absent-block rules.
+- [x] The overview tests live in `McpBridgeTest` (where the overview round-trips already were):
+      the live case compares against the same host's raw `/status` body; the stubbed case pins the
+      exact field set for an absent and a present block.
+- [x] Mutation check: the two fields pinned to the old wire names with `[JsonPropertyName]`; the
+      parity test and both overview tests went red.
 
 ## Phase 3 - the .NET tool package (spec 5)
 
@@ -123,25 +116,20 @@ Files: new `fallen-8-mcp/Tools/IndexTool.cs`, `fallen-8-mcp/Bridge/Dto/WriteDto.
 `fallen-8-unittest/McpWriteDtoParityTest.cs` (four pairs), `fallen-8-unittest/McpWriteToolsTest.cs`,
 `fallen-8-unittest/McpToolSurfaceTest.cs`.
 
-- [ ] Add the eight routes to `McpBridgedEndpoints` and delete the deferral first:
-      `NoBridgedEndpoint_MatchesADeferral` and `EveryRestOperation_IsBridgedOrConsciouslyDeferred`
-      are now the gate that the tool must satisfy, and `McpContractTest` confirms the eight exist
-      in the snapshot with their methods.
-- [ ] DTOs: `IndexCreateDto` (mirrors `PluginSpecification`, options as
-      `Dictionary<String, PropertySpecDto>`), `IndexAddDto`, `IndexBatchEntryDto`,
-      `VectorIndexAddDto`, `IndexBackfillDto`; parity pairs added. Red until the DTOs match
-      field for field.
-- [ ] `IndexTool`: write tier; the ops table from spec 6; `options` mapped through
-      `ValueMapping.TryFromJson` per entry; the boolean-to-409 translation with the honest
-      two-cause message; `add_vector` requires exactly one of `vector`/`propertyId` client-side
-      only to produce a clear 400 (the server's 400 is also accepted as pass-through; the test
-      covers the client-side message so an agent never sees two different sentences for one
-      mistake).
-- [ ] Register in `McpHost` next to `MutateTool`.
-- [ ] `McpToolSurfaceTest`: absent at default tiers, present with write.
-- [ ] `McpWriteToolsTest`: the round-trip script in spec 6, including `f8_search mode:index` over
-      the index the tool created and `mode:semantic` over the VectorIndex it created.
-- [ ] Mutation check: drop the `false` translation; the 409 assertions go red.
+- [x] The eight routes in `McpBridgedEndpoints`, the deferral deleted; coverage, disjointness and
+      contract tests green with them.
+- [x] DTOs: `IndexCreateDto`, `IndexAddDto` (also the batch item), `VectorIndexAddDto`,
+      `IndexBackfillDto`; four parity pairs, green first time (the REST shapes were read before
+      writing).
+- [x] `IndexTool`: write tier; the ops table from spec 6; `create` false is 409, the other bare
+      falses are 404, both declared as the bridge's reading; `add_vector`'s exactly-one rule is
+      checked client-side.
+- [x] Registered in `McpHost` next to `MutateTool`; in the shared test fixture.
+- [x] Tier matrix: absent at default tiers, present with write.
+- [x] `McpWriteToolsTest`: the dictionary lifecycle with `f8_search mode:index` as the witness,
+      and a vector lifecycle with `mode:vector` (not `mode:semantic`, which needs a text embedding
+      provider); a bound index refuses `add_vector` by design, pinned as pass-through.
+- [x] Mutation check: the `false` translation bypassed on `create`; the lifecycle test went red.
 
 ## Phase 5 - `semantic`, `patterns`, path knobs (spec 7)
 
@@ -152,20 +140,19 @@ Files: `fallen-8-mcp/Tools/PathsTool.cs`, `fallen-8-mcp/Tools/SubgraphTool.cs`,
       `.EmbeddingIdentity`: both are SERVER-OWNED ("whatever a client sends here is discarded
       before anything reads it"), stamped on the run that embedded a text. Forwarding the block
       raw is therefore safe; the schema description names the five agent-facing fields only.
-- [ ] DTOs gain `JsonElement? Semantic`, `Double? MaxPathWeight`, `Double? TimeBudgetSeconds`
-      (paths) and `JsonElement? Semantic`, `JsonElement? Patterns` (subgraph), serialised only
-      when present so an untouched call sends the same body as today (assert byte-equality of the
-      body for a knob-free call in the test, so this phase cannot change existing behaviour).
-- [ ] `PathsTool`: `semantic` (`Obj`), `maxPathWeight` (`Num`), `timeBudgetSeconds` (`Num`),
-      forwarded raw.
-- [ ] `SubgraphTool`: `semantic` (`Obj`), `patterns` (`ObjArray`); a pattern entry carrying
-      `vertexFilter`, `edgeFilter` or `edgePropertyFilter` needs the code capability (403 naming
-      `Mcp:Tools:EnableCode`), checked before the call.
-- [ ] `McpReadToolsTest`: the five cases in spec 7, against the hosted apiApp where the server's
-      behaviour is the assertion (ranking under `costBySimilarity`, the slot-conflict 400), and
-      against the captured-request handler where the sent body is.
-- [ ] Mutation check: stop forwarding `semantic`; the ranking test goes red. Remove the code
-      check on patterns; the 403 test goes red.
+- [x] `PathRequest` gains the three nullable members, omitted when unset; the subgraph body is a
+      `JsonObject` already and gains the two blocks only when given. The byte-equality idea became
+      "the three keys are absent from a knob-free body".
+- [x] `PathsTool`: `semantic` (`Obj`), `maxPathWeight` (`Num`), `timeBudgetSeconds` (`Num`),
+      forwarded raw; `ToolArgs.GetDouble` added.
+- [x] `SubgraphTool`: `semantic` (`Obj`), `patterns` (`ObjArray`); a step carrying a fragment
+      needs the code capability (403 naming `Mcp:Tools:EnableCode`); a blank fragment is not code.
+- [x] Tests: paths in `McpReadToolsTest` (the fixture's embeddings make `minScore` remove and keep
+      a path; the slot-conflict 400 with the server's sentence; the knobs present only when given),
+      subgraph in `McpWriteToolsTest` (code-free pattern and semantic-only definition compute
+      without the capability; a fragment inside a pattern is 403 without and computes with it).
+- [x] Mutation check: both mutants in one run; the two semantic path tests and the pattern gate
+      test went red.
 
 ## Phase 6 - `f8_storedquery` (spec 8)
 
@@ -174,17 +161,14 @@ Files: new `fallen-8-mcp/Tools/StoredQueryTool.cs`, `fallen-8-mcp/Bridge/Dto/` (
 `McpRestCoverageTest.cs` (delete the `/storedquery` deferral), `McpToolSurfaceTest.cs`,
 `McpReadToolsTest.cs`, `McpWriteToolsTest.cs`.
 
-- [ ] Routes into `McpBridgedEndpoints`, deferral deleted; the governance gate is red until the
-      tool exists.
-- [ ] `StoredQueryTool`: read tier; `list`/`get` always; `delete` needs write; `register` needs
-      code; the op enum varies by caps the way `PluginsTool.Describe` does. `get` parses
-      `specificationJson` back into a JSON object.
-- [ ] `McpToolSurfaceTest`: op enum per capability combination (this is where phase 1's
-      eight-combination test earns its keep).
-- [ ] Round-trip tests from spec 8, including `f8_paths storedQuery:<name>` over the query the
-      tool registered, the compile-failure 400 carrying the compiler's sentence, 409 on a second
-      register, 403 without code, 403 on delete without write.
-- [ ] Mutation check: drop the code check on `register`; the 403 test goes red.
+- [x] Routes into `McpBridgedEndpoints`, deferral deleted.
+- [x] `StoredQueryTool`: read tier; `list`/`get` always; `delete` on write; `register` on code
+      (kind `Path` or `SubGraph`, the REST spelling); the op enum and `readOnlyHint` vary by caps;
+      `get` replaces `specificationJson` with a parsed `specification` object.
+- [x] `McpToolSurfaceTest.StoredQuery_OpEnum_VariesByCapability`, plus the eight-combination
+      enumeration covering it.
+- [x] One round trip with the gates in between, as spec 8 lists them, green first time.
+- [x] Mutation check: the code gate on `register` dropped; the round trip went red.
 
 ## Phase 7 - `/readyz` (spec 9)
 
@@ -220,22 +204,20 @@ Files: `docs/src/content/docs/mcp-server.md`, `fallen-8-core-apiApp/Ingestion/Do
 map, packaging sentence), the one-line pointers in `features/done/index-lifecycle`,
 `features/done/stored-query-library`, `features/done/element-embeddings` where they mention MCP.
 
-- [ ] `mcp-server.md`: registry sentence replaced by the pull form; "Running it" gains the tool
-      form and the two probe sentences; "Connecting a client" gains the plugin block; the tool
-      table gains two rows and edits four (`f8_mutate`, `f8_overview`, `f8_paths`,
-      `f8_subgraph`); "Tiers and the code capability" lists `f8_index` and the two gated ops of
-      `f8_storedquery`; the configuration reference gains `Mcp:Readiness:TimeoutSeconds`.
-- [ ] `DoclingClient` class summary becomes a pointer to `ConvertAsync`'s summary.
-- [ ] `README.md` key-features line for the MCP server mentions the `dnx` launch form.
-- [ ] Feature README (living doc) updated; pointers placed; nothing re-narrated.
-- [ ] `npm --prefix docs ci && npm --prefix docs run build` green.
-- [ ] Hard-rule sweep over every changed file, in Python: no em or en dash, none of the three
-      forbidden external names, MIT header present on new `.cs` files, no `Console.Write*` in
-      product code, no `DateTime.Now`.
+- [x] `mcp-server.md`: all of it as listed; the index link is `/indexes/` (no `/index-lifecycle/`
+      page exists).
+- [x] `DoclingClient` class summary points at `ConvertAsync`'s.
+- [x] `README.md` key-features line mentions the `dnx` launch form and the plugin.
+- [x] Feature README (living doc) updated: packaging sentence, the thirteen tools, the test map.
+      The three other feature records contain no MCP sentence, so no pointer was owed.
+- [x] Docs build green with the link checker (42 pages), from the worktree with the main tree's
+      `node_modules` junctioned in.
+- [x] Hard-rule sweep in Python over the added lines of every commit, zero problems each time;
+      the pre-existing em dashes on untouched lines of the edited files were left as they are.
 - [ ] Live verification from spec 13 run once against `:5000`/`:8090`; transcripts saved for the
       PR description. The packed-tool check from phase 3 repeated against the final branch.
-- [ ] Section 7a added to the spec: what the implementation changed about this document, and
-      the plugin handoff list confirmed against what actually shipped.
+- [x] Spec section 14 (the "7a" of this record) added: what the implementation changed about the
+      document, and the plugin handoff list confirmed against what shipped.
 
 ## When it lands
 

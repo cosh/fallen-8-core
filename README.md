@@ -109,7 +109,8 @@ Each feature has a deep-dive doc — follow the link.
   and generation reports what it created and where.
 - **[MCP server](https://docs.fallen-8.com/mcp-server/)** — a Model Context Protocol surface so AI agents call
   Fallen-8 as typed tools; small and token-frugal, read-only by default, with tiered opt-in
-  writes and three auth modes up to OAuth 2.1.
+  writes and three auth modes up to OAuth 2.1. Runs as a container or, with no checkout, as the
+  .NET tool `dnx fallen-8-mcp --stdio`; a Claude Code plugin wraps it.
 - **[Agents](https://docs.fallen-8.com/agents/)**: a sidecar that RUNS agents against your graph,
   reading it through the MCP server above. It holds no model configuration and no provider key, so
   every model call goes to this instance's own chat gateway; each run leaves a bounded trace, an
