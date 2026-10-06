@@ -192,21 +192,26 @@ Files: `fallen-8-mcp/Program.cs`, `fallen-8-mcp/Configuration/McpOptions.cs` (a 
 block), `fallen-8-mcp/Hosting/TransportSecurity.cs` or `Program.cs` (the exemption list),
 `fallen-8-unittest/McpTransportTest.cs`, `docker-compose.yml` (healthcheck, if present).
 
-- [ ] Find how the `/healthz` exemption is spelled (prefix match in `Program.cs` line 146) and the
-      rate limiter's exemption, if any. Extend both to `/readyz`. If the limiter has no exemption
-      today, add one for both probes and record it here; a probe every 10 s inside a 600-per-60-s
-      window is 1.7 percent of the budget, but a probe that is rate-limited answers 429 and reads
-      as unready, which is a false alarm the operator would chase.
-- [ ] `/readyz` handler: `GET /status` on the default namespace under a linked 3 s token (from
-      `Mcp:Readiness:TimeoutSeconds`, clamped as `Fallen8Target:TimeoutSeconds` is); the four
-      outcomes from spec 9.
-- [ ] `McpTransportTest`: the five cases from spec 9 through the hosted harness, with a handler
-      that never answers (timeout), one that answers 500, one whose body says the key was
-      rejected, and the ready case. Assert the `reason` text, since that is what an operator reads.
-- [ ] Check the compose file: if `f8-mcp` has a healthcheck, point it at `/readyz`; if `f8-agents`
-      has `depends_on: f8-mcp: condition: service_healthy`, this is what makes it wait for a
-      target that actually answers. Record what was found.
-- [ ] Mutation check: make the handler ignore the bridge result; three of the five tests go red.
+- [x] Found: the origin/bearer exemption is a `StartsWithSegments("/healthz")` prefix match in
+      `Program.cs`; the rate limiter had NO exemption, so `/healthz` was inside the 600-per-60-s
+      window, and the existing `RateLimiter_RejectsBeyondTheWindow` even counted its three requests
+      on `/healthz`. Both probes now carry `DisableRateLimiting()`; the limiter test counts on the
+      MCP endpoint instead, which is what the limiter is for.
+- [x] `/readyz` handler in `Hosting/ReadinessProbe.cs`: `GET /status` on the default namespace
+      under a linked token from `Mcp:Readiness:TimeoutSeconds` (default 3, clamped by
+      `OptionBounds.Seconds`); the four outcomes from spec 9. The seam reports a timeout as the
+      caller's cancellation when the caller's token fired, which the linked budget is, so the probe
+      catches `OperationCanceledException` while the request itself was not aborted.
+- [x] `McpTransportTest`: the five cases through the hosted harness, whose factory now takes an
+      optional target handler (a hanging one for the timeout, a 500, a key-rejected body, a ready
+      body) and substitutes the bridge's `IHttpClientFactory`; a fifth case sends three probes with
+      no bearer, a foreign origin and a one-permit window, all 200, for `/readyz` and `/healthz`.
+- [x] Compose: `f8-mcp` HAD a healthcheck on `/healthz` (10 s interval) and `f8-agents` depends on
+      it with `condition: service_healthy`; the check now targets `/readyz`, so the agent host
+      waits for a bridge that reached its Fallen-8 with an accepted key, which is what it needs.
+- [x] Mutation check: two mutants in one run, the key check neutralised and a bridge failure
+      reported as ready; the key-rejected and the 500 tests went red, one each. The timeout arm
+      was not mutated: its test is the only one that can pass through that catch at all.
 
 ## Phase 8 - docs, records, hard rules (spec 10, 11, 12)
 

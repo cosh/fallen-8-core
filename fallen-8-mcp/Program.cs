@@ -35,6 +35,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using NoSQL.GraphDB.Mcp.Bridge;
 using NoSQL.GraphDB.Mcp.Configuration;
 using NoSQL.GraphDB.Mcp.Hosting;
 
@@ -153,12 +154,12 @@ namespace NoSQL.GraphDB.Mcp
                 app.UseRateLimiter();
             }
 
-            // Origin validation (DNS-rebinding) + static bearer (Phase B). /healthz and the
-            // protected-resource metadata stay anonymous.
+            // Origin validation (DNS-rebinding) + static bearer (Phase B). /healthz, /readyz and the
+            // protected-resource metadata stay anonymous: an orchestrator's probe carries no bearer.
             app.Use(async (context, next) =>
             {
                 var path = context.Request.Path;
-                if (!path.StartsWithSegments("/healthz") && !path.StartsWithSegments(McpOAuth.MetadataPath))
+                if (!path.StartsWithSegments("/healthz") && !path.StartsWithSegments("/readyz") && !path.StartsWithSegments(McpOAuth.MetadataPath))
                 {
                     if (!TransportSecurity.IsOriginAllowed(context.Request.Headers["Origin"].ToString(), mcp.Security))
                     {
@@ -191,7 +192,13 @@ namespace NoSQL.GraphDB.Mcp
                 mcpEndpoints.RequireAuthorization();
             }
 
-            app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
+            // Liveness and readiness (feature mcp-plugin-gaps, spec section 9). Both are outside the
+            // rate limiter too: a probe every few seconds must neither eat the window nor read a 429
+            // as "unready".
+            app.MapGet("/healthz", () => Results.Ok(new { status = "ok" })).DisableRateLimiting();
+            app.MapGet("/readyz", (HttpContext context, Fallen8RestClient bridge, IOptions<Fallen8TargetOptions> target) =>
+                    ReadinessProbe.ProbeAsync(bridge, target.Value, mcp.Readiness, context.RequestAborted))
+                .DisableRateLimiting();
 
             McpHost.LogStartupPosture(
                 logger,

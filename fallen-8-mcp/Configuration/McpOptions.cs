@@ -50,6 +50,9 @@ namespace NoSQL.GraphDB.Mcp.Configuration
 
         public McpAuthOptions Auth { get; set; } = new();
 
+        /// <summary>The readiness probe's knobs (feature mcp-plugin-gaps, spec section 9).</summary>
+        public McpReadinessOptions Readiness { get; set; } = new();
+
         public Boolean IsStdio => String.Equals(Transport, "stdio", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -81,6 +84,17 @@ namespace NoSQL.GraphDB.Mcp.Configuration
     }
 
     /// <summary>A lightweight fixed-window limiter (spec §3.3).</summary>
+    /// <summary>
+    ///   <c>GET /readyz</c> (feature mcp-plugin-gaps, spec section 9): one bridged <c>GET /status</c>
+    ///   under its own short deadline, independent of <c>Fallen8Target:TimeoutSeconds</c> (330 s,
+    ///   far too long for a probe an orchestrator polls every few seconds). Clamped like every other
+    ///   seconds setting (1 to the transport's maximum).
+    /// </summary>
+    public sealed class McpReadinessOptions
+    {
+        public Int32 TimeoutSeconds { get; set; } = 3;
+    }
+
     public sealed class McpRateLimitOptions
     {
         /// <summary>Requests permitted per window (0 disables the limiter).</summary>
