@@ -79,7 +79,8 @@ namespace NoSQL.GraphDB.Mcp.Bridge
             return SendJsonAsync<T>(method, Scoped(@namespace, suffix), body, cancellationToken);
         }
 
-        /// <summary>The connection probe used by <c>f8_overview</c> and <c>/healthz</c>.</summary>
+        /// <summary>The status read behind <c>f8_overview</c> and the <c>/readyz</c> probe
+        /// (<c>/healthz</c> is liveness and calls nothing).</summary>
         public Task<StatusDto?> GetStatusAsync(String? @namespace, CancellationToken cancellationToken)
         {
             return GetAsync<StatusDto>(@namespace, "status", cancellationToken);

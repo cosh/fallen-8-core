@@ -515,3 +515,19 @@ corrected. The sections above are not rewritten; this is the record of where the
 - **Section 12 (handoff).** Confirmed against what shipped, with two additions: the overview also
   reports `ingestionFulltextIndexId`, and `f8_storedquery register` takes `kind` as `Path` or
   `SubGraph`.
+
+## 15. The review gate (2026-10-06)
+
+The forked review died on the usage limit before producing a finding, so the gate was run by
+hand: every product line of the branch diff read adversarially, the pass-through helpers and the
+typed request's 204 behaviour checked against what the new tools assume of them, and the tree
+swept for mutation markers and the spike's marker URL (none left).
+
+One finding, fixed in the same commit as this section: the bridge's `GetStatusAsync` doc comment
+called it "the connection probe used by f8_overview and /healthz". `/healthz` never called it (it
+answered `ok` unconditionally, which is what section 9 is about); `/readyz` does now, and the
+comment names it. Everything else held: a bare `false` on the body-less DELETE routes is read
+from the raw reply, a 204 from the typed routes reads as `false` and is reported as "nothing
+changed", a bound vector index's refusal and the server's slot-conflict 400 pass through, and the
+probe's timeout arm is the only path through the cancellation catch when the request itself was
+not aborted.
