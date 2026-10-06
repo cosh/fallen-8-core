@@ -63,7 +63,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var names = DummyCatalog(new McpToolsOptions()).ListTools().Select(t => t.Name).ToHashSet();
 
-            foreach (var read in new[] { "f8_overview", "f8_get", "f8_search", "f8_paths", "f8_analytics" })
+            foreach (var read in new[] { "f8_overview", "f8_get", "f8_search", "f8_paths", "f8_analytics", "f8_plugins", "f8_storedquery", "f8_documents" })
             {
                 Assert.IsTrue(names.Contains(read), read + " is a default read tool");
             }
@@ -426,6 +426,66 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(HttpMethod.Post, requests[0].Method);
             Assert.AreEqual("/ns/my%20graph/activate", requests[0].RequestUri.AbsolutePath,
                 "Fallen-8-level route, name percent-encoded into exactly one segment (never a scoping prefix)");
+        }
+
+        // --- f8_storedquery (feature mcp-plugin-gaps, spec section 8) ---------------------------------
+
+        [TestMethod]
+        public async Task StoredQuery_RegisterListGetUseDelete_RoundTrip_WithTheGatesInBetween()
+        {
+            using var api = new ApiAppFactory();
+            var readOnly = McpTestSupport.Catalog(new McpToolsOptions(), McpTestSupport.AllTools(McpTestSupport.Bridge(api.Server.CreateHandler())));
+            var write = WriteCatalog(api);
+            var code = CodeCatalog(api);
+            var ids = await SeedPair(write);
+            const String registration =
+                "{\"op\":\"register\",\"name\":\"people-only\",\"kind\":\"Path\",\"description\":\"persons\"," +
+                "\"path\":{\"filter\":{\"vertexFilter\":\"return (v) => v.Label == \\\"person\\\";\"}}}";
+
+            var refused = await write.CallAsync("f8_storedquery", McpTestSupport.Args(registration), CancellationToken.None);
+            Assert.IsTrue(refused.IsError, "register is C# and needs the code capability");
+            StringAssert.Contains(Text(refused), "Mcp:Tools:EnableCode");
+
+            var registered = McpTestSupport.Structured(await code.CallAsync("f8_storedquery", McpTestSupport.Args(registration), CancellationToken.None));
+            Assert.AreEqual("Compiled", registered.GetProperty("compileState").GetString(), "the summary carries the compile state");
+
+            var again = await code.CallAsync("f8_storedquery", McpTestSupport.Args(registration), CancellationToken.None);
+            Assert.IsTrue(again.IsError, "a taken name is the server's 409");
+            StringAssert.Contains(Text(again), "409");
+
+            var broken = await code.CallAsync("f8_storedquery", McpTestSupport.Args(
+                "{\"op\":\"register\",\"name\":\"broken\",\"kind\":\"Path\",\"path\":{\"filter\":{\"vertexFilter\":\"return (v) => v.NoSuchMember;\"}}}"),
+                CancellationToken.None);
+            Assert.IsTrue(broken.IsError, "a fragment that does not compile is the server's 400");
+            StringAssert.Contains(Text(broken), "400");
+            StringAssert.Contains(Text(broken), "NoSuchMember", "the compiler's own message reaches the agent");
+
+            var listed = McpTestSupport.Structured(await readOnly.CallAsync("f8_storedquery", McpTestSupport.Args("{\"op\":\"list\"}"), CancellationToken.None));
+            var names = listed.GetProperty("storedQueries").EnumerateArray().Select(q => q.GetProperty("name").GetString()).ToList();
+            CollectionAssert.Contains(names, "people-only");
+            CollectionAssert.DoesNotContain(names, "broken", "a refused registration leaves nothing behind");
+
+            var detail = McpTestSupport.Structured(await readOnly.CallAsync("f8_storedquery", McpTestSupport.Args("{\"op\":\"get\",\"name\":\"people-only\"}"), CancellationToken.None));
+            Assert.AreEqual("Path", detail.GetProperty("kind").GetString());
+            Assert.AreEqual(JsonValueKind.Object, detail.GetProperty("specification").ValueKind, "the stored specification is an object, not JSON text");
+            StringAssert.Contains(detail.GetProperty("specification").GetRawText(), "person");
+            Assert.IsFalse(detail.TryGetProperty("specificationJson", out _), "the text form is replaced, not duplicated");
+            Assert.AreEqual(JsonValueKind.Null, detail.GetProperty("compileDiagnostics").ValueKind, "no diagnostics on a compiled query");
+
+            var used = McpTestSupport.Structured(await readOnly.CallAsync("f8_paths",
+                McpTestSupport.Args($"{{\"from\":{ids[0]},\"to\":{ids[1]},\"storedQuery\":\"people-only\"}}"), CancellationToken.None));
+            Assert.IsTrue(used.GetProperty("count").GetInt32() >= 1, "f8_paths runs the query the tool registered");
+
+            var deleteRefused = await readOnly.CallAsync("f8_storedquery", McpTestSupport.Args("{\"op\":\"delete\",\"name\":\"people-only\"}"), CancellationToken.None);
+            Assert.IsTrue(deleteRefused.IsError, "delete needs the write capability");
+            StringAssert.Contains(Text(deleteRefused), "Mcp:Tools:EnableWrite");
+
+            var deleted = McpTestSupport.Structured(await write.CallAsync("f8_storedquery", McpTestSupport.Args("{\"op\":\"delete\",\"name\":\"people-only\"}"), CancellationToken.None));
+            Assert.IsTrue(deleted.GetProperty("deleted").GetBoolean());
+
+            var gone = await readOnly.CallAsync("f8_storedquery", McpTestSupport.Args("{\"op\":\"get\",\"name\":\"people-only\"}"), CancellationToken.None);
+            Assert.IsTrue(gone.IsError, "the deleted query is not found");
+            StringAssert.Contains(Text(gone), "404");
         }
 
         // --- f8_subgraph: semantic and patterns (feature mcp-plugin-gaps, spec section 7) -----------

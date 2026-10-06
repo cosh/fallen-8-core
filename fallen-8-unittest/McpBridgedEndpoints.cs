@@ -98,6 +98,12 @@ namespace NoSQL.GraphDB.Tests
             ("DELETE", "/index/{indexId}/propertyValue"),
             ("DELETE", "/index/{indexId}"),
             ("POST", "/index/backfill/{indexId}"),
+            // The stored-query library (feature mcp-plugin-gaps, spec section 8), bridged as
+            // f8_storedquery: list/get read, delete write, register code.
+            ("GET", "/storedquery"),
+            ("GET", "/storedquery/{name}"),
+            ("DELETE", "/storedquery/{name}"),
+            ("POST", "/storedquery"),
             ("PUT", "/subgraph"),
             ("PUT", "/ns/{name}"),
             ("PATCH", "/ns/{name}"),

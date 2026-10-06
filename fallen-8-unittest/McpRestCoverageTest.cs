@@ -78,9 +78,8 @@ namespace NoSQL.GraphDB.Tests
                 "subgraph read/recalculate/delete are deferred; define via f8_subgraph"),
             // The former " /index" deferral is gone: the index lifecycle is bridged by f8_index (feature
             // mcp-plugin-gaps, spec section 6). Deleted rather than narrowed, because this test asserts
-            // the bridged and deferred sets are disjoint.
-            new(op => op.Contains("/storedquery"),
-                "stored-query registration/listing is code-gated setup; agents invoke by name via the storedQuery parameter"),
+            // the bridged and deferred sets are disjoint. The /storedquery deferral went the same way
+            // (f8_storedquery, spec section 8).
             new(op => op.Contains("/service"),
                 "service administration is operator-only"),
             // The plugin registry is bridged by f8_plugins (list/get/invoke/delete/register_*); only the

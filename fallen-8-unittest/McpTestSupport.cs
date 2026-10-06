@@ -108,6 +108,7 @@ namespace NoSQL.GraphDB.Tests
                 new PathsTool(bridge),
                 new AnalyticsTool(bridge),
                 new PluginsTool(bridge),
+                new StoredQueryTool(bridge),
                 new DocumentsTool(bridge),
                 new MutateTool(bridge),
                 new IndexTool(bridge),

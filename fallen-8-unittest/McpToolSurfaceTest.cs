@@ -164,6 +164,29 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(schema, "\"vector\"", "vector mode needs a declared 'vector' parameter");
         }
 
+        /// <summary>The op enum of f8_storedquery follows the capabilities exactly as f8_plugins'
+        /// does: a read-only agent sees list and get only (feature mcp-plugin-gaps, spec section 8).</summary>
+        [TestMethod]
+        public void StoredQuery_OpEnum_VariesByCapability()
+        {
+            static List<String> Ops(McpToolsOptions caps)
+            {
+                var tool = EveryTool().Single(t => t.Name == "f8_storedquery");
+                return tool.Describe(caps).InputSchema.GetProperty("properties").GetProperty("op").GetProperty("enum")
+                    .EnumerateArray().Select(e => e.GetString()!).ToList();
+            }
+
+            CollectionAssert.AreEqual(new[] { "list", "get" }, Ops(new McpToolsOptions()));
+            CollectionAssert.AreEqual(new[] { "list", "get", "delete" }, Ops(new McpToolsOptions { EnableWrite = true }));
+            CollectionAssert.AreEqual(new[] { "list", "get", "register" }, Ops(new McpToolsOptions { EnableCode = true }));
+            CollectionAssert.AreEqual(new[] { "list", "get", "delete", "register" }, Ops(new McpToolsOptions { EnableWrite = true, EnableCode = true }));
+
+            var readOnly = EveryTool().Single(t => t.Name == "f8_storedquery").Describe(new McpToolsOptions());
+            Assert.AreEqual(true, readOnly.Annotations!.ReadOnlyHint, "with no write or code capability the tool is read-only");
+            var widened = EveryTool().Single(t => t.Name == "f8_storedquery").Describe(new McpToolsOptions { EnableWrite = true });
+            Assert.AreEqual(false, widened.Annotations!.ReadOnlyHint, "delete is advertised, so the tool is no longer read-only");
+        }
+
         // --- every tool, every capability combination (feature mcp-plugin-gaps, spec section 3) ---
 
         private static IEnumerable<McpToolsOptions> EveryCapabilityCombination()
@@ -268,6 +291,14 @@ namespace NoSQL.GraphDB.Tests
                     "{\"op\":\"delete\",\"name\":\"p\"}",
                     "{\"op\":\"register_algorithm\",\"name\":\"p\",\"contract\":\"Path\",\"description\":\"d\",\"sourceCode\":\"class X {}\"}",
                     "{\"op\":\"register_function\",\"name\":\"f\",\"sourceCode\":\"class X {}\"}",
+                },
+                ["f8_storedquery"] = new[]
+                {
+                    "{\"op\":\"list\"}",
+                    "{\"op\":\"get\",\"name\":\"q\"}",
+                    "{\"op\":\"delete\",\"name\":\"q\"}",
+                    "{\"op\":\"register\",\"name\":\"q\",\"kind\":\"Path\",\"description\":\"d\",\"path\":{\"filter\":{\"vertexFilter\":\"return (v) => true;\"}}}",
+                    "{\"op\":\"register\",\"name\":\"t\",\"kind\":\"SubGraph\",\"subGraph\":{\"vertexFilter\":\"return (v) => true;\",\"patterns\":[]}}",
                 },
                 ["f8_documents"] = new[]
                 {

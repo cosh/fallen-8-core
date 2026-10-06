@@ -123,6 +123,9 @@ namespace NoSQL.GraphDB.Mcp.Hosting
             // write capability and its register_* ops on the code capability, per-op (feature
             // plugin-registration).
             services.AddSingleton<IMcpTool, PluginsTool>();
+            // f8_storedquery follows the same per-op pattern: list/get always; delete on write;
+            // register on code (feature mcp-plugin-gaps, spec section 8).
+            services.AddSingleton<IMcpTool, StoredQueryTool>();
             // f8_documents is Read tier (list/get/search always available); ingest_text/delete are
             // gated on the write capability, per-op (feature unstructured-ingestion).
             services.AddSingleton<IMcpTool, DocumentsTool>();
