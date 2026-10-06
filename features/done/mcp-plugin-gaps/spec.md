@@ -1,11 +1,17 @@
 # MCP plugin gaps 2026-10-06 - Specification
 
-> **Status:** Draft spec. Branch `feature/mcp-plugin-gaps` (branch-only workflow, no issue or PR
-> unless asked). Source: the review written on 2026-10-06 by the author of the Claude Code plugin
+> **Status:** DONE and merged to main on 2026-10-06, branch `feature/mcp-plugin-gaps`, twelve
+> commits (one per phase, the live verification, the review gate's one finding and two
+> corrections of this record's own claims). Section 14 says what the implementation changed about
+> the sections below and section 15 what the gate found; read 14 before trusting a detail in
+> sections 3 to 10. The one thing left to happen is outside the repository: the first tagged
+> release carries the `fallen-8-mcp` tool package (the nuget.org policy is already set for it).
+>
+> Source: the review written on 2026-10-06 by the author of the Claude Code plugin
 > `cosh/fallen-8-claude-plugin`, which was built against this repository's MCP server and found
 > gaps only this repository can close. The review listed nine items; this spec covers items 1 to 8.
 > Item 9, an embedded WebAssembly MCP host, is a feature of its own with a design note first, and
-> lives in [features/open/embedded-mcp/](../embedded-mcp/spec.md).
+> lives in [features/open/embedded-mcp/](../../open/embedded-mcp/spec.md).
 >
 > Every claim in the review was checked against the tree at `4517ee75` before it was accepted.
 > Section 2 lists what the review got wrong or left out, because the review itself asked for that

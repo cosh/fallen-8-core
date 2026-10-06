@@ -4,7 +4,7 @@ The [design note](./spec.md) is the contract, and its section 7 is a gate: phase
 start until phase 0's numbers are written into the note. Phases 1 and 2 are valuable on their own
 and land through the normal gates in `fallen-8-core.sln`; phases 3 and 4 are the wasm host and
 live outside the solution like the browser probe. Depends on
-[mcp-plugin-gaps](../mcp-plugin-gaps/plan.md) landing first: the tool layer extracted in phase 2
+[mcp-plugin-gaps](../../done/mcp-plugin-gaps/plan.md) landing first: the tool layer extracted in phase 2
 must be the thirteen-tool surface, not the eleven-tool one.
 
 Same working rule as every feature here: failing test first, fix, green, mutation check, diff

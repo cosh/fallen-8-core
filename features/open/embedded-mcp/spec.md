@@ -1,7 +1,7 @@
 # Embedded MCP host (WebAssembly stdio server) - Design note and specification
 
 > **Status:** Design note, not yet a committed design. Item 9 of the plugin review of 2026-10-06
-> (see [features/open/mcp-plugin-gaps/](../mcp-plugin-gaps/spec.md) for items 1 to 8 and the
+> (see [features/done/mcp-plugin-gaps/](../../done/mcp-plugin-gaps/spec.md) for items 1 to 8 and the
 > review's provenance). The review asked for an evaluation first and an implementation after;
 > this document is the evaluation, and it ends in a recommendation with a go/no-go gate (section
 > 7) rather than in a promise. The implementation plan ([plan.md](./plan.md)) is phased so that
