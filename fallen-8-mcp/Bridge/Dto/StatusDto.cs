@@ -74,6 +74,44 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
         /// provider). f8_overview reports chatEnabled from it, the agent-facing view of the
         /// otherwise-deferred POST /chat capability.</summary>
         public ChatStateDto? Chat { get; set; }
+
+        /// <summary>Unstructured-ingestion state (feature unstructured-ingestion; null when an older
+        /// target does not report it). f8_overview reports whether ingestion is on, whether Docling is
+        /// configured and reachable, and which indices the semantic layer is bound to, so an agent
+        /// reading f8_documents' "see f8_overview" actually finds the answer there.</summary>
+        public IngestionStateDto? Ingestion { get; set; }
+
+        /// <summary>NLP sidecar state (null when an older target does not report it).</summary>
+        public NlpStateDto? Nlp { get; set; }
+    }
+
+    public sealed class IngestionStateDto
+    {
+        public Boolean Enabled { get; set; }
+
+        public DoclingStateDto? Docling { get; set; }
+
+        public String? EmbeddingName { get; set; }
+
+        public String? VectorIndexId { get; set; }
+
+        public String? FulltextIndexId { get; set; }
+    }
+
+    public sealed class DoclingStateDto
+    {
+        public Boolean Configured { get; set; }
+
+        public Boolean Reachable { get; set; }
+    }
+
+    public sealed class NlpStateDto
+    {
+        public Boolean Enabled { get; set; }
+
+        public Boolean Configured { get; set; }
+
+        public Boolean Reachable { get; set; }
     }
 
     public sealed class IndexDto
@@ -95,9 +133,12 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
     {
         public Boolean Enabled { get; set; }
 
-        public String? Model { get; set; }
+        /// <summary>The wire names are <c>modelName</c> and <c>dimension</c>; the bridge once
+        /// declared <c>Model</c>/<c>Dimensions</c>, which bound to nothing. McpStatusDtoParityTest
+        /// now fails on any such phantom.</summary>
+        public String? ModelName { get; set; }
 
-        public Int32? Dimensions { get; set; }
+        public Int32? Dimension { get; set; }
 
         /// <summary>
         ///   The backend selector value the target is configured for (feature model-providers), so

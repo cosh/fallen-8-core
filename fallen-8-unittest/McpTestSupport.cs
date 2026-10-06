@@ -130,6 +130,26 @@ namespace NoSQL.GraphDB.Tests
                 TestLoggerFactory.Create().CreateLogger<ToolCatalog>());
         }
 
+        /// <summary>
+        ///   The wire name each public property serializes to: an explicit <c>[JsonPropertyName]</c>
+        ///   wins; otherwise the camelCase of the CLR name (<c>JsonSerializerDefaults.Web</c>, which
+        ///   the bridge uses and which the REST options also apply to any unattributed field). Shared
+        ///   by the write-DTO and status-DTO parity tests so both sides compute names the same way.
+        /// </summary>
+        internal static HashSet<String> EffectiveJsonNames(Type type)
+        {
+            var names = new HashSet<String>(StringComparer.Ordinal);
+            foreach (var property in type.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                var attribute = System.Reflection.CustomAttributeExtensions
+                    .GetCustomAttribute<System.Text.Json.Serialization.JsonPropertyNameAttribute>(property);
+                names.Add(attribute != null
+                    ? attribute.Name
+                    : System.Text.Json.JsonNamingPolicy.CamelCase.ConvertName(property.Name));
+            }
+            return names;
+        }
+
         /// <summary>Parses a JSON literal into the tool argument map.</summary>
         internal static IReadOnlyDictionary<String, System.Text.Json.JsonElement> Args(String json)
         {
