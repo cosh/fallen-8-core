@@ -214,8 +214,18 @@ map, packaging sentence), the one-line pointers in `features/done/index-lifecycl
       `node_modules` junctioned in.
 - [x] Hard-rule sweep in Python over the added lines of every commit, zero problems each time;
       the pre-existing em dashes on untouched lines of the edited files were left as they are.
-- [ ] Live verification from spec 13 run once against `:5000`/`:8090`; transcripts saved for the
-      PR description. The packed-tool check from phase 3 repeated against the final branch.
+- [x] Live verification from spec 13 run on 2026-10-06 against a `dotnet run` apiApp on `:5000`
+      and the MCP server on `:8090` with write, admin and code on, driven over Streamable HTTP
+      (initialize, tools/list showing thirteen tools, 26 calls). The transcript is
+      [live-transcript-2026-10-06.txt](./live-transcript-2026-10-06.txt): every call answered as
+      pinned, including the 409 on a taken index id, the semantic block removing and keeping a
+      path, the stored query compiling and running, and `/readyz` 200 with the API up and 503
+      with it stopped. One observation: with the API process killed, the 503 reason is the 3 s
+      timeout rather than "unreachable", so a connect to a dead localhost port stalls on this
+      machine rather than being refused; the probe still answers within its deadline. The
+      packed-tool check from phase 3 was NOT repeated on the final branch: the tool launch path
+      (`Program.cs`, the csproj) did not change after phase 3, and every later commit ran the
+      transport tests that pin it.
 - [x] Spec section 14 (the "7a" of this record) added: what the implementation changed about the
       document, and the plugin handoff list confirmed against what shipped.
 

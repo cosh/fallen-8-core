@@ -1,0 +1,57 @@
+initialize: {"protocolVersion":"2025-06-18","capabilities":{"logging":{},"tools":{}},"serverInfo":{"name":"fallen-8-mcp","version":"0.1.0"}}
+initialized: (notification sent)
+tools/list: 13 tools: f8_overview, f8_get, f8_search, f8_paths, f8_analytics, f8_plugins, f8_storedquery, f8_documents, f8_mutate, f8_index, f8_subgraph, f8_namespace, f8_admin
+tools/call f8_overview {"namespace":"default"}: namespace 'default': 0 vertices, 0 edges.
+    structured: {"namespace":"default","namespaceState":"ready","vertexCount":0,"edgeCount":0,"usedMemoryBytes":116801536,"indexCount":0,"apiKeyRequired":false,"authenticated":false,"availablePathAlgorithms":["BLS","DIJKSTRA"],"availableAnalyticsAlgorithms":["DEGREE","LABELPROPAGATION","PAGERANK","TRIANGLECOUNT","WCC"],"availableIndexPlugins":["DictionaryIndex","SingleValueIndex","VectorIndex","SpatialIndex","Ran
+tools/call f8_mutate {"op":"create_vertices","vertices":[{"label":"person","properties":{"name":"Ada"}},{"label":"person","properties":{"name: 2 vertices created.
+    structured: {"op":"create_vertices","applied":true,"ids":[0,1]}
+tools/call f8_mutate {"op":"set_properties","updates":[{"id":0,"key":"city","value":"Berlin"},{"id":0,"key":"age","value":36}]}: 2 property writes applied in one transaction (equal values are no-ops).
+    structured: {"op":"set_properties","applied":true}
+tools/call f8_mutate {"op":"set_properties","updates":[{"id":0,"key":"age","remove":true}]}: 1 property writes applied in one transaction (equal values are no-ops).
+    structured: {"op":"set_properties","applied":true}
+tools/call f8_get {"kind":"vertex","id":0}: vertex 0 (label 'person').
+    structured: {"id":0,"label":"person","properties":{"name":"Ada","city":"Berlin"},"found":true}
+tools/call f8_mutate {"op":"create_edges","edges":[{"source":0,"target":1,"edgePropertyId":"knows"}]}: 1 edges created.
+    structured: {"op":"create_edges","applied":true,"ids":[2]}
+tools/call f8_mutate {"op":"set_embedding","id":0,"name":"default","vector":[1,0,0]}: embedding 'default' set on element 0.
+    structured: {"op":"set_embedding","applied":true}
+tools/call f8_mutate {"op":"set_embedding","id":1,"name":"default","vector":[0.9,0.1,0]}: embedding 'default' set on element 1.
+    structured: {"op":"set_embedding","applied":true}
+tools/call f8_index {"op":"create","indexId":"names","pluginType":"DictionaryIndex"}: index 'names' (DictionaryIndex) created.
+    structured: {"op":"create","indexId":"names","applied":true}
+tools/call f8_index {"op":"create","indexId":"names","pluginType":"DictionaryIndex"} isError: 409 Index not created: the target refused to create 'names' (it answers false, not a reason): either the id is already taken or the plugin type is unknown. f8_overview lists availableIndexPlugins and, with detail 'statistics', the existing index ids. Status 409 is the bridge's reading of a bare false.
+    structured: null
+tools/call f8_index {"op":"add_many","indexId":"names","entries":[{"id":0,"key":"Ada"},{"id":1,"key":"Grace"}]}: 2 entries sent to 'names'; see accepted/declined.
+    structured: {"accepted":2,"declined":[],"op":"add_many","indexId":"names"}
+tools/call f8_search {"mode":"index","indexId":"names","value":"Ada"}: index search: 1 hit(s).
+    structured: {"mode":"index","count":1,"hasMore":false,"items":[{"id":0}]}
+tools/call f8_index {"op":"backfill","indexId":"names","propertyId":"name","replace":true}: index 'names' backfilled from 'name'; see scannedElements/indexedElements.
+    structured: {"indexId":"names","propertyId":"name","replaced":true,"scannedElements":3,"indexedElements":2,"skippedUnindexableValues":0,"op":"backfill"}
+tools/call f8_index {"op":"create","indexId":"vec","pluginType":"VectorIndex","options":{"dimension":3,"metric":"Cosine","embeddingName":"de: index 'vec' (VectorIndex) created.
+    structured: {"op":"create","indexId":"vec","applied":true}
+tools/call f8_search {"mode":"vector","indexId":"vec","vector":[1,0,0],"limit":2}: vector search: 2 hit(s).
+    structured: {"mode":"vector","count":2,"hasMore":false,"items":[{"id":0,"score":1},{"id":1,"score":0.9938837289810181}]}
+tools/call f8_paths {"from":0,"to":1,"algorithm":"DIJKSTRA","maxPathWeight":10,"timeBudgetSeconds":5,"semantic":{"queryVector":[1,0,0],"embe: 1 path(s) from 0 to 1.
+    structured: {"count":1,"paths":[{"length":1,"totalWeight":1.006116271018982,"hops":[{"from":0,"to":1,"edgeId":2,"edgePropertyId":"knows","direction":"outgoing"}]}]}
+tools/call f8_paths {"from":0,"to":1,"semantic":{"queryVector":[0,0,1],"embeddingName":"default","minScore":0.9}}: no path from 0 to 1 (or an internal limit was hit).
+    structured: {"count":0,"paths":[]}
+tools/call f8_subgraph {"name":"linked","patterns":[{"type":"Vertex"},{"type":"Edge","direction":"OutgoingEdge"},{"type":"Vertex"}]}: subgraph 'linked' defined (2 vertices).
+    structured: {"name":"linked","vertexCount":2,"edgeCount":1,"algorithmPluginName":"Breadth First Search Subgraph Algorithm","sourceFallen8Id":"b7c57429-6566-4c95-b3d3-5f00180748c0","canRecalculate":true,"additionalInformation":null}
+tools/call f8_storedquery {"op":"register","name":"people-only","kind":"Path","path":{"filter":{"vertexFilter":"return (v) => v.Label == \"person\: stored query 'people-only' registered (Compiled).
+    structured: {"name":"people-only","kind":"Path","description":null,"createdAt":"2026-10-06T17:10:12.5179823Z","compileState":"Compiled"}
+tools/call f8_storedquery {"op":"list"}: 1 stored query registered.
+    structured: {"storedQueries":[{"name":"people-only","kind":"Path","description":null,"createdAt":"2026-10-06T17:10:12.5179823Z","compileState":"Compiled"}]}
+tools/call f8_storedquery {"op":"get","name":"people-only"}: stored query 'people-only' (Path, Compiled).
+    structured: {"compileDiagnostics":null,"name":"people-only","kind":"Path","description":null,"createdAt":"2026-10-06T17:10:12.5179823Z","compileState":"Compiled","specification":{"filter":{"edgePropertyFilter":"return (p) => true;","vertexFilter":"return (v) => v.Label == \"person\";","edgeFilter":"return (e) => true;"},"cost":null}}
+tools/call f8_paths {"from":0,"to":1,"storedQuery":"people-only"}: 1 path(s) from 0 to 1.
+    structured: {"count":1,"paths":[{"length":1,"totalWeight":0,"hops":[{"from":0,"to":1,"edgeId":2,"edgePropertyId":"knows","direction":"outgoing"}]}]}
+tools/call f8_storedquery {"op":"delete","name":"people-only"}: stored query 'people-only' deleted.
+    structured: {"deleted":true,"name":"people-only"}
+tools/call f8_index {"op":"delete","indexId":"names"}: index 'names' deleted.
+    structured: {"op":"delete","indexId":"names","applied":true}
+tools/call f8_index {"op":"delete","indexId":"names"} isError: 404 delete: nothing changed: nothing deleted: there is no index 'names'. Status 404 is the bridge's reading of a bare false.
+    structured: null
+tools/call f8_overview {"namespace":"default"}: namespace 'default': 2 vertices, 1 edges.
+    structured: {"namespace":"default","namespaceState":"ready","vertexCount":2,"edgeCount":1,"usedMemoryBytes":181334016,"indexCount":1,"apiKeyRequired":false,"authenticated":false,"availablePathAlgorithms":["BLS","DIJKSTRA"],"availableAnalyticsAlgorithms":["DEGREE","LABELPROPAGATION","PAGERANK","TRIANGLECOUNT","WCC"],"availableIndexPlugins":["DictionaryIndex","SingleValueIndex","VectorIndex","SpatialIndex","RangeIndex","RegExIndex"],"embeddingEnabled":false,"embeddingBackend":"Onnx","embeddingModel":"","embeddingDimension":0,"chatEnabled":false,"chatBackend":"Nahil","ingestionEnabled":false,"doclingConfigured":false,"doclingReachable":false,"ingestionEmbeddingName":"default","ingestionVectorIndexId":"documents","ingestionFulltextIndexId":"documents-text","nlpEnabled":false,"nlpReachable":false}
+GET /readyz with the API up: HTTP 200 {"status":"ready","target":"http://localhost:5000","authenticated":false}
+GET /readyz with the API stopped: HTTP 503 {"status":"unready","target":"http://localhost:5000","reason":"no answer from the target within 3s (Mcp:Readiness:TimeoutSeconds)"}
