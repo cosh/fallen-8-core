@@ -399,6 +399,65 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(structured.GetProperty("count").GetInt32() >= 1, "Alice→Bob has at least one path");
         }
 
+        // --- f8_paths: the pure-data knobs (feature mcp-plugin-gaps, spec section 7) ----------------
+
+        /// <summary>The semantic block reaches the server: with a query vector pointing away from
+        /// Bob's embedding and a high minScore, the Alice-Bob path disappears; pointing at it, the
+        /// path stays. A forwarded block is the only way the first count can be zero.</summary>
+        [TestMethod]
+        public async Task Paths_SemanticMinScore_FiltersByTheElementEmbedding()
+        {
+            var away = Structured(await Catalog().CallAsync("f8_paths", Args(
+                $"{{\"from\":{_ids["Alice"]},\"to\":{_ids["Bob"]},\"semantic\":{{\"queryVector\":[0,0,1],\"embeddingName\":\"default\",\"minScore\":0.9}}}}"),
+                CancellationToken.None));
+            Assert.AreEqual(0, away.GetProperty("count").GetInt32(), "Bob's embedding is orthogonal to the query, so he is filtered out");
+
+            var towards = Structured(await Catalog().CallAsync("f8_paths", Args(
+                $"{{\"from\":{_ids["Alice"]},\"to\":{_ids["Bob"]},\"semantic\":{{\"queryVector\":[1,0,0],\"embeddingName\":\"default\",\"minScore\":0.8}}}}"),
+                CancellationToken.None));
+            Assert.IsTrue(towards.GetProperty("count").GetInt32() >= 1, "Bob's embedding is close to the query, so the path stays");
+        }
+
+        [TestMethod]
+        public async Task Paths_SemanticAndAFragment_OnTheSameSlot_IsTheServers400()
+        {
+            var bridge = McpTestSupport.Bridge(_api.Server.CreateHandler());
+            var withCode = McpTestSupport.Catalog(new McpToolsOptions { EnableCode = true }, McpTestSupport.ReadTools(bridge));
+
+            var conflict = await withCode.CallAsync("f8_paths", Args(
+                $"{{\"from\":{_ids["Alice"]},\"to\":{_ids["Bob"]},\"vertexFilter\":\"return (v) => true;\"," +
+                "\"semantic\":{\"queryVector\":[1,0,0],\"embeddingName\":\"default\",\"minScore\":0.5}}"), CancellationToken.None);
+
+            Assert.IsTrue(conflict.IsError, "the server owns the one-owner-per-slot rule and its 400 passes through");
+            StringAssert.Contains(((ModelContextProtocol.Protocol.TextContentBlock)conflict.Content[0]).Text, "own the same delegate slot");
+        }
+
+        /// <summary>The knobs are in the body only when given, so a knob-free call sends what it
+        /// always sent (the server's defaults stay the server's).</summary>
+        [TestMethod]
+        public async Task Paths_WeightAndTimeBudget_AreSentOnlyWhenGiven()
+        {
+            String lastBody = null;
+            var capturing = McpTestSupport.Bridge(new McpTestSupport.LambdaHandler(request =>
+            {
+                lastBody = request.Content?.ReadAsStringAsync().GetAwaiter().GetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("[]", Encoding.UTF8, "application/json") };
+            }));
+            var catalog = McpTestSupport.Catalog(new McpToolsOptions(), McpTestSupport.ReadTools(capturing));
+
+            Structured(await catalog.CallAsync("f8_paths", Args("{\"from\":1,\"to\":2}"), CancellationToken.None));
+            Assert.IsNotNull(lastBody);
+            foreach (var absent in new[] { "maxPathWeight", "timeBudgetSeconds", "semantic" })
+            {
+                Assert.IsFalse(lastBody.Contains(absent, StringComparison.Ordinal), absent + " is omitted when not given: " + lastBody);
+            }
+
+            Structured(await catalog.CallAsync("f8_paths", Args(
+                "{\"from\":1,\"to\":2,\"algorithm\":\"DIJKSTRA\",\"maxPathWeight\":2.5,\"timeBudgetSeconds\":3}"), CancellationToken.None));
+            StringAssert.Contains(lastBody, "\"maxPathWeight\":2.5");
+            StringAssert.Contains(lastBody, "\"timeBudgetSeconds\":3");
+        }
+
         // --- f8_analytics -------------------------------------------------------------------
 
         [TestMethod]

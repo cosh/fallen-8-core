@@ -64,7 +64,12 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 // runtime-registered SubGraph plugin by name, so agents get the same choice every
                 // other client has. An unknown name comes back as a 400 listing the available ones.
                 .Str("algorithm", "Subgraph algorithm plugin name (a built-in or a registered SubGraph plugin). Omit for the built-in breadth-first search; an unknown name is rejected with the list of available names.")
-                .Str("storedQuery", "Name of a registered subgraph template (code-free).");
+                .Str("storedQuery", "Name of a registered subgraph template (code-free).")
+                // Pure data the server already accepts (feature mcp-plugin-gaps, spec section 7).
+                .Obj("semantic", "Semantic block, forwarded as sent: {queryVector | queryText, embeddingName, metric, minScore}. " +
+                    "minScore admits only vertices similar to the query; queryText needs the target's embedding provider.")
+                .ObjArray("patterns", "Ordered Vertex/Edge/VariableLengthEdge steps, forwarded as sent: {type, patternName?, direction?, minLength?, maxLength?, semanticMinScore?}. " +
+                    "A step carrying vertexFilter/edgeFilter/edgePropertyFilter is C# and needs the code capability.");
 
             if (tools.EnableCode)
             {
@@ -106,12 +111,40 @@ namespace NoSQL.GraphDB.Mcp.Tools
             var vertexFilter = tools.EnableCode ? ToolArgs.GetString(arguments, "vertexFilter") : null;
             var edgeFilter = tools.EnableCode ? ToolArgs.GetString(arguments, "edgeFilter") : null;
 
-            if (String.IsNullOrEmpty(storedQuery) && String.IsNullOrEmpty(vertexFilter) && String.IsNullOrEmpty(edgeFilter))
+            // The pure-data blocks (feature mcp-plugin-gaps, spec section 7). A pattern step that
+            // carries a C# fragment is code, and the code capability is the agreed gate for inline
+            // code wherever it appears, so it is checked here before anything is sent.
+            JsonElement? semantic = null;
+            if (ToolArgs.TryGetElement(arguments, "semantic", out var semanticElement))
+            {
+                if (semanticElement.ValueKind != JsonValueKind.Object)
+                {
+                    return ToolResults.Error(400, "Invalid arguments", "semantic must be an object.");
+                }
+                semantic = semanticElement;
+            }
+            JsonElement? patterns = null;
+            if (ToolArgs.TryGetElement(arguments, "patterns", out var patternsElement))
+            {
+                if (patternsElement.ValueKind != JsonValueKind.Array)
+                {
+                    return ToolResults.Error(400, "Invalid arguments", "patterns must be an array of steps.");
+                }
+                if (!tools.EnableCode && PatternsCarryCode(patternsElement))
+                {
+                    return ToolResults.Error(403, "Forbidden",
+                        "a pattern step with vertexFilter, edgeFilter or edgePropertyFilter is C# and needs the code capability (Mcp:Tools:EnableCode).");
+                }
+                patterns = patternsElement;
+            }
+
+            if (String.IsNullOrEmpty(storedQuery) && String.IsNullOrEmpty(vertexFilter) && String.IsNullOrEmpty(edgeFilter)
+                && semantic is null && patterns is null)
             {
                 return ToolResults.Error(400, "Invalid arguments",
                     tools.EnableCode
-                        ? "provide a storedQuery, or an inline vertexFilter/edgeFilter."
-                        : "provide a storedQuery (inline filters require the code capability).");
+                        ? "provide a storedQuery, a semantic block, patterns, or an inline vertexFilter/edgeFilter."
+                        : "provide a storedQuery, a semantic block, or code-free patterns (inline filters require the code capability).");
             }
 
             var @namespace = ToolArgs.GetString(arguments, "namespace");
@@ -137,6 +170,14 @@ namespace NoSQL.GraphDB.Mcp.Tools
             {
                 body["edgeFilter"] = edgeFilter;
             }
+            if (semantic is { } semanticBlock)
+            {
+                body["semantic"] = JsonNode.Parse(semanticBlock.GetRawText());
+            }
+            if (patterns is { } patternSteps)
+            {
+                body["patterns"] = JsonNode.Parse(patternSteps.GetRawText());
+            }
 
             var summary = await _bridge.RequestRawAsync(HttpMethod.Put, @namespace, "subgraph", body, cancellationToken)
                 .ConfigureAwait(false);
@@ -145,6 +186,28 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 ? $" ({vc.GetInt32()} vertices)"
                 : String.Empty;
             return ToolResults.Ok($"subgraph '{name}' defined{counts}.", structured);
+        }
+
+        /// <summary>Whether any step carries one of the three C# fragment fields with a value.</summary>
+        private static Boolean PatternsCarryCode(JsonElement patterns)
+        {
+            foreach (var step in patterns.EnumerateArray())
+            {
+                if (step.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+                foreach (var field in new[] { "vertexFilter", "edgeFilter", "edgePropertyFilter" })
+                {
+                    if (step.TryGetProperty(field, out var fragment)
+                        && fragment.ValueKind == JsonValueKind.String
+                        && !String.IsNullOrWhiteSpace(fragment.GetString()))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
         }
     }
 }

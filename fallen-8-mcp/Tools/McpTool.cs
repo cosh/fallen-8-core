@@ -88,6 +88,17 @@ namespace NoSQL.GraphDB.Mcp.Tools
             return null;
         }
 
+        public static Double? GetDouble(IReadOnlyDictionary<String, JsonElement> args, String name)
+        {
+            if (args.TryGetValue(name, out var value) &&
+                value.ValueKind == JsonValueKind.Number &&
+                value.TryGetDouble(out var d))
+            {
+                return d;
+            }
+            return null;
+        }
+
         public static Boolean? GetBool(IReadOnlyDictionary<String, JsonElement> args, String name)
         {
             if (args.TryGetValue(name, out var value) &&

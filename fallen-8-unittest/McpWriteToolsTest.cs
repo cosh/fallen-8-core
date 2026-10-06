@@ -428,6 +428,78 @@ namespace NoSQL.GraphDB.Tests
                 "Fallen-8-level route, name percent-encoded into exactly one segment (never a scoping prefix)");
         }
 
+        // --- f8_subgraph: semantic and patterns (feature mcp-plugin-gaps, spec section 7) -----------
+
+        private static ToolCatalog CodeCatalog(ApiAppFactory api)
+        {
+            var bridge = McpTestSupport.Bridge(api.Server.CreateHandler());
+            return McpTestSupport.Catalog(new McpToolsOptions { EnableWrite = true, EnableCode = true }, McpTestSupport.AllTools(bridge));
+        }
+
+        /// <summary>Two linked vertices with an embedding on the source, so a pattern and a semantic
+        /// block each have something to match.</summary>
+        private static async Task<List<Int32>> SeedPair(ToolCatalog catalog)
+        {
+            var created = await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                "{\"op\":\"create_vertices\",\"vertices\":[{\"label\":\"person\",\"properties\":{\"name\":\"Pat\"}},{\"label\":\"person\",\"properties\":{\"name\":\"Quinn\"}}]}"),
+                CancellationToken.None);
+            var ids = McpTestSupport.Structured(created).GetProperty("ids").EnumerateArray().Select(e => e.GetInt32()).ToList();
+            McpTestSupport.Structured(await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                $"{{\"op\":\"create_edges\",\"edges\":[{{\"source\":{ids[0]},\"target\":{ids[1]},\"edgePropertyId\":\"knows\"}}]}}"), CancellationToken.None));
+            McpTestSupport.Structured(await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                $"{{\"op\":\"set_embedding\",\"id\":{ids[0]},\"name\":\"default\",\"vector\":[1,0,0]}}"), CancellationToken.None));
+            return ids;
+        }
+
+        [TestMethod]
+        public async Task Subgraph_CodeFreePatterns_AndSemantic_AreForwardedWithoutTheCodeCapability()
+        {
+            using var api = new ApiAppFactory();
+            var catalog = WriteCatalog(api);
+            var ids = await SeedPair(catalog);
+
+            var byPattern = await catalog.CallAsync("f8_subgraph", McpTestSupport.Args(
+                "{\"name\":\"linked\",\"patterns\":[{\"type\":\"Vertex\"},{\"type\":\"Edge\",\"direction\":\"OutgoingEdge\"},{\"type\":\"Vertex\"}]}"),
+                CancellationToken.None);
+            var patternResult = McpTestSupport.Structured(byPattern);
+            Assert.IsTrue(patternResult.GetProperty("vertexCount").GetInt32() >= 2,
+                "a code-free Vertex-Edge-Vertex pattern reached the server and matched the seeded pair");
+
+            var bySemantic = await catalog.CallAsync("f8_subgraph", McpTestSupport.Args(
+                "{\"name\":\"similar\",\"semantic\":{\"queryVector\":[1,0,0],\"embeddingName\":\"default\",\"minScore\":0.9}}"),
+                CancellationToken.None);
+            var semanticResult = McpTestSupport.Structured(bySemantic);
+            Assert.AreEqual(1, semanticResult.GetProperty("vertexCount").GetInt32(),
+                $"semantic.minScore admitted only the embedded vertex {ids[0]}; the block reached the server");
+
+            var nothing = await catalog.CallAsync("f8_subgraph", McpTestSupport.Args("{\"name\":\"empty\"}"), CancellationToken.None);
+            Assert.IsTrue(nothing.IsError, "no storedQuery, semantic or patterns is still a 400");
+            StringAssert.Contains(Text(nothing), "code-free patterns");
+        }
+
+        [TestMethod]
+        public async Task Subgraph_PatternWithAFragment_NeedsTheCodeCapability()
+        {
+            using var api = new ApiAppFactory();
+            await SeedPair(WriteCatalog(api));
+            var withFragment =
+                "{\"name\":\"coded\",\"patterns\":[{\"type\":\"Vertex\",\"vertexFilter\":\"return (v) => v.Label == \\\"person\\\";\"},{\"type\":\"Edge\"},{\"type\":\"Vertex\"}]}";
+
+            var refused = await WriteCatalog(api).CallAsync("f8_subgraph", McpTestSupport.Args(withFragment), CancellationToken.None);
+            Assert.IsTrue(refused.IsError, "a fragment inside a pattern is code and is refused without the capability");
+            StringAssert.Contains(Text(refused), "403");
+            StringAssert.Contains(Text(refused), "Mcp:Tools:EnableCode");
+
+            var accepted = await CodeCatalog(api).CallAsync("f8_subgraph", McpTestSupport.Args(withFragment), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(accepted).GetProperty("vertexCount").GetInt32() >= 2,
+                "with the capability the same pattern is forwarded and the server compiles it");
+
+            var blank = await WriteCatalog(api).CallAsync("f8_subgraph", McpTestSupport.Args(
+                "{\"name\":\"blank\",\"patterns\":[{\"type\":\"Vertex\",\"vertexFilter\":\"  \"},{\"type\":\"Edge\"},{\"type\":\"Vertex\"}]}"),
+                CancellationToken.None);
+            Assert.IsFalse(blank.IsError, "a blank fragment is not code (the server reads it as match-everything)");
+        }
+
         // --- f8_index (feature mcp-plugin-gaps, spec section 6) ----------------------------------
 
         private static String Text(ModelContextProtocol.Protocol.CallToolResult result)

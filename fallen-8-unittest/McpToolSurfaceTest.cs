@@ -253,6 +253,7 @@ namespace NoSQL.GraphDB.Tests
                     "{\"from\":1,\"to\":2,\"algorithm\":\"BLS\",\"maxDepth\":3,\"maxResults\":5}",
                     "{\"from\":1,\"to\":2,\"storedQuery\":\"q\"}",
                     "{\"from\":1,\"to\":2,\"vertexFilter\":\"return (v) => true;\",\"edgeCost\":\"return (e) => 1.0;\"}",
+                    "{\"from\":1,\"to\":2,\"algorithm\":\"DIJKSTRA\",\"maxPathWeight\":2.5,\"timeBudgetSeconds\":3,\"semantic\":{\"queryVector\":[1,0,0],\"embeddingName\":\"default\",\"minScore\":0.5,\"costBySimilarity\":true}}",
                 },
                 ["f8_analytics"] = new[]
                 {
@@ -310,6 +311,7 @@ namespace NoSQL.GraphDB.Tests
                     "{\"name\":\"s\",\"algorithm\":\"BFS\"}",
                     "{\"name\":\"s\",\"storedQuery\":\"t\"}",
                     "{\"name\":\"s\",\"vertexFilter\":\"return (v) => true;\",\"edgeFilter\":\"return (e) => true;\"}",
+                    "{\"name\":\"s\",\"semantic\":{\"queryVector\":[1,0,0],\"embeddingName\":\"default\",\"minScore\":0.5},\"patterns\":[{\"type\":\"Vertex\",\"semanticMinScore\":0.7},{\"type\":\"Edge\",\"direction\":\"OutgoingEdge\"},{\"type\":\"Vertex\"}]}",
                 },
                 ["f8_namespace"] = new[]
                 {

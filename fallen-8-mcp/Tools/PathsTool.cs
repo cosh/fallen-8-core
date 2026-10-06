@@ -68,7 +68,14 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 .Str("algorithm", "Path algorithm: 'BLS' (hop count, the default), 'DIJKSTRA' (weighted, honours the cost knobs), or any name f8_overview reports under availablePathAlgorithms (registered Path plugins included). A name that resolves to no plugin yields an empty result, not an error.")
                 .Int("maxDepth", "Maximum hop depth (default 7).")
                 .Int("maxResults", "Maximum number of paths.")
-                .Str("storedQuery", "Name of a registered stored path query (mutually exclusive with algorithm knobs).");
+                .Str("storedQuery", "Name of a registered stored path query (mutually exclusive with algorithm knobs).")
+                // Pure data the server already accepts (feature mcp-plugin-gaps, spec section 7): no
+                // code capability needed; forwarded as sent, the server validates the shape.
+                .Num("maxPathWeight", "Weight ceiling for a path (DIJKSTRA); paths heavier than this are dropped.")
+                .Num("timeBudgetSeconds", "Wall-clock budget for the traversal; the server answers 408 when it runs out.")
+                .Obj("semantic", "Semantic traversal block, forwarded as sent: {queryVector | queryText, embeddingName, metric, minScore, costBySimilarity}. " +
+                    "minScore filters vertices by similarity to the query; costBySimilarity makes dissimilar hops expensive (DIJKSTRA). " +
+                    "queryText needs the target's embedding provider (f8_overview embeddingEnabled); use queryVector otherwise.");
 
             if (tools.EnableCode)
             {
@@ -123,6 +130,16 @@ namespace NoSQL.GraphDB.Mcp.Tools
             if (ToolArgs.GetInt(arguments, "maxResults") is { } maxResults)
             {
                 request.MaxResults = maxResults;
+            }
+            request.MaxPathWeight = ToolArgs.GetDouble(arguments, "maxPathWeight");
+            request.TimeBudgetSeconds = ToolArgs.GetDouble(arguments, "timeBudgetSeconds");
+            if (ToolArgs.TryGetElement(arguments, "semantic", out var semantic))
+            {
+                if (semantic.ValueKind != JsonValueKind.Object)
+                {
+                    return ToolResults.Error(400, "Invalid arguments", "semantic must be an object.");
+                }
+                request.Semantic = semantic;
             }
 
             // Inline fragments are honoured ONLY when the code capability is on (defence beyond the schema).

@@ -148,9 +148,10 @@ Files: new `fallen-8-mcp/Tools/IndexTool.cs`, `fallen-8-mcp/Bridge/Dto/WriteDto.
 Files: `fallen-8-mcp/Tools/PathsTool.cs`, `fallen-8-mcp/Tools/SubgraphTool.cs`,
 `fallen-8-mcp/Bridge/Dto/PathAndAnalyticsDto.cs`, `fallen-8-unittest/McpReadToolsTest.cs`.
 
-- [ ] Read the doc comments of `SemanticTraversalSpecification.EmbeddingBackend` and
-      `.EmbeddingIdentity` (lines 116 and 127) and record here whether they are client-settable.
-      The schema description for `semantic` lists only the agent-facing fields either way.
+- [x] Read the doc comments of `SemanticTraversalSpecification.EmbeddingBackend` and
+      `.EmbeddingIdentity`: both are SERVER-OWNED ("whatever a client sends here is discarded
+      before anything reads it"), stamped on the run that embedded a text. Forwarding the block
+      raw is therefore safe; the schema description names the five agent-facing fields only.
 - [ ] DTOs gain `JsonElement? Semantic`, `Double? MaxPathWeight`, `Double? TimeBudgetSeconds`
       (paths) and `JsonElement? Semantic`, `JsonElement? Patterns` (subgraph), serialised only
       when present so an untouched call sends the same body as today (assert byte-equality of the
