@@ -70,6 +70,11 @@ namespace NoSQL.GraphDB.Tests
                 ("vertex", typeof(VertexSpecification), typeof(VertexSpecDto)),
                 ("edge", typeof(EdgeSpecification), typeof(EdgeSpecDto)),
                 ("property", typeof(PropertySpecification), typeof(PropertySpecDto)),
+                // The index lifecycle bodies (feature mcp-plugin-gaps, spec section 6).
+                ("index create", typeof(PluginSpecification), typeof(IndexCreateDto)),
+                ("index add", typeof(IndexAddToSpecification), typeof(IndexAddDto)),
+                ("vector index add", typeof(VectorIndexAddSpecification), typeof(VectorIndexAddDto)),
+                ("index backfill", typeof(IndexBackfillSpecification), typeof(IndexBackfillDto)),
             };
 
             var mismatches = new List<string>();

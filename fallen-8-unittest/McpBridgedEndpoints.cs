@@ -87,6 +87,17 @@ namespace NoSQL.GraphDB.Tests
             ("PUT", "/graphelements/properties"),
             ("DELETE", "/graphelements"),
             ("PUT", "/graphelement/{graphElementIdentifier}/embedding/{embeddingName}"),
+            // The index lifecycle (feature mcp-plugin-gaps, spec section 6), bridged as f8_index. It
+            // was deferred as "operator tooling" until f8_search mode:index and set_embedding made an
+            // agent that cannot create the index it searches a stuck agent.
+            ("POST", "/index"),
+            ("PUT", "/index/{indexId}"),
+            ("PUT", "/index/{indexId}/batch"),
+            ("PUT", "/index/vector/{indexId}"),
+            ("DELETE", "/index/{indexId}/{graphElementId}"),
+            ("DELETE", "/index/{indexId}/propertyValue"),
+            ("DELETE", "/index/{indexId}"),
+            ("POST", "/index/backfill/{indexId}"),
             ("PUT", "/subgraph"),
             ("PUT", "/ns/{name}"),
             ("PATCH", "/ns/{name}"),

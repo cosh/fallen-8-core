@@ -129,6 +129,7 @@ namespace NoSQL.GraphDB.Mcp.Hosting
 
             // Write tier (Mcp:Tools:EnableWrite) — absent from tools/list and rejected on call when off.
             services.AddSingleton<IMcpTool, MutateTool>();
+            services.AddSingleton<IMcpTool, IndexTool>();
             services.AddSingleton<IMcpTool, SubgraphTool>();
             services.AddSingleton<IMcpTool, NamespaceTool>();
 

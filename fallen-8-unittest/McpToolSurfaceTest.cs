@@ -292,6 +292,19 @@ namespace NoSQL.GraphDB.Tests
                     "{\"op\":\"remove_elements\",\"ids\":[1,2,3]}",
                     "{\"op\":\"set_embedding\",\"id\":1,\"name\":\"text\",\"vector\":[0.1,0.2]}",
                 },
+                ["f8_index"] = new[]
+                {
+                    "{\"op\":\"create\",\"indexId\":\"names\",\"pluginType\":\"DictionaryIndex\"}",
+                    "{\"op\":\"create\",\"indexId\":\"vec\",\"pluginType\":\"VectorIndex\",\"options\":{\"dimension\":3,\"metric\":\"Cosine\",\"embeddingName\":\"text\"}}",
+                    "{\"op\":\"add\",\"indexId\":\"names\",\"id\":1,\"key\":\"Ada\"}",
+                    "{\"op\":\"add_many\",\"indexId\":\"names\",\"entries\":[{\"id\":1,\"key\":\"Ada\"},{\"id\":2,\"key\":42}]}",
+                    "{\"op\":\"add_vector\",\"indexId\":\"vec\",\"id\":1,\"vector\":[1,0,0]}",
+                    "{\"op\":\"add_vector\",\"indexId\":\"vec\",\"id\":1,\"propertyId\":\"embedding\"}",
+                    "{\"op\":\"remove_element\",\"indexId\":\"names\",\"id\":1}",
+                    "{\"op\":\"remove_key\",\"indexId\":\"names\",\"key\":\"Ada\"}",
+                    "{\"op\":\"delete\",\"indexId\":\"names\"}",
+                    "{\"op\":\"backfill\",\"indexId\":\"names\",\"propertyId\":\"name\",\"replace\":true,\"prefix\":false,\"label\":\"person\"}",
+                },
                 ["f8_subgraph"] = new[]
                 {
                     "{\"name\":\"s\",\"algorithm\":\"BFS\"}",

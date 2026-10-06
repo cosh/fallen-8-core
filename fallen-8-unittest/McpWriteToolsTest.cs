@@ -67,7 +67,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 Assert.IsTrue(names.Contains(read), read + " is a default read tool");
             }
-            foreach (var gated in new[] { "f8_mutate", "f8_subgraph", "f8_namespace", "f8_admin" })
+            foreach (var gated in new[] { "f8_mutate", "f8_index", "f8_subgraph", "f8_namespace", "f8_admin" })
             {
                 Assert.IsFalse(names.Contains(gated), gated + " is absent when its tier is off");
             }
@@ -78,7 +78,7 @@ namespace NoSQL.GraphDB.Tests
         {
             var names = DummyCatalog(new McpToolsOptions { EnableWrite = true }).ListTools().Select(t => t.Name).ToHashSet();
 
-            foreach (var w in new[] { "f8_mutate", "f8_subgraph", "f8_namespace" })
+            foreach (var w in new[] { "f8_mutate", "f8_index", "f8_subgraph", "f8_namespace" })
             {
                 Assert.IsTrue(names.Contains(w), w + " appears with the write tier on");
             }
@@ -426,6 +426,162 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual(HttpMethod.Post, requests[0].Method);
             Assert.AreEqual("/ns/my%20graph/activate", requests[0].RequestUri.AbsolutePath,
                 "Fallen-8-level route, name percent-encoded into exactly one segment (never a scoping prefix)");
+        }
+
+        // --- f8_index (feature mcp-plugin-gaps, spec section 6) ----------------------------------
+
+        private static String Text(ModelContextProtocol.Protocol.CallToolResult result)
+        {
+            return result.Content.Count > 0 && result.Content[0] is ModelContextProtocol.Protocol.TextContentBlock text ? text.Text : String.Empty;
+        }
+
+        private static async Task<List<Int32>> IndexHits(ToolCatalog catalog, String indexId, String value)
+        {
+            var search = await catalog.CallAsync("f8_search",
+                McpTestSupport.Args($"{{\"mode\":\"index\",\"indexId\":\"{indexId}\",\"value\":\"{value}\"}}"), CancellationToken.None);
+            return McpTestSupport.Structured(search).GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetInt32()).ToList();
+        }
+
+        /// <summary>
+        ///   The whole dictionary-index lifecycle through the tool, verified by what f8_search then
+        ///   finds: create, the two bare-false refusals (taken id, unknown type) as 409 errors that
+        ///   say the status is the bridge's reading, add and add_many, remove_key and remove_element,
+        ///   backfill with its counts, delete, and the bare false of a second delete as a 404.
+        /// </summary>
+        [TestMethod]
+        public async Task Index_DictionaryLifecycle_CreateAddSearchRemoveBackfillDelete()
+        {
+            using var api = new ApiAppFactory();
+            var catalog = WriteCatalog(api);
+
+            var created = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args("{\"op\":\"create\",\"indexId\":\"names\",\"pluginType\":\"DictionaryIndex\"}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(created).GetProperty("applied").GetBoolean());
+
+            var taken = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args("{\"op\":\"create\",\"indexId\":\"names\",\"pluginType\":\"DictionaryIndex\"}"), CancellationToken.None);
+            Assert.IsTrue(taken.IsError, "a taken id is refused");
+            StringAssert.Contains(Text(taken), "409");
+            StringAssert.Contains(Text(taken), "already taken or the plugin type is unknown", "the message names both causes");
+            StringAssert.Contains(Text(taken), "bridge's reading", "the status is declared as an interpretation");
+
+            var unknownType = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args("{\"op\":\"create\",\"indexId\":\"other\",\"pluginType\":\"NoSuchIndex\"}"), CancellationToken.None);
+            Assert.IsTrue(unknownType.IsError, "an unknown plugin type is refused the same way, the server cannot tell them apart");
+
+            var vertices = await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                "{\"op\":\"create_vertices\",\"vertices\":[" +
+                "{\"label\":\"person\",\"properties\":{\"name\":\"Ada\"}}," +
+                "{\"label\":\"person\",\"properties\":{\"name\":\"Grace\"}}]}"), CancellationToken.None);
+            var ids = McpTestSupport.Structured(vertices).GetProperty("ids").EnumerateArray().Select(e => e.GetInt32()).ToList();
+
+            var added = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args($"{{\"op\":\"add\",\"indexId\":\"names\",\"id\":{ids[0]},\"key\":\"Ada\"}}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(added).GetProperty("applied").GetBoolean());
+
+            var addedMany = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args($"{{\"op\":\"add_many\",\"indexId\":\"names\",\"entries\":[{{\"id\":{ids[1]},\"key\":\"Grace\"}}]}}"), CancellationToken.None);
+            Assert.AreEqual(1, McpTestSupport.Structured(addedMany).GetProperty("accepted").GetInt32(), "the batch route's count passes through");
+
+            CollectionAssert.AreEqual(new List<Int32> { ids[0] }, await IndexHits(catalog, "names", "Ada"));
+            CollectionAssert.AreEqual(new List<Int32> { ids[1] }, await IndexHits(catalog, "names", "Grace"));
+
+            var keyRemoved = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args("{\"op\":\"remove_key\",\"indexId\":\"names\",\"key\":\"Ada\"}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(keyRemoved).GetProperty("applied").GetBoolean());
+            Assert.AreEqual(0, (await IndexHits(catalog, "names", "Ada")).Count, "the key is gone from the index");
+
+            var elementRemoved = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args($"{{\"op\":\"remove_element\",\"indexId\":\"names\",\"id\":{ids[1]}}}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(elementRemoved).GetProperty("applied").GetBoolean());
+            Assert.AreEqual(0, (await IndexHits(catalog, "names", "Grace")).Count, "the element is gone from the index");
+
+            var backfilled = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args("{\"op\":\"backfill\",\"indexId\":\"names\",\"propertyId\":\"name\"}"), CancellationToken.None);
+            var counts = McpTestSupport.Structured(backfilled);
+            Assert.AreEqual(2, counts.GetProperty("indexedElements").GetInt32(), "backfill indexed both named vertices");
+            CollectionAssert.AreEqual(new List<Int32> { ids[0] }, await IndexHits(catalog, "names", "Ada"));
+
+            var deleted = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args("{\"op\":\"delete\",\"indexId\":\"names\"}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(deleted).GetProperty("applied").GetBoolean());
+
+            var deletedAgain = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args("{\"op\":\"delete\",\"indexId\":\"names\"}"), CancellationToken.None);
+            Assert.IsTrue(deletedAgain.IsError, "deleting a missing index is a bare false, surfaced as an error");
+            StringAssert.Contains(Text(deletedAgain), "404");
+            StringAssert.Contains(Text(deletedAgain), "no index 'names'");
+
+            var noIndex = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args("{\"op\":\"add\",\"id\":1,\"key\":\"x\"}"), CancellationToken.None);
+            Assert.IsTrue(noIndex.IsError, "indexId is required before anything is sent");
+        }
+
+        /// <summary>
+        ///   Two vector indices created by the tool with JSON-native options. An UNBOUND one is
+        ///   filled through add_vector and searched with f8_search mode:vector; one BOUND to an
+        ///   embedding name fills itself from set_embedding and refuses add_vector, and that refusal
+        ///   (the server's sentence) passes through. The exactly-one rule of add_vector is checked
+        ///   client-side so an agent sees one sentence for the mistake.
+        /// </summary>
+        [TestMethod]
+        public async Task Index_VectorLifecycle_CreateWithOptions_AddVector_SearchByVector()
+        {
+            using var api = new ApiAppFactory();
+            var catalog = WriteCatalog(api);
+
+            var created = await catalog.CallAsync("f8_index", McpTestSupport.Args(
+                "{\"op\":\"create\",\"indexId\":\"vec\",\"pluginType\":\"VectorIndex\"," +
+                "\"options\":{\"dimension\":3,\"metric\":\"Cosine\"}}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(created).GetProperty("applied").GetBoolean(),
+                "the typed options reached the plugin (a VectorIndex refuses creation without a dimension)");
+
+            var vertices = await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                "{\"op\":\"create_vertices\",\"vertices\":[{\"label\":\"doc\"},{\"label\":\"doc\"}]}"), CancellationToken.None);
+            var ids = McpTestSupport.Structured(vertices).GetProperty("ids").EnumerateArray().Select(e => e.GetInt32()).ToList();
+
+            var addedVector = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args($"{{\"op\":\"add_vector\",\"indexId\":\"vec\",\"id\":{ids[1]},\"vector\":[0,1,0]}}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(addedVector).GetProperty("applied").GetBoolean());
+            await catalog.CallAsync("f8_index",
+                McpTestSupport.Args($"{{\"op\":\"add_vector\",\"indexId\":\"vec\",\"id\":{ids[0]},\"vector\":[1,0,0]}}"), CancellationToken.None);
+
+            var search = await catalog.CallAsync("f8_search",
+                McpTestSupport.Args("{\"mode\":\"vector\",\"indexId\":\"vec\",\"vector\":[0,1,0],\"limit\":1}"), CancellationToken.None);
+            var top = McpTestSupport.Structured(search).GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetInt32()).ToList();
+            CollectionAssert.AreEqual(new List<Int32> { ids[1] }, top, "the vector written by add_vector ranks first for its own direction");
+
+            var bound = await catalog.CallAsync("f8_index", McpTestSupport.Args(
+                "{\"op\":\"create\",\"indexId\":\"bound\",\"pluginType\":\"VectorIndex\"," +
+                "\"options\":{\"dimension\":3,\"metric\":\"Cosine\",\"embeddingName\":\"text\"}}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(bound).GetProperty("applied").GetBoolean());
+            var embedded = await catalog.CallAsync("f8_mutate",
+                McpTestSupport.Args($"{{\"op\":\"set_embedding\",\"id\":{ids[0]},\"name\":\"text\",\"vector\":[1,0,0]}}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(embedded).GetProperty("applied").GetBoolean());
+            var boundSearch = await catalog.CallAsync("f8_search",
+                McpTestSupport.Args("{\"mode\":\"vector\",\"indexId\":\"bound\",\"vector\":[1,0,0],\"limit\":1}"), CancellationToken.None);
+            CollectionAssert.AreEqual(new List<Int32> { ids[0] },
+                McpTestSupport.Structured(boundSearch).GetProperty("items").EnumerateArray().Select(i => i.GetProperty("id").GetInt32()).ToList(),
+                "the bound index filled itself from set_embedding (the embeddingName option reached the plugin)");
+            var refused = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args($"{{\"op\":\"add_vector\",\"indexId\":\"bound\",\"id\":{ids[1]},\"vector\":[0,1,0]}}"), CancellationToken.None);
+            Assert.IsTrue(refused.IsError, "a bound index refuses direct vector writes");
+            StringAssert.Contains(Text(refused), "maintains itself", "the server's own sentence passes through");
+
+            var wrongDimension = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args($"{{\"op\":\"add_vector\",\"indexId\":\"vec\",\"id\":{ids[1]},\"vector\":[0,1]}}"), CancellationToken.None);
+            Assert.IsTrue(wrongDimension.IsError, "the server's dimension check passes through as an error");
+            StringAssert.Contains(Text(wrongDimension), "dimension");
+
+            var neither = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args($"{{\"op\":\"add_vector\",\"indexId\":\"vec\",\"id\":{ids[1]}}}"), CancellationToken.None);
+            Assert.IsTrue(neither.IsError);
+            StringAssert.Contains(Text(neither), "exactly one of 'vector' or 'propertyId'");
+
+            var both = await catalog.CallAsync("f8_index",
+                McpTestSupport.Args($"{{\"op\":\"add_vector\",\"indexId\":\"vec\",\"id\":{ids[1]},\"vector\":[0,1,0],\"propertyId\":\"p\"}}"), CancellationToken.None);
+            Assert.IsTrue(both.IsError);
+            StringAssert.Contains(Text(both), "exactly one of 'vector' or 'propertyId'");
         }
 
         private static async Task<Int32?> FindByName(ToolCatalog catalog, String name)
