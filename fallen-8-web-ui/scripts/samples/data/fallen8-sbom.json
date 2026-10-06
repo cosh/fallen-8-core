@@ -3,14 +3,14 @@
  "dataLicense": "CC0-1.0",
  "SPDXID": "SPDXRef-DOCUMENT",
  "name": "com.github.cosh/fallen-8-core",
- "documentNamespace": "https://spdx.org/spdxdocs/protobom/2e857fd0-4e1d-4e5b-a982-d961c242f0d9",
+ "documentNamespace": "https://spdx.org/spdxdocs/protobom/be0c96ed-9104-4b2d-b26b-ea19782bd809",
  "creationInfo": {
   "creators": [
-   "Tool: protobom-v0.0.0-20260910141930-a9f14e42e71f+dirty",
+   "Tool: protobom-v0.0.0-20261002212751-c7f93c253304+dirty",
    "Tool: GitHub.com-Dependency-Graph",
    "Tool: dependabot"
   ],
-  "created": "2026-09-20T07:45:03Z"
+  "created": "2026-10-06T20:39:02Z"
  },
  "packages": [
   {
@@ -893,6 +893,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2019-present, Yuxi, Copyright (c) 2020 these people (https://github.com/sveltejs/kit/graphs/contributors), Copyright (c) 2021 Fred K. Schott",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -1257,6 +1258,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2014-present Sebastian McKenzie and other contributors",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -1383,6 +1385,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "(c) Titus Wormer, Copyright (c) Titus Wormer <tituswormer@gmail.com>",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -1992,6 +1995,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>, Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>, Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/), copyright (c) Pooya Parsa <pooya@pi0.io>",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -4999,6 +5003,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright 2018 The Go Authors, Copyright 2021 The Go Authors",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -5433,6 +5438,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2023 Tibor Schiemann",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -5448,6 +5454,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2023 Tibor Schiemann",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -5463,6 +5470,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2023 Tibor Schiemann",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -5478,6 +5486,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2023 Tibor Schiemann",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -5508,6 +5517,7 @@
    "versionInfo": "0.0.0",
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
+   "licenseConcluded": "MIT",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -5824,6 +5834,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) Hiroki Osame <hiroki.osame@gmail.com>",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -5950,6 +5961,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) Pooya Parsa <pooya@pi0.io>",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -9718,6 +9730,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2014 2018, Julian K",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -9733,6 +9746,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2014 2018, Julian K",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -9763,6 +9777,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2014 2018, Julian K",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -9778,6 +9793,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2014 2018, Julian K",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -9808,6 +9824,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2014 2018, Julian K",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -9823,6 +9840,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2014 2018, Julian K",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -12891,6 +12909,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2011 Eugene Kalinin, copyright Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors http://underscorejs.org, Copyright JS Foundation and other contributors https://js.foundation",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -12906,6 +12925,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "BSD-3-Clause",
+   "copyrightText": "Copyright (c) Squirrel Chat et al, Copyright (C) Squirrel Chat et al., All rights reserved.",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -15341,6 +15361,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "Copyright (c) 2024 Daniel Roe",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -15819,6 +15840,7 @@
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
    "licenseConcluded": "MIT",
+   "copyrightText": "(c) 2020-present Andrea Giammarchi, Copyright (c) 2010-2014, Christian Johansen, christian@cjohansen.no, Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>, Copyright (c) 2012-2020 by various contributors, Copyright (c) 2013 Arnout Kazemier and contributors, Copyright (c) 2013 jake luer <jake@alogicalparadox.com>, Copyright (c) 2013 Jake Luer <jake@alogicalparadox.com> (http://alogicalparadox.com), Copyright (c) 2014, Copyright (c) 2014 Bob Lauer, Copyright (c) 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024 Simon Lydell, Copyright (c) 2016 Luigi Pinca and contributors, Copyright (c) 2018 Terkel Gjervig Nielsen, Copyright (c) 2018-2020, Andrea Giammarchi, Copyright (c) 2018, Sinon.JS, Copyright (c) 2020-PRESENT Anthony Fu https://github.com/antfu, Copyright (c) 2021 Anthony Fu https://github.com/antfu, Copyright (c) 2021-Present Vitest Team, Copyright (c) 2022 Anthony Fu https://github.com/antfu, Copyright (c) 2023 Robert Kieffer, Copyright (c) 2025-PRESENT Anthony Fu https://github.com/antfu and Kevin Deng https://github.com/sxzz, Copyright (c) EGOIST, Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com), Copyright (c) Pooya Parsa <pooya@pi0.io>, Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com), Copyright 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023 Simon Lydell",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -16224,6 +16246,7 @@
    "versionInfo": "12.44.0",
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
+   "licenseConcluded": "MIT",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -16300,6 +16323,7 @@
    "versionInfo": "1.20.0",
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
+   "licenseConcluded": "MIT",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -16410,6 +16434,7 @@
    "versionInfo": "10.9.0",
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
+   "licenseConcluded": "MIT",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -16424,6 +16449,7 @@
    "versionInfo": "10.9.0",
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
+   "licenseConcluded": "MIT",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -16470,6 +16496,7 @@
    "versionInfo": "1.27.1",
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
+   "licenseConcluded": "MIT",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -16580,6 +16607,7 @@
    "versionInfo": "5.4.27",
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
+   "licenseConcluded": "MIT",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
@@ -16626,6 +16654,7 @@
    "versionInfo": "1.17.0-beta.1",
    "downloadLocation": "NOASSERTION",
    "filesAnalyzed": false,
+   "licenseConcluded": "Apache-2.0",
    "externalRefs": [
     {
      "referenceCategory": "PACKAGE-MANAGER",
