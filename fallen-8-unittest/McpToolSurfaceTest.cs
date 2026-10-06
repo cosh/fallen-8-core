@@ -163,5 +163,177 @@ namespace NoSQL.GraphDB.Tests
             StringAssert.Contains(schema, "\"value\"", "index/property modes need a declared 'value' operand");
             StringAssert.Contains(schema, "\"vector\"", "vector mode needs a declared 'vector' parameter");
         }
+
+        // --- every tool, every capability combination (feature mcp-plugin-gaps, spec section 3) ---
+
+        private static IEnumerable<McpToolsOptions> EveryCapabilityCombination()
+        {
+            for (var bits = 0; bits < 8; bits++)
+            {
+                yield return new McpToolsOptions
+                {
+                    EnableWrite = (bits & 1) != 0,
+                    EnableAdmin = (bits & 2) != 0,
+                    EnableCode = (bits & 4) != 0,
+                };
+            }
+        }
+
+        private static IMcpTool[] EveryTool()
+        {
+            return McpTestSupport.AllTools(McpTestSupport.Bridge(
+                new McpTestSupport.LambdaHandler(_ => new HttpResponseMessage(HttpStatusCode.OK))));
+        }
+
+        /// <summary>
+        ///   The defect this pins: <c>f8_mutate</c> declared <c>properties</c> twice (an object map for
+        ///   the single creates, an array for the batch) and the builder silently kept the last one.
+        ///   A schema varies by capability, so every combination is described; the builder throws on
+        ///   a repeat, and this test is what makes that throw a build failure rather than a surprise
+        ///   on the first <c>tools/list</c>.
+        /// </summary>
+        [TestMethod]
+        public void EveryTool_Describe_DeclaresNoDuplicateSchemaName()
+        {
+            foreach (var caps in EveryCapabilityCombination())
+            {
+                foreach (var tool in EveryTool())
+                {
+                    Tool described;
+                    try
+                    {
+                        described = tool.Describe(caps);
+                    }
+                    catch (InvalidOperationException e)
+                    {
+                        Assert.Fail($"{tool.Name} (write={caps.EnableWrite} admin={caps.EnableAdmin} code={caps.EnableCode}): {e.Message}");
+                        return;
+                    }
+
+                    var names = described.InputSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name).ToList();
+                    Assert.AreEqual(names.Count, names.Distinct(StringComparer.Ordinal).Count(), tool.Name + " declares a name twice");
+                    if (described.InputSchema.TryGetProperty("required", out var required))
+                    {
+                        var requiredNames = required.EnumerateArray().Select(r => r.GetString()).ToList();
+                        Assert.AreEqual(requiredNames.Count, requiredNames.Distinct().Count(), tool.Name + " requires a name twice");
+                        foreach (var name in requiredNames)
+                        {
+                            CollectionAssert.Contains(names, name, tool.Name + " requires an undeclared name");
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        ///   One valid call per op (or per mode) of every tool, checked against the schema the tool
+        ///   advertises with every capability on. A schema-abiding client validates arguments before
+        ///   sending, so a call the runtime accepts but the schema rejects is a call that client can
+        ///   never make; that was the state of <c>create_vertex</c> with an object <c>properties</c>
+        ///   and of <c>remove_elements</c> with integer ids.
+        /// </summary>
+        [TestMethod]
+        public void EveryTool_SampleCall_ValidatesAgainstItsAdvertisedSchema()
+        {
+            var samples = new Dictionary<String, String[]>(StringComparer.Ordinal)
+            {
+                ["f8_overview"] = new[] { "{}", "{\"namespace\":\"default\",\"detail\":\"statistics\"}" },
+                ["f8_get"] = new[] { "{\"kind\":\"vertex\",\"id\":1,\"include\":[\"degree\"],\"fields\":[\"name\"]}" },
+                ["f8_search"] = new[]
+                {
+                    "{\"mode\":\"index\",\"indexId\":\"names\",\"value\":\"Ada\",\"kind\":\"vertex\",\"limit\":5}",
+                    "{\"mode\":\"property\",\"key\":\"name\",\"value\":42,\"cursor\":25}",
+                    "{\"mode\":\"properties\",\"query\":\"Ada\",\"label\":\"person\"}",
+                    "{\"mode\":\"fulltext\",\"indexId\":\"ft\",\"query\":\"ada\",\"fields\":[\"name\"]}",
+                    "{\"mode\":\"vector\",\"indexId\":\"vec\",\"vector\":[0.1,0.2],\"limit\":3}",
+                    "{\"mode\":\"semantic\",\"indexId\":\"vec\",\"query\":\"a sentence\"}",
+                },
+                ["f8_paths"] = new[]
+                {
+                    "{\"from\":1,\"to\":2,\"algorithm\":\"BLS\",\"maxDepth\":3,\"maxResults\":5}",
+                    "{\"from\":1,\"to\":2,\"storedQuery\":\"q\"}",
+                    "{\"from\":1,\"to\":2,\"vertexFilter\":\"return (v) => true;\",\"edgeCost\":\"return (e) => 1.0;\"}",
+                },
+                ["f8_analytics"] = new[]
+                {
+                    "{}",
+                    "{\"algorithm\":\"PAGERANK\",\"direction\":\"out\",\"maxResults\":10,\"maxIterations\":20,\"parameters\":{\"DampingFactor\":0.85}}",
+                },
+                ["f8_plugins"] = new[]
+                {
+                    "{\"op\":\"list\"}",
+                    "{\"op\":\"get\",\"name\":\"p\"}",
+                    "{\"op\":\"invoke\",\"name\":\"p\",\"parameters\":{\"k\":\"v\"}}",
+                    "{\"op\":\"delete\",\"name\":\"p\"}",
+                    "{\"op\":\"register_algorithm\",\"name\":\"p\",\"contract\":\"Path\",\"description\":\"d\",\"sourceCode\":\"class X {}\"}",
+                    "{\"op\":\"register_function\",\"name\":\"f\",\"sourceCode\":\"class X {}\"}",
+                },
+                ["f8_documents"] = new[]
+                {
+                    "{\"op\":\"list\"}",
+                    "{\"op\":\"get\",\"documentId\":3}",
+                    "{\"op\":\"search\",\"query\":\"q\",\"mode\":\"fused\",\"k\":5,\"window\":1,\"groupByDocument\":true,\"queryVector\":[0.1]}",
+                    "{\"op\":\"binding\"}",
+                    "{\"op\":\"entities\",\"contains\":\"a\",\"limit\":10}",
+                    "{\"op\":\"ingest_text\",\"name\":\"n\",\"text\":\"t\",\"format\":\"plain\",\"embed\":false,\"sourceUri\":\"s\",\"replaceDocumentId\":1,\"properties\":{\"k\":\"v\"},\"linkIndexIds\":[\"i\"],\"maxLinksPerChunk\":2}",
+                    "{\"op\":\"delete\",\"documentId\":3}",
+                    "{\"op\":\"bind\"}",
+                },
+                ["f8_mutate"] = new[]
+                {
+                    "{\"op\":\"create_vertex\",\"label\":\"person\",\"properties\":{\"name\":\"Ada\",\"age\":36}}",
+                    "{\"op\":\"create_edge\",\"source\":1,\"target\":2,\"edgePropertyId\":\"knows\",\"label\":\"l\",\"properties\":{\"since\":2020}}",
+                    "{\"op\":\"create_vertices\",\"vertices\":[{\"label\":\"person\",\"properties\":{\"name\":\"Ada\"}}]}",
+                    "{\"op\":\"create_edges\",\"edges\":[{\"source\":1,\"target\":2,\"edgePropertyId\":\"knows\"}]}",
+                    "{\"op\":\"set_property\",\"id\":1,\"key\":\"city\",\"value\":\"Berlin\"}",
+                    "{\"op\":\"set_properties\",\"updates\":[{\"id\":1,\"key\":\"city\",\"value\":\"Berlin\"},{\"id\":1,\"key\":\"old\",\"remove\":true}]}",
+                    "{\"op\":\"remove_property\",\"id\":1,\"key\":\"city\"}",
+                    "{\"op\":\"remove_element\",\"id\":1}",
+                    "{\"op\":\"remove_elements\",\"ids\":[1,2,3]}",
+                    "{\"op\":\"set_embedding\",\"id\":1,\"name\":\"text\",\"vector\":[0.1,0.2]}",
+                },
+                ["f8_subgraph"] = new[]
+                {
+                    "{\"name\":\"s\",\"algorithm\":\"BFS\"}",
+                    "{\"name\":\"s\",\"storedQuery\":\"t\"}",
+                    "{\"name\":\"s\",\"vertexFilter\":\"return (v) => true;\",\"edgeFilter\":\"return (e) => true;\"}",
+                },
+                ["f8_namespace"] = new[]
+                {
+                    "{\"op\":\"create\",\"name\":\"n\"}",
+                    "{\"op\":\"rename\",\"name\":\"n\",\"newName\":\"m\"}",
+                    "{\"op\":\"drop\",\"name\":\"n\"}",
+                },
+                ["f8_admin"] = new[]
+                {
+                    "{\"op\":\"save\",\"namespace\":\"default\",\"saveGameLocation\":\"p\",\"savePartitions\":2}",
+                    "{\"op\":\"load\",\"id\":\"g\",\"restoreNamespace\":\"default\"}",
+                    "{\"op\":\"list_savegames\"}",
+                    "{\"op\":\"activate\",\"namespace\":\"n\"}",
+                    "{\"op\":\"trim\",\"namespace\":\"default\"}",
+                    "{\"op\":\"tabula_rasa\",\"namespace\":\"default\"}",
+                    "{\"op\":\"get_settings\",\"writableOnly\":true}",
+                    "{\"op\":\"set_settings\",\"settings\":{\"Fallen8:Chat:Model\":\"m\"}}",
+                },
+            };
+
+            var allCaps = new McpToolsOptions { EnableWrite = true, EnableAdmin = true, EnableCode = true };
+            var tools = EveryTool();
+            CollectionAssert.AreEquivalent(samples.Keys.ToList(), tools.Select(t => t.Name).ToList(),
+                "every registered tool has a sample row, and no row names a tool that does not exist");
+
+            var failures = new List<String>();
+            foreach (var tool in tools)
+            {
+                var schema = tool.Describe(allCaps).InputSchema;
+                foreach (var sample in samples[tool.Name])
+                {
+                    var violations = FlatSchemaChecker.Violations(schema, JsonDocument.Parse(sample).RootElement);
+                    failures.AddRange(violations.Select(v => $"{tool.Name} {sample}: {v}"));
+                }
+            }
+
+            Assert.AreEqual(0, failures.Count, Environment.NewLine + String.Join(Environment.NewLine, failures));
+        }
     }
 }

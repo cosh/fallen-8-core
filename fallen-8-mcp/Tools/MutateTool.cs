@@ -89,8 +89,8 @@ namespace NoSQL.GraphDB.Mcp.Tools
                     .ObjArray("edges", "Batch of {source, target, edgePropertyId, label?, properties?} (create_edges); returns ids.")
                     .Str("key", "Property key (set_property/remove_property).")
                     .Any("value", "Property value, JSON-native (set_property).")
-                    .ObjArray("properties", "Batch of {id, key, value} or {id, key, remove:true} (set_properties); ONE atomic transaction, values REPLACE, an equal value is a no-op.")
-                    .ObjArray("ids", "Batch of element ids (remove_elements); ONE atomic transaction.")
+                    .ObjArray("updates", "Batch of {id, key, value} or {id, key, remove:true} (set_properties); ONE atomic transaction, values REPLACE, an equal value is a no-op.")
+                    .IntArray("ids", "Batch of element ids (remove_elements); ONE atomic transaction.")
                     .Str("name", "Embedding name (set_embedding).")
                     .NumArray("vector", "Embedding vector (set_embedding).")
                     .Build(),
@@ -264,10 +264,12 @@ namespace NoSQL.GraphDB.Mcp.Tools
                 {
                     // Batch set-or-remove, one atomic transaction (feature platform-integrity-audit W2).
                     // The only atomic way to change several property values at once; the singular ops
-                    // are one transaction each.
-                    if (!ToolArgs.TryGetElement(arguments, "properties", out var writeArr) || writeArr.ValueKind != JsonValueKind.Array)
+                    // are one transaction each. The batch is 'updates'; an array-valued 'properties' is
+                    // still read for callers written against the schema that advertised it that way
+                    // (feature mcp-plugin-gaps, spec section 3), but it is no longer advertised.
+                    if (!TryGetBatchUpdates(arguments, out var writeArr))
                     {
-                        return ToolResults.Error(400, "Invalid arguments", "set_properties requires a 'properties' array.");
+                        return ToolResults.Error(400, "Invalid arguments", "set_properties requires an 'updates' array.");
                     }
                     var writes = new List<PropertyWriteDto>();
                     foreach (var w in writeArr.EnumerateArray())
@@ -390,6 +392,17 @@ namespace NoSQL.GraphDB.Mcp.Tools
         private static UInt32 NowEpoch()
         {
             return (UInt32)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        }
+
+        /// <summary>The set_properties batch: <c>updates</c>, or the legacy array-valued
+        /// <c>properties</c> when <c>updates</c> is absent.</summary>
+        private static Boolean TryGetBatchUpdates(IReadOnlyDictionary<String, JsonElement> arguments, out JsonElement updates)
+        {
+            if (ToolArgs.TryGetElement(arguments, "updates", out updates) && updates.ValueKind == JsonValueKind.Array)
+            {
+                return true;
+            }
+            return ToolArgs.TryGetElement(arguments, "properties", out updates) && updates.ValueKind == JsonValueKind.Array;
         }
 
         /// <summary>Properties from the tool's top-level <c>properties</c> argument (single create).</summary>

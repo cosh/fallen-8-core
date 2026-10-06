@@ -180,6 +180,83 @@ namespace NoSQL.GraphDB.Tests
             Assert.AreEqual("Berlin", McpTestSupport.Structured(get).GetProperty("properties").GetProperty("city").GetString());
         }
 
+        /// <summary>
+        ///   The batch argument is <c>updates</c> (feature mcp-plugin-gaps, spec section 3); the
+        ///   array-valued <c>properties</c> the schema once advertised keeps working at runtime so
+        ///   a caller written against that schema is not broken by the rename.
+        /// </summary>
+        [TestMethod]
+        public async Task Mutate_SetProperties_ViaUpdates_AndViaTheLegacyArray_BothApplyInOneTransaction()
+        {
+            using var api = new ApiAppFactory();
+            var catalog = WriteCatalog(api);
+
+            await catalog.CallAsync("f8_mutate",
+                McpTestSupport.Args("{\"op\":\"create_vertex\",\"label\":\"person\",\"properties\":{\"name\":\"Lin\"}}"),
+                CancellationToken.None);
+            var id = (await FindByName(catalog, "Lin")) ?? throw new AssertFailedException("seeded vertex not found");
+
+            var viaUpdates = await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                $"{{\"op\":\"set_properties\",\"updates\":[{{\"id\":{id},\"key\":\"city\",\"value\":\"Berlin\"}},{{\"id\":{id},\"key\":\"age\",\"value\":41}}]}}"),
+                CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(viaUpdates).GetProperty("applied").GetBoolean());
+
+            var afterUpdates = McpTestSupport.Structured(await catalog.CallAsync("f8_get",
+                McpTestSupport.Args($"{{\"kind\":\"vertex\",\"id\":{id}}}"), CancellationToken.None)).GetProperty("properties");
+            Assert.AreEqual("Berlin", afterUpdates.GetProperty("city").GetString());
+            Assert.AreEqual(41, afterUpdates.GetProperty("age").GetInt32());
+
+            var viaLegacy = await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                $"{{\"op\":\"set_properties\",\"properties\":[{{\"id\":{id},\"key\":\"city\",\"value\":\"Paris\"}},{{\"id\":{id},\"key\":\"age\",\"remove\":true}}]}}"),
+                CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(viaLegacy).GetProperty("applied").GetBoolean(),
+                "the legacy array-valued 'properties' is still read when 'updates' is absent");
+
+            var afterLegacy = McpTestSupport.Structured(await catalog.CallAsync("f8_get",
+                McpTestSupport.Args($"{{\"kind\":\"vertex\",\"id\":{id}}}"), CancellationToken.None)).GetProperty("properties");
+            Assert.AreEqual("Paris", afterLegacy.GetProperty("city").GetString());
+            Assert.IsFalse(afterLegacy.TryGetProperty("age", out _), "the batch's remove entry removed the key");
+
+            var neither = await catalog.CallAsync("f8_mutate",
+                McpTestSupport.Args("{\"op\":\"set_properties\"}"), CancellationToken.None);
+            Assert.IsTrue(neither.IsError, "no batch at all is a 400");
+            StringAssert.Contains(((ModelContextProtocol.Protocol.TextContentBlock)neither.Content[0]).Text, "updates",
+                "the error names the advertised argument, not the legacy one");
+        }
+
+        [TestMethod]
+        public async Task Mutate_RemoveElements_RejectsANonIntegerId_AndRemovesTheBatchInOneTransaction()
+        {
+            using var api = new ApiAppFactory();
+            var catalog = WriteCatalog(api);
+
+            var created = await catalog.CallAsync("f8_mutate", McpTestSupport.Args(
+                "{\"op\":\"create_vertices\",\"vertices\":[{\"label\":\"tmp\"},{\"label\":\"tmp\"}]}"), CancellationToken.None);
+            var ids = McpTestSupport.Structured(created).GetProperty("ids").EnumerateArray().Select(e => e.GetInt32()).ToList();
+            Assert.AreEqual(2, ids.Count);
+
+            var rejected = await catalog.CallAsync("f8_mutate",
+                McpTestSupport.Args($"{{\"op\":\"remove_elements\",\"ids\":[{ids[0]},\"{ids[1]}\"]}}"), CancellationToken.None);
+            Assert.IsTrue(rejected.IsError, "a non-integer id is refused before anything is sent");
+            StringAssert.Contains(((ModelContextProtocol.Protocol.TextContentBlock)rejected.Content[0]).Text, "integer");
+
+            var stillThere = await catalog.CallAsync("f8_get",
+                McpTestSupport.Args($"{{\"kind\":\"vertex\",\"id\":{ids[0]}}}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(stillThere).GetProperty("found").GetBoolean(), "the refused batch removed nothing");
+
+            var removed = await catalog.CallAsync("f8_mutate",
+                McpTestSupport.Args($"{{\"op\":\"remove_elements\",\"ids\":[{ids[0]},{ids[1]}]}}"), CancellationToken.None);
+            Assert.IsTrue(McpTestSupport.Structured(removed).GetProperty("applied").GetBoolean());
+
+            foreach (var id in ids)
+            {
+                // f8_get reports a missing element as found:false, not as an error (spec section 3.7).
+                var gone = await catalog.CallAsync("f8_get",
+                    McpTestSupport.Args($"{{\"kind\":\"vertex\",\"id\":{id}}}"), CancellationToken.None);
+                Assert.IsFalse(McpTestSupport.Structured(gone).GetProperty("found").GetBoolean(), $"vertex {id} was removed by the batch");
+            }
+        }
+
         [TestMethod]
         public async Task Mutate_RemoveElement_HonestSemantics_NoOpVsOutOfRange()
         {

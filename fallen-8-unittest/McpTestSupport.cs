@@ -107,6 +107,8 @@ namespace NoSQL.GraphDB.Tests
                 new SearchTool(bridge),
                 new PathsTool(bridge),
                 new AnalyticsTool(bridge),
+                new PluginsTool(bridge),
+                new DocumentsTool(bridge),
                 new MutateTool(bridge),
                 new SubgraphTool(bridge),
                 new NamespaceTool(bridge),

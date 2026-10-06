@@ -54,7 +54,12 @@ namespace NoSQL.GraphDB.Mcp.Bridge.Dto
 
         public String FullQualifiedTypeName { get; set; } = "System.String";
 
-        public String PropertyValue { get; set; } = String.Empty;
+        /// <summary>Absent on the wire for a removal: the REST model marks it <c>[Required]</c>,
+        /// which rejects an empty string as well as a null, so a remove entry that carried the
+        /// default empty value was refused with 400 and the batch's remove half never worked
+        /// through this tool until feature mcp-plugin-gaps pinned it.</summary>
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public String? PropertyValue { get; set; }
 
         public Boolean Remove { get; set; }
     }
