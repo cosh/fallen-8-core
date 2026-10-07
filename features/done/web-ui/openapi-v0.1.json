@@ -20117,7 +20117,7 @@
           },
           "lastRecoveryTruncated": {
             "type": "boolean",
-            "description": "Whether the last recovery stopped BEFORE the end of the log. Replay is fail-stop for\r\ncore-data entries, because continuing past a bad one would misapply every later entry\r\nagainst a diverged id space - so the graph is internally consistent but is a PREFIX of the\r\ncommitted history.",
+            "description": "Whether the last recovery stopped BEFORE the end of the log. Replay is fail-stop for\r\ncore-data entries, because continuing past a bad one would misapply every later entry\r\nagainst a diverged id space, unreadable bytes with a complete entry after them or a fault\r\nof the replay itself stop it too, and a log whose header cannot be read is not replayed at\r\nall - so the graph is internally consistent but may be a PREFIX of the committed history.\r\nWhat a write cut off by a crash leaves, with no complete entry after it, does not count: it\r\nwas never acknowledged. It does when there are too many bytes after the stop to search them\r\nfor an entry; they are then kept, as damage would be.",
             "example": false
           },
           "lastRecoveryReplayedEntries": {

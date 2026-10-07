@@ -172,12 +172,13 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void ARecoveryThatStopsEarly_IsReportedAsTruncated()
+        public void ATornTail_IsDiscarded_WithoutReportingTruncatedHistory()
         {
-            // The signal that matters most: replay is fail-stop for core-data entries, so it can return
-            // a graph that is internally consistent but is a PREFIX of committed history. Corrupting the
-            // PAYLOAD of the last entry (leaving its CRC envelope intact is not possible here, so this
-            // exercises the decode/verify stop rather than a specific failure mode) must set the flag.
+            // A torn final entry is what a crash mid-append leaves. It was never acknowledged, so the
+            // recovered graph is the whole committed history: the flag must stay false, or a client
+            // reconciling against it would refuse a safe delete after every ordinary crash. The flag's
+            // true case (acknowledged entries that could not be replayed) is pinned in
+            // WriteAheadLogTest's "commits after a recovery" region.
             var snapshot = Path.Combine(_temp.FullName, "snapshot.f8s");
             string actualPath;
             using (var producer = new Fallen8(_loggerFactory, new WriteAheadLogOptions(WalPath)))
@@ -189,12 +190,10 @@ namespace NoSQL.GraphDB.Tests
                 AddVertex(producer);
             }
 
-            // Truncate the log mid-entry: the torn tail is dropped by the reader, so recovery simply
-            // replays fewer entries. This asserts the HONEST outcome of that path - the count reflects
-            // what was actually applied - which is the property a reconciling client depends on.
-            var bytes = File.ReadAllBytes(WalPath);
-            Assert.IsTrue(bytes.Length > 8, "the log holds at least one entry");
-            File.WriteAllBytes(WalPath, bytes.Take(bytes.Length - 4).ToArray());
+            // Truncate the log mid-entry: the torn tail is dropped by the reader, so recovery replays
+            // fewer entries, and the count reflects what was actually applied.
+            Assert.IsTrue(WalFile.Length(WalPath) > 8, "the log holds at least one entry");
+            WalFile.CutTo(WalPath, WalFile.Length(WalPath) - 4);
 
             using var recovered = new Fallen8(_loggerFactory, new WriteAheadLogOptions(WalPath));
             var info = recovered.EnqueueTransaction(new LoadTransaction { Path = actualPath });
@@ -206,6 +205,8 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(state.RecoveryRan);
             Assert.AreEqual(0, state.LastRecoveryReplayedEntries,
                 "the torn entry was not applied, and the count says so rather than implying it was");
+            Assert.IsFalse(state.LastRecoveryTruncated, "a torn entry was never acknowledged, so no history is missing");
+            Assert.IsFalse(state.Degraded, "a torn tail is cut, not fenced");
             Assert.AreEqual(1, recovered.VertexCount, "only the snapshot's vertex is present");
         }
 

@@ -428,10 +428,7 @@ namespace NoSQL.GraphDB.Tests
             CreateSubGraphViaController(source, AllPersons("people")); // last entry in the log
             source.Dispose();
 
-            using (var fs = new FileStream(WalPath, FileMode.Open, FileAccess.Write))
-            {
-                fs.SetLength(fs.Length - 5); // tear the trailing CRC of the last (subgraph) entry
-            }
+            WalFile.CutTo(WalPath, WalFile.Length(WalPath) - 5); // tear the trailing CRC of the last (subgraph) entry
 
             var recovered = NewEngineWithWalAndCompiler();
             Assert.AreEqual(3, recovered.VertexCount, "The complete graph entries recover.");

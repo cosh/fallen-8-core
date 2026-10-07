@@ -67,13 +67,14 @@ describe("DurabilityNotice", () => {
     expect(screen.getByText(/write-ahead log is degraded/i)).toBeInTheDocument();
   });
 
-  it("warns that the graph is a prefix of history after a truncated recovery, with the count", () => {
+  it("warns that the graph may be a prefix of history after a truncated recovery, with the count", () => {
     render(
       <DurabilityNotice
         durability={{ ...healthy, lastRecoveryTruncated: true, lastRecoveryReplayedEntries: 1234 }}
       />,
     );
     expect(screen.getByText(/last recovery was truncated/i)).toBeInTheDocument();
+    expect(screen.getByText(/may be a prefix of the committed history/i)).toBeInTheDocument();
     // Separator-agnostic on purpose: the count is rendered with toLocaleString, like every other
     // number in the Studio, so the grouping character is the reader's, not the test's (this host
     // formats 1234 as "1.234").

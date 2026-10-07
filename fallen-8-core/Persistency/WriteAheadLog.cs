@@ -58,7 +58,8 @@ namespace NoSQL.GraphDB.Core.Persistency
     ///   <see cref="ReadEntries" /> reads entries only while a full, CRC-valid frame remains, sizing
     ///   every read against the bytes physically left in the file (never against an untrusted length
     ///   prefix), and stops cleanly at the last complete entry - it never throws or over-allocates on
-    ///   a torn tail.</para>
+    ///   a torn tail. What recovery then does with the bytes it stopped at, before the next append,
+    ///   is <see cref="SealAfterReplay" />'s job.</para>
     /// </summary>
     internal sealed class WriteAheadLog : IDisposable
     {
@@ -73,6 +74,22 @@ namespace NoSQL.GraphDB.Core.Persistency
 
         /// <summary>Magic (8) + version (4).</summary>
         private const int PreambleLength = 8 + 4;
+
+        /// <summary>The shortest valid header: preamble, baseline (8), token length (4), an empty
+        /// token and the header CRC (4). The header of a fresh, unanchored log is exactly this long.</summary>
+        private const int MinimumHeaderLength = PreambleLength + 8 + 4 + 4;
+
+        /// <summary>The shortest complete frame: the length (4), a payload of at least one byte and the
+        /// CRC (4).</summary>
+        private const int MinimumEntryLength = 4 + 1 + 4;
+
+        /// <summary>Above this many bytes after the point a scan stopped, <see cref="RemainderHoldsAnEntry" />
+        /// does not search and answers that entries may follow.</summary>
+        private const int ProbeLimitBytes = 64 * 1024 * 1024;
+
+        /// <summary>How many payload bytes <see cref="RemainderHoldsAnEntry" /> may hash before it stops
+        /// searching and answers that entries may follow.</summary>
+        private const long ProbeHashBudgetBytes = 1024L * 1024 * 1024;
 
         /// <summary>The pairing token of a log that does not yet build upon any snapshot.</summary>
         private const string UnanchoredToken = "";
@@ -97,14 +114,19 @@ namespace NoSQL.GraphDB.Core.Persistency
 
         private long _baselineCurrentId;
         private string _pairingToken;
+
+        /// <summary>Whether the header was read, created or rewritten: false only for an existing log
+        /// whose header cannot be read (<see cref="HeaderUnreadable" />).</summary>
         private bool _valid;
 
         /// <summary>
-        ///   Sticky failure fence (feature crash-durability-hardening D1). Once an <see cref="AppendBuffered" />
-        ///   fails, it is set and every subsequent <see cref="AppendBuffered" /> is a no-op (it does not touch
-        ///   the file), so a torn frame is never followed by more frames that a later replay would
-        ///   silently drop. Cleared only by <see cref="ResetToSnapshot" /> (a successful Save re-writes
-        ///   the log fresh against the new snapshot - the sanctioned recovery from a degraded log).
+        ///   Sticky failure fence (feature crash-durability-hardening D1). Once a <see cref="FlushGroup" />
+        ///   fails, a recovery leaves bytes its replay could not pass (<see cref="SealAfterReplay" />), or
+        ///   the header cannot be read (<see cref="HeaderUnreadable" />), it is set and every subsequent
+        ///   <see cref="AppendBuffered" /> is a no-op (it does not touch the file), so a torn frame is
+        ///   never followed by more frames that a later replay would silently drop. Cleared only by
+        ///   <see cref="ResetToSnapshot" /> (a successful Save re-writes the log fresh against the new
+        ///   snapshot - the sanctioned recovery from a degraded log).
         /// </summary>
         private bool _failed;
 
@@ -120,9 +142,8 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// <summary>
         ///   Opens the log at <paramref name="path" />. An existing, well-formed log is adopted (its
         ///   header parsed and its entries left in place for replay); a missing log is created fresh
-        ///   with a zero baseline and no snapshot pairing; an unparsable/corrupt existing header is
-        ///   logged and reset to a fresh header (its untrusted content is discarded rather than
-        ///   misparsed - the clean-reject discipline of the snapshot format).
+        ///   with a zero baseline and no snapshot pairing. An existing header that cannot be read is
+        ///   never parsed as anything: <see cref="HeaderUnreadable" /> says what happens instead.
         /// </summary>
         internal WriteAheadLog(string path, ILogger logger)
         {
@@ -140,8 +161,17 @@ namespace NoSQL.GraphDB.Core.Persistency
                     return;
                 }
 
+                if (!CannotHoldAnEntry())
+                {
+                    _failed = true;
+                    _logger.LogError(
+                        "Write-ahead log \"{Path}\": the header cannot be read, so the file is kept as it is and nothing in it is replayed; the log is degraded and new commits are not durable until the next successful Save.",
+                        _path);
+                    return;
+                }
+
                 _logger.LogWarning(
-                    "The write-ahead log at \"{Path}\" has an unreadable header and will be reset; any entries it held are discarded.",
+                    "Write-ahead log \"{Path}\": the header cannot be read and the file is too short to hold an entry behind one, so it is reset.",
                     _path);
             }
 
@@ -149,6 +179,37 @@ namespace NoSQL.GraphDB.Core.Persistency
             _baselineCurrentId = 0;
             _pairingToken = UnanchoredToken;
             _valid = true;
+        }
+
+        /// <summary>Whether the file is too short to hold the shortest header and the shortest entry behind it
+        /// (see <see cref="HeaderUnreadable" />).</summary>
+        private bool CannotHoldAnEntry()
+        {
+            try
+            {
+                return new FileInfo(_path).Length < MinimumHeaderLength + MinimumEntryLength;
+            }
+            catch (Exception ex)
+            {
+                // An unknown length is treated as a longer file: kept, not reset.
+                _logger.LogWarning(ex, "Reading the length of the write-ahead log at \"{Path}\" failed.", _path);
+                return false;
+            }
+        }
+
+        /// <summary>
+        ///   Whether the existing log's header could not be read when it was opened, in a file long
+        ///   enough to hold a header and an entry (feature wal-torn-tail). Such a file may hold
+        ///   acknowledged commits and nothing in it can be replayed, so it is kept as it is and the log
+        ///   is fenced: it is neither unanchored nor anchored, and the engine reports the recovery as
+        ///   one that may have lost history. A Save, or a Load that re-anchors the log, rewrites it. A
+        ///   shorter file holds no entry, and an interrupted write of a fresh log's header leaves one
+        ///   (that header is written in place; an anchored one goes through a temp file and a rename
+        ///   and is never torn), so it is reset instead.
+        /// </summary>
+        internal bool HeaderUnreadable
+        {
+            get { return !_valid; }
         }
 
         /// <summary>The writer <c>_currentId</c> as of the snapshot this log builds upon.</summary>
@@ -201,19 +262,21 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
-        ///   Whether the log currently holds at least one complete, replayable entry (a full,
-        ///   CRC-valid frame past the header). Cheap: it stops at the first such entry rather than
-        ///   scanning the whole file. Used to decide whether discarding a non-pairing log would drop
-        ///   committed work (and therefore must be signalled loudly).
+        ///   Whether the log currently holds at least one complete entry (a full, CRC-valid frame past
+        ///   the header), counting one behind bytes that cannot be read, as a recovery does (feature
+        ///   wal-torn-tail). Cheap when the first entry is readable: it stops there. Used to decide
+        ///   whether discarding a non-pairing log would drop committed work (and therefore must be
+        ///   signalled loudly).
         /// </summary>
         internal bool HasEntries()
         {
-            foreach (var _ in ReadEntries())
+            var scan = new Scan();
+            foreach (var _ in ReadEntries(scan))
             {
                 return true;
             }
 
-            return false;
+            return scan.End == ScanEnd.Unreadable;
         }
 
         /// <summary>Whether the log has entries but does not yet build upon any snapshot.</summary>
@@ -233,7 +296,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
-        ///   Whether the sticky failure fence has tripped (a prior <see cref="AppendBuffered" /> failed). While
+        ///   Whether the sticky failure fence has tripped (see <see cref="_failed" />). While
         ///   set, the log is degraded: no further entries are written, and durability is restored only
         ///   by a successful Save (<see cref="ResetToSnapshot" />). Feature crash-durability-hardening D1.
         /// </summary>
@@ -397,16 +460,56 @@ namespace NoSQL.GraphDB.Core.Persistency
             _failed = false;
         }
 
+        /// <summary>How a scan of the log ended (feature wal-torn-tail).</summary>
+        internal enum ScanEnd
+        {
+            /// <summary>The reader stopped consuming before the scan reached its own end: a replay that
+            /// broke off at an entry it read but could not apply, or one that threw.</summary>
+            Abandoned,
+
+            /// <summary>Every byte after the header belongs to a complete, CRC-valid entry.</summary>
+            Clean,
+
+            /// <summary>The scan stopped at bytes it could not read as an entry, and no complete entry
+            /// follows them: what an interrupted write leaves, never acknowledged.</summary>
+            TornTail,
+
+            /// <summary>The scan stopped at bytes it could not read as an entry and a complete entry
+            /// follows them, or the header no longer parses: acknowledged entries may sit beyond the
+            /// point the scan reached.</summary>
+            Unreadable,
+        }
+
+        /// <summary>Where and why a scan of the log stopped, filled in by
+        /// <see cref="ReadEntries(Scan)" /> and read by <see cref="SealAfterReplay" />.</summary>
+        internal sealed class Scan
+        {
+            internal ScanEnd End { get; set; } = ScanEnd.Abandoned;
+
+            /// <summary>The start of the entry the scan ended on (the torn or unreadable one, or the
+            /// one the reader broke off after), or the end of the file after a clean scan: the first
+            /// byte a replay that stopped there did not apply.</summary>
+            internal long StopOffset { get; set; }
+        }
+
         /// <summary>
         ///   Enumerates every COMPLETE entry's payload, in append (commit) order, stopping cleanly at
         ///   the first incomplete or CRC-failing frame. Never throws on a torn/corrupt tail and never
         ///   sizes an allocation from an untrusted length: each frame's declared length is validated
-        ///   against the bytes physically remaining in the file before the payload is read.
+        ///   against the bytes physically remaining in the file before the payload is read. When
+        ///   <paramref name="scan" /> is given, it records where and why the scan stopped.
         /// </summary>
-        internal IEnumerable<byte[]> ReadEntries()
+        internal IEnumerable<byte[]> ReadEntries(Scan scan = null)
         {
-            if (!_valid || !File.Exists(_path))
+            if (!_valid)
             {
+                Stop(scan, ScanEnd.Unreadable, 0);
+                yield break;
+            }
+
+            if (!File.Exists(_path))
+            {
+                Stop(scan, ScanEnd.Clean, 0);
                 yield break;
             }
 
@@ -419,6 +522,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 // truncated to below the header) yields no entries rather than misparsing.
                 if (!TrySkipHeader(fs, fileLength))
                 {
+                    Stop(scan, ScanEnd.Unreadable, 0);
                     yield break;
                 }
 
@@ -427,50 +531,212 @@ namespace NoSQL.GraphDB.Core.Persistency
 
                 while (true)
                 {
+                    // Set before every read, so a fault while reading, or a reader that breaks off
+                    // after this entry, leaves it pointing at the first entry not applied.
                     var position = fs.Position;
-
-                    // Need at least a 4-byte length + a 4-byte trailing CRC for any complete entry.
-                    if (fileLength - position < 8)
+                    if (scan != null)
                     {
+                        scan.StopOffset = position;
+                    }
+
+                    if (position == fileLength)
+                    {
+                        Stop(scan, ScanEnd.Clean, position);
                         yield break;
                     }
 
-                    if (!ReadExactly(fs, lengthBuffer, 4))
+                    var payload = TryReadEntry(fs, fileLength, lengthBuffer, crcBuffer);
+                    if (payload == null)
                     {
-                        yield break;
-                    }
+                        // Which kind of stop this is matters only to a recovery (SealAfterReplay).
+                        if (scan != null)
+                        {
+                            var entriesFollow = RemainderHoldsAnEntry(fs, position + 1, fileLength);
+                            Stop(scan, entriesFollow ? ScanEnd.Unreadable : ScanEnd.TornTail, position);
+                        }
 
-                    var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBuffer);
-
-                    // A torn/corrupt length: negative, or claiming more than the bytes that remain
-                    // (payload + its 4-byte CRC). Stop at the last complete entry - never allocate
-                    // from the untrusted prefix.
-                    if (payloadLength < 0 || (long)payloadLength + 4 > fileLength - fs.Position)
-                    {
-                        yield break;
-                    }
-
-                    var payload = new byte[payloadLength];
-                    if (!ReadExactly(fs, payload, payloadLength))
-                    {
-                        yield break;
-                    }
-
-                    if (!ReadExactly(fs, crcBuffer, 4))
-                    {
-                        yield break;
-                    }
-
-                    var expectedCrc = BinaryPrimitives.ReadUInt32LittleEndian(crcBuffer);
-                    var actualCrc = Crc32.Compute(payload, 0, payloadLength);
-                    if (actualCrc != expectedCrc)
-                    {
-                        // A fully-sized but CRC-failing tail entry: treat as a torn tail and stop.
                         yield break;
                     }
 
                     yield return payload;
                 }
+            }
+        }
+
+        private static void Stop(Scan scan, ScanEnd end, long offset)
+        {
+            if (scan != null)
+            {
+                scan.End = end;
+                scan.StopOffset = offset;
+            }
+        }
+
+        /// <summary>
+        ///   Reads the entry at the stream's position, or returns null when the bytes there are not one:
+        ///   fewer than a complete entry needs, a length that is not a positive count fitting in what
+        ///   remains (no writer produces an empty or a negative one), or a CRC that does not match.
+        ///   Never allocates from an unchecked length.
+        /// </summary>
+        private static byte[] TryReadEntry(FileStream fs, long fileLength, byte[] lengthBuffer, byte[] crcBuffer)
+        {
+            if (fileLength - fs.Position < MinimumEntryLength || !ReadExactly(fs, lengthBuffer, 4))
+            {
+                return null;
+            }
+
+            var payloadLength = DeclaredPayloadLength(lengthBuffer, fileLength - fs.Position);
+            if (payloadLength < 0)
+            {
+                return null;
+            }
+
+            var payload = new byte[payloadLength];
+            if (!ReadExactly(fs, payload, payloadLength) || !ReadExactly(fs, crcBuffer, 4))
+            {
+                return null;
+            }
+
+            return CrcMatches(payload, 0, payloadLength, crcBuffer) ? payload : null;
+        }
+
+        /// <summary>
+        ///   The payload length a frame's 4-byte length field declares, or -1 when it is not a positive
+        ///   count that fits, with the CRC, in the <paramref name="available" /> bytes after the field.
+        /// </summary>
+        private static int DeclaredPayloadLength(ReadOnlySpan<byte> lengthField, long available)
+        {
+            var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(lengthField);
+            return payloadLength > 0 && (long)payloadLength + 4 <= available ? payloadLength : -1;
+        }
+
+        /// <summary>Whether the CRC-32 of the payload equals the one stored after it.</summary>
+        private static bool CrcMatches(byte[] buffer, int payloadOffset, int payloadLength, ReadOnlySpan<byte> storedCrc)
+        {
+            return Crc32.Compute(buffer, payloadOffset, payloadLength) == BinaryPrimitives.ReadUInt32LittleEndian(storedCrc);
+        }
+
+        /// <summary>
+        ///   Whether the bytes from <paramref name="from" /> to the end of the file contain at least one
+        ///   complete entry anywhere: a positive length that fits, a payload of the shape every entry has
+        ///   (<see cref="WalTransactionCodec.HasEntryShape" />), and a matching CRC-32. The search is
+        ///   bounded (<see cref="ProbeLimitBytes" />, <see cref="ProbeHashBudgetBytes" />), and past a
+        ///   bound it answers <c>true</c>, the answer that keeps the bytes. See
+        ///   <see cref="SealAfterReplay" /> for what the answer decides.
+        /// </summary>
+        private static bool RemainderHoldsAnEntry(FileStream fs, long from, long fileLength)
+        {
+            var length = fileLength - from;
+            if (length < MinimumEntryLength)
+            {
+                return false;
+            }
+
+            if (length > ProbeLimitBytes)
+            {
+                return true;
+            }
+
+            var bytes = new byte[length];
+            fs.Seek(from, SeekOrigin.Begin);
+            if (!ReadExactly(fs, bytes, (int)length))
+            {
+                return true;
+            }
+
+            long hashed = 0;
+            for (var p = 0; p + MinimumEntryLength <= length; p++)
+            {
+                var payloadLength = DeclaredPayloadLength(bytes.AsSpan(p), length - p - 4);
+                if (payloadLength < 0 || !WalTransactionCodec.HasEntryShape(bytes.AsSpan(p + 4, payloadLength)))
+                {
+                    continue;
+                }
+
+                hashed += payloadLength;
+                if (hashed > ProbeHashBudgetBytes)
+                {
+                    return true;
+                }
+
+                if (CrcMatches(bytes, p + 4, payloadLength, bytes.AsSpan(p + 4 + payloadLength)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        ///   Makes the log safe to append to after a replay, and reports whether entries that may have
+        ///   been acknowledged were left unreplayed (feature wal-torn-tail). Appends go to the end of the
+        ///   FILE, while a replay stops at the first entry it cannot read or apply, so anything appended
+        ///   behind that point would be acknowledged as durable and never replayed. Therefore:
+        ///   <list type="bullet">
+        ///     <item>A torn tail (<see cref="ScanEnd.TornTail" />) is cut back to the last complete
+        ///     entry. No complete entry follows the stop, so the bytes are what an interrupted write
+        ///     left and were never acknowledged: a partial entry, a full-length entry with a bad CRC
+        ///     (the sectors of one write can reach the disk out of order on a power loss), or zeros (a
+        ///     file system can persist a new size before the data). If the cut fails, the fence is
+        ///     tripped instead.</item>
+        ///     <item>Anything else (an entry the replay could not apply, a replay that threw, or
+        ///     unreadable bytes with a complete entry after them) is left in place and the fence is
+        ///     tripped: later commits report non-durable until a Save re-baselines the log. Cutting
+        ///     could destroy acknowledged entries; appending behind them would repeat the defect.</item>
+        ///   </list>
+        ///   The two cannot always be told apart: a crash inside one commit group of several entries can
+        ///   leave an unreadable entry with a complete one of the same unacknowledged group after it, and
+        ///   a torn entry whose payload carries the bytes of another frame (a byte-array property holding
+        ///   log bytes) shows that frame to the search. Both are read as the second case, a false alarm
+        ///   that costs a degraded log until the next Save and destroys nothing.
+        /// </summary>
+        /// <param name="scan">The scan the replay read its entries from, after the replay ended.</param>
+        /// <returns>Whether entries that may have been acknowledged were left unreplayed.</returns>
+        internal bool SealAfterReplay(Scan scan)
+        {
+            switch (scan.End)
+            {
+                case ScanEnd.Clean:
+                    return false;
+
+                case ScanEnd.TornTail:
+                    CutTornTail(scan.StopOffset);
+                    return false;
+
+                default:
+                    // Abandoned (the replay broke off or threw) or Unreadable.
+                    _failed = true;
+                    _logger.LogError(
+                        "Write-ahead log \"{Path}\": recovery stopped at offset {Offset}, before the end of the log; the entries from there on are kept but not replayed, and the log is degraded: new commits are not durable until the next successful Save.",
+                        _path, scan.StopOffset);
+                    return true;
+            }
+        }
+
+        private void CutTornTail(long lastCompleteEnd)
+        {
+            try
+            {
+                long before;
+                using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Write, FileShare.Read,
+                           Constants.BufferSize, FileOptions.None))
+                {
+                    before = fs.Length;
+                    fs.SetLength(lastCompleteEnd);
+                    fs.Flush(true);
+                }
+
+                _logger.LogWarning(
+                    "Write-ahead log \"{Path}\": cut {Bytes} bytes left by an interrupted write after the last complete entry.",
+                    _path, before - lastCompleteEnd);
+            }
+            catch (Exception ex)
+            {
+                _failed = true;
+                _logger.LogError(ex,
+                    "Write-ahead log \"{Path}\": the bytes left by an interrupted write could not be cut; the log is degraded and new commits are not durable until the next successful Save.",
+                    _path);
             }
         }
 
@@ -547,7 +813,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                            Constants.BufferSize, FileOptions.SequentialScan))
                 {
                     var fileLength = fs.Length;
-                    if (fileLength < PreambleLength + 8 + 4 + 4)
+                    if (fileLength < MinimumHeaderLength)
                     {
                         return false;
                     }
@@ -617,7 +883,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         /// </summary>
         private bool TrySkipHeader(FileStream fs, long fileLength)
         {
-            if (fileLength < PreambleLength + 8 + 4 + 4)
+            if (fileLength < MinimumHeaderLength)
             {
                 return false;
             }

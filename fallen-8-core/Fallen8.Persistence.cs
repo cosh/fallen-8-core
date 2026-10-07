@@ -63,7 +63,12 @@ namespace NoSQL.GraphDB.Core
         {
             _wal = new WriteAheadLog(walPath, CreateLogger<WriteAheadLog>());
 
-            if (_wal.IsUnanchored)
+            if (_wal.HeaderUnreadable)
+            {
+                // Nothing is replayed, and the recovery may have lost history (WriteAheadLog.HeaderUnreadable).
+                _recovery = new RecoveryOutcome(true, true, 0);
+            }
+            else if (_wal.IsUnanchored)
             {
                 var baseline = (int)_wal.BaselineCurrentId;
                 SetSnapshotCountForReplay(baseline);
@@ -278,7 +283,9 @@ namespace NoSQL.GraphDB.Core
         ///   the store is padded so <c>id == index</c> holds, so replayed creates re-assign the SAME
         ///   ids and replayed edges/removals/property-changes resolve the SAME elements as before the
         ///   crash. A torn/corrupt tail is handled by <see cref="WriteAheadLog.ReadEntries" /> (it
-        ///   stops at the last complete entry), so this loop only ever sees whole, CRC-valid entries.
+        ///   stops at the last complete entry), so this loop only ever sees whole, CRC-valid entries;
+        ///   what happens to the bytes it stopped at, before the next append, is
+        ///   <see cref="WriteAheadLog.SealAfterReplay" />'s job.
         /// </summary>
         private int ReplayWriteAheadLog()
         {
@@ -293,10 +300,11 @@ namespace NoSQL.GraphDB.Core
             // GET /status never reads a half-built outcome (see Fallen8.RecoveryOutcome).
             var replayed = 0;
             var truncated = false;
+            var scan = new WriteAheadLog.Scan();
 
             try
             {
-                foreach (var payload in _wal.ReadEntries())
+                foreach (var payload in _wal.ReadEntries(scan))
                 {
                     Persistency.WalEntryType type;
                     ATransaction tx;
@@ -391,6 +399,11 @@ namespace NoSQL.GraphDB.Core
                     replayed++;
                 }
 
+                if (_wal.SealAfterReplay(scan))
+                {
+                    truncated = true;
+                }
+
                 _logger.LogInformation("Recovered {Count} transaction(s) from the write-ahead log.", replayed);
                 return replayed;
             }
@@ -402,6 +415,9 @@ namespace NoSQL.GraphDB.Core
                 // one reader that acts on it - a client deciding whether it may DELETE what nothing
                 // asserts any more - that a prefix of the history is the whole of it.
                 truncated = true;
+
+                // The replay broke off mid-log, so nothing may be appended behind the point it reached.
+                _wal.SealAfterReplay(scan);
                 throw;
             }
             finally
@@ -942,7 +958,13 @@ namespace NoSQL.GraphDB.Core
                         // or bootstrapping onto a foreign one), but it must never be silent: warn
                         // loudly so a mispaired reload - a snapshot loaded via a path the log was not
                         // anchored to - surfaces as a signal rather than as silent data loss.
-                        if (_wal.HasEntries())
+                        if (_wal.HeaderUnreadable)
+                        {
+                            _logger.LogWarning(
+                                "The write-ahead log's header cannot be read, so it is re-anchored to the snapshot being loaded from \"{Path}\" and whatever entries it held are discarded (not replayed).",
+                                path);
+                        }
+                        else if (_wal.HasEntries())
                         {
                             _logger.LogWarning(
                                 "The write-ahead log holds committed entries but does not pair with the snapshot being loaded from \"{Path}\"; those entries will be DISCARDED (not replayed). If this snapshot was meant to pair with the log, reload it via the exact path the log was anchored to.",

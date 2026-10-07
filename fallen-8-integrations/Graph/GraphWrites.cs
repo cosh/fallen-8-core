@@ -252,7 +252,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
         /// </summary>
         public Boolean WritesReachDisk { get; }
 
-        /// <summary>Whether the served graph is a PREFIX of committed history rather than all of it.</summary>
+        /// <summary>Whether the served graph may be a PREFIX of committed history rather than all of it.</summary>
         public Boolean LastRecoveryTruncated { get; }
 
         /// <summary>How many indices the last checkpoint dropped, which is how a caller learns it must repair.</summary>
@@ -280,7 +280,7 @@ namespace NoSQL.GraphDB.Integrations.Graph
 
             if (LastRecoveryTruncated)
             {
-                reasons.Add("the last recovery was truncated, so the graph is a prefix of committed history");
+                reasons.Add("the last recovery was truncated, so the graph may be a prefix of committed history");
             }
 
             if (DroppedIndices > 0)
