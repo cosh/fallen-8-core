@@ -283,7 +283,8 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         ///   of the replay itself stop it too, and a log whose header cannot be read is not replayed at
         ///   all - so the graph is internally consistent but may be a PREFIX of the committed history.
         ///   What a write cut off by a crash leaves, with no complete entry after it, does not count: it
-        ///   was never acknowledged.
+        ///   was never acknowledged. It does when there are too many bytes after the stop to search them
+        ///   for an entry; they are then kept, as damage would be.
         /// </summary>
         /// <example>false</example>
         public Boolean LastRecoveryTruncated

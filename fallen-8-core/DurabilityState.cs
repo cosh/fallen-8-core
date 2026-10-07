@@ -94,7 +94,8 @@ namespace NoSQL.GraphDB.Core
         ///   too, and a log whose header cannot be read is not replayed at all. The graph is then
         ///   internally consistent but may be a PREFIX of the committed history, and this is the only
         ///   in-band way to know that. What a write cut off by a crash leaves, with no complete entry
-        ///   after it, does not count: it was never acknowledged.
+        ///   after it, does not count: it was never acknowledged. It does when there are too many bytes
+        ///   after the stop to search them for an entry; they are then kept, as damage would be.
         /// </summary>
         public Boolean LastRecoveryTruncated
         {

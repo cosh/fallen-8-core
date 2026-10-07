@@ -252,7 +252,7 @@ export interface DurabilityREST {
    * landing in memory but not durably. */
   degraded: boolean;
   recoveryRan: boolean;
-  /** The last replay stopped before the end of the log, so the graph is a PREFIX of history. */
+  /** The last replay stopped before the end of the log, so the graph may be a PREFIX of history. */
   lastRecoveryTruncated: boolean;
   lastRecoveryReplayedEntries: number;
   /** Indexes the last checkpoint could not write: they will be absent after the next load. */

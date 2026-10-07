@@ -190,11 +190,11 @@ namespace NoSQL.GraphDB.App.Services
 
                         if (saveInfo.TransactionState == TransactionState.RolledBack)
                         {
-                            // A failed shutdown save is NOT data loss: the atomic temp+rename means a truncated
-                            // save never becomes the loadable checkpoint, and committed work is already durable
-                            // in the WAL. Log loudly and keep saving the other namespaces.
-                            _logger.LogError(saveInfo.Error, "The shutdown save of namespace \"{Namespace}\" rolled back; its " +
-                                "committed transactions remain durable in the write-ahead log and will be replayed on the " +
+                            // A failed shutdown save loses nothing acknowledged as durable: the atomic temp+rename
+                            // means a truncated save never becomes the loadable checkpoint, and that work is in
+                            // the WAL. Log loudly and keep saving the other namespaces.
+                            _logger.LogError(saveInfo.Error, "The shutdown save of namespace \"{Namespace}\" rolled back; the " +
+                                "commits acknowledged as durable remain in the write-ahead log and will be replayed on the " +
                                 "next boot.", ns.Name);
                         }
                         else
@@ -205,8 +205,8 @@ namespace NoSQL.GraphDB.App.Services
                     catch (Exception ex)
                     {
                         // Never let a shutdown-save failure prevent the host from stopping; WAL durability holds.
-                        _logger.LogError(ex, "The shutdown save of namespace \"{Namespace}\" threw; its committed transactions " +
-                            "remain durable in the write-ahead log and will be replayed on the next boot.", ns.Name);
+                        _logger.LogError(ex, "The shutdown save of namespace \"{Namespace}\" threw; the commits acknowledged " +
+                            "as durable remain in the write-ahead log and will be replayed on the next boot.", ns.Name);
                     }
                 }
 
@@ -227,7 +227,7 @@ namespace NoSQL.GraphDB.App.Services
             if (!ranBeforeDispose)
             {
                 _logger.LogWarning("The Fallen-8 engines were already disposed when the shutdown save ran; no checkpoint was " +
-                    "written. Committed transactions remain durable in the write-ahead logs and will be replayed on the next boot.");
+                    "written. The commits acknowledged as durable remain in the write-ahead logs and will be replayed on the next boot.");
             }
 
             return Task.CompletedTask;

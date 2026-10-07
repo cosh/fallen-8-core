@@ -475,8 +475,8 @@ namespace NoSQL.GraphDB.Tests
 
         // What a recovery does with the bytes its replay stopped at, before the next commit is
         // appended, is WriteAheadLog.SealAfterReplay's rule. A commit appended behind such bytes is
-        // acknowledged durable and lost only at the restart after the recovery, so the cut tests
-        // restart twice.
+        // acknowledged durable and lost only at the restart after the recovery, so a test that
+        // commits after a recovery restarts once more to see it.
 
         [TestMethod]
         public void TornTail_CommitsAfterRecovery_SurviveTheNextRestart()
@@ -731,11 +731,14 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void OversizedLengthInsideTheLog_IsLeftInPlace_FencesTheLog_AndReportsTruncatedHistory()
+        [DataRow(2, DisplayName = "a length claiming more bytes than remain")]
+        [DataRow(3, DisplayName = "a negative length")]
+        public void CorruptLengthInsideTheLog_IsLeftInPlace_FencesTheLog_AndReportsTruncatedHistory(int lengthByte)
         {
-            // Inverting the third byte of Bob's length makes it claim more bytes than remain, which on
-            // its own is what a torn last entry looks like. Carol's complete entry after it makes it
-            // damage, and cutting there would destroy her.
+            // Bob's length is little-endian: inverting its third byte makes it claim more bytes than
+            // remain, which on its own is what a torn last entry looks like, and inverting its fourth
+            // makes it negative. Carol's complete entry after it makes either one damage, and cutting
+            // there would destroy her.
             long afterAlice;
             using (var source = NewEngineWithWal())
             {
@@ -744,35 +747,12 @@ namespace NoSQL.GraphDB.Tests
                 AddVertices(source, ("person", "Bob"));
                 AddVertices(source, ("person", "Carol"));
             }
-            WalFile.FlipByteAt(WalPath, afterAlice + 2);
+            WalFile.FlipByteAt(WalPath, afterAlice + lengthByte);
             var damaged = File.ReadAllBytes(WalPath);
 
             using var recovered = NewEngineWithWal();
             Assert.AreEqual(1, recovered.VertexCount);
             CollectionAssert.AreEqual(damaged, File.ReadAllBytes(WalPath), "Nothing is cut: Carol's entry is still there.");
-            Assert.IsTrue(recovered.Durability.LastRecoveryTruncated);
-            Assert.IsTrue(recovered.Durability.Degraded);
-        }
-
-        [TestMethod]
-        public void NegativeLengthInsideTheLog_IsLeftInPlace_FencesTheLog_AndReportsTruncatedHistory()
-        {
-            // Inverting the high byte of Bob's length makes it negative; Carol's complete entry after
-            // it makes this damage, not a tear.
-            long afterAlice;
-            using (var source = NewEngineWithWal())
-            {
-                AddVertices(source, ("person", "Alice"));
-                afterAlice = WalLength;
-                AddVertices(source, ("person", "Bob"));
-                AddVertices(source, ("person", "Carol"));
-            }
-            WalFile.FlipByteAt(WalPath, afterAlice + 3);
-            var damaged = File.ReadAllBytes(WalPath);
-
-            using var recovered = NewEngineWithWal();
-            Assert.AreEqual(1, recovered.VertexCount);
-            CollectionAssert.AreEqual(damaged, File.ReadAllBytes(WalPath), "Nothing is cut.");
             Assert.IsTrue(recovered.Durability.LastRecoveryTruncated);
             Assert.IsTrue(recovered.Durability.Degraded);
         }
@@ -808,7 +788,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void TornTail_TooLongToSearch_IsLeftInPlace_AndFencesTheLog()
+        public void TornTail_TooLongToSearch_IsLeftInPlace_FencesTheLog_AndReportsTruncatedHistory()
         {
             // Past 64 MiB after the stop, RemainderHoldsAnEntry does not search and answers that
             // entries may follow, so zeros that would otherwise be cut are kept.
@@ -827,7 +807,7 @@ namespace NoSQL.GraphDB.Tests
         }
 
         [TestMethod]
-        public void TornTail_TooCostlyToSearch_IsLeftInPlace_AndFencesTheLog()
+        public void TornTail_TooCostlyToSearch_IsLeftInPlace_FencesTheLog_AndReportsTruncatedHistory()
         {
             // Bytes of 0x01 read at every offset as a length of 0x01010101 (about 16 MiB) in front of a
             // payload that begins with that same length, the shape of an entry, so each of the 100
@@ -1042,10 +1022,11 @@ namespace NoSQL.GraphDB.Tests
         [DataRow("cut to three bytes")]
         [DataRow("all zeros")]
         [DataRow("one byte inverted")]
+        [DataRow("one byte inverted, eight more after the header")]
         public void UnreadableHeader_TooShortToHoldAnEntry_IsReset(string damage)
         {
             NewEngineWithWal().Dispose(); // a fresh log: a header and nothing else
-            var headerLength = WalLength;
+            var freshHeader = File.ReadAllBytes(WalPath);
             switch (damage)
             {
                 case "cut to three bytes":
@@ -1053,9 +1034,14 @@ namespace NoSQL.GraphDB.Tests
                     break;
                 case "all zeros":
                     WalFile.CutTo(WalPath, 0);
-                    WalFile.Append(WalPath, new byte[headerLength]);
+                    WalFile.Append(WalPath, new byte[freshHeader.Length]);
+                    break;
+                case "one byte inverted":
+                    WalFile.FlipByteAt(WalPath, 12);
                     break;
                 default:
+                    // The longest file that cannot hold an entry behind a header.
+                    WalFile.Append(WalPath, new byte[8]);
                     WalFile.FlipByteAt(WalPath, 12);
                     break;
             }
@@ -1064,7 +1050,7 @@ namespace NoSQL.GraphDB.Tests
             {
                 Assert.IsFalse(recovered.Durability.Degraded, "Nothing could be lost, so the log is reset rather than fenced.");
                 Assert.IsFalse(recovered.Durability.LastRecoveryTruncated);
-                Assert.AreEqual(headerLength, WalLength, "A fresh header again.");
+                CollectionAssert.AreEqual(freshHeader, File.ReadAllBytes(WalPath), "A fresh header again.");
                 AddVertices(recovered, out var alice, ("person", "Alice"));
                 Assert.IsTrue(alice.Durable);
             }
@@ -1072,6 +1058,21 @@ namespace NoSQL.GraphDB.Tests
             using var restarted = NewEngineWithWal();
             Assert.AreEqual(1, restarted.VertexCount);
             Assert.AreEqual(1, CountWithName(restarted, "Alice"));
+        }
+
+        [TestMethod]
+        public void UnreadableHeader_JustLongEnoughToHoldAnEntry_IsKeptAndFenced()
+        {
+            // The shortest file that can hold a header and an entry is kept: the reset rule's other edge.
+            NewEngineWithWal().Dispose();
+            WalFile.Append(WalPath, new byte[9]);
+            WalFile.FlipByteAt(WalPath, 12);
+            var damaged = File.ReadAllBytes(WalPath);
+
+            using var recovered = NewEngineWithWal();
+            CollectionAssert.AreEqual(damaged, File.ReadAllBytes(WalPath), "The file is kept as it is.");
+            Assert.IsTrue(recovered.Durability.Degraded);
+            Assert.IsTrue(recovered.Durability.LastRecoveryTruncated);
         }
 
         #endregion
@@ -1175,6 +1176,38 @@ namespace NoSQL.GraphDB.Tests
             Assert.IsTrue(capture.Contains(LogLevel.Warning, "does not pair"),
                 "Discarding a non-pairing log that still holds committed entries must be signalled with a warning, never silent.");
             recovered.Dispose();
+        }
+
+        [TestMethod]
+        public void LoadGenuinelyDifferentSnapshot_WithDamageBeforeTheUnpairedEntries_StillWarns()
+        {
+            // Entries behind an unreadable one are entries (feature wal-torn-tail), so discarding them
+            // is never silent either.
+            long afterHeader, afterBob;
+            using (var source = NewEngineWithWal())
+            {
+                AddVertices(source, ("person", "Alice"));
+                Save(source, SavePath);                                   // the log is anchored and empty
+                afterHeader = WalLength;
+                AddVertices(source, ("person", "Bob"));
+                afterBob = WalLength;
+                AddVertices(source, ("person", "Carol"));
+            }
+            WalFile.FlipByteAt(WalPath, afterHeader + (afterBob - afterHeader) / 2); // Bob's entry, the first
+
+            string actualOther;
+            using (var producer = new Fallen8(_loggerFactory))
+            {
+                AddVertices(producer, ("robot", "Zed"));
+                actualOther = Save(producer, Path.Combine(_temp.FullName, "other.f8s"));
+            }
+
+            var capture = new TestLogSink();
+            using var recovered = new Fallen8(capture.CreateFactory(), new WriteAheadLogOptions(WalPath));
+            Assert.AreEqual(TransactionState.Finished, Load(recovered, actualOther).State);
+            Assert.IsTrue(capture.Contains(LogLevel.Warning, "does not pair"),
+                "Carol's entry, behind Bob's damaged one, is discarded and that is said: " +
+                String.Join(" | ", capture.Entries.Select(e => e.Message)));
         }
 
         #endregion

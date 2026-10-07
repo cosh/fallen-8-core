@@ -47,7 +47,7 @@ namespace NoSQL.GraphDB.Tests
             fs.SetLength(length);
         }
 
-        /// <summary>Inverts one byte; the entry or header holding it no longer passes its CRC.</summary>
+        /// <summary>Inverts the byte at <paramref name="offset" />, as damage on the disk does.</summary>
         internal static void FlipByteAt(String path, long offset)
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.ReadWrite);

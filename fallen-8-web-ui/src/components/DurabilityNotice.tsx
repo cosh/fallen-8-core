@@ -36,8 +36,8 @@ import type { DurabilityREST } from "../api/types";
  *
  * Deliberately SILENT when everything is fine. A banner that is always there stops being read, and
  * the three states worth interrupting for are all exceptional: the log is degraded (commits are
- * landing in memory only), the last recovery was truncated (the graph is a prefix of history, so
- * anything reconciling against it is reasoning from incomplete data), or the last checkpoint
+ * landing in memory only), the last recovery was truncated (the graph may be a prefix of history,
+ * so anything reconciling against it may be reasoning from incomplete data), or the last checkpoint
  * dropped indexes (they are gone after the next load).
  */
 
@@ -78,9 +78,9 @@ export function durabilityProblems(
       title: "The last recovery was truncated",
       detail:
         `It replayed ${durability.lastRecoveryReplayedEntries.toLocaleString()} transaction(s) and ` +
-        "then stopped at the last good entry, so this graph is a prefix of the committed history. " +
+        "stopped before the end of the log, so this graph may be a prefix of the committed history. " +
         "Anything that reconciles against it - and especially anything that deletes what nothing " +
-        "asserts any more - is reasoning from incomplete data.",
+        "asserts any more - may be reasoning from incomplete data.",
     });
   }
 

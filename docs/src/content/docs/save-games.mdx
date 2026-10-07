@@ -20,7 +20,7 @@ flowchart LR
 
 | Piece | Role |
 |---|---|
-| **WAL** | Append-only, one per namespace. Each committed data mutation is framed with a CRC-32 and fsync'd before `PUT`/`WaitUntilFinished` returns. Replay stops at the first bytes it cannot read as an entry. With no complete entry after them, they are what a write cut off by a crash left, never acknowledged, and they are cut from the file before the next commit. Anything else replay cannot pass (unreadable bytes with a complete entry after them, an entry it cannot apply, an unreadable header) is kept but not replayed, and the log is fenced: `degraded` and `lastRecoveryTruncated` turn true, and new commits are not durable until the next save. |
+| **WAL** | Append-only, one per namespace. Each committed data mutation is framed with a CRC-32 and fsync'd before `PUT`/`WaitUntilFinished` returns. Replay stops at the first bytes it cannot read as an entry. With no complete entry after them, they are what a write cut off by a crash left, never acknowledged, and they are cut from the file before the next commit (unless there are too many of them to search, in which case they are kept, as damage is). Anything else replay cannot pass (unreadable bytes with a complete entry after them, an entry it cannot apply, an unreadable header) is kept but not replayed, and the log is fenced: `degraded` and `lastRecoveryTruncated` turn true, and new commits are not durable until the next save. |
 | **Checkpoint / save game** | A full snapshot: a primary file plus sidecars (element partitions, indices, services, and the subgraph, stored-query and plugin manifests). Written atomically (temp file + fsync + rename); a save resets the WAL to build on the new snapshot. |
 | **Registry** | One JSON document per deployment, written atomically. Records every save game (never overwritten silently; a corrupt document is a loud failure) and decides what boots. |
 
@@ -93,7 +93,7 @@ difference between "the graph is complete" and "the graph is what survived":
 | `walEnabled` | this namespace is logging commits to a write-ahead log (there is no persistent handle: every append opens the file, fsyncs and closes it) |
 | `degraded` | the log's failure fence has tripped (an append failed, or a recovery kept bytes it could not replay), or an anchored log is waiting for its paired load: commits are landing in memory but not durably |
 | `recoveryRan` | a log replay has happened in this engine's lifetime |
-| `lastRecoveryTruncated` | that replay stopped before the end of the log, so the graph may be a **prefix** of the committed history. It errs toward true: bytes that cannot be told apart from damage set it. What a write cut off by a crash leaves at the end of the log does not: it was never acknowledged |
+| `lastRecoveryTruncated` | that replay stopped before the end of the log, so the graph may be a **prefix** of the committed history. It errs toward true: bytes that cannot be told apart from damage set it. What a write cut off by a crash leaves at the end of the log does not, because it was never acknowledged, unless there are too many of those bytes to search |
 | `lastRecoveryReplayedEntries` | how many transactions it replayed |
 | `lastCheckpointDroppedIndices` | how many indexes the last checkpoint could not write, so they will be absent after the next load |
 

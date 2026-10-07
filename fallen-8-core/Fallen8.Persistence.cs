@@ -65,8 +65,7 @@ namespace NoSQL.GraphDB.Core
 
             if (_wal.HeaderUnreadable)
             {
-                // Nothing can be replayed from a log whose header cannot be read, and it may hold
-                // acknowledged commits: this recovery may have lost history (feature wal-torn-tail).
+                // Nothing is replayed, and the recovery may have lost history (WriteAheadLog.HeaderUnreadable).
                 _recovery = new RecoveryOutcome(true, true, 0);
             }
             else if (_wal.IsUnanchored)
