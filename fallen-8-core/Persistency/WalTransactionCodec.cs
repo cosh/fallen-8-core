@@ -24,6 +24,7 @@
 // SOFTWARE.
 
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
@@ -316,6 +317,17 @@ namespace NoSQL.GraphDB.Core.Persistency
                 writer.Flush();
                 return mem.ToArray();
             }
+        }
+
+        /// <summary>
+        ///   Whether <paramref name="payload" /> begins the way every payload <see cref="SerializeEntry" />
+        ///   writes does: with the serializer's header, whose first Int32 is the payload's own length
+        ///   (<see cref="SerializationWriter.UpdateHeader" />). Cheap enough for
+        ///   <see cref="WriteAheadLog" /> to test at every offset of a damaged log before it computes a CRC.
+        /// </summary>
+        internal static bool HasEntryShape(ReadOnlySpan<byte> payload)
+        {
+            return payload.Length >= 4 && BinaryPrimitives.ReadInt32LittleEndian(payload) == payload.Length;
         }
 
         /// <summary>

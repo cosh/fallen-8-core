@@ -501,10 +501,7 @@ namespace NoSQL.GraphDB.Tests
             RegisterPathQueryViaController(engine, "torn-entry"); // last frame in the log
             engine.Dispose(); // close the WAL handle so the file can be truncated
 
-            using (var fs = new FileStream(WalPath, FileMode.Open, FileAccess.Write))
-            {
-                fs.SetLength(fs.Length - 5); // tear the trailing CRC of the last entry
-            }
+            WalFile.CutTo(WalPath, WalFile.Length(WalPath) - 5); // tear the trailing CRC of the last entry
 
             var recovered = NewEngineWithWal();
 

@@ -192,9 +192,8 @@ namespace NoSQL.GraphDB.Tests
 
             // Truncate the log mid-entry: the torn tail is dropped by the reader, so recovery replays
             // fewer entries, and the count reflects what was actually applied.
-            var bytes = File.ReadAllBytes(WalPath);
-            Assert.IsTrue(bytes.Length > 8, "the log holds at least one entry");
-            File.WriteAllBytes(WalPath, bytes.Take(bytes.Length - 4).ToArray());
+            Assert.IsTrue(WalFile.Length(WalPath) > 8, "the log holds at least one entry");
+            WalFile.CutTo(WalPath, WalFile.Length(WalPath) - 4);
 
             using var recovered = new Fallen8(_loggerFactory, new WriteAheadLogOptions(WalPath));
             var info = recovered.EnqueueTransaction(new LoadTransaction { Path = actualPath });

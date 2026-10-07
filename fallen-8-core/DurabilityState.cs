@@ -66,8 +66,8 @@ namespace NoSQL.GraphDB.Core
 
         /// <summary>
         ///   Whether write durability is currently DEGRADED: the sticky failure fence has tripped (a
-        ///   log append or flush failed, or a recovery left entries it could not replay) or an
-        ///   anchored log is waiting for its paired snapshot load.
+        ///   log append or flush failed, or a recovery kept bytes it could not replay) or an anchored
+        ///   log is waiting for its paired snapshot load.
         ///   Transactions still commit in memory and still report success, so this is the only signal
         ///   that they are not reaching disk. A successful save re-establishes a durable baseline and
         ///   clears it.
@@ -89,11 +89,12 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   Whether the last recovery stopped BEFORE the end of the log. Replay is fail-stop for
         ///   core-data entries: a decode failure or a re-execution fault halts at the last good entry,
-        ///   because continuing would misapply every later entry against a diverged id space; an
-        ///   unreadable entry with more of the log after it stops it too. The graph is then internally
-        ///   consistent but is a PREFIX of the committed history, and this is the only in-band way to
-        ///   know that. A torn final entry, the remains of a write a crash cut off, does not count: it
-        ///   was never acknowledged.
+        ///   because continuing would misapply every later entry against a diverged id space.
+        ///   Unreadable bytes with a complete entry after them and a fault of the replay itself stop it
+        ///   too, and a log whose header cannot be read is not replayed at all. The graph is then
+        ///   internally consistent but may be a PREFIX of the committed history, and this is the only
+        ///   in-band way to know that. What a write cut off by a crash leaves, with no complete entry
+        ///   after it, does not count: it was never acknowledged.
         /// </summary>
         public Boolean LastRecoveryTruncated
         {

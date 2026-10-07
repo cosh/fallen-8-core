@@ -63,7 +63,13 @@ namespace NoSQL.GraphDB.Core
         {
             _wal = new WriteAheadLog(walPath, CreateLogger<WriteAheadLog>());
 
-            if (_wal.IsUnanchored)
+            if (_wal.HeaderUnreadable)
+            {
+                // Nothing can be replayed from a log whose header cannot be read, and it may hold
+                // acknowledged commits: this recovery may have lost history (feature wal-torn-tail).
+                _recovery = new RecoveryOutcome(true, true, 0);
+            }
+            else if (_wal.IsUnanchored)
             {
                 var baseline = (int)_wal.BaselineCurrentId;
                 SetSnapshotCountForReplay(baseline);
@@ -410,6 +416,9 @@ namespace NoSQL.GraphDB.Core
                 // one reader that acts on it - a client deciding whether it may DELETE what nothing
                 // asserts any more - that a prefix of the history is the whole of it.
                 truncated = true;
+
+                // The replay broke off mid-log, so nothing may be appended behind the point it reached.
+                _wal.SealAfterReplay(scan);
                 throw;
             }
             finally
@@ -950,7 +959,13 @@ namespace NoSQL.GraphDB.Core
                         // or bootstrapping onto a foreign one), but it must never be silent: warn
                         // loudly so a mispaired reload - a snapshot loaded via a path the log was not
                         // anchored to - surfaces as a signal rather than as silent data loss.
-                        if (_wal.HasEntries())
+                        if (_wal.HeaderUnreadable)
+                        {
+                            _logger.LogWarning(
+                                "The write-ahead log's header cannot be read, so it is re-anchored to the snapshot being loaded from \"{Path}\" and whatever entries it held are discarded (not replayed).",
+                                path);
+                        }
+                        else if (_wal.HasEntries())
                         {
                             _logger.LogWarning(
                                 "The write-ahead log holds committed entries but does not pair with the snapshot being loaded from \"{Path}\"; those entries will be DISCARDED (not replayed). If this snapshot was meant to pair with the log, reload it via the exact path the log was anchored to.",
