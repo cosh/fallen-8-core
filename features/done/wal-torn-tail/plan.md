@@ -58,7 +58,7 @@ Nine mutants, one at a time, fresh backup per apply, file verified byte-identica
       search itself (it looked for the entry type where the serializer's header sits), which is
       how that was caught.
 - [x] Second pass over the fixes: Phase 8.
-- [ ] Merge to `main`, push, move this record to `features/done/`.
+- [x] Merge to `main`, push, move this record to `features/done/`.
 
 ## Phase 6 - mutation check of the fixes
 
@@ -158,10 +158,14 @@ The banner's new assertion was checked the same way: the old wording fails it.
 
 ## Phase 10 - gates of the final code
 
-- [ ] Full suite with a trx log.
-- [ ] The WAL and durability tests and the integrations write-path tests on Linux in the .NET 10
-      SDK container as uid 1000.
-- [ ] Browser probe published trimmed and run.
-- [ ] Web UI test suite.
-- [ ] Docs site built with the link check.
-- [ ] Hard-rule sweep over the added lines.
+All on commit `6beb1b7d`:
+
+- [x] Full suite with a trx log: 2880 passed, 41 skipped, 0 failed, 0 inconclusive (three more
+      passes than Phase 7, the three new cases).
+- [x] The WAL and durability tests and the integrations write-path tests on Linux in the .NET 10
+      SDK container as uid 1000: 216 passed, 1 skipped (the Windows-only case-variant pairing
+      test), 0 failed.
+- [x] Browser probe published trimmed and run: all nine checks passed, no trim warning.
+- [x] Web UI test suite: 106 files, 1490 tests passed.
+- [x] Docs site built with the link check: complete, all internal links valid.
+- [x] Hard-rule sweep over the added lines: no dash, no forbidden name, headers present.

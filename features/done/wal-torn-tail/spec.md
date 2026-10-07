@@ -1,10 +1,10 @@
 # WAL torn tail - Specification
 
-> **Status:** Implemented on `feature/wal-torn-tail`; the findings of both passes of the merge
-> gate are fixed or answered (section 6). Found by the embedded-MCP evaluation of 2026-10-07
-> ([features/open/embedded-mcp/](../embedded-mcp/spec.md)), reproduced independently with the
-> engine's public API, and fixed test-first. Present since the write-ahead log shipped; v0.0.41
-> carries it.
+> **Status:** Implemented and merged to `main` on 2026-10-07; the findings of both passes of the
+> merge gate are fixed or answered (section 6). Found by the embedded-MCP evaluation of 2026-10-07
+> ([features/open/embedded-mcp/](../../open/embedded-mcp/spec.md)), reproduced independently with
+> the engine's public API, and fixed test-first. Present since the write-ahead log shipped;
+> v0.0.41 carries it.
 
 ## 1. The defect
 
