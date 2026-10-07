@@ -279,8 +279,9 @@ namespace NoSQL.GraphDB.App.Controllers.Model
         /// <summary>
         ///   Whether the last recovery stopped BEFORE the end of the log. Replay is fail-stop for
         ///   core-data entries, because continuing past a bad one would misapply every later entry
-        ///   against a diverged id space - so the graph is internally consistent but is a PREFIX of the
-        ///   committed history.
+        ///   against a diverged id space, and an unreadable entry with more of the log after it stops
+        ///   it too - so the graph is internally consistent but is a PREFIX of the committed history.
+        ///   A torn final entry, which a crash leaves and which was never acknowledged, does not count.
         /// </summary>
         /// <example>false</example>
         public Boolean LastRecoveryTruncated

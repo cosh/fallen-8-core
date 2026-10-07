@@ -278,7 +278,9 @@ namespace NoSQL.GraphDB.Core
         ///   the store is padded so <c>id == index</c> holds, so replayed creates re-assign the SAME
         ///   ids and replayed edges/removals/property-changes resolve the SAME elements as before the
         ///   crash. A torn/corrupt tail is handled by <see cref="WriteAheadLog.ReadEntries" /> (it
-        ///   stops at the last complete entry), so this loop only ever sees whole, CRC-valid entries.
+        ///   stops at the last complete entry), so this loop only ever sees whole, CRC-valid entries;
+        ///   what happens to the bytes it stopped at, before the next append, is
+        ///   <see cref="WriteAheadLog.SealAfterReplay" />'s job.
         /// </summary>
         private int ReplayWriteAheadLog()
         {
@@ -293,10 +295,11 @@ namespace NoSQL.GraphDB.Core
             // GET /status never reads a half-built outcome (see Fallen8.RecoveryOutcome).
             var replayed = 0;
             var truncated = false;
+            var scan = new WriteAheadLog.Scan();
 
             try
             {
-                foreach (var payload in _wal.ReadEntries())
+                foreach (var payload in _wal.ReadEntries(scan))
                 {
                     Persistency.WalEntryType type;
                     ATransaction tx;
@@ -389,6 +392,11 @@ namespace NoSQL.GraphDB.Core
                     }
 
                     replayed++;
+                }
+
+                if (_wal.SealAfterReplay(scan))
+                {
+                    truncated = true;
                 }
 
                 _logger.LogInformation("Recovered {Count} transaction(s) from the write-ahead log.", replayed);

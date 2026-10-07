@@ -66,7 +66,8 @@ namespace NoSQL.GraphDB.Core
 
         /// <summary>
         ///   Whether write durability is currently DEGRADED: the sticky failure fence has tripped (a
-        ///   log append or flush failed) or an anchored log is waiting for its paired snapshot load.
+        ///   log append or flush failed, or a recovery left entries it could not replay) or an
+        ///   anchored log is waiting for its paired snapshot load.
         ///   Transactions still commit in memory and still report success, so this is the only signal
         ///   that they are not reaching disk. A successful save re-establishes a durable baseline and
         ///   clears it.
@@ -88,9 +89,11 @@ namespace NoSQL.GraphDB.Core
         /// <summary>
         ///   Whether the last recovery stopped BEFORE the end of the log. Replay is fail-stop for
         ///   core-data entries: a decode failure or a re-execution fault halts at the last good entry,
-        ///   because continuing would misapply every later entry against a diverged id space. The
-        ///   graph is then internally consistent but is a PREFIX of the committed history, and this is
-        ///   the only in-band way to know that.
+        ///   because continuing would misapply every later entry against a diverged id space; an
+        ///   unreadable entry with more of the log after it stops it too. The graph is then internally
+        ///   consistent but is a PREFIX of the committed history, and this is the only in-band way to
+        ///   know that. A torn final entry, the remains of a write a crash cut off, does not count: it
+        ///   was never acknowledged.
         /// </summary>
         public Boolean LastRecoveryTruncated
         {

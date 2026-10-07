@@ -58,7 +58,8 @@ namespace NoSQL.GraphDB.Core.Persistency
     ///   <see cref="ReadEntries" /> reads entries only while a full, CRC-valid frame remains, sizing
     ///   every read against the bytes physically left in the file (never against an untrusted length
     ///   prefix), and stops cleanly at the last complete entry - it never throws or over-allocates on
-    ///   a torn tail.</para>
+    ///   a torn tail. What recovery then does with the bytes it stopped at, before the next append,
+    ///   is <see cref="SealAfterReplay" />'s job.</para>
     /// </summary>
     internal sealed class WriteAheadLog : IDisposable
     {
@@ -101,7 +102,8 @@ namespace NoSQL.GraphDB.Core.Persistency
 
         /// <summary>
         ///   Sticky failure fence (feature crash-durability-hardening D1). Once an <see cref="AppendBuffered" />
-        ///   fails, it is set and every subsequent <see cref="AppendBuffered" /> is a no-op (it does not touch
+        ///   fails, or a recovery leaves bytes its replay could not pass (<see cref="SealAfterReplay" />),
+        ///   it is set and every subsequent <see cref="AppendBuffered" /> is a no-op (it does not touch
         ///   the file), so a torn frame is never followed by more frames that a later replay would
         ///   silently drop. Cleared only by <see cref="ResetToSnapshot" /> (a successful Save re-writes
         ///   the log fresh against the new snapshot - the sanctioned recovery from a degraded log).
@@ -233,7 +235,7 @@ namespace NoSQL.GraphDB.Core.Persistency
         }
 
         /// <summary>
-        ///   Whether the sticky failure fence has tripped (a prior <see cref="AppendBuffered" /> failed). While
+        ///   Whether the sticky failure fence has tripped (see <see cref="_failed" />). While
         ///   set, the log is degraded: no further entries are written, and durability is restored only
         ///   by a successful Save (<see cref="ResetToSnapshot" />). Feature crash-durability-hardening D1.
         /// </summary>
@@ -397,16 +399,49 @@ namespace NoSQL.GraphDB.Core.Persistency
             _failed = false;
         }
 
+        /// <summary>How a scan of the log ended (feature wal-torn-tail).</summary>
+        internal enum ScanEnd
+        {
+            /// <summary>The reader stopped consuming before the scan reached its own end: a replay that
+            /// broke off at an entry it read but could not apply.</summary>
+            Abandoned,
+
+            /// <summary>Every byte after the header belongs to a complete, CRC-valid entry.</summary>
+            Clean,
+
+            /// <summary>The bytes after the last complete entry are one incomplete entry running to the
+            /// end of the file: the remains of a write a crash cut off, never acknowledged.</summary>
+            TornTail,
+
+            /// <summary>An entry that cannot be read has more bytes after it (or the header no longer
+            /// parses), so acknowledged entries may sit beyond the point the scan reached.</summary>
+            Unreadable,
+        }
+
+        /// <summary>Where and why a scan of the log stopped, filled in by
+        /// <see cref="ReadEntries(Scan)" /> and read by <see cref="SealAfterReplay" />.</summary>
+        internal sealed class Scan
+        {
+            internal ScanEnd End { get; set; } = ScanEnd.Abandoned;
+
+            /// <summary>The start of the entry the scan ended on (the torn or unreadable one, or the
+            /// one the reader broke off after), or the end of the file after a clean scan: the first
+            /// byte a replay that stopped there did not apply.</summary>
+            internal long StopOffset { get; set; }
+        }
+
         /// <summary>
         ///   Enumerates every COMPLETE entry's payload, in append (commit) order, stopping cleanly at
         ///   the first incomplete or CRC-failing frame. Never throws on a torn/corrupt tail and never
         ///   sizes an allocation from an untrusted length: each frame's declared length is validated
-        ///   against the bytes physically remaining in the file before the payload is read.
+        ///   against the bytes physically remaining in the file before the payload is read. When
+        ///   <paramref name="scan" /> is given, it records where and why the scan stopped.
         /// </summary>
-        internal IEnumerable<byte[]> ReadEntries()
+        internal IEnumerable<byte[]> ReadEntries(Scan scan = null)
         {
             if (!_valid || !File.Exists(_path))
             {
+                Stop(scan, ScanEnd.Clean, 0);
                 yield break;
             }
 
@@ -419,6 +454,7 @@ namespace NoSQL.GraphDB.Core.Persistency
                 // truncated to below the header) yields no entries rather than misparsing.
                 if (!TrySkipHeader(fs, fileLength))
                 {
+                    Stop(scan, ScanEnd.Unreadable, 0);
                     yield break;
                 }
 
@@ -428,36 +464,42 @@ namespace NoSQL.GraphDB.Core.Persistency
                 while (true)
                 {
                     var position = fs.Position;
+                    var remaining = fileLength - position;
 
-                    // Need at least a 4-byte length + a 4-byte trailing CRC for any complete entry.
-                    if (fileLength - position < 8)
+                    if (remaining == 0)
                     {
+                        Stop(scan, ScanEnd.Clean, position);
                         yield break;
                     }
 
-                    if (!ReadExactly(fs, lengthBuffer, 4))
+                    // Need at least a 4-byte length + a 4-byte trailing CRC for any complete entry.
+                    if (remaining < 8 || !ReadExactly(fs, lengthBuffer, 4))
                     {
+                        Stop(scan, ScanEnd.TornTail, position);
                         yield break;
                     }
 
                     var payloadLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBuffer);
 
-                    // A torn/corrupt length: negative, or claiming more than the bytes that remain
-                    // (payload + its 4-byte CRC). Stop at the last complete entry - never allocate
-                    // from the untrusted prefix.
-                    if (payloadLength < 0 || (long)payloadLength + 4 > fileLength - fs.Position)
+                    // A corrupt length: no writer produces a negative one. Never allocate from it.
+                    if (payloadLength < 0)
                     {
+                        Stop(scan, ScanEnd.Unreadable, position);
+                        yield break;
+                    }
+
+                    // A length claiming more than the bytes that remain (payload + its 4-byte CRC): an
+                    // entry a crash cut off. Stop at the last complete entry - never allocate from it.
+                    if ((long)payloadLength + 4 > fileLength - fs.Position)
+                    {
+                        Stop(scan, ScanEnd.TornTail, position);
                         yield break;
                     }
 
                     var payload = new byte[payloadLength];
-                    if (!ReadExactly(fs, payload, payloadLength))
+                    if (!ReadExactly(fs, payload, payloadLength) || !ReadExactly(fs, crcBuffer, 4))
                     {
-                        yield break;
-                    }
-
-                    if (!ReadExactly(fs, crcBuffer, 4))
-                    {
+                        Stop(scan, ScanEnd.TornTail, position);
                         yield break;
                     }
 
@@ -465,12 +507,95 @@ namespace NoSQL.GraphDB.Core.Persistency
                     var actualCrc = Crc32.Compute(payload, 0, payloadLength);
                     if (actualCrc != expectedCrc)
                     {
-                        // A fully-sized but CRC-failing tail entry: treat as a torn tail and stop.
+                        // Ending exactly at the end of the file, a full-length entry with a bad CRC is a
+                        // write a crash cut off whose sectors reached the disk out of order. With bytes
+                        // after it, it is damage to acknowledged history.
+                        Stop(scan, fs.Position == fileLength ? ScanEnd.TornTail : ScanEnd.Unreadable, position);
                         yield break;
+                    }
+
+                    if (scan != null)
+                    {
+                        scan.StopOffset = position;
                     }
 
                     yield return payload;
                 }
+            }
+        }
+
+        private static void Stop(Scan scan, ScanEnd end, long offset)
+        {
+            if (scan != null)
+            {
+                scan.End = end;
+                scan.StopOffset = offset;
+            }
+        }
+
+        /// <summary>
+        ///   Makes the log safe to append to after a replay, and reports whether acknowledged entries
+        ///   were left unreplayed (feature wal-torn-tail). Appends go to the end of the FILE, while a
+        ///   replay stops at the first entry it cannot read or apply, so anything appended behind that
+        ///   point would be acknowledged as durable and never replayed. Therefore:
+        ///   <list type="bullet">
+        ///     <item>A torn tail (<see cref="ScanEnd.TornTail" />, never acknowledged) is cut back to
+        ///     the last complete entry. If the cut fails, the fence is tripped instead.</item>
+        ///     <item>Anything else the replay did not pass (an entry it could not apply, or an
+        ///     unreadable entry with more bytes after it) is left in place and the fence is tripped:
+        ///     later commits report non-durable until a Save re-baselines the log. Cutting would
+        ///     destroy acknowledged entries; appending behind them would repeat the defect.</item>
+        ///   </list>
+        ///   A log already holding commits behind a torn entry, as earlier versions could write one, is
+        ///   read as a torn tail when that entry's length claims more bytes than remain; the commits
+        ///   behind it were unreachable to those versions as well.
+        /// </summary>
+        /// <param name="scan">The scan the replay read its entries from, after the replay ended.</param>
+        /// <returns>Whether acknowledged entries were left unreplayed.</returns>
+        internal bool SealAfterReplay(Scan scan)
+        {
+            switch (scan.End)
+            {
+                case ScanEnd.Clean:
+                    return false;
+
+                case ScanEnd.TornTail:
+                    CutTornTail(scan.StopOffset);
+                    return false;
+
+                default:
+                    // Abandoned (the replay broke off at an entry it could not apply) or Unreadable.
+                    _failed = true;
+                    _logger.LogError(
+                        "Write-ahead log \"{Path}\": recovery stopped at offset {Offset}, before the end of the log; the entries from there on are kept but not replayed, and the log is DEGRADED: new commits are not durable until the next successful Save.",
+                        _path, scan.StopOffset);
+                    return true;
+            }
+        }
+
+        private void CutTornTail(long lastCompleteEnd)
+        {
+            try
+            {
+                long before;
+                using (var fs = new FileStream(_path, FileMode.Open, FileAccess.Write, FileShare.Read,
+                           Constants.BufferSize, FileOptions.None))
+                {
+                    before = fs.Length;
+                    fs.SetLength(lastCompleteEnd);
+                    fs.Flush(true);
+                }
+
+                _logger.LogWarning(
+                    "Write-ahead log \"{Path}\": cut {Bytes} bytes of an incomplete final entry left by an interrupted write.",
+                    _path, before - lastCompleteEnd);
+            }
+            catch (Exception ex)
+            {
+                _failed = true;
+                _logger.LogError(ex,
+                    "Write-ahead log \"{Path}\": the incomplete final entry could not be cut; the log is DEGRADED and new commits are not durable until the next successful Save.",
+                    _path);
             }
         }
 

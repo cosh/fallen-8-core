@@ -20,7 +20,7 @@ flowchart LR
 
 | Piece | Role |
 |---|---|
-| **WAL** | Append-only, one per namespace. Each committed data mutation is framed with a CRC-32 and fsync'd before `PUT`/`WaitUntilFinished` returns. A torn trailing entry (crash mid-append) is discarded cleanly on replay. |
+| **WAL** | Append-only, one per namespace. Each committed data mutation is framed with a CRC-32 and fsync'd before `PUT`/`WaitUntilFinished` returns. A torn trailing entry (a crash mid-append, never acknowledged) is discarded on replay and cut from the file before the next commit. An entry replay cannot read or apply, with more of the log after it, is kept but not replayed: the log is fenced, so `degraded` turns true and new commits are not durable until the next save. |
 | **Checkpoint / save game** | A full snapshot: a primary file plus sidecars (element partitions, indices, services, and the subgraph, stored-query and plugin manifests). Written atomically (temp file + fsync + rename); a save resets the WAL to build on the new snapshot. |
 | **Registry** | One JSON document per deployment, written atomically. Records every save game (never overwritten silently; a corrupt document is a loud failure) and decides what boots. |
 
@@ -91,9 +91,9 @@ difference between "the graph is complete" and "the graph is what survived":
 | Field | Means |
 |---|---|
 | `walEnabled` | this namespace is logging commits to a write-ahead log (there is no persistent handle: every append opens the file, fsyncs and closes it) |
-| `degraded` | the log's failure fence has tripped, or an anchored log is waiting for its paired load: commits are landing in memory but not durably |
+| `degraded` | the log's failure fence has tripped (an append failed, or a recovery left entries it could not replay), or an anchored log is waiting for its paired load: commits are landing in memory but not durably |
 | `recoveryRan` | a log replay has happened in this engine's lifetime |
-| `lastRecoveryTruncated` | that replay stopped before the end of the log, so the graph is a **prefix** of the committed history |
+| `lastRecoveryTruncated` | that replay stopped before the end of the log, so the graph is a **prefix** of the committed history. A torn final entry does not set it: that entry was never acknowledged |
 | `lastRecoveryReplayedEntries` | how many transactions it replayed |
 | `lastCheckpointDroppedIndices` | how many indexes the last checkpoint could not write, so they will be absent after the next load |
 

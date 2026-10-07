@@ -73,13 +73,41 @@ namespace NoSQL.GraphDB.Tests
 
         private static VertexModel[] AddVertices(Fallen8 fallen8, params (string Label, string Name)[] specs)
         {
+            return AddVertices(fallen8, out _, specs);
+        }
+
+        private static VertexModel[] AddVertices(Fallen8 fallen8, out TransactionInformation info,
+            params (string Label, string Name)[] specs)
+        {
             var tx = new CreateVerticesTransaction();
             foreach (var spec in specs)
             {
                 tx.AddVertex(1u, spec.Label, new Dictionary<string, object> { { "name", spec.Name } });
             }
-            fallen8.EnqueueTransaction(tx).WaitUntilFinished();
+            info = fallen8.EnqueueTransaction(tx);
+            info.WaitUntilFinished();
             return tx.GetCreatedVertices().ToArray();
+        }
+
+        /// <summary>The log's current length. Read after each commit, it gives that commit's entry
+        /// boundaries without the test knowing anything about the frame format.</summary>
+        private long WalLength => new FileInfo(WalPath).Length;
+
+        /// <summary>Cuts the log to <paramref name="length" /> bytes, as a crash mid-append leaves it.</summary>
+        private void CutWalTo(long length)
+        {
+            using var fs = new FileStream(WalPath, FileMode.Open, FileAccess.Write);
+            fs.SetLength(length);
+        }
+
+        /// <summary>Inverts one byte of the log: the frame holding it no longer passes its CRC.</summary>
+        private void FlipWalByteAt(long offset)
+        {
+            using var fs = new FileStream(WalPath, FileMode.Open, FileAccess.ReadWrite);
+            fs.Seek(offset, SeekOrigin.Begin);
+            var original = fs.ReadByte();
+            fs.Seek(offset, SeekOrigin.Begin);
+            fs.WriteByte((byte)(original ^ 0xFF));
         }
 
         private static EdgeModel AddEdge(Fallen8 fallen8, int sourceId, string edgePropertyId, int targetId, string label)
@@ -438,13 +466,7 @@ namespace NoSQL.GraphDB.Tests
             AddVertices(source, ("person", "Carol")); // last entry - its trailing CRC byte gets flipped
             source.Dispose();
 
-            using (var fs = new FileStream(WalPath, FileMode.Open, FileAccess.ReadWrite))
-            {
-                fs.Seek(-1, SeekOrigin.End);
-                var last = fs.ReadByte();
-                fs.Seek(-1, SeekOrigin.End);
-                fs.WriteByte((byte)(last ^ 0xFF));
-            }
+            FlipWalByteAt(WalLength - 1);
 
             var recovered = NewEngineWithWal();
             Assert.AreEqual(2, recovered.VertexCount, "The CRC-failing last entry is ignored; the rest recover.");
@@ -472,6 +494,277 @@ namespace NoSQL.GraphDB.Tests
             var recovered = NewEngineWithWal();
             Assert.AreEqual(2, recovered.VertexCount, "The two complete entries recover; the bogus prefix is ignored.");
             recovered.Dispose();
+        }
+
+        #endregion
+
+        #region commits after a recovery (feature wal-torn-tail)
+
+        // Reading a torn tail correctly is half of recovery. The other half is what happens to the
+        // NEXT commit: appended behind bytes the reader stops at, it is acknowledged as durable and
+        // then never replayed. These tests restart twice, because the defect is invisible after one.
+
+        [TestMethod]
+        public void TornTail_CommitsAfterRecovery_SurviveTheNextRestart()
+        {
+            long beforeTornEntry, afterTornEntry;
+            using (var source = NewEngineWithWal())
+            {
+                AddVertices(source, ("person", "Alice"));
+                AddVertices(source, ("person", "Bob"));
+                AddVertices(source, ("person", "Carol"));
+                beforeTornEntry = WalLength;
+                AddVertices(source, ("person", "Dave")); // the entry a crash will cut through
+                afterTornEntry = WalLength;
+            }
+            CutWalTo(beforeTornEntry + (afterTornEntry - beforeTornEntry) / 2);
+
+            using var sink = new TestLogSink();
+            using (var recovered = new Fallen8(sink.CreateFactory(), new WriteAheadLogOptions(WalPath)))
+            {
+                Assert.AreEqual(3, recovered.VertexCount, "The complete entries recover; the torn one is not applied.");
+                Assert.AreEqual(beforeTornEntry, WalLength, "The torn bytes are cut, back to exactly the last complete entry.");
+                Assert.IsFalse(recovered.Durability.Degraded, "A torn tail is the normal crash artifact, not a degraded log.");
+                Assert.IsFalse(recovered.Durability.LastRecoveryTruncated,
+                    "The torn entry was never acknowledged, so the recovered history is complete.");
+                Assert.IsTrue(sink.Contains(LogLevel.Warning, "incomplete final entry"),
+                    "The cut is logged: " + String.Join(" | ", sink.Entries.Select(e => e.Message)));
+
+                AddVertices(recovered, out var eve, ("person", "Eve"));
+                AddVertices(recovered, out var frank, ("person", "Frank"));
+                Assert.IsTrue(eve.Durable && frank.Durable, "Both commits are acknowledged as durable.");
+            }
+
+            using var restarted = NewEngineWithWal();
+            Assert.AreEqual(5, restarted.VertexCount, "Every commit acknowledged as durable is there after the next restart.");
+            Assert.AreEqual(1, CountWithName(restarted, "Eve"));
+            Assert.AreEqual(1, CountWithName(restarted, "Frank"));
+            Assert.AreEqual(0, CountWithName(restarted, "Dave"), "The torn entry stays gone.");
+        }
+
+        [TestMethod]
+        public void TornTail_FragmentShorterThanAnEntryHeader_IsCutBeforeTheNextCommit()
+        {
+            long afterAlice;
+            using (var source = NewEngineWithWal())
+            {
+                AddVertices(source, ("person", "Alice"));
+                afterAlice = WalLength;
+                AddVertices(source, ("person", "Bob"));
+            }
+            CutWalTo(afterAlice + 3); // three bytes of Bob's entry: not even its length prefix
+
+            using (var recovered = NewEngineWithWal())
+            {
+                Assert.AreEqual(1, recovered.VertexCount);
+                Assert.AreEqual(afterAlice, WalLength, "The fragment is cut.");
+                AddVertices(recovered, out var carol, ("person", "Carol"));
+                Assert.IsTrue(carol.Durable);
+            }
+
+            using var restarted = NewEngineWithWal();
+            Assert.AreEqual(2, restarted.VertexCount);
+            Assert.AreEqual(1, CountWithName(restarted, "Carol"), "The commit after the cut survives.");
+        }
+
+        [TestMethod]
+        public void TornTail_LastEntryOfFullLengthWithABadCrc_IsCutAsAnInterruptedWrite()
+        {
+            // A cut-off write can leave a frame of full length whose bytes did not all reach the disk
+            // (sectors land out of order on a power loss). At the very end of the log that is a torn
+            // write, not corruption of acknowledged history.
+            long afterBob;
+            using (var source = NewEngineWithWal())
+            {
+                AddVertices(source, ("person", "Alice"));
+                AddVertices(source, ("person", "Bob"));
+                afterBob = WalLength;
+                AddVertices(source, ("person", "Carol"));
+            }
+            FlipWalByteAt(afterBob + (WalLength - afterBob) / 2);
+
+            using (var recovered = NewEngineWithWal())
+            {
+                Assert.AreEqual(2, recovered.VertexCount);
+                Assert.AreEqual(afterBob, WalLength, "The bad last entry is cut.");
+                Assert.IsFalse(recovered.Durability.Degraded);
+                Assert.IsFalse(recovered.Durability.LastRecoveryTruncated);
+                AddVertices(recovered, out var dave, ("person", "Dave"));
+                Assert.IsTrue(dave.Durable);
+            }
+
+            using var restarted = NewEngineWithWal();
+            Assert.AreEqual(3, restarted.VertexCount);
+            Assert.AreEqual(1, CountWithName(restarted, "Dave"));
+            Assert.AreEqual(0, CountWithName(restarted, "Carol"));
+        }
+
+        [TestMethod]
+        public void TornTail_AfterAPairedLoad_CommitsSurviveTheNextRestart()
+        {
+            // The snapshot-paired path replays at Load, not at construction; the cut must happen there too.
+            string snapshot;
+            long afterBob;
+            using (var source = NewEngineWithWal())
+            {
+                AddVertices(source, ("person", "Alice"));
+                snapshot = Save(source, SavePath);
+                AddVertices(source, ("person", "Bob"));
+                afterBob = WalLength;
+                AddVertices(source, ("person", "Carol"));
+            }
+            CutWalTo(afterBob + (WalLength - afterBob) / 2);
+
+            using (var recovered = NewEngineWithWal())
+            {
+                Assert.AreEqual(TransactionState.Finished, Load(recovered, snapshot).State);
+                Assert.AreEqual(2, recovered.VertexCount, "Alice from the snapshot, Bob from the log.");
+                Assert.AreEqual(afterBob, WalLength, "The torn entry is cut at the paired load.");
+                AddVertices(recovered, out var dave, ("person", "Dave"));
+                Assert.IsTrue(dave.Durable);
+            }
+
+            using var restarted = NewEngineWithWal();
+            Assert.AreEqual(TransactionState.Finished, Load(restarted, snapshot).State);
+            Assert.AreEqual(3, restarted.VertexCount);
+            Assert.AreEqual(1, CountWithName(restarted, "Dave"), "The commit after the paired recovery survives.");
+            Assert.AreEqual(0, CountWithName(restarted, "Carol"));
+        }
+
+        [TestMethod]
+        public void UnreadableEntryInsideTheLog_IsLeftInPlace_FencesTheLog_AndReportsTruncatedHistory()
+        {
+            // An entry that fails its CRC with more entries after it is not a torn write: acknowledged
+            // history after it cannot be read. Cutting would destroy it; appending behind it would
+            // repeat the defect. So the bytes stay, the log is fenced until a save, and the recovery
+            // says that the graph is a prefix of what was committed.
+            string snapshot = null;
+            long afterAlice, afterBob;
+            using (var source = NewEngineWithWal())
+            {
+                AddVertices(source, ("person", "Alice"));
+                afterAlice = WalLength;
+                AddVertices(source, ("person", "Bob"));
+                afterBob = WalLength;
+                AddVertices(source, ("person", "Carol"));
+            }
+            FlipWalByteAt(afterAlice + (afterBob - afterAlice) / 2);
+            var damaged = File.ReadAllBytes(WalPath);
+
+            using (var recovered = NewEngineWithWal())
+            {
+                Assert.AreEqual(1, recovered.VertexCount, "Replay stops at the unreadable entry.");
+                CollectionAssert.AreEqual(damaged, File.ReadAllBytes(WalPath), "Nothing is cut or rewritten.");
+                Assert.IsTrue(recovered.Durability.LastRecoveryTruncated, "Acknowledged history was not replayed, and the flag says so.");
+                Assert.IsTrue(recovered.Durability.Degraded, "The log is fenced.");
+
+                AddVertices(recovered, out var dave, ("person", "Dave"));
+                Assert.IsFalse(dave.Durable, "A commit behind bytes replay cannot pass is not claimed durable.");
+
+                snapshot = Save(recovered, SavePath);
+                Assert.IsFalse(recovered.Durability.Degraded, "A save re-baselines the log and lifts the fence.");
+                AddVertices(recovered, out var eve, ("person", "Eve"));
+                Assert.IsTrue(eve.Durable, "After the save, commits are durable again.");
+            }
+
+            using var restarted = NewEngineWithWal();
+            Assert.AreEqual(TransactionState.Finished, Load(restarted, snapshot).State);
+            Assert.AreEqual(3, restarted.VertexCount, "Alice and Dave from the snapshot, Eve from the log.");
+            Assert.AreEqual(1, CountWithName(restarted, "Dave"));
+            Assert.AreEqual(1, CountWithName(restarted, "Eve"));
+        }
+
+        [TestMethod]
+        public void NegativeLengthInsideTheLog_IsLeftInPlace_AndFencesTheLog()
+        {
+            // An entry starts with its little-endian Int32 length, so its fourth byte is the high byte:
+            // inverting it makes the length negative, which no writer produces. That is damage, not a
+            // tear, even though nothing after it can be framed.
+            long afterAlice;
+            using (var source = NewEngineWithWal())
+            {
+                AddVertices(source, ("person", "Alice"));
+                afterAlice = WalLength;
+                AddVertices(source, ("person", "Bob"));
+                AddVertices(source, ("person", "Carol"));
+            }
+            FlipWalByteAt(afterAlice + 3);
+            var damaged = File.ReadAllBytes(WalPath);
+
+            using var recovered = NewEngineWithWal();
+            Assert.AreEqual(1, recovered.VertexCount);
+            CollectionAssert.AreEqual(damaged, File.ReadAllBytes(WalPath), "Nothing is cut.");
+            Assert.IsTrue(recovered.Durability.LastRecoveryTruncated);
+            Assert.IsTrue(recovered.Durability.Degraded);
+        }
+
+        [TestMethod]
+        public void ReplayThatStopsAtAnEntryItCannotApply_FencesTheLog()
+        {
+            // A CRC-valid entry that fails on replay (here: an edge to a vertex that does not exist,
+            // spliced in from another log) stops recovery. Every entry after it is unreplayable, and
+            // so is any commit appended behind it.
+            var otherWal = Path.Combine(_temp.FullName, "other.f8s.wal");
+            byte[] edgeEntry;
+            using (var other = new Fallen8(_loggerFactory, new WriteAheadLogOptions(otherWal)))
+            {
+                AddVertices(other, ("person", "Ann"), ("person", "Ben")); // ids 0 and 1
+                var beforeEdge = new FileInfo(otherWal).Length;
+                AddEdge(other, 0, "knows", 1, "friendship");
+                edgeEntry = File.ReadAllBytes(otherWal).Skip((int)beforeEdge).ToArray();
+            }
+            using (var source = NewEngineWithWal())
+            {
+                AddVertices(source, ("person", "Cid")); // id 0, and no id 1
+            }
+            using (var fs = new FileStream(WalPath, FileMode.Append, FileAccess.Write))
+            {
+                fs.Write(edgeEntry, 0, edgeEntry.Length);
+            }
+
+            using (var recovered = NewEngineWithWal())
+            {
+                Assert.AreEqual(1, recovered.VertexCount);
+                Assert.AreEqual(0, recovered.EdgeCount, "The edge cannot be applied.");
+                Assert.IsTrue(recovered.Durability.LastRecoveryTruncated);
+                Assert.IsTrue(recovered.Durability.Degraded, "The log is fenced after a replay that stopped early.");
+
+                AddVertices(recovered, out var dot, ("person", "Dot"));
+                Assert.IsFalse(dot.Durable, "A commit behind the entry replay stops at is not claimed durable.");
+            }
+
+            using var restarted = NewEngineWithWal();
+            Assert.AreEqual(0, CountWithName(restarted, "Dot"), "Reported non-durable, and indeed not recovered: honest, not lost.");
+        }
+
+        [TestMethod]
+        public void TornTail_WhenTheCutFails_TheLogIsFencedInsteadOfAppendedBehindTheTear()
+        {
+            long afterAlice;
+            using (var source = NewEngineWithWal())
+            {
+                AddVertices(source, ("person", "Alice"));
+                afterAlice = WalLength;
+                AddVertices(source, ("person", "Bob"));
+            }
+            CutWalTo(afterAlice + 5);
+
+            File.SetAttributes(WalPath, FileAttributes.ReadOnly); // the cut cannot be written
+            try
+            {
+                using var recovered = NewEngineWithWal();
+                Assert.AreEqual(1, recovered.VertexCount);
+                Assert.IsTrue(recovered.Durability.Degraded, "A tear that could not be cut fences the log.");
+                Assert.IsFalse(recovered.Durability.LastRecoveryTruncated, "Nothing acknowledged was lost.");
+
+                File.SetAttributes(WalPath, FileAttributes.Normal); // the disk 'recovers'
+                AddVertices(recovered, out var carol, ("person", "Carol"));
+                Assert.IsFalse(carol.Durable, "Without the cut, an append would land behind the tear: not durable.");
+            }
+            finally
+            {
+                File.SetAttributes(WalPath, FileAttributes.Normal);
+            }
         }
 
         #endregion
